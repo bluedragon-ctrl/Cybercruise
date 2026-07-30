@@ -4,7 +4,7 @@
 // given (cx, cy) so callers control placement.
 
 import { glowPoly, glowLine } from "../engine/neon.js";
-import { PLAYER, PLAYER_THRUST, GREEN, GREEN_DIM } from "../engine/palette.js";
+import { PLAYER, PLAYER_THRUST, GREEN, GREEN_DIM, BUILDING_FILL } from "../engine/palette.js";
 
 // A detailed top-down supercar wireframe, pointing "up" (toward smaller y).
 // Shared by the player and (later) enemy/neutral traffic, which differ mainly by
@@ -162,8 +162,17 @@ export function drawBuilding(ctx, cx, cy, opts = {}) {
   const tBR = off(bBR);
   const tBL = off(bBL);
 
+  // OPAQUE fills first, so the box hides the floor grid and any building behind
+  // it. Every lateral wall is filled (the hidden ones are harmless) plus the
+  // roof; then the glowing outlines are stroked on top. No glow on the fills.
+  fillQuad(ctx, bFL, bFR, tFR, tFL); // front wall
+  fillQuad(ctx, bFR, bBR, tBR, tFR); // right wall
+  fillQuad(ctx, bBR, bBL, tBL, tBR); // back wall
+  fillQuad(ctx, bBL, bFL, tFL, tBL); // left wall
+  fillQuad(ctx, tFL, tFR, tBR, tBL); // roof
+
   // Footprint on the grid (dim — it sits on the ground).
-  glowPoly(ctx, [bFL, bFR, bBR, bBL], GREEN_DIM, 1, 5, "rgba(10,40,25,0.35)");
+  glowPoly(ctx, [bFL, bFR, bBR, bBL], GREEN_DIM, 1, 5);
 
   // Vertical edges.
   glowLine(ctx, bFL[0], bFL[1], tFL[0], tFL[1], color, 1.5, 8);
@@ -177,6 +186,21 @@ export function drawBuilding(ctx, cx, cy, opts = {}) {
   // Lit windows on the front (south-facing) wall quad: A,B along the base edge,
   // C,D along the roof edge.
   drawWallWindows(ctx, bFL, bFR, tFR, tFL, color, lit, seed);
+}
+
+// Fills a 4-point quad with the opaque building body colour (no stroke, no glow).
+// Used to make buildings solid so they occlude the floor grid and boxes behind.
+function fillQuad(ctx, A, B, C, D) {
+  ctx.save();
+  ctx.fillStyle = BUILDING_FILL;
+  ctx.beginPath();
+  ctx.moveTo(A[0], A[1]);
+  ctx.lineTo(B[0], B[1]);
+  ctx.lineTo(C[0], C[1]);
+  ctx.lineTo(D[0], D[1]);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 }
 
 // Bilinear point inside a quad: u runs A->B (bottom) / D->C (top); v runs bottom

@@ -23,6 +23,8 @@ export const FLOOR_GRID = "rgba(57,255,136,0.14)";   // the LOWER city floor gri
 export const ROAD_SURFACE = "#04060a";  // opaque road tarmac — occludes the city floor below,
                                         // selling the road as an elevated ribbon over the city
 export const WALL_FILL = "#08160f";     // dark face of the road's elevated side wall
+export const BUILDING_FILL = "#07130d"; // opaque dark body so buildings occlude the
+                                        // floor grid and the boxes behind them
 
 // --- Gameplay entity accents ---
 export const PLAYER = "#39f6ff";        // player car (cyan)
