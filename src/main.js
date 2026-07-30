@@ -4,6 +4,7 @@
 import { createLoop } from "./engine/loop.js";
 import { initInput } from "./engine/input.js";
 import { clear, glowText } from "./engine/neon.js";
+import { GREEN, GREEN_BRIGHT, GREEN_PALE } from "./engine/palette.js";
 import { Player } from "./game/player.js";
 import * as road from "./game/road.js";
 
@@ -33,9 +34,9 @@ function update(dt) {
 }
 
 function drawHud() {
-  glowText(ctx, "CYBERCRUISE", 12, 12, "#ff36c8", 18, "left", 12);
-  glowText(ctx, `DIST ${Math.floor(distance)}`, W - 12, 12, "#39f6ff", 14, "right");
-  glowText(ctx, `SPD ${Math.round(player.speed)}`, W - 12, 32, "#39f6ff", 14, "right");
+  glowText(ctx, "CYBERCRUISE", 12, 12, GREEN, 18, "left", 12);
+  glowText(ctx, `DIST ${Math.floor(distance)}`, W - 12, 12, GREEN_BRIGHT, 14, "right");
+  glowText(ctx, `SPD ${Math.round(player.speed)}`, W - 12, 32, GREEN_BRIGHT, 14, "right");
 
   // Health bar (bottom-left): green draining to red as damage mounts.
   const bx = 12;
@@ -44,10 +45,10 @@ function drawHud() {
   const bh = 10;
   const frac = player.health / 100;
   const hue = 120 * frac; // 120=green -> 0=red
-  glowText(ctx, "HULL", bx, by - 16, "#9ff", 12, "left", 6);
+  glowText(ctx, "HULL", bx, by - 16, GREEN_PALE, 12, "left", 6);
   // Empty track.
   ctx.save();
-  ctx.strokeStyle = "rgba(120,255,255,0.4)";
+  ctx.strokeStyle = "rgba(120,255,180,0.4)";
   ctx.lineWidth = 1;
   ctx.strokeRect(bx, by, bw, bh);
   ctx.restore();

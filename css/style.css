@@ -9,7 +9,7 @@ html, body {
   margin: 0;
   height: 100%;
   background: var(--bg);
-  color: #9ff;
+  color: #7dffb0;
   font-family: "Courier New", monospace;
   display: flex;
   align-items: center;
@@ -22,7 +22,7 @@ html, body {
   padding: 14px;
   border-radius: 10px;
   background: var(--frame);
-  box-shadow: 0 0 24px rgba(0, 255, 255, 0.15), inset 0 0 0 1px rgba(0, 255, 255, 0.2);
+  box-shadow: 0 0 24px rgba(57, 255, 136, 0.18), inset 0 0 0 1px rgba(57, 255, 136, 0.25);
 }
 
 #game {
@@ -37,5 +37,5 @@ html, body {
   text-align: center;
   font-size: 12px;
   letter-spacing: 1px;
-  color: rgba(120, 255, 255, 0.55);
+  color: rgba(125, 255, 176, 0.6);
 }

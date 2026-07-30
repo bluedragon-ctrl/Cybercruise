@@ -4,6 +4,7 @@
 
 import { glowPoly, glowLine } from "../engine/neon.js";
 import { steerAxis, throttleAxis } from "../engine/input.js";
+import { PLAYER, PLAYER_THRUST, HAZARD } from "../engine/palette.js";
 
 const MIN_SPEED = 120; // world units/sec (also the road scroll speed)
 const MAX_SPEED = 620;
@@ -23,7 +24,7 @@ export class Player {
     this.w = 30;
     this.h = 54;
     this.speed = 260; // current forward/scroll speed
-    this.color = "#39f6ff";
+    this.color = PLAYER; // cyan accent — stands out against the green world
 
     this.health = MAX_HEALTH;
     this.hitWall = false; // true on frames the car is pressed against a barrier
@@ -70,7 +71,7 @@ export class Player {
     const hh = this.h / 2;
 
     // Flash red on the frames we're grinding a barrier, else the usual cyan.
-    const color = this.hitWall ? "#ff4d4d" : this.color;
+    const color = this.hitWall ? HAZARD : this.color;
 
     // Body outline (arrow-ish car pointing up).
     const body = [
@@ -84,7 +85,7 @@ export class Player {
 
     // Cockpit line + twin thruster glow at the rear.
     glowLine(ctx, x - hw + 6, y, x + hw - 6, y, color, 1.5, 8);
-    glowLine(ctx, x - 8, y + hh, x - 8, y + hh + 8, "#ff36c8", 3, 12);
-    glowLine(ctx, x + 8, y + hh, x + 8, y + hh + 8, "#ff36c8", 3, 12);
+    glowLine(ctx, x - 8, y + hh, x - 8, y + hh + 8, PLAYER_THRUST, 3, 12);
+    glowLine(ctx, x + 8, y + hh, x + 8, y + hh + 8, PLAYER_THRUST, 3, 12);
   }
 }

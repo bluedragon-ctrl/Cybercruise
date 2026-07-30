@@ -19,6 +19,7 @@
 // yields the same curve, so nothing needs to be generated or freed as we drive.
 
 import { glowPath, glowLine } from "../engine/neon.js";
+import { GREEN, GREEN_PALE, GREEN_FILL } from "../engine/palette.js";
 
 // Distance from the road centre-line to each barrier, in px. The full road is
 // twice this wide. Deliberately kept well under the 600px canvas width so the
@@ -69,13 +70,13 @@ export function render(ctx, distance, playerY, W, H) {
   for (const p of left) ctx.lineTo(p[0], p[1]);
   for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
   ctx.closePath();
-  ctx.fillStyle = "rgba(18,34,60,0.35)";
+  ctx.fillStyle = GREEN_FILL;
   ctx.fill();
   ctx.restore();
 
   // Glowing neon barriers.
-  glowPath(ctx, left, "#2ad4ff", 2, 12);
-  glowPath(ctx, right, "#2ad4ff", 2, 12);
+  glowPath(ctx, left, GREEN, 2, 12);
+  glowPath(ctx, right, GREEN, 2, 12);
 
   // Dashed yellow centre line. Dashes are tied to WORLD position (not screen)
   // so they scroll naturally with the road instead of shimmering in place.
@@ -89,6 +90,6 @@ export function render(ctx, distance, playerY, W, H) {
     const syB = playerY - (wy + dash - distance);
     const xA = W / 2 + centerOffset(wy);
     const xB = W / 2 + centerOffset(wy + dash);
-    glowLine(ctx, xA, syA, xB, syB, "#ffd23f", 3, 8);
+    glowLine(ctx, xA, syA, xB, syB, GREEN_PALE, 3, 8);
   }
 }
