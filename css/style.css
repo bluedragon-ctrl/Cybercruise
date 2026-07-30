@@ -1,0 +1,41 @@
+:root {
+  --bg: #05060a;
+  --frame: #0b0f1a;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: #9ff;
+  font-family: "Courier New", monospace;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+#frame {
+  position: relative;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--frame);
+  box-shadow: 0 0 24px rgba(0, 255, 255, 0.15), inset 0 0 0 1px rgba(0, 255, 255, 0.2);
+}
+
+#game {
+  display: block;
+  background: #05060a;
+  border-radius: 4px;
+  image-rendering: pixelated;
+}
+
+#hint {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: rgba(120, 255, 255, 0.55);
+}
