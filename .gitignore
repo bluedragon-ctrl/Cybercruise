@@ -1,0 +1,12 @@
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+
+# Claude Code local settings (keep launch.json, ignore local overrides)
+.claude/settings.local.json
+
+# Node (in case tooling is added later)
+node_modules/
+dist/
+npm-debug.log*
