@@ -141,12 +141,14 @@ export function drawBuilding(ctx, cx, cy, opts = {}) {
     color = GREEN,
     lit = 0.5,    // fraction of front-wall windows that are lit
     seed = 1,     // deterministic window-lighting seed (stable per building)
+    skew = 0.28,  // horizontal roof shift as a fraction of height (+right / -left)
   } = opts;
   const hw = w / 2;
   const hd = d / 2;
 
-  // Extrusion vector (base -> roof).
-  const ox = height * 0.28;
+  // Extrusion vector (base -> roof). `skew` leans the roof left/right so roadside
+  // buildings can lean AWAY from the road (a natural centre vanishing point).
+  const ox = height * skew;
   const oy = -height;
 
   // Base footprint corners (F = front/south = larger y, B = back/north).

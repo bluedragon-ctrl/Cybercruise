@@ -19,7 +19,7 @@
 // yields the same curve, so nothing needs to be generated or freed as we drive.
 
 import { glowPath, glowLine } from "../engine/neon.js";
-import { GREEN, GREEN_PALE, ROADSIDE_FILL, GRID_LINE } from "../engine/palette.js";
+import { GREEN, GREEN_PALE, GREEN_DIM, ROAD_SURFACE, WALL_FILL } from "../engine/palette.js";
 
 // Spacing of the roadside floor grid, in px/world-units (square cells). Also the
 // natural unit for placing Phase 2 buildings, which will sit on this grid.
@@ -52,7 +52,15 @@ export function edgesAt(worldY, canvasW) {
   };
 }
 
-// Draw the road: tarmac fill, two glowing barriers, and a dashed centre line.
+// Elevated-road side wall: how far the outer face drops toward the lower city
+// floor. dy = downward (elevation), dx = slight outward reveal of the face.
+const WALL_DY = 11;
+const WALL_DX = 6;
+
+// Draw the road as an ELEVATED ribbon over the parallax city floor (see
+// scenery.js): a dark side wall on each edge to give it height, an OPAQUE tarmac
+// surface that occludes the floor beneath, two glowing barriers, and the dashed
+// centre line.
 export function render(ctx, distance, playerY, W, H) {
   const step = 8; // px between edge samples; smaller = smoother curve, more cost
 
@@ -67,31 +75,23 @@ export function render(ctx, distance, playerY, W, H) {
     right.push([e.right, sy]);
   }
 
-  // Roadside: faint green ground on both sides, OUTSIDE the barriers. The road
-  // surface itself is left unfilled (black canvas background), which reads more
-  // like real tarmac and makes the green barriers pop. Each side is the region
-  // between a screen edge (x=0 or x=W) and its barrier polyline.
+  // Elevated side walls (drawn first; the tarmac surface then overlaps their
+  // tops so only the outer face shows below each barrier).
+  drawRoadWall(ctx, left, -1);
+  drawRoadWall(ctx, right, +1);
+
+  // Opaque tarmac surface between the barriers — occludes the city floor drawn
+  // behind it, which is what makes the road read as a raised ribbon rather than
+  // a hole cut in the grid.
   ctx.save();
-  ctx.fillStyle = ROADSIDE_FILL;
-  // Left roadside: down the left barrier, then back up the screen's left edge.
+  ctx.fillStyle = ROAD_SURFACE;
   ctx.beginPath();
-  ctx.moveTo(0, left[0][1]);
+  ctx.moveTo(left[0][0], left[0][1]);
   for (const p of left) ctx.lineTo(p[0], p[1]);
-  ctx.lineTo(0, left[left.length - 1][1]);
-  ctx.closePath();
-  ctx.fill();
-  // Right roadside: down the right barrier, then back up the screen's right edge.
-  ctx.beginPath();
-  ctx.moveTo(W, right[0][1]);
-  for (const p of right) ctx.lineTo(p[0], p[1]);
-  ctx.lineTo(W, right[right.length - 1][1]);
+  for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
-
-  // Roadside floor grid (Tron-style), clipped to the roadside so it never
-  // touches the black road surface.
-  drawRoadsideGrid(ctx, left, right, distance, playerY, W, H);
 
   // Glowing neon barriers.
   glowPath(ctx, left, GREEN, 2, 12);
@@ -113,49 +113,35 @@ export function render(ctx, distance, playerY, W, H) {
   }
 }
 
-// Draws a square grid over the two roadside regions only. Horizontal lines are
-// WORLD-anchored so the grid scrolls toward the player as we drive; vertical
-// lines are fixed screen columns (a stable Tron-style floor). `left`/`right` are
-// the barrier edge sample arrays (top->bottom) built by render().
-function drawRoadsideGrid(ctx, left, right, distance, playerY, W, H) {
+// Draws one elevated side wall from a barrier edge polyline. The wall's top edge
+// is the barrier itself; its bottom edge is offset DOWN (elevation) and slightly
+// OUTWARD (`sign`: -1 left / +1 right) to reveal the outer face. Filled dark with
+// a dim-green bottom rim so the road reads as a raised ribbon above the city
+// floor. `edge` is the top->bottom sample array built by render().
+function drawRoadWall(ctx, edge, sign) {
   ctx.save();
 
-  // Clip to the roadside: the two regions between each screen edge and its
-  // barrier. Both subpaths added, then a single clip.
+  // Wall face quad: down the barrier (top edge), then back up the offset edge.
   ctx.beginPath();
-  ctx.moveTo(0, left[0][1]);
-  for (const p of left) ctx.lineTo(p[0], p[1]);
-  ctx.lineTo(0, left[left.length - 1][1]);
+  ctx.moveTo(edge[0][0], edge[0][1]);
+  for (const p of edge) ctx.lineTo(p[0], p[1]);
+  for (let i = edge.length - 1; i >= 0; i--) {
+    ctx.lineTo(edge[i][0] + sign * WALL_DX, edge[i][1] + WALL_DY);
+  }
   ctx.closePath();
-  ctx.moveTo(W, right[0][1]);
-  for (const p of right) ctx.lineTo(p[0], p[1]);
-  ctx.lineTo(W, right[right.length - 1][1]);
-  ctx.closePath();
-  ctx.clip();
+  ctx.fillStyle = WALL_FILL;
+  ctx.fill();
 
-  ctx.strokeStyle = GRID_LINE;
-  ctx.lineWidth = 1;
-  ctx.shadowColor = GRID_LINE;
-  ctx.shadowBlur = 4;
+  // Dim-green bottom rim (the base of the wall meeting the city floor).
+  ctx.strokeStyle = GREEN_DIM;
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = GREEN_DIM;
+  ctx.shadowBlur = 6;
   ctx.beginPath();
-
-  // Horizontal lines: one per world-Y multiple of GRID_SPACING in view. Mapping
-  // worldY -> screen: sy = playerY - (worldY - distance). See top-of-file model.
-  const worldBottom = distance + playerY - H;
-  const worldTop = distance + playerY;
-  const firstY = Math.ceil(worldBottom / GRID_SPACING) * GRID_SPACING;
-  for (let wy = firstY; wy <= worldTop; wy += GRID_SPACING) {
-    const sy = playerY - (wy - distance);
-    ctx.moveTo(0, sy);
-    ctx.lineTo(W, sy);
+  ctx.moveTo(edge[0][0] + sign * WALL_DX, edge[0][1] + WALL_DY);
+  for (let i = 1; i < edge.length; i++) {
+    ctx.lineTo(edge[i][0] + sign * WALL_DX, edge[i][1] + WALL_DY);
   }
-
-  // Vertical lines: fixed screen columns.
-  for (let x = 0; x <= W; x += GRID_SPACING) {
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, H);
-  }
-
   ctx.stroke();
   ctx.restore();
 }

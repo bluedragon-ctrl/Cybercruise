@@ -7,6 +7,7 @@ import { clear, glowText } from "./engine/neon.js";
 import { GREEN, GREEN_BRIGHT, GREEN_PALE } from "./engine/palette.js";
 import { Player } from "./game/player.js";
 import * as road from "./game/road.js";
+import * as scenery from "./game/scenery.js";
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -66,6 +67,9 @@ function drawHud() {
 
 function render(alpha) {
   clear(ctx);
+  // Lower city floor first (parallax, behind everything), then the elevated road
+  // ribbon paints an opaque surface over it, then the player on top.
+  scenery.render(ctx, distance, player.y, W, H);
   road.render(ctx, distance, player.y, W, H);
   player.render(ctx, alpha);
   drawHud();
