@@ -23,3 +23,5 @@ export const GRID_LINE = "rgba(57,255,136,0.22)";    // roadside floor grid (Tro
 export const PLAYER = "#39f6ff";        // player car (cyan)
 export const PLAYER_THRUST = "#ff36c8"; // player thruster glow (magenta)
 export const HAZARD = "#ff4d4d";        // damage / collision flash (red)
+export const ENEMY = "#ff3b3b";         // enemy car (red) — added in a later phase
+export const NEUTRAL = "#ffb020";       // neutral/friendly car (amber) — later phase

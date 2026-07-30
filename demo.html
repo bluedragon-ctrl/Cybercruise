@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cybercruise — Asset Gallery</title>
+  <style>
+    :root { --bg: #05060a; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: #7dffb0;
+      font-family: "Courier New", monospace;
+    }
+    header {
+      padding: 20px 24px 8px;
+      border-bottom: 1px solid rgba(57, 255, 136, 0.2);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 3px;
+      color: #39ff88;
+      text-shadow: 0 0 10px rgba(57, 255, 136, 0.6);
+    }
+    header p { margin: 6px 0 0; font-size: 12px; color: rgba(125, 255, 176, 0.6); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 16px;
+      padding: 20px 24px;
+    }
+    figure {
+      margin: 0;
+      background: #05060a;
+      border: 1px solid rgba(57, 255, 136, 0.18);
+      border-radius: 6px;
+      padding: 10px;
+      text-align: center;
+    }
+    figure canvas { display: block; margin: 0 auto; border-radius: 4px; }
+    figcaption {
+      margin-top: 8px;
+      font-size: 12px;
+      letter-spacing: 1px;
+      color: rgba(125, 255, 176, 0.8);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>CYBERCRUISE // ASSET GALLERY</h1>
+    <p>Static preview of neon assets. Add new sprites in src/game/sprites.js and register them in src/demo/gallery.js.</p>
+  </header>
+  <div class="grid" id="gallery"></div>
+  <script type="module" src="src/demo/gallery.js"></script>
+</body>
+</html>

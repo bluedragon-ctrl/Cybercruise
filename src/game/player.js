@@ -2,7 +2,7 @@
 // Drawn as a neon wireframe. From Phase 1 on it is constrained to the road,
 // whose left/right edges are passed in each frame as `bounds` (screen x).
 
-import { glowPoly, glowLine } from "../engine/neon.js";
+import { drawCar } from "./sprites.js";
 import { steerAxis, throttleAxis } from "../engine/input.js";
 import { PLAYER, PLAYER_THRUST, HAZARD } from "../engine/palette.js";
 
@@ -65,27 +65,17 @@ export class Player {
   }
 
   render(ctx, alpha) {
+    // Interpolate x between the last two logic steps for smooth motion.
     const x = this.prevX + (this.x - this.prevX) * alpha;
-    const y = this.y;
-    const hw = this.w / 2;
-    const hh = this.h / 2;
 
     // Flash red on the frames we're grinding a barrier, else the usual cyan.
     const color = this.hitWall ? HAZARD : this.color;
 
-    // Body outline (arrow-ish car pointing up).
-    const body = [
-      [x, y - hh],            // nose
-      [x + hw, y - hh + 14],
-      [x + hw, y + hh],       // rear right
-      [x - hw, y + hh],       // rear left
-      [x - hw, y - hh + 14],
-    ];
-    glowPoly(ctx, body, color, 2, 14, "rgba(20,60,80,0.35)");
-
-    // Cockpit line + twin thruster glow at the rear.
-    glowLine(ctx, x - hw + 6, y, x + hw - 6, y, color, 1.5, 8);
-    glowLine(ctx, x - 8, y + hh, x - 8, y + hh + 8, PLAYER_THRUST, 3, 12);
-    glowLine(ctx, x + 8, y + hh, x + 8, y + hh + 8, PLAYER_THRUST, 3, 12);
+    drawCar(ctx, x, this.y, {
+      color,
+      thrust: PLAYER_THRUST,
+      w: this.w,
+      h: this.h,
+    });
   }
 }

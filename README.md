@@ -16,6 +16,12 @@ python -m http.server 5173
 
 Then open <http://localhost:5173>.
 
+### Asset gallery
+
+A static showcase of the neon assets (cars, buildings, palette) for iterating on
+visuals without running the game lives at <http://localhost:5173/demo.html>. Add
+a sprite in `src/game/sprites.js`, then register a cell in `src/demo/gallery.js`.
+
 ### Controls
 
 | Key | Action |
