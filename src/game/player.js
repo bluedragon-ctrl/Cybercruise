@@ -21,14 +21,15 @@ export class Player {
     this.x = x;
     this.y = y;
     this.prevX = x; // previous-frame x, for render interpolation
-    this.w = 30;
-    this.h = 54;
+    this.w = 34;
+    this.h = 60;
     this.speed = 260; // current forward/scroll speed
     this.color = PLAYER; // cyan accent — stands out against the green world
 
     this.health = MAX_HEALTH;
     this.hitWall = false; // true on frames the car is pressed against a barrier
     this.wallTimer = 0; // counts down between scrape-damage ticks
+    this.wheelPhase = 0; // accumulated roll distance, drives the wheel tread
   }
 
   // `bounds` = { left, right } road edges in screen x for the player's row.
@@ -54,6 +55,9 @@ export class Player {
       this.hitWall = true;
     }
 
+    // Roll the wheels in proportion to forward speed.
+    this.wheelPhase += this.speed * dt;
+
     this.wallTimer -= dt;
     if (this.hitWall) {
       this.speed *= WALL_SPEED_SCRUB;
@@ -76,6 +80,7 @@ export class Player {
       thrust: PLAYER_THRUST,
       w: this.w,
       h: this.h,
+      wheelPhase: this.wheelPhase,
     });
   }
 }

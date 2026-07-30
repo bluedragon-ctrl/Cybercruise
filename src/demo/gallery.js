@@ -27,23 +27,46 @@ function gridBackdrop(ctx, size) {
   ctx.restore();
 }
 
-// Create one labelled cell. `draw(ctx, size)` renders the asset; the origin is
-// the canvas top-left, so use size/2 for the centre.
-function cell(label, draw, { grid = true } = {}) {
+// Cells that opt into animation are redrawn every frame with a rising `phase`
+// (px "travelled"), so wheels and other motion play in the gallery.
+const animatedCells = [];
+
+// Create one labelled cell. `draw(ctx, size, phase)` renders the asset; the
+// origin is the canvas top-left, so use size/2 for the centre. Pass
+// `{ animate: true }` to have the cell redrawn each frame with a rising phase.
+function cell(label, draw, { grid = true, animate = false } = {}) {
   const fig = document.createElement("figure");
   const canvas = document.createElement("canvas");
   canvas.width = SIZE;
   canvas.height = SIZE;
   const ctx = canvas.getContext("2d");
 
-  clear(ctx, "#05060a");
-  if (grid) gridBackdrop(ctx, SIZE);
-  draw(ctx, SIZE);
+  const paint = (phase) => {
+    clear(ctx, "#05060a");
+    if (grid) gridBackdrop(ctx, SIZE);
+    draw(ctx, SIZE, phase);
+  };
+  paint(0);
+  if (animate) animatedCells.push(paint);
 
   const caption = document.createElement("figcaption");
   caption.textContent = label;
   fig.append(canvas, caption);
   gallery.append(fig);
+}
+
+// Single animation loop for every animated cell. Phase advances at a steady
+// "cruising speed" so the wheel tread visibly rolls.
+function startAnimation() {
+  let phase = 0;
+  let last = performance.now();
+  function frame(now) {
+    phase += ((now - last) / 1000) * 260; // px/sec, ~ default cruising speed
+    last = now;
+    for (const paint of animatedCells) paint(phase);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 }
 
 // A row of palette swatches so colour choices are visible at a glance.
@@ -70,16 +93,20 @@ function paletteCell() {
 }
 
 // --- Registered assets ---
-cell("PLAYER CAR", (ctx, size) =>
-  drawCar(ctx, size / 2, size / 2, { color: pal.PLAYER, thrust: pal.PLAYER_THRUST }));
+cell("PLAYER CAR", (ctx, size, phase) =>
+  drawCar(ctx, size / 2, size / 2, { color: pal.PLAYER, thrust: pal.PLAYER_THRUST, wheelPhase: phase }),
+  { animate: true });
 
-cell("ENEMY CAR", (ctx, size) =>
-  drawCar(ctx, size / 2, size / 2, { color: pal.ENEMY, thrust: pal.ENEMY }));
+cell("ENEMY CAR", (ctx, size, phase) =>
+  drawCar(ctx, size / 2, size / 2, { color: pal.ENEMY, thrust: pal.ENEMY, wheelPhase: phase }),
+  { animate: true });
 
-cell("NEUTRAL CAR", (ctx, size) =>
-  drawCar(ctx, size / 2, size / 2, { color: pal.NEUTRAL, thrust: pal.NEUTRAL }));
+cell("NEUTRAL CAR", (ctx, size, phase) =>
+  drawCar(ctx, size / 2, size / 2, { color: pal.NEUTRAL, thrust: pal.NEUTRAL, wheelPhase: phase }),
+  { animate: true });
 
 cell("BUILDING (WIP)", (ctx, size) =>
   drawBuilding(ctx, size / 2, size / 2, { w: 90, h: 120, color: pal.GREEN }));
 
 paletteCell();
+startAnimation();
