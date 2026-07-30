@@ -21,18 +21,20 @@
 import { glowPath, glowLine } from "../engine/neon.js";
 
 // Distance from the road centre-line to each barrier, in px. The full road is
-// twice this wide. Kept well under the 480px canvas so turns leave visible
-// roadside space (for Phase 2 buildings) instead of filling the screen.
-export const ROAD_HALF_WIDTH = 120;
+// twice this wide. Deliberately kept well under the 600px canvas width so the
+// road never fills the screen — turns leave wide roadside space on both sides
+// for Phase 2 buildings/scenery.
+export const ROAD_HALF_WIDTH = 130;
 
 // How far the road centre wanders left/right of the canvas centre, as a function
 // of world distance. Two layered sines of different wavelengths give smooth,
-// non-obviously-repeating turns. Keep the summed amplitude (70 + 30 = 100) such
-// that centre ± ROAD_HALF_WIDTH stays mostly on-canvas:
-//   centre range  ≈ 240 ± 100  = [140, 340]
-//   road edges    ≈ [140-120, 340+120] = [20, 460]  → fits 0..480 with margin.
+// non-obviously-repeating turns. The summed amplitude (90 + 40 = 130) keeps the
+// road on-canvas while always leaving roadside margin, on a 600px-wide canvas:
+//   centre range ≈ 300 ± 130 = [170, 430]
+//   road edges   ≈ [170-130, 430+130] = [40, 560]  → always ≥40px off each edge,
+//   and up to ~170px of roadside when the road is centred.
 export function centerOffset(worldY) {
-  return 70 * Math.sin(worldY * 0.0016) + 30 * Math.sin(worldY * 0.0043 + 1.7);
+  return 90 * Math.sin(worldY * 0.0016) + 40 * Math.sin(worldY * 0.0043 + 1.7);
 }
 
 // Road geometry (in screen x) at a given world distance.
