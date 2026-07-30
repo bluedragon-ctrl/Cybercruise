@@ -105,8 +105,16 @@ cell("NEUTRAL CAR", (ctx, size, phase) =>
   drawCar(ctx, size / 2, size / 2, { color: pal.NEUTRAL, thrust: pal.NEUTRAL, wheelPhase: phase }),
   { animate: true });
 
-cell("BUILDING (WIP)", (ctx, size) =>
-  drawBuilding(ctx, size / 2, size / 2, { w: 90, h: 120, color: pal.GREEN }));
+// Cube buildings. Base is placed low in the cell so the extruded roof has room
+// above it. Varied width/depth/height show the skyline range.
+cell("BLDG · SHORT", (ctx, size) =>
+  drawBuilding(ctx, size / 2, size * 0.68, { w: 64, d: 48, height: 34, color: pal.GREEN, seed: 3 }));
+
+cell("BLDG · TALL", (ctx, size) =>
+  drawBuilding(ctx, size / 2, size * 0.74, { w: 56, d: 44, height: 78, color: pal.GREEN, lit: 0.6, seed: 7 }));
+
+cell("BLDG · WIDE", (ctx, size) =>
+  drawBuilding(ctx, size / 2, size * 0.70, { w: 96, d: 40, height: 50, color: pal.GREEN, lit: 0.4, seed: 5 }));
 
 paletteCell();
 startAnimation();

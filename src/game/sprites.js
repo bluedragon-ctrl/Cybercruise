@@ -4,7 +4,7 @@
 // given (cx, cy) so callers control placement.
 
 import { glowPoly, glowLine } from "../engine/neon.js";
-import { PLAYER, PLAYER_THRUST, GREEN } from "../engine/palette.js";
+import { PLAYER, PLAYER_THRUST, GREEN, GREEN_DIM } from "../engine/palette.js";
 
 // A detailed top-down supercar wireframe, pointing "up" (toward smaller y).
 // Shared by the player and (later) enemy/neutral traffic, which differ mainly by
@@ -125,35 +125,102 @@ function drawWheel(ctx, x, y, color, phase = 0) {
   ctx.restore();
 }
 
-// A simple neon "box" building — placeholder look to be fleshed out in Phase 2.
-// Drawn as a wireframe footprint with a lit window grid, centred at (cx, cy).
+// An extruded "cube" building — a wireframe box rising off the grid, giving the
+// roadside a simple 2.5D skyline while the FOOTPRINT stays flat on the ground
+// plane (so it scrolls in perfect sync with the road; only the roof is offset).
+//
+// (cx, cy) is the centre of the base footprint on the grid. The roof is the same
+// rectangle shifted by the extrusion vector (ox, oy) = up + slight rightward
+// skew, which reveals a side wall and reads as a slightly tilted top-down camera.
+// Taller `height` = taller building; vary it per building for skyline depth.
 export function drawBuilding(ctx, cx, cy, opts = {}) {
-  const { w = 90, h = 110, color = GREEN } = opts;
-  const x = cx - w / 2;
-  const y = cy - h / 2;
+  const {
+    w = 70,       // footprint width  (x, along the road's cross-axis)
+    d = 55,       // footprint depth  (y, along the road)
+    height = 60,  // extrusion height in px
+    color = GREEN,
+    lit = 0.5,    // fraction of front-wall windows that are lit
+    seed = 1,     // deterministic window-lighting seed (stable per building)
+  } = opts;
+  const hw = w / 2;
+  const hd = d / 2;
 
-  // Footprint.
-  glowPoly(ctx, [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], color, 2, 12,
-    "rgba(20,80,45,0.18)");
+  // Extrusion vector (base -> roof).
+  const ox = height * 0.28;
+  const oy = -height;
 
-  // Window grid: evenly spaced lit cells inset from the walls.
-  const pad = 12;
+  // Base footprint corners (F = front/south = larger y, B = back/north).
+  const bFL = [cx - hw, cy + hd];
+  const bFR = [cx + hw, cy + hd];
+  const bBR = [cx + hw, cy - hd];
+  const bBL = [cx - hw, cy - hd];
+  const off = (p) => [p[0] + ox, p[1] + oy];
+  const tFL = off(bFL);
+  const tFR = off(bFR);
+  const tBR = off(bBR);
+  const tBL = off(bBL);
+
+  // Footprint on the grid (dim — it sits on the ground).
+  glowPoly(ctx, [bFL, bFR, bBR, bBL], GREEN_DIM, 1, 5, "rgba(10,40,25,0.35)");
+
+  // Vertical edges.
+  glowLine(ctx, bFL[0], bFL[1], tFL[0], tFL[1], color, 1.5, 8);
+  glowLine(ctx, bFR[0], bFR[1], tFR[0], tFR[1], color, 1.5, 8);
+  glowLine(ctx, bBR[0], bBR[1], tBR[0], tBR[1], color, 1.5, 8);
+  glowLine(ctx, bBL[0], bBL[1], tBL[0], tBL[1], color, 1.5, 8);
+
+  // Roof (brightest — it's the top and furthest from the ground).
+  glowPoly(ctx, [tFL, tFR, tBR, tBL], color, 1.5, 10);
+
+  // Lit windows on the front (south-facing) wall quad: A,B along the base edge,
+  // C,D along the roof edge.
+  drawWallWindows(ctx, bFL, bFR, tFR, tFL, color, lit, seed);
+}
+
+// Bilinear point inside a quad: u runs A->B (bottom) / D->C (top); v runs bottom
+// (v=0) to top (v=1).
+function quadPoint(A, B, C, D, u, v) {
+  const bx = A[0] + (B[0] - A[0]) * u;
+  const by = A[1] + (B[1] - A[1]) * u;
+  const tx = D[0] + (C[0] - D[0]) * u;
+  const ty = D[1] + (C[1] - D[1]) * u;
+  return [bx + (tx - bx) * v, by + (ty - by) * v];
+}
+
+// Fills a grid of lit windows across a wall quad. `litFrac` of them glow; which
+// ones is deterministic from `seed` so a given building always looks the same.
+function drawWallWindows(ctx, A, B, C, D, color, litFrac, seed) {
   const cols = 3;
-  const rows = 4;
-  const cw = (w - pad * 2) / cols;
-  const ch = (h - pad * 2) / rows;
+  const rows = 5;
+  const pad = 0.16; // inset within each window cell (0..0.5)
+  let s = (seed * 9301 + 49297) % 233280;
+  const rnd = () => {
+    s = (s * 9301 + 49297) % 233280;
+    return s / 233280;
+  };
   ctx.save();
   ctx.fillStyle = color;
   ctx.shadowColor = color;
-  ctx.shadowBlur = 6;
+  ctx.shadowBlur = 5;
+  ctx.globalAlpha = 0.7;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      // Leave some windows dark for texture (deterministic checker-ish pattern).
-      if ((r + c) % 3 === 0) continue;
-      const wx = x + pad + c * cw + 2;
-      const wy = y + pad + r * ch + 2;
-      ctx.globalAlpha = 0.7;
-      ctx.fillRect(wx, wy, cw - 4, ch - 4);
+      if (rnd() > litFrac) continue;
+      const u0 = (c + pad) / cols;
+      const u1 = (c + 1 - pad) / cols;
+      const v0 = (r + pad) / rows;
+      const v1 = (r + 1 - pad) / rows;
+      const p00 = quadPoint(A, B, C, D, u0, v0);
+      const p10 = quadPoint(A, B, C, D, u1, v0);
+      const p11 = quadPoint(A, B, C, D, u1, v1);
+      const p01 = quadPoint(A, B, C, D, u0, v1);
+      ctx.beginPath();
+      ctx.moveTo(p00[0], p00[1]);
+      ctx.lineTo(p10[0], p10[1]);
+      ctx.lineTo(p11[0], p11[1]);
+      ctx.lineTo(p01[0], p01[1]);
+      ctx.closePath();
+      ctx.fill();
     }
   }
   ctx.restore();
