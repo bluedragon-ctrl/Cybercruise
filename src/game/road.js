@@ -19,7 +19,11 @@
 // yields the same curve, so nothing needs to be generated or freed as we drive.
 
 import { glowPath, glowLine } from "../engine/neon.js";
-import { GREEN, GREEN_PALE, ROADSIDE_FILL } from "../engine/palette.js";
+import { GREEN, GREEN_PALE, ROADSIDE_FILL, GRID_LINE } from "../engine/palette.js";
+
+// Spacing of the roadside floor grid, in px/world-units (square cells). Also the
+// natural unit for placing Phase 2 buildings, which will sit on this grid.
+export const GRID_SPACING = 60;
 
 // Distance from the road centre-line to each barrier, in px. The full road is
 // twice this wide. Deliberately kept well under the 600px canvas width so the
@@ -85,6 +89,10 @@ export function render(ctx, distance, playerY, W, H) {
   ctx.fill();
   ctx.restore();
 
+  // Roadside floor grid (Tron-style), clipped to the roadside so it never
+  // touches the black road surface.
+  drawRoadsideGrid(ctx, left, right, distance, playerY, W, H);
+
   // Glowing neon barriers.
   glowPath(ctx, left, GREEN, 2, 12);
   glowPath(ctx, right, GREEN, 2, 12);
@@ -103,4 +111,51 @@ export function render(ctx, distance, playerY, W, H) {
     const xB = W / 2 + centerOffset(wy + dash);
     glowLine(ctx, xA, syA, xB, syB, GREEN_PALE, 3, 8);
   }
+}
+
+// Draws a square grid over the two roadside regions only. Horizontal lines are
+// WORLD-anchored so the grid scrolls toward the player as we drive; vertical
+// lines are fixed screen columns (a stable Tron-style floor). `left`/`right` are
+// the barrier edge sample arrays (top->bottom) built by render().
+function drawRoadsideGrid(ctx, left, right, distance, playerY, W, H) {
+  ctx.save();
+
+  // Clip to the roadside: the two regions between each screen edge and its
+  // barrier. Both subpaths added, then a single clip.
+  ctx.beginPath();
+  ctx.moveTo(0, left[0][1]);
+  for (const p of left) ctx.lineTo(p[0], p[1]);
+  ctx.lineTo(0, left[left.length - 1][1]);
+  ctx.closePath();
+  ctx.moveTo(W, right[0][1]);
+  for (const p of right) ctx.lineTo(p[0], p[1]);
+  ctx.lineTo(W, right[right.length - 1][1]);
+  ctx.closePath();
+  ctx.clip();
+
+  ctx.strokeStyle = GRID_LINE;
+  ctx.lineWidth = 1;
+  ctx.shadowColor = GRID_LINE;
+  ctx.shadowBlur = 4;
+  ctx.beginPath();
+
+  // Horizontal lines: one per world-Y multiple of GRID_SPACING in view. Mapping
+  // worldY -> screen: sy = playerY - (worldY - distance). See top-of-file model.
+  const worldBottom = distance + playerY - H;
+  const worldTop = distance + playerY;
+  const firstY = Math.ceil(worldBottom / GRID_SPACING) * GRID_SPACING;
+  for (let wy = firstY; wy <= worldTop; wy += GRID_SPACING) {
+    const sy = playerY - (wy - distance);
+    ctx.moveTo(0, sy);
+    ctx.lineTo(W, sy);
+  }
+
+  // Vertical lines: fixed screen columns.
+  for (let x = 0; x <= W; x += GRID_SPACING) {
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+  }
+
+  ctx.stroke();
+  ctx.restore();
 }

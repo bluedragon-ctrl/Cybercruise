@@ -17,6 +17,7 @@ export const GREEN_PALE = "#b6ffcc";   // pale green (lane dashes, secondary tex
 export const GREEN_DIM = "#1f8f52";    // muted green (faint fills / far scenery)
 export const ROADSIDE_FILL = "rgba(30,120,70,0.12)"; // faint green ground OUTSIDE the road
                                                      // (the road surface itself stays black)
+export const GRID_LINE = "rgba(57,255,136,0.22)";    // roadside floor grid (Tron-style)
 
 // --- Gameplay entity accents ---
 export const PLAYER = "#39f6ff";        // player car (cyan)
