@@ -18,6 +18,13 @@ export const GREEN_DIM = "#1f8f52";    // muted green (faint fills / far scenery
 export const ROADSIDE_FILL = "rgba(30,120,70,0.12)"; // faint green ground OUTSIDE the road
                                                      // (the road surface itself stays black)
 export const GRID_LINE = "rgba(57,255,136,0.22)";    // roadside floor grid (Tron-style)
+export const FLOOR_GRID = "rgba(57,255,136,0.14)";   // the LOWER city floor grid (dimmer,
+                                                     // it's further from the camera than the road)
+export const ROAD_SURFACE = "#04060a";  // opaque road tarmac — occludes the city floor below,
+                                        // selling the road as an elevated ribbon over the city
+export const WALL_FILL = "#08160f";     // dark face of the road's elevated side wall
+export const BUILDING_FILL = "#07130d"; // opaque dark body so buildings occlude the
+                                        // floor grid and the boxes behind them
 
 // --- Gameplay entity accents ---
 export const PLAYER = "#39f6ff";        // player car (cyan)
