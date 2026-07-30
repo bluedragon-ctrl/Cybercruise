@@ -1,10 +1,11 @@
-// Cybercruise — bootstrap + Phase 0 game loop.
-// A neon player car steering over a scrolling perspective grid.
+// Cybercruise — bootstrap + game loop.
+// Phase 1: a neon player car driving an infinite curving highway with barriers.
 
 import { createLoop } from "./engine/loop.js";
 import { initInput } from "./engine/input.js";
-import { clear, glowLine, glowText } from "./engine/neon.js";
+import { clear, glowText } from "./engine/neon.js";
 import { Player } from "./game/player.js";
+import * as road from "./game/road.js";
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -16,42 +17,55 @@ initInput();
 // Player sits around mid-screen (Spy Hunter framing) so traffic catching up
 // from behind is visible below before it draws level.
 const player = new Player(W / 2, H * 0.62);
-const bounds = { left: 0, right: W };
 
-// Scrolling grid state: an offset that advances with player speed to fake motion.
-let scroll = 0;
+// `distance` is how far we've driven, in world units. It grows with speed and
+// drives everything that scrolls (road curve, lane dashes). See road.js for the
+// screen<->world coordinate model.
 let distance = 0;
 
-const GRID_SPACING = 48;
-
 function update(dt) {
-  player.update(dt, bounds);
-  scroll = (scroll + player.speed * dt) % GRID_SPACING;
-  distance += player.speed * dt;
-}
+  // Road edges at the player's own row (worldY === distance there), used to keep
+  // the car on the tarmac and to trigger barrier-scrape damage.
+  const edges = road.edgesAt(distance, W);
+  player.update(dt, { left: edges.left, right: edges.right });
 
-function drawGrid() {
-  const color = "rgba(30,120,160,0.55)";
-  // Horizontal lines scrolling toward the viewer.
-  for (let y = -GRID_SPACING; y < H + GRID_SPACING; y += GRID_SPACING) {
-    const yy = y + scroll;
-    glowLine(ctx, 0, yy, W, yy, color, 1, 6);
-  }
-  // Vertical lanes.
-  for (let x = 0; x <= W; x += GRID_SPACING) {
-    glowLine(ctx, x, 0, x, H, "rgba(30,120,160,0.35)", 1, 4);
-  }
+  distance += player.speed * dt;
 }
 
 function drawHud() {
   glowText(ctx, "CYBERCRUISE", 12, 12, "#ff36c8", 18, "left", 12);
   glowText(ctx, `DIST ${Math.floor(distance)}`, W - 12, 12, "#39f6ff", 14, "right");
   glowText(ctx, `SPD ${Math.round(player.speed)}`, W - 12, 32, "#39f6ff", 14, "right");
+
+  // Health bar (bottom-left): green draining to red as damage mounts.
+  const bx = 12;
+  const by = H - 24;
+  const bw = 140;
+  const bh = 10;
+  const frac = player.health / 100;
+  const hue = 120 * frac; // 120=green -> 0=red
+  glowText(ctx, "HULL", bx, by - 16, "#9ff", 12, "left", 6);
+  // Empty track.
+  ctx.save();
+  ctx.strokeStyle = "rgba(120,255,255,0.4)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(bx, by, bw, bh);
+  ctx.restore();
+  // Filled portion.
+  if (frac > 0) {
+    ctx.save();
+    const c = `hsl(${hue}, 100%, 55%)`;
+    ctx.fillStyle = c;
+    ctx.shadowColor = c;
+    ctx.shadowBlur = 10;
+    ctx.fillRect(bx + 1, by + 1, (bw - 2) * frac, bh - 2);
+    ctx.restore();
+  }
 }
 
 function render(alpha) {
   clear(ctx);
-  drawGrid();
+  road.render(ctx, distance, player.y, W, H);
   player.render(ctx, alpha);
   drawHud();
 }
