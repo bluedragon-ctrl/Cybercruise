@@ -15,7 +15,8 @@ export const GREEN = "#39ff88";        // primary neon green (barriers, building
 export const GREEN_BRIGHT = "#7dffb0"; // brighter readouts / emphasis
 export const GREEN_PALE = "#b6ffcc";   // pale green (lane dashes, secondary text, labels)
 export const GREEN_DIM = "#1f8f52";    // muted green (faint fills / far scenery)
-export const GREEN_FILL = "rgba(20,80,45,0.30)"; // translucent tarmac / surface fill
+export const ROADSIDE_FILL = "rgba(30,120,70,0.12)"; // faint green ground OUTSIDE the road
+                                                     // (the road surface itself stays black)
 
 // --- Gameplay entity accents ---
 export const PLAYER = "#39f6ff";        // player car (cyan)

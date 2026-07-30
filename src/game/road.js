@@ -19,7 +19,7 @@
 // yields the same curve, so nothing needs to be generated or freed as we drive.
 
 import { glowPath, glowLine } from "../engine/neon.js";
-import { GREEN, GREEN_PALE, GREEN_FILL } from "../engine/palette.js";
+import { GREEN, GREEN_PALE, ROADSIDE_FILL } from "../engine/palette.js";
 
 // Distance from the road centre-line to each barrier, in px. The full road is
 // twice this wide. Deliberately kept well under the 600px canvas width so the
@@ -63,14 +63,25 @@ export function render(ctx, distance, playerY, W, H) {
     right.push([e.right, sy]);
   }
 
-  // Tarmac: fill the ribbon between the two edge polylines.
+  // Roadside: faint green ground on both sides, OUTSIDE the barriers. The road
+  // surface itself is left unfilled (black canvas background), which reads more
+  // like real tarmac and makes the green barriers pop. Each side is the region
+  // between a screen edge (x=0 or x=W) and its barrier polyline.
   ctx.save();
+  ctx.fillStyle = ROADSIDE_FILL;
+  // Left roadside: down the left barrier, then back up the screen's left edge.
   ctx.beginPath();
-  ctx.moveTo(left[0][0], left[0][1]);
+  ctx.moveTo(0, left[0][1]);
   for (const p of left) ctx.lineTo(p[0], p[1]);
-  for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
+  ctx.lineTo(0, left[left.length - 1][1]);
   ctx.closePath();
-  ctx.fillStyle = GREEN_FILL;
+  ctx.fill();
+  // Right roadside: down the right barrier, then back up the screen's right edge.
+  ctx.beginPath();
+  ctx.moveTo(W, right[0][1]);
+  for (const p of right) ctx.lineTo(p[0], p[1]);
+  ctx.lineTo(W, right[right.length - 1][1]);
+  ctx.closePath();
   ctx.fill();
   ctx.restore();
 
