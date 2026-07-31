@@ -54,8 +54,16 @@ export const CRITICAL_FLASH = "#ffd6d6"; // white-hot, red cast
 // hostile is in the RED family, everything neutral in the AMBER family. New car
 // types should stay inside their family's shades rather than introduce a new hue
 // — the faction has to be readable in the half-second before impact.
+//
+// COLOUR IS NOT AN IDENTITY. Car types outnumber the shades here, and always
+// will: a type is told apart by its SILHOUETTE (game/carshapes.js), so colour
+// only has to answer two questions — "is it hostile?" (the family) and "is it
+// heavy?" (the shade). Shades therefore REPEAT across types by design. Giving
+// every type its own hue would break the half-second faction read, which is the
+// only thing colour is load-bearing for.
 export const ENEMY = "#ff3b3b";          // enemy car (red)
 export const ENEMY_DEEP = "#c81e5a";     // heavy enemy (crimson)
+export const ENEMY_PALE = "#ff7a7a";     // light, fast enemy (washed red)
 export const ENEMY_THRUST = "#ff8a3b";   // enemy exhaust (orange)
 export const NEUTRAL = "#ffb020";        // neutral/civilian car (amber)
 export const NEUTRAL_DEEP = "#c8801a";   // heavy neutral / truck (deep amber)

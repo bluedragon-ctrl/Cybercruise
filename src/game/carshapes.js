@@ -355,6 +355,18 @@ export const CAR_SHAPES = [
 export const CAR_SHAPE_COUNT = CAR_SHAPES.length;
 export const CAR_SHAPE_NAMES = CAR_SHAPES.map((s) => s.name);
 
+// Look a shape up by name. Car types (cartypes.js) select their silhouette
+// through this rather than by writing a bare index: the catalogue above is
+// ordered for reading, and inserting a shape in the middle of it must not
+// silently repaint half the traffic on the road. Throws rather than falling back
+// to shape 0 — a typo'd name would otherwise turn a truck into a supercar and
+// only show up as a puzzling look in-game.
+export function carShapeIndex(name) {
+  const i = CAR_SHAPES.findIndex((s) => s.name === name);
+  if (i === -1) throw new Error(`unknown car shape: ${name}`);
+  return i;
+}
+
 // Default wheel metrics, overridable per wheel in a shape's `wheels` entry.
 const WHEEL_W = 4;
 const WHEEL_L = 10;

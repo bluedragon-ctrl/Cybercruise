@@ -23,9 +23,10 @@
 // Behaviours are also free to be STATEFUL by stashing fields on `car` (a timer,
 // a chosen lane) — each car is a plain object owned by one behaviour for life.
 //
-// Phase 3 ships `cruise` and `overtake`. The pursuit/ram/shoot tactics land in
-// Phase 4 as further entries in this table, and existing types switch over by
-// changing one string in cartypes.js.
+// Phase 3 ships two real tactics, `cruise` and `overtake`. The enemy tactics
+// (`pursue`, `ram`, `block`, `weave`, `convoy`) exist as STUBS at the bottom of
+// this file: the car types already name them, so Phase 4 is a matter of filling
+// in a function body, not of rewiring the catalogue.
 
 import { laneAt, laneOffset, ROAD_HALF_WIDTH } from "./road.js";
 
@@ -209,9 +210,57 @@ function nearer(a, b) {
   return a.worldY <= b.worldY ? a : b;
 }
 
+// --- Phase 4 tactics: stubs -------------------------------------------------
+// Every car type in the catalogue names the behaviour it will EVENTUALLY have,
+// and each of those names resolves to a real function here that currently
+// delegates to `cruise` or `overtake`. Named stubs rather than pointing the types
+// at `cruise` directly, for two reasons: behaviourFor falls back silently on an
+// unknown key, so a real entry is what proves the wiring is live today; and
+// filling one in later is then a single function body, with no edit to
+// cartypes.js and no chance of a type being left behind.
+//
+// Each stub delegates to whichever of the two shipped tactics is the closest
+// approximation, so the road already drives sensibly: the hunters flow through
+// traffic, the heavies hold their lane.
+
+// Will steer onto the player's lateral offset and close the gap, instead of
+// treating the player as just another obstacle to be passed.
+function pursue(car, dt, world) {
+  overtake(car, dt, world);
+}
+
+// Will line up behind the player and spend its speed on the impact, rather than
+// braking for it. The one behaviour that deliberately does NOT keep a gap.
+function ram(car, dt, world) {
+  cruise(car, dt, world);
+}
+
+// Will match the player's lane from IN FRONT and hold station there, slowing to
+// bottle the player up rather than driving away.
+function block(car, dt, world) {
+  overtake(car, dt, world);
+}
+
+// Will cross the road on a timer, alternating pass sides — hard to shoot and
+// hard to predict, which is what a light, fast enemy is for.
+function weave(car, dt, world) {
+  overtake(car, dt, world);
+}
+
+// Will pair rigs nose-to-tail across adjacent lanes into a rolling roadblock the
+// player has to thread or go round.
+function convoy(car, dt, world) {
+  cruise(car, dt, world);
+}
+
 const BEHAVIOURS = {
   cruise,
   overtake,
+  pursue,
+  ram,
+  block,
+  weave,
+  convoy,
 };
 
 // Resolve a behaviour key. Unknown keys fall back to cruising rather than
