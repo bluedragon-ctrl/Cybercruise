@@ -4,6 +4,7 @@
 // given (cx, cy) so callers control placement.
 
 import { glowPoly, glowLine } from "../engine/neon.js";
+import { getSprite, blitSprite } from "../engine/spritecache.js";
 import { PLAYER, PLAYER_THRUST, GREEN, GREEN_DIM, BUILDING_FILL } from "../engine/palette.js";
 
 // A detailed top-down supercar wireframe, pointing "up" (toward smaller y).
@@ -250,4 +251,108 @@ function drawWallWindows(ctx, A, B, C, D, color, litFrac, seed) {
     }
   }
   ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// CACHED VARIANTS
+//
+// The drawers above are pure and re-render every glowing stroke on each call,
+// which is far too slow to run per entity per frame (see spritecache.js). The
+// game therefore goes through the wrappers below, which pre-render each distinct
+// look once and blit it thereafter. The raw drawers stay exported because the
+// asset gallery (demo.html) wants arbitrary one-off parameters, and because
+// these wrappers are built on top of them — so a visual tweak above still flows
+// through to the game and the gallery alike.
+// ---------------------------------------------------------------------------
+
+// Margin around a cached sprite so the glow (max shadowBlur used here is 13)
+// isn't clipped by the offscreen canvas edge.
+const GLOW_PAD = 18;
+
+// drawWheel lays its tread bands every 4px and wraps, so the wheel's appearance
+// repeats with a period of exactly 4px of travel. Sampling that period at 8
+// positions keeps the roll smooth while capping the cache at 8 frames per car
+// colour (a 4px-wide wheel can't show finer detail than this anyway).
+const WHEEL_PERIOD = 4;
+const WHEEL_FRAMES = 8;
+
+// Cached drawCar. Identical output to drawCar, except the wheel tread snaps to
+// one of WHEEL_FRAMES positions.
+export function drawCarCached(ctx, cx, cy, opts = {}) {
+  const {
+    color = PLAYER,
+    thrust = PLAYER_THRUST,
+    w = 34,
+    h = 60,
+    fill = "#0b1118",
+    wheelPhase = 0,
+  } = opts;
+
+  // Quantise the tread scroll (positive modulo — wheelPhase only grows, but a
+  // reversing entity in a later phase could hand us a negative).
+  const wrapped = ((wheelPhase % WHEEL_PERIOD) + WHEEL_PERIOD) % WHEEL_PERIOD;
+  const frame = Math.floor((wrapped / WHEEL_PERIOD) * WHEEL_FRAMES) % WHEEL_FRAMES;
+
+  // Half-extents of the drawn car. Width is set by the wheels (0.98*hw + the
+  // wheel's own 4px half-width), which reach past the rear wing (1.06*hw);
+  // height by the nose (-1.00*hh) and the wing bar (0.98*hh + 3).
+  const halfW = w * 0.62 + GLOW_PAD;
+  const halfH = h * 0.55 + GLOW_PAD;
+
+  const key = `car|${color}|${thrust}|${fill}|${w}|${h}|${frame}`;
+  const sprite = getSprite(key, halfW * 2, halfH * 2, halfW, halfH, (sctx, ox, oy) =>
+    drawCar(sctx, ox, oy, {
+      color,
+      thrust,
+      w,
+      h,
+      fill,
+      wheelPhase: (frame / WHEEL_FRAMES) * WHEEL_PERIOD,
+    }),
+  );
+  blitSprite(ctx, sprite, cx, cy);
+}
+
+// A fixed catalogue of building looks. Placement code picks a variant INDEX
+// instead of rolling continuous dimensions, which is what caps the cache: at
+// most BUILDING_VARIANTS * 2 sprites (one per lean direction) exist no matter
+// how large the city grows. Rolling w/d/height/lit freely would key the cache on
+// a product of continuous ranges — tens of thousands of entries — and defeat it.
+export const BUILDING_VARIANTS = 24;
+
+// Deterministic parameters for variant `v`. The multipliers are chosen so each
+// field cycles through its full range at a different rate, giving a varied
+// skyline from a small catalogue. Dimensions land on 8px steps.
+function variantOpts(v, leanRight) {
+  return {
+    w: 42 + ((v * 3) % 7) * 8, // 42..90
+    d: 34 + ((v * 5) % 4) * 8, // 34..58
+    height: 24 + ((v * 7) % 10) * 8, // 24..96
+    lit: 0.3 + ((v * 11) % 6) * 0.1, // 0.3..0.8
+    seed: v + 1,
+    skew: leanRight ? 0.26 : -0.26,
+    color: GREEN,
+  };
+}
+
+// Cached drawBuilding, anchored (like drawBuilding) at the BASE CENTRE so
+// callers keep placing buildings by their footprint on the ground plane.
+// `leanRight` picks which way the roof skews, so a building can lean away from
+// screen centre without doubling the variant catalogue.
+export function drawBuildingVariant(ctx, cx, cy, v, leanRight) {
+  const o = variantOpts(v, leanRight);
+
+  // Bounding box relative to the base centre: the roof is shifted up by `height`
+  // and sideways by `height * skew`, so only one side gains horizontal extent.
+  const roofShift = o.height * o.skew;
+  const originX = o.w / 2 + Math.max(0, -roofShift) + GLOW_PAD;
+  const originY = o.d / 2 + o.height + GLOW_PAD;
+  const sw = o.w + Math.abs(roofShift) + GLOW_PAD * 2;
+  const sh = o.d + o.height + GLOW_PAD * 2;
+
+  const key = `bldg|${v}|${leanRight ? 1 : 0}`;
+  const sprite = getSprite(key, sw, sh, originX, originY, (sctx, sx, sy) =>
+    drawBuilding(sctx, sx, sy, o),
+  );
+  blitSprite(ctx, sprite, cx, cy);
 }
