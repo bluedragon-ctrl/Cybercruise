@@ -36,6 +36,12 @@ import { laneAt, laneOffset, ROAD_HALF_WIDTH } from "./road.js";
 // units of road; one second of closing rate covers that for every dv the
 // catalogue can produce, so a follower always has room to match rather than
 // running into the car ahead.
+//
+// That "for every dv" is a REAL CONSTRAINT between three numbers, not a
+// platitude: it holds exactly while the catalogue's largest closing speed (the
+// fastest cruise minus the player's minimum, currently 730 - 120 = 610) is no
+// more than 2 * ACCEL * FOLLOW_REACTION. Widen the speed band and one of ACCEL
+// or FOLLOW_REACTION has to move with it, or the road starts rear-ending itself.
 const FOLLOW_GAP = 40;
 const FOLLOW_REACTION = 1.0; // seconds of closing rate added to the gap
 

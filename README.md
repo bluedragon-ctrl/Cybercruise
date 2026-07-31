@@ -131,13 +131,39 @@ brake for whatever is ahead in *either* lane while changing lanes, so a pass tha
 can't be completed degrades to following rather than to a rear-end.
 
 The heavy types (van, rig, bruiser, muscle) just `cruise`, which is what keeps
-the whole road from weaving at once — and means sitting in front of a rig at 130
+the whole road from weaving at once — and means sitting in front of a rig at 180
 works, while sitting in front of anything nimble does not.
 
 Cars are positioned as `worldY` (along the road) plus a lateral `offset` from
 the centre-line, so they track every curve without steering. They exist only
 near the player: spawned just off-screen — ahead if slower than the player,
 behind if faster, so they always cross the screen — and retired once well past.
+
+**The speed band** is pinned to both ends of the player's own 120–620:
+
+| | | |
+|---|---|---|
+| rig | 180–205 | the floor — half again the player's minimum |
+| van | 200–240 | |
+| sedan | 230–275 | |
+| bruiser | 280–330 | |
+| muscle | 310–360 | |
+| interceptor | 400–470 | |
+| roadster | 420–480 | |
+| rival | 580–650 | straddles the player's ceiling — draws level, neither escapes |
+| hypercar | 630–700 | |
+| cycle | 660–730 | catches a player at full throttle |
+
+Two consequences worth having on purpose. Dawdling never makes the road go
+quiet — it makes the whole city stream past you. And **flat out is not fast
+enough to be left alone**: a cycle still comes past a player holding 620, so
+escaping is a job for the Phase 5 boosts rather than for the accelerator.
+
+The band's width is not a free parameter. Traffic sheds speed at `traffic.js`'s
+`ACCEL` and `behaviours.js` sizes a follower's gap from one second of closing
+rate, which only covers the catalogue while `2 * ACCEL * FOLLOW_REACTION` is at
+least the largest closing speed the band can produce (730 − 120 = 610). Widening
+the band means moving one of those two with it, or the road rear-ends itself.
 
 ### Ramming
 

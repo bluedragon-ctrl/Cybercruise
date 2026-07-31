@@ -49,7 +49,15 @@ const SPAWN_GAP = 150;       // min world-units of CLEAR ROAD between the boxes 
                              // box edges, not centres: the rig is 124 units long,
                              // and a centre-to-centre rule would let one appear
                              // half inside another
-const ACCEL = 140;           // world units/sec² traffic uses to reach targetSpeed
+const ACCEL = 340;           // world units/sec² traffic uses to reach targetSpeed.
+                             // Sized against the CATALOGUE, not against feel: the
+                             // speed band runs 180..730 (cartypes.js) and the
+                             // player can be down at 120, so a car can close at up
+                             // to 610 units/sec on the thing in front. behaviours.js
+                             // gives a follower one second of closing rate to shed
+                             // that, which only works while 2 * ACCEL >= the largest
+                             // closing speed. Just under the player's own 380, so
+                             // traffic still can't out-brake the player.
 const SHOVE_DAMP = 5;        // per second; how fast a rammed car's slide dies away
 const CRITICAL = 0.35;       // hull fraction below which a car reads as wrecked
 const BLINK_PERIOD = 0.12;   // seconds per half-cycle of the critical-hull blink
