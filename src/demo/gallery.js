@@ -7,6 +7,8 @@
 import { clear, glowLine } from "../engine/neon.js";
 import { drawCar, drawBuilding } from "../game/sprites.js";
 import { drawShape, SHAPE_NAMES } from "../game/buildingshapes.js";
+import { CAR_SHAPES } from "../game/carshapes.js";
+import { drawWreck, WRECK_DURATION } from "../game/effects.js";
 import { CAR_TYPES, ENEMY_FACTION } from "../game/cartypes.js";
 import * as pal from "../engine/palette.js";
 
@@ -111,6 +113,42 @@ CAR_TYPES.forEach((t) => {
     }),
     { animate: true });
 });
+
+// The silhouette catalogue, one cell each, all in the player's cyan so the cells
+// compare SHAPES rather than faction colours. A car type picks one of these by
+// index, exactly as a building picks a shape — so a new entry in carshapes.js
+// appears here on its own, at its own default size.
+CAR_SHAPES.forEach((s, i) => {
+  cell(`CAR · ${s.name}`, (ctx, size, phase) =>
+    drawCar(ctx, size / 2, size / 2, {
+      shape: i, color: pal.PLAYER, thrust: pal.PLAYER_THRUST, wheelPhase: phase,
+    }),
+    { animate: true });
+});
+
+// Destruction. The cell loops: the car sits intact for a beat, then is wrecked,
+// so the effect can be judged against the sprite it replaces. `phase` is px
+// travelled at a known speed, so dividing by it gives us seconds. The seed
+// changes each pass, since the point is that no two wrecks look the same.
+const FX_PAUSE = 0.7; // seconds the intact car is shown before it blows up
+const FX_CYCLE = FX_PAUSE + WRECK_DURATION;
+cell("FX · WRECK", (ctx, size, phase) => {
+  const seconds = phase / 260; // 260 px/sec, matching startAnimation
+  const time = seconds % FX_CYCLE;
+  const opts = {
+    shape: 6, // BRUISER — big enough to read the fragments
+    color: pal.ENEMY,
+    thrust: pal.ENEMY_THRUST,
+    w: 40,
+    h: 74,
+    seed: Math.floor(seconds / FX_CYCLE) + 1,
+  };
+  if (time < FX_PAUSE) {
+    drawCar(ctx, size / 2, size / 2, { ...opts, wheelPhase: phase });
+  } else {
+    drawWreck(ctx, size / 2, size / 2, (time - FX_PAUSE) / WRECK_DURATION, opts);
+  }
+}, { animate: true });
 
 // Cube buildings. Base is placed low in the cell so the extruded roof has room
 // above it. Varied width/depth/height show the skyline range.

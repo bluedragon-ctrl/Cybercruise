@@ -31,6 +31,15 @@ export const BUILDING_FILL = "#07130d";      // front (camera-facing) wall
 export const BUILDING_FILL_SIDE = "#050c08"; // side wall — in shadow
 export const BUILDING_FILL_ROOF = "#0a1c12"; // roof — the brightest face
 
+// Car surfaces. Like the building faces above, all three are OPAQUE and differ
+// by HEIGHT off the road: the chassis sits on the tarmac, spoilers and canopies
+// stand proud of it, and wing bars and box tops are higher still. Being opaque is
+// the point — a spoiler has to hide the bodywork under it, or the car reads as a
+// flat x-ray outline instead of a solid object. See game/carshapes.js.
+export const CAR_FILL = "#0b1118";        // chassis, on the road
+export const CAR_FILL_RAISED = "#131f2b"; // canopies, scoops, ram bars, pods
+export const CAR_FILL_HIGH = "#1b2c3c";   // wing bars, trailer tops — highest
+
 // --- Gameplay entity accents ---
 export const PLAYER = "#39f6ff";        // player car (cyan)
 export const PLAYER_THRUST = "#ff36c8"; // player thruster glow (magenta)

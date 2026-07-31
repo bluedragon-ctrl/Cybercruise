@@ -5,6 +5,7 @@
 
 import { glowPoly, glowLine } from "../engine/neon.js";
 import { getSprite, blitSprite } from "../engine/spritecache.js";
+import { drawCarShape, carShapeExtent, CAR_SHAPES } from "./carshapes.js";
 import {
   drawShape,
   shapeExtent,
@@ -22,123 +23,23 @@ import {
   BUILDING_FILL_ROOF,
 } from "../engine/palette.js";
 
-// A detailed top-down supercar wireframe, pointing "up" (toward smaller y).
-// Shared by the player and (later) enemy/neutral traffic, which differ mainly by
-// colour. Inspired by a neon wireframe sports car: tapered nose, fender bulges,
-// hexagonal canopy, four wheels poking out past the body, and a rear wing.
+// A detailed top-down car wireframe, pointing "up" (toward smaller y). Shared by
+// the player and by traffic, which differ by SHAPE (see game/carshapes.js) as
+// well as colour.
 //
-// Geometry is expressed in fractions of the half-width (hw) and half-length (hh)
-// so the whole car scales with `w`/`h`. Wheels extend slightly beyond hw, so the
-// visual footprint is a touch wider than `w` (the collision box stays `w`x`h`).
+// The geometry itself lives in the shape catalogue; this stays as the entry point
+// the gallery and the cached wrapper both call. `shape` indexes CAR_SHAPES, and
+// 0 is the original supercar, so an omitted `shape` keeps the player's look.
 export function drawCar(ctx, cx, cy, opts = {}) {
   const {
+    shape = 0,
     color = PLAYER,
     thrust = PLAYER_THRUST,
-    w = 34,
-    h = 60,
-    fill = "#0b1118", // opaque dark body so the road/grid don't show through
+    w,
+    h,
     wheelPhase = 0, // scrolls the wheel tread to fake rotation (px travelled)
   } = opts;
-  const hw = w / 2;
-  const hh = h / 2;
-
-  // Body silhouette as [x, y] fractions for the RIGHT half, nose -> tail. The
-  // left half is this mirrored, so the car is symmetric. Widest at ~0.88*hw,
-  // leaving room for the wheels at the sides.
-  const BODY_PROFILE = [
-    [0.00, -1.00], // nose centre
-    [0.46, -0.90], // nose shoulder
-    [0.74, -0.66], // front fender
-    [0.86, -0.30],
-    [0.88, 0.05],  // widest
-    [0.82, 0.42],
-    [0.86, 0.72],  // rear fender
-    [0.66, 0.92],
-    [0.30, 1.00],  // rear corner
-    [0.00, 1.02],  // tail centre
-  ];
-  const body = fracLoop(BODY_PROFILE, cx, cy, hw, hh);
-  glowPoly(ctx, body, color, 2, 13, fill);
-
-  // Wheels: four rounded slabs at the corners, poking out past the body.
-  const wheelX = hw * 0.98;
-  const frontY = cy - hh * 0.58;
-  const rearY = cy + hh * 0.62;
-  drawWheel(ctx, cx - wheelX, frontY, color, wheelPhase);
-  drawWheel(ctx, cx + wheelX, frontY, color, wheelPhase);
-  drawWheel(ctx, cx - wheelX, rearY, color, wheelPhase);
-  drawWheel(ctx, cx + wheelX, rearY, color, wheelPhase);
-
-  // Hexagonal canopy (cockpit), slightly forward of centre.
-  const CANOPY = [
-    [0.00, -0.34], [0.40, -0.14], [0.40, 0.18],
-    [0.00, 0.34], [-0.40, 0.18], [-0.40, -0.14],
-  ];
-  glowPoly(ctx, CANOPY.map(([fx, fy]) => [cx + fx * hw, cy + fy * hh]), color, 1.5, 9);
-
-  // Hood panel lines: nose shoulders converging back toward the canopy.
-  glowLine(ctx, cx - hw * 0.34, cy - hh * 0.80, cx - hw * 0.40, cy - hh * 0.14, color, 1, 5);
-  glowLine(ctx, cx + hw * 0.34, cy - hh * 0.80, cx + hw * 0.40, cy - hh * 0.14, color, 1, 5);
-  // Centre spine down the hood.
-  glowLine(ctx, cx, cy - hh * 0.92, cx, cy - hh * 0.34, color, 1, 5);
-
-  // Rear wing: a wide bar behind the tail on two short supports.
-  const wingY = cy + hh * 0.98;
-  const wingHalf = hw * 1.06;
-  glowPoly(ctx, [
-    [cx - wingHalf, wingY - 3], [cx + wingHalf, wingY - 3],
-    [cx + wingHalf, wingY + 3], [cx - wingHalf, wingY + 3],
-  ], color, 1.5, 8);
-  glowLine(ctx, cx - hw * 0.45, cy + hh * 0.82, cx - hw * 0.45, wingY, color, 1, 5);
-  glowLine(ctx, cx + hw * 0.45, cy + hh * 0.82, cx + hw * 0.45, wingY, color, 1, 5);
-
-  // Twin exhaust glow between the wing supports (accent colour).
-  glowLine(ctx, cx - hw * 0.20, cy + hh * 0.80, cx - hw * 0.20, cy + hh * 0.94, thrust, 3, 10);
-  glowLine(ctx, cx + hw * 0.20, cy + hh * 0.80, cx + hw * 0.20, cy + hh * 0.94, thrust, 3, 10);
-}
-
-// Builds a closed symmetric polygon from a right-half profile of [x, y] fractions
-// (nose -> tail): the right side as given, then the left side mirrored tail -> nose.
-function fracLoop(profile, cx, cy, hw, hh) {
-  const right = profile.map(([fx, fy]) => [cx + fx * hw, cy + fy * hh]);
-  const left = [...profile].reverse().map(([fx, fy]) => [cx - fx * hw, cy + fy * hh]);
-  return right.concat(left);
-}
-
-// A single wheel: a small slab centred at (x, y), with horizontal tread bands
-// that scroll along its length to fake rotation. `phase` is the distance the car
-// has "rolled" (px); increasing it moves the tread backward (down the wheel),
-// which reads as the wheel spinning forward.
-function drawWheel(ctx, x, y, color, phase = 0) {
-  const ww = 4;  // half-width across the car
-  const wl = 10; // half-length along the car
-  const top = y - wl + 2;
-  const bot = y + wl - 2;
-
-  // Tyre outline.
-  glowPoly(ctx, [
-    [x - ww, top], [x + ww, top], [x + ww, bot], [x - ww, bot],
-  ], color, 1.5, 7);
-
-  // Scrolling tread bands, clipped to the tyre.
-  const spacing = 4;
-  const off = ((phase % spacing) + spacing) % spacing; // wrapped scroll offset
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(x - ww, top, ww * 2, bot - top);
-  ctx.clip();
-  ctx.strokeStyle = color;
-  ctx.globalAlpha = 0.5;
-  ctx.lineWidth = 1.2;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 2;
-  ctx.beginPath();
-  for (let yy = top + off; yy <= bot; yy += spacing) {
-    ctx.moveTo(x - ww, yy);
-    ctx.lineTo(x + ww, yy);
-  }
-  ctx.stroke();
-  ctx.restore();
+  drawCarShape(ctx, cx, cy, shape, { color, thrust, w, h, wheelPhase });
 }
 
 // An extruded "cube" building — a wireframe box rising off the grid, giving the
@@ -250,11 +151,11 @@ const WHEEL_FRAMES = 8;
 // one of WHEEL_FRAMES positions.
 export function drawCarCached(ctx, cx, cy, opts = {}) {
   const {
+    shape = 0,
     color = PLAYER,
     thrust = PLAYER_THRUST,
-    w = 34,
-    h = 60,
-    fill = "#0b1118",
+    w = CAR_SHAPES[shape].size[0],
+    h = CAR_SHAPES[shape].size[1],
     wheelPhase = 0,
   } = opts;
 
@@ -263,20 +164,24 @@ export function drawCarCached(ctx, cx, cy, opts = {}) {
   const wrapped = ((wheelPhase % WHEEL_PERIOD) + WHEEL_PERIOD) % WHEEL_PERIOD;
   const frame = Math.floor((wrapped / WHEEL_PERIOD) * WHEEL_FRAMES) % WHEEL_FRAMES;
 
-  // Half-extents of the drawn car. Width is set by the wheels (0.98*hw + the
-  // wheel's own 4px half-width), which reach past the rear wing (1.06*hw);
-  // height by the nose (-1.00*hh) and the wing bar (0.98*hh + 3).
-  const halfW = w * 0.62 + GLOW_PAD;
-  const halfH = h * 0.55 + GLOW_PAD;
+  // Extents come from the shape itself: wheel positions are derived from the
+  // profile, and details (ram bars, splitters, wings, a trailer bogie) reach
+  // past it by different amounts per shape, so one fixed fraction of `w` would
+  // clip some cars and waste memory on others. Cars are asymmetric along y — a
+  // wing hangs off the tail — so the anchor is offset rather than centred.
+  const ext = carShapeExtent(shape, w, h);
+  const originX = ext.x + GLOW_PAD;
+  const originY = ext.up + GLOW_PAD;
+  const sw = ext.x * 2 + GLOW_PAD * 2;
+  const sh = ext.up + ext.down + GLOW_PAD * 2;
 
-  const key = `car|${color}|${thrust}|${fill}|${w}|${h}|${frame}`;
-  const sprite = getSprite(key, halfW * 2, halfH * 2, halfW, halfH, (sctx, ox, oy) =>
-    drawCar(sctx, ox, oy, {
+  const key = `car|${shape}|${color}|${thrust}|${w}|${h}|${frame}`;
+  const sprite = getSprite(key, sw, sh, originX, originY, (sctx, ox, oy) =>
+    drawCarShape(sctx, ox, oy, shape, {
       color,
       thrust,
       w,
       h,
-      fill,
       wheelPhase: (frame / WHEEL_FRAMES) * WHEEL_PERIOD,
     }),
   );
