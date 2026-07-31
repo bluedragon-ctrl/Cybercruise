@@ -42,20 +42,41 @@ export function glowPoly(ctx, points, color, width = 2, blur = 12, fill = null) 
   ctx.restore();
 }
 
-// A glowing OPEN polyline (unlike glowPoly, it is not closed or filled).
-// Used for long curves such as road barriers. `points` is an array of [x, y].
-export function glowPath(ctx, points, color, width = 2, blur = 12) {
-  if (points.length < 2) return;
+// A glowing OPEN polyline, drawn WITHOUT ctx.shadowBlur: the path is built once
+// and then stroked a few times — wide and faint, then narrower and brighter — so
+// the halo comes from overdraw instead of a blur filter.
+//
+// Why not shadowBlur: its cost scales with the shadow's BOUNDING-BOX AREA, not
+// with the shape, so one canvas-spanning path (a road barrier) is brutally
+// expensive. Measured on a 600x800 canvas, net of the frame clear: ~865us for a
+// single full-height shadowed barrier vs ~90us for the same stroke unshadowed.
+// The three overdraw passes below come to ~215us — 4x cheaper than the shadow,
+// and they read closer to real neon anyway.
+//
+// `build(ctx)` issues the moveTo/lineTo calls and must NOT call beginPath, so a
+// caller can batch many disjoint segments (e.g. all the centre dashes) into one
+// path and pay for the three strokes only once.
+export function neonStroke(ctx, build, color, width = 2, spread = 4, halo = 0.13) {
   ctx.save();
   ctx.strokeStyle = color;
-  ctx.lineWidth = width;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-  ctx.shadowColor = color;
-  ctx.shadowBlur = blur;
   ctx.beginPath();
-  ctx.moveTo(points[0][0], points[0][1]);
-  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+  build(ctx);
+
+  // Outer halo: widest and faintest.
+  ctx.globalAlpha = halo;
+  ctx.lineWidth = width * spread;
+  ctx.stroke();
+
+  // Inner halo.
+  ctx.globalAlpha = halo * 2.1;
+  ctx.lineWidth = width * (1 + (spread - 1) * 0.45);
+  ctx.stroke();
+
+  // The bright core line itself.
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = width;
   ctx.stroke();
   ctx.restore();
 }

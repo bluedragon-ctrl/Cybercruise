@@ -2,7 +2,7 @@
 // Drawn as a neon wireframe. From Phase 1 on it is constrained to the road,
 // whose left/right edges are passed in each frame as `bounds` (screen x).
 
-import { drawCar } from "./sprites.js";
+import { drawCarCached } from "./sprites.js";
 import { steerAxis, throttleAxis } from "../engine/input.js";
 import { PLAYER, PLAYER_THRUST, HAZARD } from "../engine/palette.js";
 
@@ -75,7 +75,7 @@ export class Player {
     // Flash red on the frames we're grinding a barrier, else the usual cyan.
     const color = this.hitWall ? HAZARD : this.color;
 
-    drawCar(ctx, x, this.y, {
+    drawCarCached(ctx, x, this.y, {
       color,
       thrust: PLAYER_THRUST,
       w: this.w,

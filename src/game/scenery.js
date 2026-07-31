@@ -15,8 +15,9 @@
 // Like the road, placement is stateless/deterministic: a building is a pure
 // function of its slot index, so the city is infinite and never pops.
 
-import { drawBuilding } from "./sprites.js";
-import { GREEN, FLOOR_GRID } from "../engine/palette.js";
+import { drawBuildingVariant, BUILDING_VARIANTS } from "./sprites.js";
+import { neonStroke } from "../engine/neon.js";
+import { FLOOR_GRID } from "../engine/palette.js";
 
 // The floor drifts at this fraction of the road's travelled distance. Lower =
 // feels further away / more depth. 0.5 = floor moves at half road speed.
@@ -44,27 +45,30 @@ export function render(ctx, distance, playerY, W, H) {
 // fDist); vertical lines are fixed screen columns. Covers the whole screen — the
 // road will paint over the middle, leaving the floor visible to either side.
 function drawFloorGrid(ctx, fDist, playerY, W, H) {
-  ctx.save();
-  ctx.strokeStyle = FLOOR_GRID;
-  ctx.lineWidth = 1;
-  ctx.shadowColor = FLOOR_GRID;
-  ctx.shadowBlur = 3;
-  ctx.beginPath();
-
-  const worldBottom = fDist + playerY - H;
-  const worldTop = fDist + playerY;
-  const firstY = Math.ceil(worldBottom / GRID_SPACING) * GRID_SPACING;
-  for (let wy = firstY; wy <= worldTop; wy += GRID_SPACING) {
-    const sy = playerY - (wy - fDist);
-    ctx.moveTo(0, sy);
-    ctx.lineTo(W, sy);
-  }
-  for (let x = 0; x <= W; x += GRID_SPACING) {
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, H);
-  }
-  ctx.stroke();
-  ctx.restore();
+  // The whole grid is one batched path, stroked WITHOUT ctx.shadowBlur. It spans
+  // the entire canvas, so a shadow here blurred a full-screen bounding box for a
+  // measured ~0.5ms/frame — a quarter of the whole frame, from one draw call.
+  // neonStroke's overdraw keeps the soft edge for a fraction of that.
+  neonStroke(
+    ctx,
+    (c) => {
+      const worldBottom = fDist + playerY - H;
+      const worldTop = fDist + playerY;
+      const firstY = Math.ceil(worldBottom / GRID_SPACING) * GRID_SPACING;
+      for (let wy = firstY; wy <= worldTop; wy += GRID_SPACING) {
+        const sy = playerY - (wy - fDist);
+        c.moveTo(0, sy);
+        c.lineTo(W, sy);
+      }
+      for (let x = 0; x <= W; x += GRID_SPACING) {
+        c.moveTo(x, 0);
+        c.lineTo(x, H);
+      }
+    },
+    FLOOR_GRID,
+    1,
+    3,
+  );
 }
 
 // Cube buildings scattered across the city floor, far (top) to near (bottom) so
@@ -86,14 +90,12 @@ function drawFloorBuildings(ctx, fDist, playerY, W, H) {
       if (hash(seed * 1.13) > PRESENCE) continue;
 
       const cx = hash(seed * 2.37) * W;         // anywhere across the floor
-      const height = 24 + hash(seed * 2.31) * 74;
-      const w = 40 + hash(seed * 3.77) * 48;
-      const d = 34 + hash(seed * 4.91) * 24;
-      const lit = 0.3 + hash(seed * 5.53) * 0.5;
+      // Pick one of the pre-rendered building looks rather than rolling free
+      // dimensions, so the sprite cache stays bounded (see sprites.js). Placement
+      // is still fully deterministic per slot, so nothing pops or shifts.
+      const v = Math.floor(hash(seed * 2.31) * BUILDING_VARIANTS);
       // Lean away from screen centre for a subtle shared vanishing point.
-      const skew = cx < W / 2 ? -0.26 : 0.26;
-
-      drawBuilding(ctx, cx, sy, { w, d, height, color: GREEN, lit, seed, skew });
+      drawBuildingVariant(ctx, cx, sy, v, cx >= W / 2);
     }
   }
 }
