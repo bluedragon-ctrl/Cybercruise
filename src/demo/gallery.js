@@ -6,6 +6,7 @@
 
 import { clear, glowLine } from "../engine/neon.js";
 import { drawCar, drawBuilding } from "../game/sprites.js";
+import { drawShape, SHAPE_NAMES } from "../game/buildingshapes.js";
 import * as pal from "../engine/palette.js";
 
 const gallery = document.getElementById("gallery");
@@ -115,6 +116,15 @@ cell("BLDG · TALL", (ctx, size) =>
 
 cell("BLDG · WIDE", (ctx, size) =>
   drawBuilding(ctx, size / 2, size * 0.70, { w: 96, d: 40, height: 50, color: pal.GREEN, lit: 0.4, seed: 5 }));
+
+// The alternative silhouettes, one cell each — every third slot of the city's
+// variant catalogue draws one of these instead of a box.
+SHAPE_NAMES.forEach((name, i) => {
+  cell(`BLDG · ${name}`, (ctx, size) =>
+    drawShape(ctx, size / 2, size * 0.76, i, {
+      w: 58, d: 42, height: 62, color: pal.GREEN, lit: 0.55, seed: i + 2, skew: 0.26,
+    }));
+});
 
 paletteCell();
 startAnimation();

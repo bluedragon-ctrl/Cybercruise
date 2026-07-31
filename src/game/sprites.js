@@ -5,7 +5,22 @@
 
 import { glowPoly, glowLine } from "../engine/neon.js";
 import { getSprite, blitSprite } from "../engine/spritecache.js";
-import { PLAYER, PLAYER_THRUST, GREEN, GREEN_DIM, BUILDING_FILL } from "../engine/palette.js";
+import {
+  drawShape,
+  shapeExtent,
+  fillPoly,
+  drawWallWindows,
+  SHAPE_COUNT,
+} from "./buildingshapes.js";
+import {
+  PLAYER,
+  PLAYER_THRUST,
+  GREEN,
+  GREEN_DIM,
+  BUILDING_FILL,
+  BUILDING_FILL_SIDE,
+  BUILDING_FILL_ROOF,
+} from "../engine/palette.js";
 
 // A detailed top-down supercar wireframe, pointing "up" (toward smaller y).
 // Shared by the player and (later) enemy/neutral traffic, which differ mainly by
@@ -163,94 +178,49 @@ export function drawBuilding(ctx, cx, cy, opts = {}) {
   const tBR = off(bBR);
   const tBL = off(bBL);
 
+  // HIDDEN-LINE REMOVAL. The box is a solid, so only three of its six faces can
+  // be seen and only nine of its twelve edges. Which side wall is visible follows
+  // from the extrusion: the roof shifting RIGHT means the camera sits to the
+  // LEFT of the box, so we see its left wall (and vice versa). Drawing the other
+  // faces' edges as well is what makes a filled box read as a see-through
+  // wireframe — the far verticals and the far footprint edges get painted right
+  // across the near wall.
+  //
+  //   nearCorner = ground corner where the front wall meets the visible side wall
+  //   farCorner  = the visible side wall's other ground corner (away from camera)
+  //   offCorner  = the front wall's other ground corner (on the hidden side)
+  const leanRight = ox >= 0;
+  const nearCorner = leanRight ? bFL : bFR;
+  const farCorner = leanRight ? bBL : bBR;
+  const offCorner = leanRight ? bFR : bFL;
+
   // OPAQUE fills first, so the box hides the floor grid and any building behind
-  // it. Every lateral wall is filled (the hidden ones are harmless) plus the
-  // roof; then the glowing outlines are stroked on top. No glow on the fills.
-  fillQuad(ctx, bFL, bFR, tFR, tFL); // front wall
-  fillQuad(ctx, bFR, bBR, tBR, tFR); // right wall
-  fillQuad(ctx, bBR, bBL, tBL, tBR); // back wall
-  fillQuad(ctx, bBL, bFL, tFL, tBL); // left wall
-  fillQuad(ctx, tFL, tFR, tBR, tBL); // roof
+  // it. The three visible faces tile the box's whole silhouette exactly (it's a
+  // convex solid), so the hidden three need no fill at all. Each face gets its
+  // own shade, which is what sells the box as lit and solid. No glow on fills.
+  fillPoly(ctx, [nearCorner, farCorner, off(farCorner), off(nearCorner)], BUILDING_FILL_SIDE);
+  fillPoly(ctx, [bFL, bFR, tFR, tFL], BUILDING_FILL);
+  fillPoly(ctx, [tFL, tFR, tBR, tBL], BUILDING_FILL_ROOF);
 
-  // Footprint on the grid (dim — it sits on the ground).
-  glowPoly(ctx, [bFL, bFR, bBR, bBL], GREEN_DIM, 1, 5);
+  // The two visible footprint edges on the grid (dim — they sit on the ground).
+  // The far two are inside the silhouette and stay unstroked.
+  glowLine(ctx, farCorner[0], farCorner[1], nearCorner[0], nearCorner[1], GREEN_DIM, 1, 5);
+  glowLine(ctx, nearCorner[0], nearCorner[1], offCorner[0], offCorner[1], GREEN_DIM, 1, 5);
 
-  // Vertical edges.
-  glowLine(ctx, bFL[0], bFL[1], tFL[0], tFL[1], color, 1.5, 8);
-  glowLine(ctx, bFR[0], bFR[1], tFR[0], tFR[1], color, 1.5, 8);
-  glowLine(ctx, bBR[0], bBR[1], tBR[0], tBR[1], color, 1.5, 8);
-  glowLine(ctx, bBL[0], bBL[1], tBL[0], tBL[1], color, 1.5, 8);
+  // Three visible vertical edges: the two silhouette sides plus the crease where
+  // the front and side walls meet. The fourth (rear, hidden) vertical is skipped.
+  for (const p of [farCorner, nearCorner, offCorner]) {
+    const t = off(p);
+    glowLine(ctx, p[0], p[1], t[0], t[1], color, 1.5, 8);
+  }
 
-  // Roof (brightest — it's the top and furthest from the ground).
+  // Roof (brightest — it's the top and furthest from the ground). All four of its
+  // edges are on the silhouette, so the whole quad is stroked.
   glowPoly(ctx, [tFL, tFR, tBR, tBL], color, 1.5, 10);
 
   // Lit windows on the front (south-facing) wall quad: A,B along the base edge,
   // C,D along the roof edge.
   drawWallWindows(ctx, bFL, bFR, tFR, tFL, color, lit, seed);
-}
-
-// Fills a 4-point quad with the opaque building body colour (no stroke, no glow).
-// Used to make buildings solid so they occlude the floor grid and boxes behind.
-function fillQuad(ctx, A, B, C, D) {
-  ctx.save();
-  ctx.fillStyle = BUILDING_FILL;
-  ctx.beginPath();
-  ctx.moveTo(A[0], A[1]);
-  ctx.lineTo(B[0], B[1]);
-  ctx.lineTo(C[0], C[1]);
-  ctx.lineTo(D[0], D[1]);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
-}
-
-// Bilinear point inside a quad: u runs A->B (bottom) / D->C (top); v runs bottom
-// (v=0) to top (v=1).
-function quadPoint(A, B, C, D, u, v) {
-  const bx = A[0] + (B[0] - A[0]) * u;
-  const by = A[1] + (B[1] - A[1]) * u;
-  const tx = D[0] + (C[0] - D[0]) * u;
-  const ty = D[1] + (C[1] - D[1]) * u;
-  return [bx + (tx - bx) * v, by + (ty - by) * v];
-}
-
-// Fills a grid of lit windows across a wall quad. `litFrac` of them glow; which
-// ones is deterministic from `seed` so a given building always looks the same.
-function drawWallWindows(ctx, A, B, C, D, color, litFrac, seed) {
-  const cols = 3;
-  const rows = 5;
-  const pad = 0.16; // inset within each window cell (0..0.5)
-  let s = (seed * 9301 + 49297) % 233280;
-  const rnd = () => {
-    s = (s * 9301 + 49297) % 233280;
-    return s / 233280;
-  };
-  ctx.save();
-  ctx.fillStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 5;
-  ctx.globalAlpha = 0.7;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (rnd() > litFrac) continue;
-      const u0 = (c + pad) / cols;
-      const u1 = (c + 1 - pad) / cols;
-      const v0 = (r + pad) / rows;
-      const v1 = (r + 1 - pad) / rows;
-      const p00 = quadPoint(A, B, C, D, u0, v0);
-      const p10 = quadPoint(A, B, C, D, u1, v0);
-      const p11 = quadPoint(A, B, C, D, u1, v1);
-      const p01 = quadPoint(A, B, C, D, u0, v1);
-      ctx.beginPath();
-      ctx.moveTo(p00[0], p00[1]);
-      ctx.lineTo(p10[0], p10[1]);
-      ctx.lineTo(p11[0], p11[1]);
-      ctx.lineTo(p01[0], p01[1]);
-      ctx.closePath();
-      ctx.fill();
-    }
-  }
-  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
@@ -320,6 +290,21 @@ export function drawCarCached(ctx, cx, cy, opts = {}) {
 // a product of continuous ranges — tens of thousands of entries — and defeat it.
 export const BUILDING_VARIANTS = 24;
 
+// Silhouette variety comes from PARTITIONING this catalogue, not from growing
+// it: every third slot is one of the shapes in buildingshapes.js instead of a
+// box, so the city gains pyramids, drums and spires at exactly the same sprite
+// count, memory and per-frame cost as before. Giving each shape its own 24
+// variants would have multiplied the cache instead (48 sprites and ~3MB per
+// shape) for variety the eye can't tell apart at this size anyway.
+const SHAPE_EVERY = 3;
+
+// Which shape variant `v` draws: 0 for the classic box, otherwise 1 + an index
+// into buildingshapes.js's catalogue.
+function variantShape(v) {
+  if (v % SHAPE_EVERY !== 2) return 0;
+  return 1 + (Math.floor(v / SHAPE_EVERY) % SHAPE_COUNT);
+}
+
 // Deterministic parameters for variant `v`. The multipliers are chosen so each
 // field cycles through its full range at a different rate, giving a varied
 // skyline from a small catalogue. Dimensions land on 8px steps.
@@ -341,18 +326,31 @@ function variantOpts(v, leanRight) {
 // screen centre without doubling the variant catalogue.
 export function drawBuildingVariant(ctx, cx, cy, v, leanRight) {
   const o = variantOpts(v, leanRight);
+  const shape = variantShape(v);
 
-  // Bounding box relative to the base centre: the roof is shifted up by `height`
-  // and sideways by `height * skew`, so only one side gains horizontal extent.
-  const roofShift = o.height * o.skew;
-  const originX = o.w / 2 + Math.max(0, -roofShift) + GLOW_PAD;
-  const originY = o.d / 2 + o.height + GLOW_PAD;
-  const sw = o.w + Math.abs(roofShift) + GLOW_PAD * 2;
-  const sh = o.d + o.height + GLOW_PAD * 2;
+  // Bounding box relative to the base centre. For the box it's roof-shifted up
+  // by `height` and sideways by `height * skew`, so only one side gains
+  // horizontal extent; the other shapes measure their own sections.
+  let ext;
+  if (shape === 0) {
+    const roofShift = o.height * o.skew;
+    ext = {
+      left: o.w / 2 + Math.max(0, -roofShift),
+      right: o.w / 2 + Math.max(0, roofShift),
+      up: o.d / 2 + o.height,
+      down: o.d / 2,
+    };
+  } else {
+    ext = shapeExtent(shape - 1, o);
+  }
+  const originX = ext.left + GLOW_PAD;
+  const originY = ext.up + GLOW_PAD;
+  const sw = ext.left + ext.right + GLOW_PAD * 2;
+  const sh = ext.up + ext.down + GLOW_PAD * 2;
 
   const key = `bldg|${v}|${leanRight ? 1 : 0}`;
   const sprite = getSprite(key, sw, sh, originX, originY, (sctx, sx, sy) =>
-    drawBuilding(sctx, sx, sy, o),
+    shape === 0 ? drawBuilding(sctx, sx, sy, o) : drawShape(sctx, sx, sy, shape - 1, o),
   );
   blitSprite(ctx, sprite, cx, cy);
 }

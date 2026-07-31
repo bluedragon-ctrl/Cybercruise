@@ -23,8 +23,13 @@ export const FLOOR_GRID = "rgba(57,255,136,0.14)";   // the LOWER city floor gri
 export const ROAD_SURFACE = "#04060a";  // opaque road tarmac — occludes the city floor below,
                                         // selling the road as an elevated ribbon over the city
 export const WALL_FILL = "#08160f";     // dark face of the road's elevated side wall
-export const BUILDING_FILL = "#07130d"; // opaque dark body so buildings occlude the
-                                        // floor grid and the boxes behind them
+// Building faces. All three are OPAQUE (buildings occlude the floor grid and the
+// boxes behind them), and they differ slightly so the three visible faces read as
+// a lit solid rather than one flat silhouette: the roof catches the most light,
+// the road-facing front wall less, the side wall least.
+export const BUILDING_FILL = "#07130d";      // front (camera-facing) wall
+export const BUILDING_FILL_SIDE = "#050c08"; // side wall — in shadow
+export const BUILDING_FILL_ROOF = "#0a1c12"; // roof — the brightest face
 
 // --- Gameplay entity accents ---
 export const PLAYER = "#39f6ff";        // player car (cyan)
