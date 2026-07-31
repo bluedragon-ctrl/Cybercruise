@@ -46,7 +46,11 @@ export const ENEMY_FACTION = "enemy";
 //   steerSpeed  how fast the car can slide sideways, px/sec — a behaviour asks
 //               for a lateral position and this caps how quickly it gets there,
 //               so a truck wallows and a roadster darts
-//   behaviour   key into behaviours.js
+//   behaviour   key into behaviours.js. The nimble types `overtake` — they pull
+//               out and pass whatever is holding them up, the player included;
+//               the two heavy ones just `cruise`, so sitting in front of a truck
+//               means it stays there. That split is what stops every car on the
+//               road weaving at once
 //   weight      relative spawn frequency
 export const CAR_TYPES = [
   {
@@ -62,7 +66,7 @@ export const CAR_TYPES = [
     speedMin: 170,
     speedMax: 210,
     steerSpeed: 90,
-    behaviour: "cruise",
+    behaviour: "overtake",
     weight: 3,
   },
   {
@@ -78,7 +82,7 @@ export const CAR_TYPES = [
     speedMin: 130,
     speedMax: 160,
     steerSpeed: 45,
-    behaviour: "cruise",
+    behaviour: "cruise", // wallows too much to pass anything; it just sits behind you
     weight: 1.5,
   },
   {
@@ -94,7 +98,7 @@ export const CAR_TYPES = [
     speedMin: 300,
     speedMax: 360,
     steerSpeed: 140,
-    behaviour: "cruise",
+    behaviour: "overtake",
     weight: 1.5,
   },
   {
@@ -110,8 +114,9 @@ export const CAR_TYPES = [
     speedMin: 280,
     speedMax: 340,
     steerSpeed: 130,
-    // Phase 4 swaps this for a pursuit behaviour; for now it just drives fast.
-    behaviour: "cruise",
+    // Phase 4 swaps this for a pursuit behaviour; until then it drives fast and
+    // goes around anything slower, the player included.
+    behaviour: "overtake",
     weight: 2,
   },
   {

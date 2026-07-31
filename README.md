@@ -111,6 +111,20 @@ traffic doesn't mean touching the simulation:
 - `src/game/traffic.js` — spawning, driving, retiring, drawing.
 - `src/game/collisions.js` — ramming: the only place cars push each other around.
 
+The nimble types (sedan, roadster, interceptor) drive the `overtake` tactic: if
+something slower is holding them up — traffic or the player — they pull out, pass
+on one side and settle back into a lane. The manoeuvre is **committed**: a car
+picks its side once, from whichever one has road and nobody already in it, and
+holds that line until it is past, gives up (6s), or the side runs out of tarmac.
+Re-deciding every tick makes traffic dither, and here it would also mean cars
+jinking into each other, since every swerve is now a collision. Overtakers still
+brake for whatever is ahead in *either* lane while changing lanes, so a pass that
+can't be completed degrades to following rather than to a rear-end.
+
+The two heavy types (truck, bruiser) just `cruise`, which is what keeps the whole
+road from weaving at once — and means sitting in front of a truck at 130 works,
+while sitting in front of anything else does not.
+
 Cars are positioned as `worldY` (along the road) plus a lateral `offset` from
 the centre-line, so they track every curve without steering. They exist only
 near the player: spawned just off-screen — ahead if slower than the player,
