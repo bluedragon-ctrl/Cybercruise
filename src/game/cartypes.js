@@ -15,6 +15,40 @@
 // silhouette coming at you in red reads instantly as a rival, where a civilian
 // copy of the player's car would just look like a bug.
 //
+// THE SPEED BAND. The player runs 120..620 (player.js), and the catalogue is
+// pinned to both ends of that:
+//
+//   FLOOR    the slowest type cruises at 180 — half again the player's minimum.
+//            Dawdling therefore never makes the road go quiet; it makes the
+//            whole city stream past you, which is the point of a minimum speed.
+//   CEILING  the fastest types cruise ABOVE 620, so flat out is not fast enough
+//            to be left alone: a cycle will still come past a player at full
+//            throttle. Nothing in the game should be outrun by simply holding
+//            the throttle down — that is what the Phase 5 boosts are for, and
+//            they only mean something if there is something to catch.
+//
+// Everything else is spread between those two, ordered by role: haulers at the
+// bottom, the enemy mid-field around 300-500, and the three genuine speed
+// machines (rival, hypercar, cycle) at or over the player's ceiling.
+//
+// WITHIN a type, no two cars drive alike, and none of it costs a sprite:
+//   - the range is ROLLED per spawn, so two sedans start out different;
+//   - each car then WANDERS ±4% around its roll on its own period, so a pair
+//     that happened to roll close together separates instead of locking into
+//     formation (traffic.js DRIFT);
+//   - an overtaker spends up to 15% more while it is committed to a pass
+//     (behaviours.js PASS_EFFORT), so passing reads as effort.
+// Civilian types carry the widest ranges, since a civilian type is a spread of
+// ordinary drivers; the speed machines are defined by their ceiling and stay
+// narrow. Both extras are CAPPED by speedMin/speedMax, so the band below is a
+// hard floor and ceiling and everything after this paragraph still holds.
+//
+// The band's WIDTH is not free: traffic sheds speed at traffic.js's ACCEL, and
+// behaviours.js sizes a follower's gap from that rate. The largest closing speed
+// the catalogue can now produce is 730 - 120 = 610 units/sec, and ACCEL is set so
+// one second of closing rate still covers the road needed to match it. Widening
+// the band further means revisiting that pair — see FOLLOW_REACTION.
+//
 // SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) combination is
 // a cache key in sprites.js, times WHEEL_FRAMES (8) wheel positions, plus one
 // more colour for the critical-hull blink: 10 types * 8 * 2 = 160 sprites at the
@@ -60,7 +94,7 @@ export const ENEMY_FACTION = "enemy";
 //               the difference between bouncing off a rig and swatting a roadster
 //               aside. Roughly tracks size, but it's a gameplay dial: nudge it to
 //               make a type feel heavier without redrawing it
-//   speedMin/Max  cruising speed range, world units/sec (player: 120..620)
+//   speedMin/Max  cruising speed range, world units/sec. See THE SPEED BAND
 //   steerSpeed  how fast the car can slide sideways, px/sec — a behaviour asks
 //               for a lateral position and this caps how quickly it gets there,
 //               so a rig wallows and a cycle darts
@@ -88,8 +122,11 @@ export const CAR_TYPES = [
     h: 60,
     health: 60,
     mass: 1, // the reference car: everything else is heavier or lighter than this
-    speedMin: 170,
-    speedMax: 210,
+    // The widest range in the catalogue. A civilian type is a spread of ordinary
+    // drivers, so a lane of sedans should visibly sort itself out; the speed
+    // machines below are DEFINED by their ceiling and stay narrow.
+    speedMin: 215,
+    speedMax: 290,
     steerSpeed: 90,
     blastRadius: 36,
     blastDamage: 14,
@@ -107,8 +144,8 @@ export const CAR_TYPES = [
     h: 68,
     health: 95,
     mass: 1.6,
-    speedMin: 150,
-    speedMax: 185,
+    speedMin: 195,
+    speedMax: 255,
     steerSpeed: 60,
     blastRadius: 42,
     blastDamage: 18,
@@ -126,8 +163,8 @@ export const CAR_TYPES = [
     h: 54,
     health: 40,
     mass: 0.8, // light and fragile: the one car the player can simply swat aside
-    speedMin: 300,
-    speedMax: 360,
+    speedMin: 400,
+    speedMax: 490,
     steerSpeed: 140,
     blastRadius: 30,
     blastDamage: 9,
@@ -145,8 +182,12 @@ export const CAR_TYPES = [
     h: 124, // twice any other car: it is a rolling wall, and a lane-and-a-half of
     health: 220, // road disappears behind it
     mass: 4, // immovable in practice — ram it and you lose, not the rig
-    speedMin: 130,
-    speedMax: 155,
+    // The floor of the whole catalogue: 180 is half again the player's minimum,
+    // so even a rig is pulling away from a player who has given up on the
+    // throttle. The floor is the ONE number here that must not drift downward —
+    // it is the reason a slow player still sees a moving road.
+    speedMin: 180,
+    speedMax: 215,
     steerSpeed: 35,
     // It is carrying something. Killing a rig in traffic is the biggest event on
     // the road — the blast covers most of the tarmac around it and will take a
@@ -167,10 +208,10 @@ export const CAR_TYPES = [
     h: 64,
     health: 45,
     mass: 0.9,
-    // The only civilian that outruns the player's cruise: a rare showpiece that
-    // comes past and is gone, which is exactly why it is worth spotting.
-    speedMin: 380,
-    speedMax: 440,
+    // Faster than the player is ALLOWED to go: a rare showpiece that comes past
+    // at full throttle and is gone, which is exactly why it is worth spotting.
+    speedMin: 630,
+    speedMax: 700,
     steerSpeed: 160,
     blastRadius: 32,
     blastDamage: 10,
@@ -190,8 +231,8 @@ export const CAR_TYPES = [
     h: 62,
     health: 70,
     mass: 1.1,
-    speedMin: 280,
-    speedMax: 340,
+    speedMin: 400,
+    speedMax: 470,
     steerSpeed: 130,
     blastRadius: 38,
     blastDamage: 16,
@@ -209,8 +250,8 @@ export const CAR_TYPES = [
     h: 68,
     health: 110,
     mass: 1.7, // heavier than the player: it wins a shoving match, slowly
-    speedMin: 230,
-    speedMax: 280,
+    speedMin: 310,
+    speedMax: 360,
     steerSpeed: 85,
     blastRadius: 44,
     blastDamage: 24,
@@ -228,8 +269,11 @@ export const CAR_TYPES = [
     h: 58,
     health: 25, // one solid contact and it is gone
     mass: 0.5,
-    speedMin: 330,
-    speedMax: 400,
+    // The fastest thing on the road, and deliberately faster than the player's
+    // ceiling: a cycle catches and passes a player at full throttle. Outrunning
+    // one is a job for a Phase 5 boost, not for the accelerator.
+    speedMin: 660,
+    speedMax: 730,
     steerSpeed: 180, // the nimblest thing on the road, by a wide margin
     blastRadius: 24,
     blastDamage: 7,
@@ -247,8 +291,8 @@ export const CAR_TYPES = [
     h: 74,
     health: 160,
     mass: 2.2, // built to ram; Phase 4 gives it the behaviour to go with the mass
-    speedMin: 200,
-    speedMax: 240,
+    speedMin: 280,
+    speedMax: 330,
     steerSpeed: 70,
     blastRadius: 52,
     blastDamage: 32,
@@ -258,9 +302,8 @@ export const CAR_TYPES = [
   {
     id: "rival",
     label: "RIVAL",
-    // The player's own silhouette, in enemy red — see the header. It is the
-    // fastest hostile on the road and the only one that can stay with the player
-    // at full throttle.
+    // The player's own silhouette, in enemy red — see the header. Only the cycle
+    // is quicker, and nothing else hostile can live with the player flat out.
     shape: carShapeIndex("SUPERCAR"),
     faction: ENEMY_FACTION,
     color: ENEMY,
@@ -269,8 +312,10 @@ export const CAR_TYPES = [
     h: 62,
     health: 90,
     mass: 1.2,
-    speedMin: 340,
-    speedMax: 400,
+    // Straddles the player's top speed: flat out, you draw level with a rival
+    // and neither of you gets away. The only hostile that can hold that.
+    speedMin: 580,
+    speedMax: 650,
     steerSpeed: 150,
     blastRadius: 40,
     blastDamage: 20,

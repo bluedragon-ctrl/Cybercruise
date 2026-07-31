@@ -36,6 +36,12 @@ import { laneAt, laneOffset, ROAD_HALF_WIDTH } from "./road.js";
 // units of road; one second of closing rate covers that for every dv the
 // catalogue can produce, so a follower always has room to match rather than
 // running into the car ahead.
+//
+// That "for every dv" is a REAL CONSTRAINT between three numbers, not a
+// platitude: it holds exactly while the catalogue's largest closing speed (the
+// fastest cruise minus the player's minimum, currently 730 - 120 = 610) is no
+// more than 2 * ACCEL * FOLLOW_REACTION. Widen the speed band and one of ACCEL
+// or FOLLOW_REACTION has to move with it, or the road starts rear-ending itself.
 const FOLLOW_GAP = 40;
 const FOLLOW_REACTION = 1.0; // seconds of closing rate added to the gap
 
@@ -50,14 +56,19 @@ function cruise(car, _dt, world) {
 }
 
 // The speed to ask for while `lead` is in the way — the lead car's speed once
-// inside the gap this car needs at its current closing rate, its own cruising
-// speed outside it (or with the road clear).
-function followSpeed(car, lead) {
-  if (!lead) return car.cruiseSpeed;
+// inside the gap this car needs at its current closing rate, `desired` outside
+// it (or with the road clear).
+//
+// `desired` is a parameter rather than just car.cruiseSpeed because an
+// overtaking car wants MORE than its cruise (see passSpeed): the braking rule
+// and the "how fast do I want to go" question are separate, and a car making a
+// pass still has to brake for whatever is in front of it.
+function followSpeed(car, lead, desired = car.cruiseSpeed) {
+  if (!lead) return desired;
   const gap = lead.worldY - car.worldY - (lead.h + car.h) / 2;
   const closing = Math.max(0, car.speed - lead.speed);
   const needed = FOLLOW_GAP + closing * FOLLOW_REACTION;
-  return gap < needed ? Math.min(car.cruiseSpeed, lead.speed) : car.cruiseSpeed;
+  return gap < needed ? Math.min(desired, lead.speed) : desired;
 }
 
 // The nearest thing ahead of `car` that it would run into if it drove the line
@@ -103,6 +114,21 @@ const PASS_TIMEOUT = 6;       // seconds before an unfinished pass is abandoned
 const PASS_SPEED_MARGIN = 15; // how much faster we must want to be to bother
 const PASS_LOOK_BEHIND = 90;  // world units of the pass line checked behind us...
 const PASS_LOOK_AHEAD = 140;  // ...and beyond the car we mean to pass
+const PASS_EFFORT = 1.15;    // how much harder a car drives while committed to a pass
+
+// The speed a car wants while it is actually alongside something. A pass driven
+// at cruise speed is a slow one — the whole manoeuvre runs at whatever margin
+// the two cruise speeds happen to differ by, which is why passes used to expire
+// on PASS_TIMEOUT rather than finish. Spending a little extra makes overtaking
+// read as effort rather than as drift.
+//
+// CAPPED AT THE TYPE'S OWN speedMax, which is what keeps this free: the top of
+// the catalogue's speed band doesn't move, so the largest closing speed the road
+// can produce is unchanged and the ACCEL / FOLLOW_REACTION invariant above still
+// holds. A car already cruising at its maximum simply passes at cruise.
+function passSpeed(car) {
+  return Math.min(car.type.speedMax, car.cruiseSpeed * PASS_EFFORT);
+}
 
 // Drive on, but go around whatever is in the way rather than sitting behind it.
 // Otherwise identical to cruising: this still brakes for the car in front, so a
@@ -122,7 +148,9 @@ function overtake(car, dt, world) {
       )
     : leadCar(car, world, car.offset, null);
 
-  car.targetSpeed = followSpeed(car, lead);
+  // Drive harder while committed to a pass, but still brake for anything in
+  // either line: the effort is spent on getting by, not on driving into someone.
+  car.targetSpeed = followSpeed(car, lead, target ? passSpeed(car) : car.cruiseSpeed);
 }
 
 // Commit to a pass if there's something worth passing and a side to do it on.
