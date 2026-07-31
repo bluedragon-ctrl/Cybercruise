@@ -7,6 +7,7 @@
 import { clear, glowLine } from "../engine/neon.js";
 import { drawCar, drawBuilding } from "../game/sprites.js";
 import { drawShape, SHAPE_NAMES } from "../game/buildingshapes.js";
+import { CAR_TYPES, ENEMY_FACTION } from "../game/cartypes.js";
 import * as pal from "../engine/palette.js";
 
 const gallery = document.getElementById("gallery");
@@ -77,7 +78,10 @@ function paletteCell() {
     ["GREEN_PALE", pal.GREEN_PALE],
     ["PLAYER", pal.PLAYER],
     ["ENEMY", pal.ENEMY],
+    ["ENEMY_DEEP", pal.ENEMY_DEEP],
     ["NEUTRAL", pal.NEUTRAL],
+    ["NEUTRAL_DEEP", pal.NEUTRAL_DEEP],
+    ["NEUTRAL_PALE", pal.NEUTRAL_PALE],
     ["HAZARD", pal.HAZARD],
   ];
   cell("PALETTE", (ctx, size) => {
@@ -98,13 +102,15 @@ cell("PLAYER CAR", (ctx, size, phase) =>
   drawCar(ctx, size / 2, size / 2, { color: pal.PLAYER, thrust: pal.PLAYER_THRUST, wheelPhase: phase }),
   { animate: true });
 
-cell("ENEMY CAR", (ctx, size, phase) =>
-  drawCar(ctx, size / 2, size / 2, { color: pal.ENEMY, thrust: pal.ENEMY, wheelPhase: phase }),
-  { animate: true });
-
-cell("NEUTRAL CAR", (ctx, size, phase) =>
-  drawCar(ctx, size / 2, size / 2, { color: pal.NEUTRAL, thrust: pal.NEUTRAL, wheelPhase: phase }),
-  { animate: true });
+// Traffic, straight from the catalogue — a new car type in cartypes.js shows up
+// here on its own, at exactly the size and colours the game will drive it with.
+CAR_TYPES.forEach((t) => {
+  cell(`${t.faction === ENEMY_FACTION ? "ENEMY" : "CIVIL"} · ${t.label}`, (ctx, size, phase) =>
+    drawCar(ctx, size / 2, size / 2, {
+      color: t.color, thrust: t.thrust, w: t.w, h: t.h, wheelPhase: phase,
+    }),
+    { animate: true });
+});
 
 // Cube buildings. Base is placed low in the cell so the extruded roof has room
 // above it. Varied width/depth/height show the skyline range.

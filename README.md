@@ -47,6 +47,8 @@ most of the machines this is developed on.
 A static showcase of the neon assets (cars, buildings, palette) for iterating on
 visuals without running the game lives at <http://localhost:5173/demo.html>. Add
 a sprite in `src/game/sprites.js`, then register a cell in `src/demo/gallery.js`.
+Car types are the exception: the gallery walks the catalogue, so a new entry in
+`src/game/cartypes.js` shows up there on its own.
 
 ### Controls
 
@@ -92,6 +94,30 @@ fullscreen 1080p is 4.3x the area, and glow cost scales with it.
 Still open: the world scroll doesn't interpolate (`main.js` passes raw
 `distance` to render while the player interpolates `x`), which judders on
 120/144Hz displays; and the city has no culling, which will matter for Phase 7.
+
+### Traffic
+
+The other cars on the road are three files, split so that adding a kind of
+traffic doesn't mean touching the simulation:
+
+- `src/game/cartypes.js` — the catalogue. A type is pure data: colours, size,
+  health, cruising-speed range, how fast it can change lanes, spawn weight, and
+  the name of its behaviour. New traffic = a new entry here.
+- `src/game/behaviours.js` — one function per tactic, looked up by that name. A
+  behaviour only sets INTENT (`targetOffset`, `targetSpeed`); traffic.js
+  integrates it under the type's limits, so a truck can't corner like a
+  roadster and the physics stay in one place. Phase 4's pursuit/ram/shoot
+  tactics are further entries in that table.
+- `src/game/traffic.js` — spawning, driving, retiring, drawing.
+
+Cars are positioned as `worldY` (along the road) plus a lateral `offset` from
+the centre-line, so they track every curve without steering. They exist only
+near the player: spawned just off-screen — ahead if slower than the player,
+behind if faster, so they always cross the screen — and retired once well past.
+
+Phase 3 currently ships cruising traffic only. Cars keep their distance from
+each other, but nothing collides with the *player* yet, so they pass straight
+through; ramming physics is the next step.
 
 ## Project layout
 
