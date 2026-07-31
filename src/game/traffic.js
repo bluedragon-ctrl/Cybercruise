@@ -208,7 +208,13 @@ class TrafficCar {
 }
 
 export class Traffic {
-  constructor() {
+  // `onDestroyed(car)` is called once for every car that blows up, at the moment
+  // it detonates. A CALLBACK rather than a score object, because traffic has no
+  // business knowing what a point is: main.js owns the scoreboard and decides
+  // that a dead car is worth something (score.js). Chain-reaction kills come
+  // through here exactly like direct ones — a kill is a kill, whoever lit it.
+  constructor(onDestroyed = null) {
+    this.onDestroyed = onDestroyed;
     this.cars = [];
     this.spawnTimer = 0;
     // The view handed to the car behaviours: main.js's world plus the car list.
@@ -294,6 +300,9 @@ export class Traffic {
       if (!car) return;
       car.exploded = true;
       this.explosions.spawn(car.worldY, car.offset, car.type);
+      // Scored BEFORE the blast, so a chain reads in the order it happened: the
+      // car that went first is credited first, then whatever it took with it.
+      if (this.onDestroyed) this.onDestroyed(car);
       this.blast(car);
     }
   }

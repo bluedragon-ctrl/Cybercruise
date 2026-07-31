@@ -71,11 +71,22 @@ import {
   NEUTRAL_THRUST,
 } from "../engine/palette.js";
 
-// Factions decide who a behaviour is allowed to be interested in, and how a hit
-// scores (Phase 4/6). Ramming a civilian will be a penalty; ramming an enemy
-// won't. Colour follows the faction — see the palette.
+// Factions decide who a behaviour is allowed to be interested in. Colour follows
+// the faction — see the palette. Scoring follows it too, but only by CONVENTION:
+// the scoreboard reads `value` off the type and never asks what faction a car
+// belonged to (score.js), which is what leaves room for a civilian that is worth
+// killing, or a hostile that is worth more than the rest.
 export const NEUTRAL_FACTION = "neutral";
 export const ENEMY_FACTION = "enemy";
+
+// Starting point for `value`, below: one flat figure for the enemy and its
+// mirror image for the city's traffic. Deliberately UNIFORM for now — the point
+// of putting the number on every type separately is that it can be spread out
+// later (a rig worth more than a sedan, a rival worth more than an interceptor)
+// without touching score.js. Tune the entries, not these two constants, once
+// there is a reason to tell types apart.
+const ENEMY_VALUE = 100;
+const CIVILIAN_VALUE = -100;
 
 // Fields:
 //   id          stable key (save data, spawn tables, debugging)
@@ -103,6 +114,10 @@ export const ENEMY_FACTION = "enemy";
 //               along its own length). Lane width is 65px for scale
 //   blastDamage hull taken at the centre of that blast, falling off linearly to
 //               nothing at the rim. The player has 100 hull
+//   value       points scored for DESTROYING this car (score.js). Positive for
+//               the enemy, negative for the city's own traffic — killing a
+//               civilian is a fine, not a reward. Paid however the car died,
+//               including a chain reaction the player only lit the fuse for
 //   behaviour   key into behaviours.js. The nimble types `overtake` — they pull
 //               out and pass whatever is holding them up, the player included;
 //               the heavy ones `cruise`, so sitting in front of a rig means it
@@ -130,6 +145,7 @@ export const CAR_TYPES = [
     steerSpeed: 90,
     blastRadius: 36,
     blastDamage: 14,
+    value: CIVILIAN_VALUE,
     behaviour: "overtake",
     weight: 3, // the backbone of the road
   },
@@ -149,6 +165,7 @@ export const CAR_TYPES = [
     steerSpeed: 60,
     blastRadius: 42,
     blastDamage: 18,
+    value: CIVILIAN_VALUE,
     behaviour: "cruise", // slow and wide: it holds its lane and makes you go round
     weight: 2,
   },
@@ -168,6 +185,7 @@ export const CAR_TYPES = [
     steerSpeed: 140,
     blastRadius: 30,
     blastDamage: 9,
+    value: CIVILIAN_VALUE,
     behaviour: "overtake",
     weight: 1.5,
   },
@@ -194,6 +212,7 @@ export const CAR_TYPES = [
     // third of the player's hull if they are alongside when it goes.
     blastRadius: 72,
     blastDamage: 46,
+    value: CIVILIAN_VALUE,
     behaviour: "convoy",
     weight: 0.8,
   },
@@ -215,6 +234,7 @@ export const CAR_TYPES = [
     steerSpeed: 160,
     blastRadius: 32,
     blastDamage: 10,
+    value: CIVILIAN_VALUE,
     behaviour: "overtake",
     weight: 0.4,
   },
@@ -236,6 +256,7 @@ export const CAR_TYPES = [
     steerSpeed: 130,
     blastRadius: 38,
     blastDamage: 16,
+    value: ENEMY_VALUE,
     behaviour: "pursue",
     weight: 2, // the standard hostile: whatever else is out, one of these is too
   },
@@ -255,6 +276,7 @@ export const CAR_TYPES = [
     steerSpeed: 85,
     blastRadius: 44,
     blastDamage: 24,
+    value: ENEMY_VALUE,
     behaviour: "block",
     weight: 1.2,
   },
@@ -277,6 +299,7 @@ export const CAR_TYPES = [
     steerSpeed: 180, // the nimblest thing on the road, by a wide margin
     blastRadius: 24,
     blastDamage: 7,
+    value: ENEMY_VALUE,
     behaviour: "weave",
     weight: 1,
   },
@@ -296,6 +319,7 @@ export const CAR_TYPES = [
     steerSpeed: 70,
     blastRadius: 52,
     blastDamage: 32,
+    value: ENEMY_VALUE,
     behaviour: "ram",
     weight: 0.8,
   },
@@ -319,6 +343,7 @@ export const CAR_TYPES = [
     steerSpeed: 150,
     blastRadius: 40,
     blastDamage: 20,
+    value: ENEMY_VALUE,
     behaviour: "pursue",
     weight: 0.3, // rare enough that meeting one is an event
   },
