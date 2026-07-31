@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "cybercruise",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["--yes", "http-server", ".", "-p", "5173", "-c-1"],
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5173"],
       "port": 5173
     }
   ]

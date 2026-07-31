@@ -12,11 +12,10 @@ The game uses native ES modules, so it must be served over HTTP (not opened as a
 serves the folder and opens the game in your browser. It takes an optional port:
 `play.bat 8080`.
 
-Or start a server yourself, from the project root:
-`file://`). Any static file server will do — from the project root:
+Otherwise any static file server will do — from the project root:
 
 ```bash
-npx http-server . -p 5173 -c-1
+python -m http.server 5173
 ```
 
 Then open <http://localhost:5173>.
