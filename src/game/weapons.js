@@ -25,6 +25,24 @@
 
 import { PLAYER, PLAYER_THRUST } from "../engine/palette.js";
 
+// HOW A BULLET FLIES. The road curves, so "straight ahead" and "up the lane" are
+// two genuinely different shots, and which one a weapon takes is its defining
+// trait rather than an engine detail:
+//
+//   STRAIGHT  the round holds the SCREEN LINE it was fired along and ignores the
+//             road entirely. On a straight it is the obvious weapon; into a bend
+//             it drifts across the lanes and eventually buries itself in the
+//             barrier. What you point at is what you hit — including the wall.
+//   TRACKING  the round holds its LATERAL OFFSET from the centre-line, so it
+//             follows every curve the road takes and stays in the lane it was
+//             fired up. It can shoot round a bend, which no straight shot can,
+//             and it can never hit a barrier.
+//
+// projectiles.js implements both; this constant is the whole difference between
+// them at the catalogue level.
+export const FLIGHT_STRAIGHT = "straight";
+export const FLIGHT_TRACKING = "tracking";
+
 // Fields:
 //   id          stable key (save data, pickup tables, debugging)
 //   label       HUD caption
@@ -36,6 +54,7 @@ import { PLAYER, PLAYER_THRUST } from "../engine/palette.js";
 //               THE SHOOTER. A bullet's absolute speed is the shooter's speed
 //               plus this, so firing while flat out doesn't leave your own
 //               rounds hanging in front of you
+//   flight      FLIGHT_STRAIGHT | FLIGHT_TRACKING — see above
 //   ammo        rounds carried. Infinity for the default gun
 //   color/glow  bullet body and its trail
 //   length/width  the bullet's drawn size AND its hit box, world units
@@ -51,11 +70,35 @@ export const WEAPON_TYPES = [
     damage: 34,
     interval: 0.16, // ~6 shots/sec — fast enough to feel automatic
     muzzleSpeed: 900,
+    // The default gun shoots where the car is POINTED, which on a bend is not
+    // where the road goes. That limitation is the reason the tracker below is
+    // worth carrying, so it must never be softened here.
+    flight: FLIGHT_STRAIGHT,
     ammo: Infinity,
     color: PLAYER,
     glow: PLAYER_THRUST,
     length: 14,
     width: 4,
+  },
+  {
+    id: "tracker",
+    label: "TRACKER",
+    // Hits harder and slower than the cannon, and every round follows the road
+    // round the bend. Its value is entirely SITUATIONAL: on a straight it is a
+    // worse cannon, and through a long curve it is the only thing that can
+    // reach the car ahead at all.
+    damage: 45,
+    interval: 0.24, // ~4 shots/sec
+    muzzleSpeed: 820,
+    flight: FLIGHT_TRACKING,
+    // FINITE, and there is nowhere to refill it until the Phase 5 pickups land:
+    // 60 rounds is roughly fifteen seconds of held trigger. Running dry and
+    // dropping back to the cannon is the intended arc for now, not a bug.
+    ammo: 60,
+    color: PLAYER_THRUST,
+    glow: PLAYER,
+    length: 16,
+    width: 4.5,
   },
 ];
 
@@ -101,5 +144,35 @@ export class Weapon {
   // because "999" invites the player to watch it.
   get ammoText() {
     return this.ammo === Infinity ? "∞" : `${Math.max(0, Math.floor(this.ammo))}`;
+  }
+}
+
+// Everything a car is carrying, and which of it is in hand.
+//
+// SWAPPING NEVER FAILS, including onto an empty weapon. The alternative — skip
+// what has no ammo — means the same key does different things depending on
+// state, and the player has no way to see what they are about to get. An empty
+// weapon selects, shows "0", and refuses to fire; TAB again moves on.
+//
+// Cooldowns run for the WHOLE loadout, not just the weapon in hand (see
+// update), so swapping cannot be used to dodge a slow weapon's fire rate by
+// flicking away and back.
+export class Loadout {
+  constructor(types = WEAPON_TYPES) {
+    this.weapons = types.map((t) => new Weapon(t));
+    this.index = 0;
+  }
+
+  get current() {
+    return this.weapons[this.index];
+  }
+
+  next() {
+    this.index = (this.index + 1) % this.weapons.length;
+    return this.current;
+  }
+
+  update(dt) {
+    for (const w of this.weapons) w.update(dt);
   }
 }

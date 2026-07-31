@@ -3,14 +3,14 @@
 // parallax city, sharing the road with other traffic — and shooting at it.
 
 import { createLoop } from "./engine/loop.js";
-import { initInput, isDown } from "./engine/input.js";
+import { initInput, isDown, consumePress } from "./engine/input.js";
 import { clear, glowText } from "./engine/neon.js";
-import { GREEN, GREEN_BRIGHT, GREEN_PALE, HAZARD, PLAYER } from "./engine/palette.js";
+import { GREEN, GREEN_BRIGHT, GREEN_PALE, HAZARD } from "./engine/palette.js";
 import { Player } from "./game/player.js";
 import { Projectiles } from "./game/projectiles.js";
 import { Score } from "./game/score.js";
 import { Traffic } from "./game/traffic.js";
-import { Weapon } from "./game/weapons.js";
+import { Loadout } from "./game/weapons.js";
 import * as road from "./game/road.js";
 import * as scenery from "./game/scenery.js";
 
@@ -31,11 +31,11 @@ const player = new Player(W / 2, H * 0.62);
 const score = new Score();
 const traffic = new Traffic((car) => score.destroyed(car.type));
 
-// The gun, and the bullets it puts in the air. The player holds a Weapon (its
-// cooldown and ammo — weapons.js); the world holds the shots (projectiles.js).
-// Kept apart because the enemy will carry the same Weapon class in the next
-// step while firing into the same pool.
-const weapon = new Weapon();
+// The guns, and the bullets they put in the air. The player holds a Loadout
+// (each weapon's cooldown and ammo — weapons.js); the world holds the shots
+// (projectiles.js). Kept apart because the enemy will carry the same Weapon
+// class in the next step while firing into the same pool.
+const loadout = new Loadout();
 const shots = new Projectiles();
 
 // `distance` is how far we've driven, in world units. It grows with speed and
@@ -59,16 +59,22 @@ function update(dt) {
   // Shooting, BEFORE traffic: a bullet that kills a car this tick leaves that
   // car dead when traffic.update runs, so it detonates and scores in the same
   // frame it was hit rather than a frame later.
-  weapon.update(dt);
+  // TAB cycles the loadout. Edge-triggered (consumePress, not isDown) so holding
+  // the key selects one weapon rather than riffling through them every frame.
+  if (consumePress("swap")) loadout.next();
+
+  loadout.update(dt);
+  const weapon = loadout.current;
   if (isDown("fire") && weapon.tryFire()) {
     // The muzzle is the car's nose, in road coordinates — the player's screen x
-    // re-based on the centre-line, exactly as collisions.js does it.
+    // re-based on the centre-line, exactly as collisions.js does it. What the
+    // bullet does with that from here is the weapon's flight mode's business.
     const centerX = road.centerXAt(distance, W);
-    shots.spawn(distance + player.h / 2, player.x - centerX, player.speed, weapon.type);
+    shots.spawn(distance + player.h / 2, player.x - centerX, player.speed, weapon.type, W);
   }
   // Traffic cars are the only targets for now. Enemy fire (next step) passes the
   // player's body here instead — see projectiles.js.
-  shots.update(dt, traffic.cars, { distance, playerY: player.y, H });
+  shots.update(dt, traffic.cars, { distance, playerY: player.y, W, H });
 
   // Traffic runs on the UPDATED distance, so a car spawned this tick lands
   // relative to where the player actually is now. The object handed over becomes
@@ -109,11 +115,21 @@ function drawHud() {
   const frac = player.health / player.maxHealth;
   const hue = 120 * frac; // 120=green -> 0=red
 
-  // The gun, above the hull bar: what is loaded and how much of it is left. The
-  // default cannon reads "∞", so the number only starts meaning something once
-  // Phase 5's finite weapons exist — but the readout is in place from the day
-  // there is a weapon at all.
-  glowText(ctx, `${weapon.type.label} ${weapon.ammoText}`, bx, by - 36, PLAYER, 13, "left", 8);
+  // The gun, above the hull bar: what is loaded and how much of it is left,
+  // drawn in the WEAPON'S OWN bullet colour so the readout and the tracer in the
+  // air match. An empty weapon turns red — it is still selected, still shown,
+  // and simply won't fire (see Loadout).
+  const weapon = loadout.current;
+  glowText(
+    ctx,
+    `${weapon.type.label} ${weapon.ammoText}`,
+    bx,
+    by - 36,
+    weapon.empty ? HAZARD : weapon.type.color,
+    13,
+    "left",
+    8,
+  );
 
   glowText(ctx, "HULL", bx, by - 16, GREEN_PALE, 12, "left", 6);
   // Empty track.

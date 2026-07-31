@@ -1,9 +1,26 @@
 // Bullets — everything that is in the air between a gun and a car.
 //
-// COORDINATE MODEL, same as traffic's: a bullet lives at (worldY, offset), so it
-// follows the road's curve without steering and can be compared against a car
-// with plain arithmetic. Screen position is derived at render time exactly as a
-// car's is, which is what keeps a shot welded to the tarmac it was fired over.
+// COORDINATE MODEL, same as traffic's: a bullet lives at (worldY, offset), and
+// screen position is derived from those exactly as a car's is, which is what
+// keeps a shot welded to the tarmac it was fired over. Cars are compared against
+// with plain arithmetic because everything is in the same two numbers.
+//
+// TWO WAYS TO FLY, and the difference is entirely in what is held CONSTANT as
+// the bullet runs up the road (see weapons.js for which weapon takes which):
+//
+//   FLIGHT_TRACKING  `offset` is constant. The bullet keeps its distance from
+//                    the centre-line, so it follows the road round a bend and
+//                    stays in the lane it was fired up. It cannot leave the
+//                    road, so it never meets a barrier.
+//   FLIGHT_STRAIGHT  `screenX` is constant, and `offset` is RECOMPUTED from it
+//                    every tick as screenX - centerXAt(worldY). The bullet holds
+//                    the line it was fired along and the road slides out from
+//                    under it — which means that into a bend it crosses the
+//                    lanes and eventually hits the barrier, where it dies.
+//
+// Deriving offset for the straight case rather than tracking a screen position
+// separately is what keeps ONE hit test and ONE render path for both: by the
+// time anything reads `offset`, it is correct for this tick either way.
 //
 // SPEED IS ABSOLUTE. A bullet stores the speed it actually travels at — the
 // shooter's speed plus the weapon's muzzle speed — rather than a speed relative
@@ -31,7 +48,8 @@
 // oldest, which is off-screen or nearly so by definition.
 
 import { neonStroke } from "../engine/neon.js";
-import { centerXAt } from "./road.js";
+import { centerXAt, ROAD_HALF_WIDTH } from "./road.js";
+import { FLIGHT_TRACKING } from "./weapons.js";
 
 const MAX_SHOTS = 32;  // in flight at once. The cannon fires ~6/sec and a shot
                        // lives well under a second, so this is roomy
@@ -46,7 +64,10 @@ export class Projectiles {
       alive: false,
       worldY: 0,
       prevWorldY: 0, // where it was last tick — the near end of the swept test
-      offset: 0,
+      offset: 0,     // lateral px from the centre-line. AUTHORITATIVE for hits
+                     // and drawing; derived per tick when the flight is straight
+      tracking: false, // FLIGHT_TRACKING — hold `offset` instead of `screenX`
+      screenX: 0,    // the fired line, for a straight shot. Unused when tracking
       speed: 0,      // absolute, world units/sec
       damage: 0,
       length: 14,
@@ -63,11 +84,16 @@ export class Projectiles {
     }));
     this.next = 0;      // round-robin cursor for a full pool
     this.nextSpark = 0;
+    this.batchColors = []; // scratch for render's per-colour batching, reused
   }
 
   // Fire one round. `type` is a WEAPON_TYPES entry (weapons.js); `worldY` and
-  // `offset` are the muzzle, and `shooterSpeed` is what the bullet inherits.
-  spawn(worldY, offset, shooterSpeed, type) {
+  // `offset` are the muzzle, `shooterSpeed` is what the bullet inherits, and `W`
+  // is the canvas width the centre-line is measured against.
+  //
+  // Both flight modes are spawned from the same (worldY, offset) muzzle — the
+  // straight shot simply converts it, ONCE, into the screen line it will hold.
+  spawn(worldY, offset, shooterSpeed, type, W) {
     let s = this.shots.find((b) => !b.alive);
     if (!s) {
       s = this.shots[this.next];
@@ -77,6 +103,8 @@ export class Projectiles {
     s.worldY = worldY;
     s.prevWorldY = worldY;
     s.offset = offset;
+    s.tracking = type.flight === FLIGHT_TRACKING;
+    s.screenX = centerXAt(worldY, W) + offset;
     s.speed = shooterSpeed + type.muzzleSpeed;
     s.damage = type.damage;
     s.length = type.length;
@@ -92,7 +120,7 @@ export class Projectiles {
   // damage(hp) } — traffic cars satisfy it directly, and so does the player's
   // collision body, which is what enemy fire will pass. `world` supplies the
   // bounds a bullet is retired at.
-  update(dt, targets, { distance, playerY, H }) {
+  update(dt, targets, { distance, playerY, W, H }) {
     const ahead = distance + playerY + H;       // a long way past the top edge
     const behind = distance - (H - playerY) - H;
 
@@ -100,6 +128,21 @@ export class Projectiles {
       if (!s.alive) continue;
       s.prevWorldY = s.worldY;
       s.worldY += s.speed * dt;
+
+      // A straight shot holds its screen line, so its offset has to be re-derived
+      // against the road that has just curved under it. Done BEFORE the hit test,
+      // so what the bullet is tested against is where it actually is now.
+      if (!s.tracking) {
+        s.offset = s.screenX - centerXAt(s.worldY, W);
+        // ...and a line that has run off the tarmac has run into the barrier.
+        // This is the whole cost of a straight weapon through a bend, and it is
+        // why the tracker is worth carrying.
+        if (Math.abs(s.offset) > ROAD_HALF_WIDTH - s.width / 2) {
+          this.spark(s.worldY, Math.sign(s.offset) * (ROAD_HALF_WIDTH - s.width / 2), s.glow);
+          s.alive = false;
+          continue;
+        }
+      }
 
       const hit = this.firstHit(s, targets);
       if (hit) {
@@ -163,18 +206,24 @@ export class Projectiles {
   // y comes from the raw worldY against the raw distance, so a bullet tracks the
   // road rather than sliding against it.
   render(ctx, distance, playerY, W, H) {
-    // Every bullet is one straight line, so the whole volley goes into ONE
-    // batched path and pays for neonStroke's three passes once (see neon.js).
-    // They can share a path because they share a colour — one weapon type in
-    // flight at a time today; a second colour would be a second pass, not a
-    // per-bullet stroke.
-    const lead = this.shots.find((s) => s.alive);
-    if (lead) {
+    // Every bullet is one straight line, so a volley goes into ONE batched path
+    // and pays for neonStroke's three passes once (see neon.js). A path can only
+    // carry one colour, so the batch is PER WEAPON COLOUR — swapping weapons
+    // leaves rounds of both kinds in the air, and that is two strokes, not one
+    // stroke per bullet.
+    const colors = this.batchColors;
+    colors.length = 0;
+    for (const s of this.shots) {
+      if (s.alive && !colors.includes(s.color)) colors.push(s.color);
+    }
+
+    for (const color of colors) {
+      const sample = this.shots.find((s) => s.alive && s.color === color);
       neonStroke(
         ctx,
         (c) => {
           for (const s of this.shots) {
-            if (!s.alive) continue;
+            if (!s.alive || s.color !== color) continue;
             const sy = playerY - (s.worldY - distance);
             if (sy < -s.length || sy > H + s.length) continue;
             const sx = centerXAt(s.worldY, W) + s.offset;
@@ -182,8 +231,8 @@ export class Projectiles {
             c.lineTo(sx, sy - s.length / 2);
           }
         },
-        lead.color,
-        lead.width,
+        color,
+        sample.width,
         3.5,
         0.16,
         1,

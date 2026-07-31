@@ -2,6 +2,13 @@
 
 const held = new Set();
 
+// Actions pressed since anyone last asked. Separate from `held` because some
+// actions are STATES (steering: true for as long as the key is down) and some
+// are EVENTS (swapping weapons: one swap per press, however long the key is
+// held). Auto-repeat is filtered out here too — a held key fires keydown over
+// and over, which would cycle the whole loadout in half a second.
+const fresh = new Set();
+
 const CODE_ALIASES = {
   KeyA: "left",
   ArrowLeft: "left",
@@ -12,6 +19,7 @@ const CODE_ALIASES = {
   KeyS: "down",
   ArrowDown: "down",
   Space: "fire",
+  Tab: "swap",
   ShiftLeft: "swap",
   KeyQ: "swap",
 };
@@ -20,8 +28,11 @@ export function initInput(target = window) {
   target.addEventListener("keydown", (e) => {
     const action = CODE_ALIASES[e.code];
     if (action) {
+      // e.repeat marks the OS auto-repeat that follows a held key. The key is
+      // already in `held`, so this only guards the one-shot channel.
+      if (!e.repeat) fresh.add(action);
       held.add(action);
-      e.preventDefault();
+      e.preventDefault(); // Tab would otherwise walk the browser's focus ring
     }
   });
   target.addEventListener("keyup", (e) => {
@@ -32,11 +43,24 @@ export function initInput(target = window) {
     }
   });
   // Drop all keys if focus is lost so the car doesn't "stick".
-  target.addEventListener("blur", () => held.clear());
+  target.addEventListener("blur", () => {
+    held.clear();
+    fresh.clear();
+  });
 }
 
 export function isDown(action) {
   return held.has(action);
+}
+
+// True ONCE per press, and consumed by asking: the caller that gets the `true`
+// is the only one that sees it. Written this way rather than as a per-frame
+// "clear the edge flags" step so nothing has to remember to call it — a game
+// loop that forgot would either drop presses or repeat them forever.
+export function consumePress(action) {
+  if (!fresh.has(action)) return false;
+  fresh.delete(action);
+  return true;
 }
 
 // -1 (left) .. +1 (right)
