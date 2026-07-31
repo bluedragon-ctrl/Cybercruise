@@ -100,16 +100,25 @@ Still open: the world scroll doesn't interpolate (`main.js` passes raw
 The other cars on the road are three files, split so that adding a kind of
 traffic doesn't mean touching the simulation:
 
-- `src/game/cartypes.js` — the catalogue. A type is pure data: colours, size,
-  health, cruising-speed range, how fast it can change lanes, spawn weight, and
-  the name of its behaviour. New traffic = a new entry here.
+- `src/game/cartypes.js` — the catalogue. A type is pure data: silhouette,
+  colours, size, health, cruising-speed range, how fast it can change lanes,
+  blast radius and damage, spawn weight, and the name of its behaviour. New
+  traffic = a new entry here.
+- `src/game/carshapes.js` — the silhouettes. Ten of them, and the catalogue is a
+  1:1 map onto it: **shape** is what tells one type from another, so colour is
+  left to carry only faction (red hostile / amber civilian) and weight class, and
+  shades repeat across types. The one shape shared with the player is given to an
+  enemy — your own outline in red reads as a rival.
 - `src/game/behaviours.js` — one function per tactic, looked up by that name. A
   behaviour only sets INTENT (`targetOffset`, `targetSpeed`); traffic.js
-  integrates it under the type's limits, so a truck can't corner like a
-  roadster and the physics stay in one place. Phase 4's pursuit/ram/shoot
-  tactics are further entries in that table.
-- `src/game/traffic.js` — spawning, driving, retiring, drawing.
+  integrates it under the type's limits, so a rig can't corner like a
+  roadster and the physics stay in one place. Phase 4's tactics (`pursue`,
+  `ram`, `block`, `weave`, `convoy`) are already in that table as stubs
+  delegating to the two real ones, so filling one in is a function body and no
+  change to the catalogue.
+- `src/game/traffic.js` — spawning, driving, dying, retiring, drawing.
 - `src/game/collisions.js` — ramming: the only place cars push each other around.
+- `src/game/effects.js` — wrecks: what a destroyed car looks like on its way out.
 
 The nimble types (sedan, roadster, interceptor) drive the `overtake` tactic: if
 something slower is holding them up — traffic or the player — they pull out, pass
@@ -121,9 +130,9 @@ jinking into each other, since every swerve is now a collision. Overtakers still
 brake for whatever is ahead in *either* lane while changing lanes, so a pass that
 can't be completed degrades to following rather than to a rear-end.
 
-The two heavy types (truck, bruiser) just `cruise`, which is what keeps the whole
-road from weaving at once — and means sitting in front of a truck at 130 works,
-while sitting in front of anything else does not.
+The heavy types (van, rig, bruiser, muscle) just `cruise`, which is what keeps
+the whole road from weaving at once — and means sitting in front of a rig at 130
+works, while sitting in front of anything nimble does not.
 
 Cars are positioned as `worldY` (along the road) plus a lateral `offset` from
 the centre-line, so they track every curve without steering. They exist only
@@ -135,13 +144,13 @@ behind if faster, so they always cross the screen — and retired once well past
 Every car has a **hull** and a **mass** (`cartypes.js`), and so does the player
 (`player.js`). Collisions are resolved for all of them together, as a flat list
 of BODIES with no notion of who is the player — so the same rules cover the
-player shunting a sedan, a truck rear-ending a roadster, and the pile-up that
+player shunting a sedan, a rig rear-ending a roadster, and the pile-up that
 follows.
 
 - Boxes are axis-aligned, so an overlap is undone along whichever axis is
   penetrated least: a rear-end pushes along the road, a side-swipe across it.
 - Both bodies move, split by INVERSE mass, and the same split decides the
-  damage. Hitting a truck is a bad idea; a roadster is swatted aside.
+  damage. Hitting a rig is a bad idea; a roadster is swatted aside.
 - Damage is linear in closing speed above a floor, so nudging traffic in queue
   costs nothing and a full-speed ram is close to lethal for both cars.
 - **Chains** fall out of running the pair sweep several times per tick:
@@ -151,8 +160,18 @@ follows.
   white-hot flash. The tell has to be the alternation, not a red tint: an enemy
   car is already red, so a tint would say nothing about the one car that's
   nearly scrap. `TrafficCar.critical` is the hook for it.
-- At zero hull a car is destroyed and leaves the road. For now it just vanishes
-  — the destruction effect is being built separately.
+- At zero hull a car is **destroyed**: it explodes where it stood (the shell
+  breaks apart along the car's own outline — `effects.js`) and leaves the road
+  the same tick. Nothing solid is left behind, so the fireball itself is safe to
+  drive through.
+- The explosion does **blast damage** to everything close by, the player
+  included: peak damage at contact, falling off linearly to nothing at the rim,
+  with distance measured between box EDGES so a long rig doesn't get free reach
+  along its own length. Radius and damage are per type — a cycle going up is a
+  pop, a rig is 46 hull and most of the road width.
+- Blasts **chain**: a car killed by one explodes in the same tick, and the sweep
+  keeps going until nothing new has died. It terminates because each car
+  detonates exactly once.
 
 Anything that wants to be rammable later — a barrel, a boss — implements the
 body interface at the top of `collisions.js`; the solver never learns about it.

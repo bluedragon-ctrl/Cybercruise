@@ -109,7 +109,7 @@ cell("PLAYER CAR", (ctx, size, phase) =>
 CAR_TYPES.forEach((t) => {
   cell(`${t.faction === ENEMY_FACTION ? "ENEMY" : "CIVIL"} · ${t.label}`, (ctx, size, phase) =>
     drawCar(ctx, size / 2, size / 2, {
-      color: t.color, thrust: t.thrust, w: t.w, h: t.h, wheelPhase: phase,
+      shape: t.shape, color: t.color, thrust: t.thrust, w: t.w, h: t.h, wheelPhase: phase,
     }),
     { animate: true });
 });

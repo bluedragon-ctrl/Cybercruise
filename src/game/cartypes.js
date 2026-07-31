@@ -1,21 +1,35 @@
 // The traffic catalogue — every kind of car on the road other than the player.
 //
 // A type is pure DATA: how it looks, how fast it drives, how much punishment it
-// takes, and which BEHAVIOUR drives it (see behaviours.js). Adding a new kind of
-// traffic — a bike that weaves, a tanker that drops oil, a boss — means adding
-// an entry here and, if it needs new tactics, a behaviour function. Nothing in
-// traffic.js knows any type by name.
+// takes, how big a hole it leaves when it goes up, and which BEHAVIOUR drives it
+// (see behaviours.js). Adding a new kind of traffic means adding an entry here
+// and, if it needs new tactics, a behaviour function. Nothing in traffic.js knows
+// any type by name.
 //
-// SPRITE-CACHE BUDGET. Every distinct (color, thrust, w, h) combination is a
-// cache key in sprites.js, times WHEEL_FRAMES (8) wheel positions. Keeping the
-// catalogue a small fixed list is what keeps that bounded — so vary cars by
-// ADDING A TYPE, never by rolling continuous per-instance sizes or colours.
-// Per-instance variety comes from `speedMin`..`speedMax`, which costs nothing
-// because speed doesn't affect the artwork.
+// ONE TYPE PER SILHOUETTE. The catalogue is a 1:1 map onto game/carshapes.js:
+// every shape in that file is exactly one type here, and the shape is what tells
+// them apart on the road. Colour only carries FACTION and WEIGHT CLASS, so shades
+// repeat across types (see palette.js) — a red car is hostile, a big red car is
+// hostile and heavy, and which car it is comes from its outline. The one shape
+// shared with the player (SUPERCAR) is deliberately given to an ENEMY: your own
+// silhouette coming at you in red reads instantly as a rival, where a civilian
+// copy of the player's car would just look like a bug.
+//
+// SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) combination is
+// a cache key in sprites.js, times WHEEL_FRAMES (8) wheel positions, plus one
+// more colour for the critical-hull blink: 10 types * 8 * 2 = 160 sprites at the
+// absolute worst, built lazily as each type first appears. That is the same order
+// as the city's building cache. Keeping the catalogue a small FIXED list is what
+// bounds it — so vary cars by ADDING A TYPE, never by rolling continuous
+// per-instance sizes or colours. Per-instance variety comes from
+// `speedMin`..`speedMax`, which costs nothing because speed doesn't affect the
+// artwork.
 
+import { carShapeIndex } from "./carshapes.js";
 import {
   ENEMY,
   ENEMY_DEEP,
+  ENEMY_PALE,
   ENEMY_THRUST,
   NEUTRAL,
   NEUTRAL_DEEP,
@@ -32,30 +46,41 @@ export const ENEMY_FACTION = "enemy";
 // Fields:
 //   id          stable key (save data, spawn tables, debugging)
 //   label       gallery/HUD caption
+//   shape       index into CAR_SHAPES — the car's silhouette, looked up BY NAME
+//               so reordering that catalogue can't repaint the road
 //   faction     NEUTRAL_FACTION | ENEMY_FACTION
 //   color       body wireframe colour; thrust = exhaust glow
-//   w, h        collision box AND drawn size (px)
-//   health      hull points; spent by ramming (collisions.js) and, from Phase 4,
-//               by weapons. At zero the car is destroyed and leaves the road
+//   w, h        collision box AND drawn size (px). Kept at (or near) the shape's
+//               own default size, since the artwork is authored for that ratio
+//   health      hull points; spent by ramming (collisions.js), by blasts, and
+//               from Phase 4 by weapons. At zero the car explodes and leaves the
+//               road (see traffic.js detonate)
 //   mass        how hard it is to shove, relative units — only ratios matter.
 //               Ramming splits movement and damage by INVERSE mass, so this is
-//               the difference between bouncing off a truck and swatting a
-//               roadster aside. Roughly tracks size, but it's a gameplay dial:
-//               nudge it to make a type feel heavier without redrawing it
+//               the difference between bouncing off a rig and swatting a roadster
+//               aside. Roughly tracks size, but it's a gameplay dial: nudge it to
+//               make a type feel heavier without redrawing it
 //   speedMin/Max  cruising speed range, world units/sec (player: 120..620)
 //   steerSpeed  how fast the car can slide sideways, px/sec — a behaviour asks
 //               for a lateral position and this caps how quickly it gets there,
-//               so a truck wallows and a roadster darts
+//               so a rig wallows and a cycle darts
+//   blastRadius how far the death explosion hurts, in px measured from the car's
+//               BOX EDGE outward (so a long rig doesn't get a free extra reach
+//               along its own length). Lane width is 65px for scale
+//   blastDamage hull taken at the centre of that blast, falling off linearly to
+//               nothing at the rim. The player has 100 hull
 //   behaviour   key into behaviours.js. The nimble types `overtake` — they pull
 //               out and pass whatever is holding them up, the player included;
-//               the two heavy ones just `cruise`, so sitting in front of a truck
-//               means it stays there. That split is what stops every car on the
-//               road weaving at once
+//               the heavy ones `cruise`, so sitting in front of a rig means it
+//               stays there. That split is what stops every car on the road
+//               weaving at once. The enemy tactics are Phase 4 stubs for now
 //   weight      relative spawn frequency
 export const CAR_TYPES = [
+  // --- Neutral: the city's own traffic --------------------------------------
   {
     id: "sedan",
     label: "SEDAN",
+    shape: carShapeIndex("SEDAN"),
     faction: NEUTRAL_FACTION,
     color: NEUTRAL,
     thrust: NEUTRAL_THRUST,
@@ -66,28 +91,34 @@ export const CAR_TYPES = [
     speedMin: 170,
     speedMax: 210,
     steerSpeed: 90,
+    blastRadius: 36,
+    blastDamage: 14,
     behaviour: "overtake",
-    weight: 3,
+    weight: 3, // the backbone of the road
   },
   {
-    id: "truck",
-    label: "TRUCK",
+    id: "van",
+    label: "VAN",
+    shape: carShapeIndex("VAN"),
     faction: NEUTRAL_FACTION,
-    color: NEUTRAL_DEEP,
-    thrust: NEUTRAL_DEEP,
-    w: 42,
-    h: 84,
-    health: 140,
-    mass: 2.6, // immovable in practice — ram it and you lose, not the truck
-    speedMin: 130,
-    speedMax: 160,
-    steerSpeed: 45,
-    behaviour: "cruise", // wallows too much to pass anything; it just sits behind you
-    weight: 1.5,
+    color: NEUTRAL,
+    thrust: NEUTRAL_THRUST,
+    w: 38,
+    h: 68,
+    health: 95,
+    mass: 1.6,
+    speedMin: 150,
+    speedMax: 185,
+    steerSpeed: 60,
+    blastRadius: 42,
+    blastDamage: 18,
+    behaviour: "cruise", // slow and wide: it holds its lane and makes you go round
+    weight: 2,
   },
   {
     id: "roadster",
     label: "ROADSTER",
+    shape: carShapeIndex("ROADSTER"),
     faction: NEUTRAL_FACTION,
     color: NEUTRAL_PALE,
     thrust: NEUTRAL_THRUST,
@@ -98,12 +129,60 @@ export const CAR_TYPES = [
     speedMin: 300,
     speedMax: 360,
     steerSpeed: 140,
+    blastRadius: 30,
+    blastDamage: 9,
     behaviour: "overtake",
     weight: 1.5,
   },
   {
+    id: "rig",
+    label: "RIG",
+    shape: carShapeIndex("RIG"),
+    faction: NEUTRAL_FACTION,
+    color: NEUTRAL_DEEP,
+    thrust: NEUTRAL_DEEP,
+    w: 42,
+    h: 124, // twice any other car: it is a rolling wall, and a lane-and-a-half of
+    health: 220, // road disappears behind it
+    mass: 4, // immovable in practice — ram it and you lose, not the rig
+    speedMin: 130,
+    speedMax: 155,
+    steerSpeed: 35,
+    // It is carrying something. Killing a rig in traffic is the biggest event on
+    // the road — the blast covers most of the tarmac around it and will take a
+    // third of the player's hull if they are alongside when it goes.
+    blastRadius: 72,
+    blastDamage: 46,
+    behaviour: "convoy",
+    weight: 0.8,
+  },
+  {
+    id: "hypercar",
+    label: "HYPERCAR",
+    shape: carShapeIndex("HYPERCAR"),
+    faction: NEUTRAL_FACTION,
+    color: NEUTRAL_PALE,
+    thrust: NEUTRAL_THRUST,
+    w: 36,
+    h: 64,
+    health: 45,
+    mass: 0.9,
+    // The only civilian that outruns the player's cruise: a rare showpiece that
+    // comes past and is gone, which is exactly why it is worth spotting.
+    speedMin: 380,
+    speedMax: 440,
+    steerSpeed: 160,
+    blastRadius: 32,
+    blastDamage: 10,
+    behaviour: "overtake",
+    weight: 0.4,
+  },
+
+  // --- Enemy: everything that is out here for you ---------------------------
+  {
     id: "interceptor",
     label: "INTERCEPTOR",
+    shape: carShapeIndex("INTERCEPTOR"),
     faction: ENEMY_FACTION,
     color: ENEMY,
     thrust: ENEMY_THRUST,
@@ -114,26 +193,89 @@ export const CAR_TYPES = [
     speedMin: 280,
     speedMax: 340,
     steerSpeed: 130,
-    // Phase 4 swaps this for a pursuit behaviour; until then it drives fast and
-    // goes around anything slower, the player included.
-    behaviour: "overtake",
-    weight: 2,
+    blastRadius: 38,
+    blastDamage: 16,
+    behaviour: "pursue",
+    weight: 2, // the standard hostile: whatever else is out, one of these is too
+  },
+  {
+    id: "muscle",
+    label: "MUSCLE",
+    shape: carShapeIndex("MUSCLE"),
+    faction: ENEMY_FACTION,
+    color: ENEMY_DEEP,
+    thrust: ENEMY_THRUST,
+    w: 38,
+    h: 68,
+    health: 110,
+    mass: 1.7, // heavier than the player: it wins a shoving match, slowly
+    speedMin: 230,
+    speedMax: 280,
+    steerSpeed: 85,
+    blastRadius: 44,
+    blastDamage: 24,
+    behaviour: "block",
+    weight: 1.2,
+  },
+  {
+    id: "cycle",
+    label: "CYCLE",
+    shape: carShapeIndex("CYCLE"),
+    faction: ENEMY_FACTION,
+    color: ENEMY_PALE,
+    thrust: ENEMY_THRUST,
+    w: 26,
+    h: 58,
+    health: 25, // one solid contact and it is gone
+    mass: 0.5,
+    speedMin: 330,
+    speedMax: 400,
+    steerSpeed: 180, // the nimblest thing on the road, by a wide margin
+    blastRadius: 24,
+    blastDamage: 7,
+    behaviour: "weave",
+    weight: 1,
   },
   {
     id: "bruiser",
     label: "BRUISER",
+    shape: carShapeIndex("BRUISER"),
     faction: ENEMY_FACTION,
     color: ENEMY_DEEP,
     thrust: ENEMY_THRUST,
     w: 40,
     h: 74,
     health: 160,
-    mass: 2, // built to ram; Phase 4 gives it the behaviour to go with the mass
+    mass: 2.2, // built to ram; Phase 4 gives it the behaviour to go with the mass
     speedMin: 200,
     speedMax: 240,
     steerSpeed: 70,
-    behaviour: "cruise",
-    weight: 1,
+    blastRadius: 52,
+    blastDamage: 32,
+    behaviour: "ram",
+    weight: 0.8,
+  },
+  {
+    id: "rival",
+    label: "RIVAL",
+    // The player's own silhouette, in enemy red — see the header. It is the
+    // fastest hostile on the road and the only one that can stay with the player
+    // at full throttle.
+    shape: carShapeIndex("SUPERCAR"),
+    faction: ENEMY_FACTION,
+    color: ENEMY,
+    thrust: ENEMY_THRUST,
+    w: 34,
+    h: 62,
+    health: 90,
+    mass: 1.2,
+    speedMin: 340,
+    speedMax: 400,
+    steerSpeed: 150,
+    blastRadius: 40,
+    blastDamage: 20,
+    behaviour: "pursue",
+    weight: 0.3, // rare enough that meeting one is an event
   },
 ];
 

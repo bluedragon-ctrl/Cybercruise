@@ -16,6 +16,11 @@
 // run far enough ahead. Nothing off-screen is simulated, so the cost is flat in
 // how far you've driven.
 //
+// DEATH is handled here too: a car at zero hull explodes (effects.js) and its
+// blast hurts whatever is beside it, possibly setting off a chain. The wreck is
+// pure effect — the car itself leaves the simulation the same tick — so the road
+// is never left with an obstacle on it.
+//
 // WHAT A CAR DECIDES vs WHAT THIS FILE DECIDES: the car type's behaviour
 // (behaviours.js) sets `targetOffset` / `targetSpeed`; this file integrates that
 // intent under the type's steering and acceleration limits and keeps the car on
@@ -26,6 +31,7 @@
 import { drawCarCached } from "./sprites.js";
 import { behaviourFor } from "./behaviours.js";
 import { pickCarType } from "./cartypes.js";
+import { Explosions } from "./effects.js";
 import { resolveCollisions, PlayerBody } from "./collisions.js";
 import { PLAYER_MASS } from "./player.js";
 import { centerXAt, laneOffset, laneAt, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
@@ -37,8 +43,12 @@ const SPAWN_MARGIN = 120;    // world units past the screen edge a car appears a
 const RETIRE_MARGIN = 320;   // ...and how far past it before the car is dropped.
                              // Comfortably beyond SPAWN_MARGIN so a fresh car is
                              // never retired on the tick after it spawns.
-const SPAWN_GAP = 150;       // min world-units clearance from another car in the
-                             // same lane, so traffic never pops in on top of itself
+const SPAWN_GAP = 150;       // min world-units of CLEAR ROAD between the boxes of
+                             // two cars in the same lane at spawn time, so traffic
+                             // never pops in on top of itself. Measured between
+                             // box edges, not centres: the rig is 124 units long,
+                             // and a centre-to-centre rule would let one appear
+                             // half inside another
 const ACCEL = 140;           // world units/sec² traffic uses to reach targetSpeed
 const SHOVE_DAMP = 5;        // per second; how fast a rammed car's slide dies away
 const CRITICAL = 0.35;       // hull fraction below which a car reads as wrecked
@@ -65,6 +75,8 @@ class TrafficCar {
     this.health = type.health;
     this.maxHealth = type.health;
     this.alive = true;
+    this.exploded = false; // set when its wreck has been spawned (see Traffic.detonate),
+                           // so a chain reaction can't set the same car off twice
     this.wheelPhase = 0; // accumulated roll distance, drives the wheel tread
     this.vLateral = 0; // sideways velocity from being rammed (collisions.js)
     this.criticalTime = 0; // seconds spent on the brink; drives the blink
@@ -92,8 +104,9 @@ class TrafficCar {
   }
 
   // Take `amount` hull damage. At zero the car is destroyed: it stops colliding
-  // immediately and retire() drops it at the end of the tick. It simply vanishes
-  // for now — the explosion is Phase 4's.
+  // immediately, Traffic.detonate blows it up, and retire() drops it at the end
+  // of the tick. Nothing is left behind on the road — the wreck is pure effect,
+  // so driving through the fireball costs nothing by itself.
   damage(amount) {
     if (!this.alive) return;
     this.health -= amount;
@@ -166,6 +179,11 @@ export class Traffic {
     // list of bodies handed to it. Both are reused rather than rebuilt per tick.
     this.playerBody = new PlayerBody(PLAYER_MASS, ROAD_HALF_WIDTH);
     this.bodies = [];
+
+    // Wrecks. Owned here because traffic is what dies: a car's destruction and
+    // its explosion are the same event, and keeping them together means main.js
+    // never has to know that cars can blow up.
+    this.explosions = new Explosions();
   }
 
   // `world` = { player, distance, W, H }, built by main.js each tick. Behaviours
@@ -185,6 +203,11 @@ export class Traffic {
     // than in main.js because traffic owns the cars, and the player has already
     // taken its own step by the time we're called.
     this.collide(dt);
+
+    // Anything the collision pass killed goes up now, BEFORE retire() drops it —
+    // the wreck needs the car's final position, and its blast may kill others.
+    this.detonate();
+    this.explosions.update(dt);
 
     this.retire(world);
 
@@ -212,6 +235,57 @@ export class Traffic {
     for (const car of this.cars) car.clampToRoad();
   }
 
+  // --- Destruction ----------------------------------------------------------
+  //
+  // A destroyed car EXPLODES: the wreck (effects.js) is drawn where it died, and
+  // the blast hurts whatever was standing next to it. Nothing solid is left
+  // behind — the car is dropped from the simulation the same tick — so driving
+  // straight through the fireball costs the player nothing but the blast itself,
+  // which they were already inside of when it went off.
+  //
+  // CHAINS. A blast can destroy another car, which then explodes too. The sweep
+  // below keeps going until nothing new has died, which terminates because each
+  // car detonates exactly once (`exploded`) and there are finitely many.
+  detonate() {
+    // At most one detonation per car, so this bound is exact rather than a
+    // safety net — but it does mean a runaway can't hang the frame either.
+    for (let n = 0; n < this.cars.length; n++) {
+      const car = this.cars.find((c) => !c.alive && !c.exploded);
+      if (!car) return;
+      car.exploded = true;
+      this.explosions.spawn(car.worldY, car.offset, car.type);
+      this.blast(car);
+    }
+  }
+
+  // Hull damage to everything near a detonating car, the player included.
+  //
+  // Distance is measured BETWEEN BOX EDGES, not between centres: a rig is 124
+  // units long, and a centre-to-centre radius would leave the car tucked
+  // alongside its trailer untouched while punishing one two lengths behind. Peak
+  // damage at contact, falling off linearly to nothing at the rim, so proximity
+  // is what the player is being asked to judge.
+  blast(car) {
+    const radius = car.type.blastRadius;
+    const peak = car.type.blastDamage;
+    if (!radius || !peak) return;
+
+    const hurt = (body) => {
+      // Cars already destroyed are skipped rather than hit again: they have
+      // their own detonation coming, and this is what stops two dying cars
+      // trading blasts.
+      if (body === car || !body.alive) return;
+      const dx = Math.max(0, Math.abs(body.offset - car.offset) - (body.w + car.w) / 2);
+      const dy = Math.max(0, Math.abs(body.worldY - car.worldY) - (body.h + car.h) / 2);
+      const dist = Math.hypot(dx, dy);
+      if (dist >= radius) return;
+      body.damage(peak * (1 - dist / radius));
+    };
+
+    for (const other of this.cars) hurt(other);
+    hurt(this.playerBody);
+  }
+
   // Drop cars that have left the neighbourhood, or that were destroyed.
   retire({ distance, player, H }) {
     const ahead = distance + player.y + RETIRE_MARGIN;
@@ -236,7 +310,7 @@ export class Traffic {
       ? distance + player.y + SPAWN_MARGIN
       : distance - (H - player.y) - SPAWN_MARGIN;
 
-    const lane = this.freeLane(worldY);
+    const lane = this.freeLane(worldY, type.h);
     if (lane === -1) return; // every lane busy here; try again next interval
 
     this.cars.push(new TrafficCar(type, worldY, lane, speed));
@@ -260,13 +334,17 @@ export class Traffic {
   }
 
   // A lane with nothing already sitting near `worldY`, or -1 if there is none.
-  // Lanes are tried in random order so traffic doesn't favour the left.
-  freeLane(worldY) {
+  // `h` is the length of the car being placed, since the clearance wanted is
+  // between the two BOXES, not their centres. Lanes are tried in random order so
+  // traffic doesn't favour the left.
+  freeLane(worldY, h) {
     const start = Math.floor(Math.random() * LANE_COUNT);
     for (let i = 0; i < LANE_COUNT; i++) {
       const lane = (start + i) % LANE_COUNT;
       const blocked = this.cars.some(
-        (car) => car.lane === lane && Math.abs(car.worldY - worldY) < SPAWN_GAP,
+        (car) =>
+          car.lane === lane &&
+          Math.abs(car.worldY - worldY) - (car.h + h) / 2 < SPAWN_GAP,
       );
       if (!blocked) return lane;
     }
@@ -293,6 +371,7 @@ export class Traffic {
       const blink = car.critical && Math.floor(car.criticalTime / BLINK_PERIOD) % 2 === 1;
 
       drawCarCached(ctx, sx, sy, {
+        shape: car.type.shape,
         color: blink ? CRITICAL_FLASH : car.type.color,
         thrust: car.type.thrust,
         w: car.type.w,
@@ -300,5 +379,10 @@ export class Traffic {
         wheelPhase: car.wheelPhase,
       });
     }
+
+    // Wrecks last, so a fireball is never drawn under the traffic still driving
+    // through it. (The player is drawn after all of this — see main.js — so its
+    // car stays readable inside a blast.)
+    this.explosions.render(ctx, distance, playerY, W, H);
   }
 }
