@@ -37,8 +37,10 @@ function update(dt) {
   distance += player.speed * dt;
 
   // Traffic runs on the UPDATED distance, so a car spawned this tick lands
-  // relative to where the player actually is now. The object handed over is the
-  // read-only view of the world that the car behaviours get (behaviours.js).
+  // relative to where the player actually is now. The object handed over becomes
+  // the view of the world the car behaviours get (behaviours.js). Note the
+  // player is NOT read-only here: traffic resolves ramming for every car and the
+  // player together, which can shove and damage the player (collisions.js).
   traffic.update(dt, { player, distance, W, H });
 }
 
@@ -52,7 +54,7 @@ function drawHud() {
   const by = H - 24;
   const bw = 140;
   const bh = 10;
-  const frac = player.health / 100;
+  const frac = player.health / player.maxHealth;
   const hue = 120 * frac; // 120=green -> 0=red
   glowText(ctx, "HULL", bx, by - 16, GREEN_PALE, 12, "left", 6);
   // Empty track.

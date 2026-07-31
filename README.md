@@ -109,15 +109,47 @@ traffic doesn't mean touching the simulation:
   roadster and the physics stay in one place. Phase 4's pursuit/ram/shoot
   tactics are further entries in that table.
 - `src/game/traffic.js` — spawning, driving, retiring, drawing.
+- `src/game/collisions.js` — ramming: the only place cars push each other around.
 
 Cars are positioned as `worldY` (along the road) plus a lateral `offset` from
 the centre-line, so they track every curve without steering. They exist only
 near the player: spawned just off-screen — ahead if slower than the player,
 behind if faster, so they always cross the screen — and retired once well past.
 
-Phase 3 currently ships cruising traffic only. Cars keep their distance from
-each other, but nothing collides with the *player* yet, so they pass straight
-through; ramming physics is the next step.
+### Ramming
+
+Every car has a **hull** and a **mass** (`cartypes.js`), and so does the player
+(`player.js`). Collisions are resolved for all of them together, as a flat list
+of BODIES with no notion of who is the player — so the same rules cover the
+player shunting a sedan, a truck rear-ending a roadster, and the pile-up that
+follows.
+
+- Boxes are axis-aligned, so an overlap is undone along whichever axis is
+  penetrated least: a rear-end pushes along the road, a side-swipe across it.
+- Both bodies move, split by INVERSE mass, and the same split decides the
+  damage. Hitting a truck is a bad idea; a roadster is swatted aside.
+- Damage is linear in closing speed above a floor, so nudging traffic in queue
+  costs nothing and a full-speed ram is close to lethal for both cars.
+- **Chains** fall out of running the pair sweep several times per tick:
+  separating A from B pushes B into C, and the next pass resolves that. A shove
+  therefore carries down a row of cars, losing force at each link.
+- Below a third of its hull a car **blinks** between its own colour and a
+  white-hot flash. The tell has to be the alternation, not a red tint: an enemy
+  car is already red, so a tint would say nothing about the one car that's
+  nearly scrap. `TrafficCar.critical` is the hook for it.
+- At zero hull a car is destroyed and leaves the road. For now it just vanishes
+  — the destruction effect is being built separately.
+
+Anything that wants to be rammable later — a barrel, a boss — implements the
+body interface at the top of `collisions.js`; the solver never learns about it.
+The player is not a special case there either: it reaches the solver through an
+adapter that re-bases its screen x onto the road's centre-line.
+
+Two consequences worth knowing. The player can be reduced to zero hull, and
+nothing happens yet — the wreck and game-over states are Phase 6. And cruising
+traffic brakes for the player as it does for any other car, so being rear-ended
+is a consequence of driving badly rather than steady background noise; Phase 4's
+enemy tactics are where that politeness ends.
 
 ## Project layout
 

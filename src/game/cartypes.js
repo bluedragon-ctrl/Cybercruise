@@ -35,7 +35,13 @@ export const ENEMY_FACTION = "enemy";
 //   faction     NEUTRAL_FACTION | ENEMY_FACTION
 //   color       body wireframe colour; thrust = exhaust glow
 //   w, h        collision box AND drawn size (px)
-//   health      hit points; nothing damages traffic until Phase 4
+//   health      hull points; spent by ramming (collisions.js) and, from Phase 4,
+//               by weapons. At zero the car is destroyed and leaves the road
+//   mass        how hard it is to shove, relative units — only ratios matter.
+//               Ramming splits movement and damage by INVERSE mass, so this is
+//               the difference between bouncing off a truck and swatting a
+//               roadster aside. Roughly tracks size, but it's a gameplay dial:
+//               nudge it to make a type feel heavier without redrawing it
 //   speedMin/Max  cruising speed range, world units/sec (player: 120..620)
 //   steerSpeed  how fast the car can slide sideways, px/sec — a behaviour asks
 //               for a lateral position and this caps how quickly it gets there,
@@ -52,6 +58,7 @@ export const CAR_TYPES = [
     w: 34,
     h: 60,
     health: 60,
+    mass: 1, // the reference car: everything else is heavier or lighter than this
     speedMin: 170,
     speedMax: 210,
     steerSpeed: 90,
@@ -67,6 +74,7 @@ export const CAR_TYPES = [
     w: 42,
     h: 84,
     health: 140,
+    mass: 2.6, // immovable in practice — ram it and you lose, not the truck
     speedMin: 130,
     speedMax: 160,
     steerSpeed: 45,
@@ -82,6 +90,7 @@ export const CAR_TYPES = [
     w: 30,
     h: 54,
     health: 40,
+    mass: 0.8, // light and fragile: the one car the player can simply swat aside
     speedMin: 300,
     speedMax: 360,
     steerSpeed: 140,
@@ -97,6 +106,7 @@ export const CAR_TYPES = [
     w: 34,
     h: 62,
     health: 70,
+    mass: 1.1,
     speedMin: 280,
     speedMax: 340,
     steerSpeed: 130,
@@ -113,6 +123,7 @@ export const CAR_TYPES = [
     w: 40,
     h: 74,
     health: 160,
+    mass: 2, // built to ram; Phase 4 gives it the behaviour to go with the mass
     speedMin: 200,
     speedMax: 240,
     steerSpeed: 70,

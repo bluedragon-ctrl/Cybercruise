@@ -35,6 +35,11 @@ export const BUILDING_FILL_ROOF = "#0a1c12"; // roof — the brightest face
 export const PLAYER = "#39f6ff";        // player car (cyan)
 export const PLAYER_THRUST = "#ff36c8"; // player thruster glow (magenta)
 export const HAZARD = "#ff4d4d";        // damage / collision flash (red)
+// A car about to be destroyed blinks between its own colour and this (see
+// traffic.js). Deliberately OUTSIDE both traffic families and far brighter than
+// either: on an enemy car, red-on-red would be no signal at all, so the tell is
+// the alternation, and this is the frame you can't miss.
+export const CRITICAL_FLASH = "#ffd6d6"; // white-hot, red cast
 
 // Traffic (see game/cartypes.js) reads as two families at a glance: everything
 // hostile is in the RED family, everything neutral in the AMBER family. New car
