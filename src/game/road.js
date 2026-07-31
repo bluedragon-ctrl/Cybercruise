@@ -71,6 +71,14 @@ export function laneOffset(i) {
   return (i + 0.5) * LANE_WIDTH - ROAD_HALF_WIDTH;
 }
 
+// Which lane a lateral offset falls in. The inverse of laneOffset, clamped to
+// the road: a car shoved across the tarmac (collisions.js) needs to know where
+// it ended up, not where it was spawned.
+export function laneAt(offset) {
+  const i = Math.floor((offset + ROAD_HALF_WIDTH) / LANE_WIDTH);
+  return Math.max(0, Math.min(LANE_COUNT - 1, i));
+}
+
 // Elevated-road side wall: how far the outer face drops toward the lower city
 // floor. dy = downward (elevation), dx = slight outward reveal of the face.
 const WALL_DY = 11;

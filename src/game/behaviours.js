@@ -4,8 +4,12 @@
 //   behave(car, dt, world)
 //     car    the TrafficCar being driven (see traffic.js)
 //     dt     seconds since the last logic tick (fixed, see engine/loop.js)
-//     world  { player, distance, cars, W, H } — the read-only view of everything
-//            else, `cars` being every live traffic car including this one
+//     world  { player, distance, cars, playerBody, W, H } — the read-only view of
+//            everything else. `cars` is every live traffic car including this
+//            one; `playerBody` is the player expressed in ROAD coordinates
+//            (worldY / offset / w / h / speed), which is the form to compare
+//            against a car. Reach for `player` only for things the body doesn't
+//            carry, and never write to either.
 //
 // A behaviour only ever sets INTENT on the car:
 //     car.targetOffset  where it wants to be across the road (lateral px from
@@ -32,19 +36,21 @@
 const FOLLOW_GAP = 40;
 const FOLLOW_REACTION = 1.0; // seconds of closing rate added to the gap
 
-// Drive on, holding a lane and a steady speed — but don't drive THROUGH the car
-// in front. Nothing collides yet (Phase 3 has no ramming), so without this two
-// cars sharing a lane at different speeds simply merge into one another, which
-// looks broken long before it matters to gameplay.
+// Drive on, holding a lane and a steady speed — but don't drive INTO whatever is
+// in front, traffic or player. Cars do collide now (collisions.js), so this is
+// what separates an accident from ordinary traffic: without it every faster car
+// on the road would grind through the queue ahead of it, and the player would be
+// rear-ended from behind constantly rather than as a consequence of driving
+// badly. Enemy types keep it until Phase 4 gives them a reason not to.
 function cruise(car, _dt, world) {
-  const lead = leadCar(car, world.cars);
+  const lead = leadCar(car, world);
   if (!lead) {
     car.targetSpeed = car.cruiseSpeed;
     return;
   }
 
   // Nose-to-tail gap, and the room this car needs at its current closing rate.
-  const gap = lead.worldY - car.worldY - (lead.type.h + car.type.h) / 2;
+  const gap = lead.worldY - car.worldY - (lead.h + car.h) / 2;
   const closing = Math.max(0, car.speed - lead.speed);
   const needed = FOLLOW_GAP + closing * FOLLOW_REACTION;
 
@@ -53,20 +59,24 @@ function cruise(car, _dt, world) {
   car.targetSpeed = gap < needed ? Math.min(car.cruiseSpeed, lead.speed) : car.cruiseSpeed;
 }
 
-// The nearest car ahead of `car` in the same lane, or null if the road is clear.
-// Lanes are wide enough that cars in different ones never overlap, so same-lane
-// is the whole test (see road.js).
-function leadCar(car, cars) {
+// The nearest thing ahead of `car` that it would actually run into, or null if
+// the road is clear. Overlap is tested LATERALLY rather than by lane number:
+// ramming knocks cars between lanes and the player never had one, so "shares my
+// lane" is not the same question as "is in my way".
+function leadCar(car, world) {
   let best = null;
   let bestGap = Infinity;
-  for (const other of cars) {
-    if (other === car || other.lane !== car.lane) continue;
+  const consider = (other) => {
+    if (other === car) return;
+    if (Math.abs(other.offset - car.offset) >= (other.w + car.w) / 2) return;
     const gap = other.worldY - car.worldY;
     if (gap > 0 && gap < bestGap) {
       bestGap = gap;
       best = other;
     }
-  }
+  };
+  for (const other of world.cars) consider(other);
+  if (world.playerBody) consider(world.playerBody);
   return best;
 }
 
