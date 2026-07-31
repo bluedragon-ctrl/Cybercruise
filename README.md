@@ -143,13 +143,13 @@ behind if faster, so they always cross the screen — and retired once well past
 
 | | | |
 |---|---|---|
-| rig | 180–205 | the floor — half again the player's minimum |
-| van | 200–240 | |
-| sedan | 230–275 | |
+| rig | 180–215 | the floor — half again the player's minimum |
+| van | 195–255 | |
+| sedan | 215–290 | the widest range: civilians are a spread of ordinary drivers |
 | bruiser | 280–330 | |
 | muscle | 310–360 | |
 | interceptor | 400–470 | |
-| roadster | 420–480 | |
+| roadster | 400–490 | |
 | rival | 580–650 | straddles the player's ceiling — draws level, neither escapes |
 | hypercar | 630–700 | |
 | cycle | 660–730 | catches a player at full throttle |
@@ -158,6 +158,21 @@ Two consequences worth having on purpose. Dawdling never makes the road go
 quiet — it makes the whole city stream past you. And **flat out is not fast
 enough to be left alone**: a cycle still comes past a player holding 620, so
 escaping is a job for the Phase 5 boosts rather than for the accelerator.
+
+**Within a type, no two cars drive alike**, and none of it costs a sprite:
+
+- the range is **rolled per spawn**, so two sedans start out different;
+- each car then **wanders ±4%** around its roll, on its own phase and its own
+  8–12s period, so a pair that happened to roll close together separates instead
+  of locking into formation. A wider one-time roll can't do this — it varies cars
+  against each other, not over time;
+- an overtaker **spends up to 15% more** while committed to a pass, so passing
+  reads as effort rather than as drift. Measured over 6 runs: passes take 2.16s
+  instead of 2.79s and 7% expire on the timeout instead of 18%.
+
+All three are capped by the type's own `speedMin`/`speedMax`, so the table above
+stays a hard floor and ceiling — which is what keeps the closing-speed
+constraint below true.
 
 The band's width is not a free parameter. Traffic sheds speed at `traffic.js`'s
 `ACCEL` and `behaviours.js` sizes a follower's gap from one second of closing

@@ -62,6 +62,20 @@ const SHOVE_DAMP = 5;        // per second; how fast a rammed car's slide dies a
 const CRITICAL = 0.35;       // hull fraction below which a car reads as wrecked
 const BLINK_PERIOD = 0.12;   // seconds per half-cycle of the critical-hull blink
 
+// CRUISE DRIFT. Every car rolls its own speed at spawn, but that roll is made
+// ONCE — so two cars of a type that happen to roll close together stay locked in
+// formation for as long as they are both on screen, and the road reads as "every
+// sedan drives the same speed" even though none of them do. Each car therefore
+// also wanders slowly around its rolled speed, on its own phase and its own
+// period, which lets pairs separate and re-converge instead of freezing.
+//
+// A one-time wider roll cannot do this: it varies cars against EACH OTHER, not
+// over time. This is deliberately small and slow — it's the texture under the
+// traffic, not a behaviour, and anything faster would read as indecision.
+const DRIFT = 0.04;          // ± fraction of the car's own cruising speed
+const DRIFT_PERIOD_MIN = 8;  // seconds for a full wander cycle...
+const DRIFT_PERIOD_MAX = 12; // ...rolled per car, so the road never beats in unison
+
 // One car on the road. Constructed by the spawner below; driven by its type's
 // behaviour every tick.
 class TrafficCar {
@@ -72,7 +86,14 @@ class TrafficCar {
     this.offset = laneOffset(lane);
     this.prevOffset = this.offset; // previous-tick offset, for render interpolation
     this.speed = speed;
-    this.cruiseSpeed = speed; // the speed it returns to after slowing for traffic
+    this.cruiseSpeed = speed; // the speed it returns to after slowing for traffic,
+                              // re-derived every tick from the three fields below
+    this.baseSpeed = speed;   // the speed rolled at spawn — the centre of the wander
+    this.driftPhase = Math.random() * Math.PI * 2; // where in its cycle it starts
+    this.driftRate =
+      (Math.PI * 2) /
+      (DRIFT_PERIOD_MIN + Math.random() * (DRIFT_PERIOD_MAX - DRIFT_PERIOD_MIN));
+    this.driftTime = 0;
 
     // Intent, written by the behaviour (see behaviours.js). Seeded with "keep
     // doing what you were spawned doing", so a car that never gets a decision
@@ -125,6 +146,17 @@ class TrafficCar {
   }
 
   update(dt, world) {
+    // Wander first, so the behaviour decides against the speed this car actually
+    // wants right now. CLAMPED to the type's own range: the catalogue documents
+    // the speed band as a hard floor and ceiling (cartypes.js), and the drift is
+    // texture, not licence to leave it.
+    this.driftTime += dt;
+    const wander = 1 + DRIFT * Math.sin(this.driftPhase + this.driftTime * this.driftRate);
+    this.cruiseSpeed = Math.max(
+      this.type.speedMin,
+      Math.min(this.type.speedMax, this.baseSpeed * wander),
+    );
+
     behaviourFor(this.type.behaviour)(this, dt, world);
 
     // Speed: approach the requested speed at a fixed rate rather than snapping,
