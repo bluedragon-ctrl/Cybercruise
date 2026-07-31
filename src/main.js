@@ -1,11 +1,13 @@
 // Cybercruise — bootstrap + game loop.
-// Phase 1: a neon player car driving an infinite curving highway with barriers.
+// Phase 3: a neon player car driving an infinite curving highway through a
+// parallax city, sharing the road with other traffic.
 
 import { createLoop } from "./engine/loop.js";
 import { initInput } from "./engine/input.js";
 import { clear, glowText } from "./engine/neon.js";
 import { GREEN, GREEN_BRIGHT, GREEN_PALE } from "./engine/palette.js";
 import { Player } from "./game/player.js";
+import { Traffic } from "./game/traffic.js";
 import * as road from "./game/road.js";
 import * as scenery from "./game/scenery.js";
 
@@ -19,6 +21,7 @@ initInput();
 // Player sits around mid-screen (Spy Hunter framing) so traffic catching up
 // from behind is visible below before it draws level.
 const player = new Player(W / 2, H * 0.62);
+const traffic = new Traffic();
 
 // `distance` is how far we've driven, in world units. It grows with speed and
 // drives everything that scrolls (road curve, lane dashes). See road.js for the
@@ -32,6 +35,11 @@ function update(dt) {
   player.update(dt, { left: edges.left, right: edges.right });
 
   distance += player.speed * dt;
+
+  // Traffic runs on the UPDATED distance, so a car spawned this tick lands
+  // relative to where the player actually is now. The object handed over is the
+  // read-only view of the world that the car behaviours get (behaviours.js).
+  traffic.update(dt, { player, distance, W, H });
 }
 
 function drawHud() {
@@ -71,6 +79,8 @@ function render(alpha) {
   // ribbon paints an opaque surface over it, then the player on top.
   scenery.render(ctx, distance, player.y, W, H);
   road.render(ctx, distance, player.y, W, H);
+  // Traffic before the player, so the player's car is never hidden under one.
+  traffic.render(ctx, distance, player.y, W, H, alpha);
   player.render(ctx, alpha);
   drawHud();
 }

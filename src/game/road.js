@@ -42,14 +42,33 @@ export function centerOffset(worldY) {
   return 90 * Math.sin(worldY * 0.0016) + 40 * Math.sin(worldY * 0.0043 + 1.7);
 }
 
+// Screen x of the road's centre-line at a given world distance.
+export function centerXAt(worldY, canvasW) {
+  return canvasW / 2 + centerOffset(worldY);
+}
+
 // Road geometry (in screen x) at a given world distance.
 export function edgesAt(worldY, canvasW) {
-  const center = canvasW / 2 + centerOffset(worldY);
+  const center = centerXAt(worldY, canvasW);
   return {
     center,
     left: center - ROAD_HALF_WIDTH,
     right: center + ROAD_HALF_WIDTH,
   };
+}
+
+// --- Lanes -----------------------------------------------------------------
+// The road carries LANE_COUNT equal lanes. A lane is expressed as a LATERAL
+// OFFSET from the centre-line (px), never as a screen x: add it to centerXAt()
+// for the car's own worldY and the car tracks every curve for free, with no
+// per-entity steering needed to stay on the tarmac. Traffic (traffic.js) is
+// placed this way; the player instead steers in raw screen x and is clamped to
+// the edges, since a human aims at the screen, not at a lane.
+export const LANE_COUNT = 4;
+export const LANE_WIDTH = (ROAD_HALF_WIDTH * 2) / LANE_COUNT;
+
+export function laneOffset(i) {
+  return (i + 0.5) * LANE_WIDTH - ROAD_HALF_WIDTH;
 }
 
 // Elevated-road side wall: how far the outer face drops toward the lower city
