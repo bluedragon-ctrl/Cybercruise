@@ -8,10 +8,14 @@ selection of switchable weapons.
 ## Play
 
 The game uses native ES modules, so it must be served over HTTP (not opened as a
-`file://`). From the project root:
+`file://`). On Windows, double-click **`play.bat`** in the project root — it
+serves the folder and opens the game in your browser. It takes an optional port:
+`play.bat 8080`.
+
+Or start a server yourself, from the project root:
 
 ```bash
-python -m http.server 5173
+npx http-server . -p 5173 -c-1
 ```
 
 Then open <http://localhost:5173>.
