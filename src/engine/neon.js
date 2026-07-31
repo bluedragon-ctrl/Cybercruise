@@ -56,7 +56,10 @@ export function glowPoly(ctx, points, color, width = 2, blur = 12, fill = null) 
 // `build(ctx)` issues the moveTo/lineTo calls and must NOT call beginPath, so a
 // caller can batch many disjoint segments (e.g. all the centre dashes) into one
 // path and pay for the three strokes only once.
-export function neonStroke(ctx, build, color, width = 2, spread = 4, halo = 0.13) {
+// `alpha` scales all three passes together, which is what lets a transient effect
+// (an explosion fragment) fade out without losing the halo's relative weighting.
+export function neonStroke(ctx, build, color, width = 2, spread = 4, halo = 0.13, alpha = 1) {
+  if (alpha <= 0) return;
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineJoin = "round";
@@ -65,17 +68,17 @@ export function neonStroke(ctx, build, color, width = 2, spread = 4, halo = 0.13
   build(ctx);
 
   // Outer halo: widest and faintest.
-  ctx.globalAlpha = halo;
+  ctx.globalAlpha = halo * alpha;
   ctx.lineWidth = width * spread;
   ctx.stroke();
 
   // Inner halo.
-  ctx.globalAlpha = halo * 2.1;
+  ctx.globalAlpha = halo * 2.1 * alpha;
   ctx.lineWidth = width * (1 + (spread - 1) * 0.45);
   ctx.stroke();
 
   // The bright core line itself.
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = alpha;
   ctx.lineWidth = width;
   ctx.stroke();
   ctx.restore();
