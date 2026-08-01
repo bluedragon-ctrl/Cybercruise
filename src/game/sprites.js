@@ -6,6 +6,7 @@
 import { glowPoly, glowLine } from "../engine/neon.js";
 import { getSprite, blitSprite } from "../engine/spritecache.js";
 import { drawCarShape, carShapeExtent, CAR_SHAPES } from "./carshapes.js";
+import { drawObstacleShape, obstacleExtent, OBSTACLE_SHAPES } from "./obstacleshapes.js";
 import {
   drawShape,
   shapeExtent,
@@ -40,6 +41,15 @@ export function drawCar(ctx, cx, cy, opts = {}) {
     wheelPhase = 0, // scrolls the wheel tread to fake rotation (px travelled)
   } = opts;
   drawCarShape(ctx, cx, cy, shape, { color, thrust, w, h, wheelPhase });
+}
+
+// A road obstacle — roadblock or mine — pointing "up" like everything else on
+// the tarmac. The geometry lives in the catalogue (game/obstacleshapes.js); this
+// is the entry point the gallery and the cached wrapper both call. `pulse`
+// (0..1) drives a mine's blink and is ignored by the inert roadblocks.
+export function drawObstacle(ctx, cx, cy, opts = {}) {
+  const { shape = 0, pulse = 1 } = opts;
+  drawObstacleShape(ctx, cx, cy, shape, pulse);
 }
 
 // An extruded "cube" building — a wireframe box rising off the grid, giving the
@@ -184,6 +194,37 @@ export function drawCarCached(ctx, cx, cy, opts = {}) {
       h,
       wheelPhase: (frame / WHEEL_FRAMES) * WHEEL_PERIOD,
     }),
+  );
+  blitSprite(ctx, sprite, cx, cy);
+}
+
+// A mine's pulse is continuous, so it is quantised before it reaches the cache
+// key — otherwise every frame would mint a new sprite and the cache would grow
+// without bound. 8 steps is more than the eye can resolve in a blink this small,
+// and it caps the whole obstacle catalogue at (blocks + 8) sprites.
+const PULSE_FRAMES = 8;
+
+// Cached drawObstacle. Identical output, except a mine's pulse snaps to one of
+// PULSE_FRAMES levels. Inert obstacles ignore `pulse` entirely and therefore key
+// to a single sprite each.
+export function drawObstacleCached(ctx, cx, cy, opts = {}) {
+  const { shape = 0, pulse = 1 } = opts;
+  const pulses = OBSTACLE_SHAPES[shape]?.pulse;
+  const frame = pulses ? Math.min(PULSE_FRAMES - 1, Math.floor(pulse * PULSE_FRAMES)) : 0;
+
+  // Extents come from the catalogue: spikes and end caps reach past the body by
+  // different amounts per shape, so one fixed padding would clip some and waste
+  // memory on others. Obstacles are symmetric about their anchor in x but not
+  // necessarily in y (the pylon cluster is staggered), so up/down are separate.
+  const ext = obstacleExtent(shape);
+  const originX = ext.x + GLOW_PAD;
+  const originY = ext.up + GLOW_PAD;
+  const sw = ext.x * 2 + GLOW_PAD * 2;
+  const sh = ext.up + ext.down + GLOW_PAD * 2;
+
+  const key = `obs|${shape}|${frame}`;
+  const sprite = getSprite(key, sw, sh, originX, originY, (sctx, ox, oy) =>
+    drawObstacleShape(sctx, ox, oy, shape, (frame + 0.5) / PULSE_FRAMES),
   );
   blitSprite(ctx, sprite, cx, cy);
 }
