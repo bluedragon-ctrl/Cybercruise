@@ -6,10 +6,11 @@
 //     dt     seconds since the last logic tick (fixed, see engine/loop.js)
 //     world  { player, distance, cars, playerBody, W, H } — the read-only view of
 //            everything else. `cars` is every live traffic car including this
-//            one; `playerBody` is the player expressed in ROAD coordinates
+//            one; `obstacles` is every live road hazard (game/obstacles.js);
+//            `playerBody` is the player expressed in ROAD coordinates
 //            (worldY / offset / w / h / speed), which is the form to compare
 //            against a car. Reach for `player` only for things the body doesn't
-//            carry, and never write to either.
+//            carry, and never write to any of them.
 //
 // A behaviour only ever sets INTENT on the car:
 //     car.targetOffset  where it wants to be across the road (lateral px from
@@ -28,7 +29,7 @@
 // this file: the car types already name them, so Phase 4 is a matter of filling
 // in a function body, not of rewiring the catalogue.
 
-import { laneAt, laneOffset, ROAD_HALF_WIDTH } from "./road.js";
+import { laneAt, laneOffset, LANE_COUNT, LANE_WIDTH, ROAD_HALF_WIDTH } from "./road.js";
 
 // Clear road a cruising car wants between its nose and the tail of the car in
 // front, in world units, plus a term for how fast it is closing. Traffic can
@@ -55,6 +56,7 @@ export const FOLLOW_REACTION = 1.0; // seconds of closing rate added to the gap
 // badly. Enemy types keep it until Phase 4 gives them a reason not to.
 function cruise(car, _dt, world) {
   car.targetSpeed = followSpeed(car, leadCar(car, world, car.offset, null));
+  avoidHazards(car, world);
 }
 
 // The speed to ask for while `lead` is in the way — the lead car's speed once
@@ -157,6 +159,8 @@ function overtake(car, dt, world) {
   // Drive harder while committed to a pass, but still brake for anything in
   // either line: the effort is spent on getting by, not on driving into someone.
   car.targetSpeed = followSpeed(car, lead, target ? passSpeed(car) : car.cruiseSpeed);
+
+  avoidHazards(car, world);
 }
 
 // Commit to a pass if there's something worth passing and a side to do it on.
@@ -235,6 +239,10 @@ function blocked(car, target, line, world) {
     return other.worldY > from && other.worldY < to;
   };
   for (const other of world.cars) if (occupies(other)) return true;
+  // Road hazards veto a pass line exactly as a car does — swerving out of a
+  // queue into a tank trap is not an overtake. Checked here as well as in the
+  // dodge below so a car never COMMITS to a doomed line in the first place.
+  for (const other of world.obstacles ?? []) if (occupies(other)) return true;
   return world.playerBody ? occupies(world.playerBody) : false;
 }
 
@@ -243,6 +251,200 @@ function nearer(a, b) {
   if (!a) return b;
   if (!b) return a;
   return a.worldY <= b.worldY ? a : b;
+}
+
+// --- Road hazards -----------------------------------------------------------
+//
+// An obstacle (game/obstacles.js) is NOT traffic, and that difference decides
+// everything about how one is handled. Traffic is something you QUEUE behind:
+// it is moving, so matching its speed still gets you where you were going. A
+// roadblock is standing still and always will be, so FOLLOWING one is never the
+// answer — which is exactly what the rule above would do if hazards were let
+// into leadCar, since followSpeed matches the lead's speed and a hazard's is
+// zero. Hazards are deliberately kept out of leadCar for that reason.
+//
+// So the answer is STEER FIRST, and only then slow down — and the reason
+// slowing down helps at all is the same fact that makes following useless. A
+// hazard does not move, so going slower does not "let it get away"; it simply
+// buys more SECONDS of approach, and seconds of approach are exactly what a
+// lane change costs. A car that cannot fit its swerve into the road it has left
+// can always fit it by taking longer over that road.
+//
+// Hence the three tiers below, cheapest first:
+//   1. steer to a lane clear of both the hazard and traffic;
+//   2. failing that, steer to one merely clear of the HAZARD, accepting that
+//      there is a car there — a fender-bender beats a blast every time;
+//   3. and whatever line was chosen, slow down enough that the sideways move
+//      actually fits in the road remaining. In the worst case that means
+//      stopping, which is a fine thing for a car to do in front of a mine.
+// Tier 3 is a floor on the tactic's own speed, never a target: a car with room
+// to spare passes a hazard at full cruise and never knows this ran.
+//
+// THE REFLEX RUNS LAST. Both shipped tactics call this after setting their own
+// intent, so a dodge overrides whatever the tactic wanted LATERALLY: finishing
+// an overtake is never worth driving over a mine. Everything else the tactic
+// decided — its speed, its pass state — survives untouched, so the pass simply
+// resumes once the road is clear again.
+//
+// DODGES AIM AT LANE CENTRES, which is what lets this skip a "pull back in"
+// step entirely: a car that swerves ends up in a real lane and cruises on from
+// there as if it had spawned in it. It is also what keeps the dodge STABLE —
+// the candidate lines are fixed, so a car picks a lane and holds it instead of
+// hunting between two near-equal offsets as it closes. Re-deciding every tick
+// is the dithering the overtake section above warns about, and it would be far
+// worse here, where the thing being dodged never moves out of the way.
+//
+// WHY STEERING ALONE IS ENOUGH: obstacles.js refuses to place a hazard in the
+// last open lane of a stretch of road, so a lane to dodge into always exists.
+// That is a real constraint between the two files, asserted in
+// test/invariants.test.js rather than only promised here.
+
+const HAZARD_CLEARANCE = 6;   // px of daylight wanted when steering past one
+
+// HOW FAR AHEAD A DRIVER LOOKS is not a constant, for the same reason
+// FOLLOW_REACTION isn't: the road has to give a car enough WARNING, and warning
+// is a distance divided by how fast the car is covering it. A fixed lookahead
+// gets this exactly backwards — a rig steers at 35px/sec and a cycle at 180,
+// while the cycle also arrives at nearly four times the speed, so one number
+// cannot be right for both. Measured against a live road, a flat 260 units left
+// every type arriving with roughly the time for ONE lane change and no more,
+// which is not enough: a car centred on a trestle has to cross more than a lane
+// to get its whole box clear of it, so it was still overlapping on arrival and
+// traffic went on clearing ~90% of the hazards off the road.
+//
+// So the lookahead is DERIVED: the time this car needs to slide clear, times
+// the speed it is closing at. A hazard never moves, so the closing speed is
+// simply the car's own.
+// TWO lane widths, not one. A car centred on the widest block (the trestle, at
+// 1.25 lanes) has to put ~64px between the two boxes to be clear of it, and the
+// nearest LANE CENTRE that manages it is often the second one over rather than
+// the first — one lane across is 65px, which the trestle's own half-width eats
+// almost entirely. Sizing this at one lane is what left cars finishing their
+// swerve still overlapping the thing they were avoiding.
+const HAZARD_DODGE_SPAN = 2; // lane widths a dodge may have to cover
+const HAZARD_SAFETY = 1.3;   // slack, so a car arrives already clear rather than
+                             // finishing its swerve exactly at the obstacle
+
+// Road a car needs to see a hazard coming and be clear of it: the time its own
+// steering takes to cover HAZARD_DODGE_SPAN, times the speed it is closing at.
+// A hazard never moves, so the closing speed is simply the car's own.
+//
+// Exported because it is a CONSTRAINT ON WHERE HAZARDS MAY BE PLACED, not just
+// a local tuning number: obstacles.js has to spawn far enough ahead that every
+// car in the catalogue gets at least this much road, or the slowest-steering
+// types are asked to dodge something they physically cannot avoid. Asserted in
+// test/invariants.test.js.
+export function dodgeDistance(speed, steerSpeed) {
+  return speed * ((LANE_WIDTH * HAZARD_DODGE_SPAN) / steerSpeed) * HAZARD_SAFETY;
+}
+
+// World units ahead `car` reads the road for hazards.
+function hazardLookahead(car) {
+  return dodgeDistance(car.speed, car.type.steerSpeed);
+}
+
+// The nearest hazard `car` would drive into on the line at `offset`, or null if
+// that line is clear. Same lateral-overlap test leadCar uses, for the same
+// reason: ramming knocks cars between lanes, so "shares my lane" is not the
+// question — "is in my way" is.
+function hazardAhead(car, world, offset, lookahead) {
+  let best = null;
+  let bestGap = Infinity;
+  for (const o of world.obstacles) {
+    if (!o.alive) continue;
+    const gap = o.worldY - car.worldY;
+    if (gap <= 0 || gap > lookahead || gap >= bestGap) continue;
+    if (Math.abs(o.offset - offset) >= (o.w + car.w) / 2 + HAZARD_CLEARANCE) continue;
+    bestGap = gap;
+    best = o;
+  }
+  return best;
+}
+
+// Steer around anything in the way that this driver isn't willing to eat.
+function avoidHazards(car, world) {
+  if (!world.obstacles || world.obstacles.length === 0) return;
+
+  // Check the line the car is ON and the line it is HEADING FOR, and react to
+  // whichever hazard comes first. Mid-pass those are different lines, and a car
+  // that only watched one of them would either swerve into a hazard it was
+  // steering toward or ignore one it is still sitting on top of.
+  const lookahead = hazardLookahead(car);
+  const hazard = nearer(
+    hazardAhead(car, world, car.offset, lookahead),
+    hazardAhead(car, world, car.targetOffset, lookahead),
+  );
+  if (!hazard) return;
+
+  // NERVE: some drivers take the hit rather than lift off their line. `threat`
+  // is the hull this hazard costs at contact and `car.nerve` is what this
+  // particular driver will accept — rolled ONCE at spawn (traffic.js), so a
+  // barger is a barger for life. A fresh coin flip per tick would make a car
+  // swerve and unswerve all the way down the road.
+  if (hazard.threat <= car.nerve) return;
+
+  // The nearest lane centre that works, walked by index rather than sorted into
+  // a list, since this runs per car per tick and behaviours.js allocates
+  // nothing.
+  //
+  // TWO TIERS, because a hazard is worse than a neighbour. The preferred line
+  // is clear of hazards AND of traffic. But `blocked` is the OVERTAKE's test —
+  // it wants a lane empty for the whole length of a sustained pass — and on a
+  // busy road that rejects nearly everything. Measured against a live road,
+  // insisting on it left a car with nowhere to go 39% of the time, and "nowhere
+  // to go" meant driving into the mine. So a lane that is merely clear of the
+  // HAZARD is kept as a fallback: swapping a certain blast for a possible
+  // fender-bender is the right trade every time, and collisions.js already
+  // knows what to do about the fender-bender.
+  //
+  // What is never traded away is the hazard itself — a line that is still
+  // hazardous is skipped outright and can't become the fallback.
+  let best = null;
+  let bestDist = Infinity;
+  let fallback = null;
+  let fallbackDist = Infinity;
+  for (let i = 0; i < LANE_COUNT; i++) {
+    const line = laneOffset(i);
+    const dist = Math.abs(line - car.offset);
+    if (hazardAhead(car, world, line, lookahead)) continue;
+
+    if (dist < fallbackDist) {
+      fallbackDist = dist;
+      fallback = line;
+    }
+    if (blocked(car, hazard, line, world)) continue;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = line;
+    }
+  }
+
+  // Both stay null only when the hazard covers every lane, which obstacles.js's
+  // placement rule is supposed to make impossible. Even then the car is not out
+  // of options — it just has no LANE to aim at, and tier 3 below still applies.
+  const aim = best ?? fallback;
+  if (aim !== null) car.targetOffset = aim;
+
+  // TIER 3: slow down enough that the swerve fits in the road that is left.
+  //
+  // How far sideways this car still has to travel: to the lane it just picked,
+  // or — with no lane to pick — the smallest move that would clear the hazard
+  // from where it already is. The second case is what keeps a boxed-in car
+  // slowing down instead of giving up and driving on at full speed.
+  const clearBy = (hazard.w + car.w) / 2 + HAZARD_CLEARANCE;
+  const lateral =
+    aim !== null
+      ? Math.abs(aim - car.offset)
+      : Math.max(0, clearBy - Math.abs(car.offset - hazard.offset));
+  if (lateral <= 0) return; // already clear of it — nothing to fit in
+
+  // The speed at which the remaining road lasts as long as the swerve does.
+  // Applied as a CEILING on whatever the tactic asked for, so this only ever
+  // takes speed away, and only from a car that genuinely cannot make it.
+  const seconds = lateral / car.type.steerSpeed;
+  const gap = Math.max(0, hazard.worldY - car.worldY - (hazard.h + car.h) / 2);
+  const safe = gap / seconds;
+  if (safe < car.targetSpeed) car.targetSpeed = Math.max(0, safe);
 }
 
 // --- Phase 4 tactics: stubs -------------------------------------------------
