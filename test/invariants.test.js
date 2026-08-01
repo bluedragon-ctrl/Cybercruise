@@ -32,14 +32,19 @@ import {
 import { FOLLOW_REACTION, behaviourFor, dodgeDistance } from "../src/game/behaviours.js";
 import { MIN_SPEED, MAX_SPEED, ACCEL as PLAYER_ACCEL, Player } from "../src/game/player.js";
 import { WHEEL_FRAMES } from "../src/game/sprites.js";
-import { LANE_COUNT, ROAD_HALF_WIDTH, laneAt, laneOffset, centerXAt } from "../src/game/road.js";
+import {
+  LANE_COUNT, LANE_WIDTH, ROAD_HALF_WIDTH, laneAt, laneOffset, centerXAt,
+} from "../src/game/road.js";
+import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import { plotAt, plotColumns, plotRows, BUILDING, EMPTY } from "../src/game/citygrid.js";
 import { resolveCollisions } from "../src/game/collisions.js";
 import { Score, DISTANCE_POINTS } from "../src/game/score.js";
-import { Loadout, Weapon, WEAPON_TYPES } from "../src/game/weapons.js";
-import { OBSTACLE_TYPES } from "../src/game/obstacletypes.js";
+import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES } from "../src/game/weapons.js";
+import { OBSTACLE_TYPES, obstacleTypeById } from "../src/game/obstacletypes.js";
 import { Obstacles, SPAWN_MARGIN as OBSTACLE_SPAWN_MARGIN } from "../src/game/obstacles.js";
 import { Explosions } from "../src/game/effects.js";
+import { Projectiles } from "../src/game/projectiles.js";
+import { armFor, armamentFor } from "../src/game/armament.js";
 
 const slowest = Math.min(...CAR_TYPES.map((t) => t.speedMin));
 const fastest = Math.max(...CAR_TYPES.map((t) => t.speedMax));
@@ -607,29 +612,360 @@ test("behaviours still run with no obstacle system at all", () => {
   assert.equal(car.targetSpeed, car.cruiseSpeed);
 });
 
-test("obstacle spawn placement never takes the last open lane nearby", () => {
-  // freeLane's fairness rule (game/obstacles.js): a spawn must leave at least
-  // one lane clear near itself. Bypass spawn()'s own type/lane roll and drive
-  // the check directly with plain stand-ins — freeLane only reads
-  // {lane, worldY, h}.
-  const obstacles = new Obstacles(new Explosions());
+// --- Enemy armament -----------------------------------------------------------
 
-  // Two of four lanes taken nearby: two genuinely stay open, so a spawn there
-  // must still be allowed.
-  obstacles.list.push({ lane: 0, worldY: 1000, h: 20 });
-  obstacles.list.push({ lane: 1, worldY: 1000, h: 20 });
-  const lane = obstacles.freeLane(1000, 60, 20);
-  assert.ok([2, 3].includes(lane), `expected an open lane, got ${lane}`);
+const ENEMY_GUN = ENEMY_WEAPON_TYPES[0];
 
-  // A third lane taken leaves exactly ONE open (whichever of 2/3 wasn't just
-  // picked). Taking it too would block the road completely, so freeLane must
-  // refuse rather than hand out the last lane — the road always keeps a way
-  // through this stretch, even at the cost of not spawning here at all.
-  const third = lane === 2 ? 3 : 2;
-  obstacles.list.push({ lane: third, worldY: 1000, h: 20 });
-  assert.equal(
-    obstacles.freeLane(1000, 60, 20),
-    -1,
-    "the last open lane in a stretch must never be taken",
+test("every hostile is armed and nothing else is", () => {
+  // game/armament.js: "every hostile is armed, and nothing else is" — faction is
+  // the default rather than a per-type flag, so a new enemy type is armed by
+  // existing. The other half matters more: an armed civilian would shoot at the
+  // player, and killing it back would still fine them (score.js).
+  for (const t of CAR_TYPES) {
+    const armed = armamentFor(t) !== null;
+    assert.equal(armed, t.value >= 0, `${t.id}: armed=${armed} does not match its faction`);
+  }
+});
+
+test("the enemy's gun is not something the player can end up holding", () => {
+  // weapons.js keeps two catalogues for exactly this: Loadout defaults to
+  // WEAPON_TYPES and the Phase 5 pickups will roll from it, so anything added
+  // there is a weapon the player can pick up.
+  const playerIds = new Set(WEAPON_TYPES.map((t) => t.id));
+  for (const t of ENEMY_WEAPON_TYPES) {
+    assert.ok(!playerIds.has(t.id), `${t.id} appears in the player's catalogue`);
+  }
+  const loadout = new Loadout();
+  assert.ok(
+    !loadout.weapons.some((w) => w.type === ENEMY_GUN),
+    "the default loadout handed the player the enemy's gun",
   );
+});
+
+test("one hostile gun stays inside its sanity band", () => {
+  // A BAND, NOT A TARGET — weapons.js is explicit that the blaster is tuned by
+  // measuring the road, since what matters is how much hull a minute of driving
+  // costs and that depends on how often a gun bears. This only catches the
+  // change nobody would measure after: raising `damage` or dropping `interval`
+  // far enough that a single hostile becomes a countdown on its own.
+  const seconds = (new Player(0, 0).maxHealth / ENEMY_GUN.damage) * ENEMY_GUN.interval;
+  assert.ok(
+    seconds >= 15,
+    `one blaster now empties the player's hull in ${seconds.toFixed(1)}s on its own — ` +
+      `too fast for a road that puts several of them on the player at once`,
+  );
+});
+
+test("every hostile type can shoot behind it", () => {
+  // A rearward round leaves the muzzle at the shooter's speed MINUS the muzzle
+  // speed (projectiles.js's `dir`), so it only travels backwards while the
+  // muzzle speed clears the catalogue's ceiling. Below that, the quickest
+  // hostiles quietly lose the ability to shoot at a player sitting behind them —
+  // which is most of the time, given where the player is framed.
+  assert.ok(
+    ENEMY_GUN.muzzleSpeed > fastest,
+    `blaster muzzleSpeed ${ENEMY_GUN.muzzleSpeed} must exceed the fastest cruise ${fastest}`,
+  );
+});
+
+test("a rearward round travels back down the road and still hits", () => {
+  // The whole of what projectiles.js needed for enemy fire: a sign on the muzzle
+  // speed. The swept hit test is direction-agnostic, and this is what proves it.
+  const shots = new Projectiles();
+  const s = shots.spawn(0, 0, 400, ENEMY_GUN, 600, -1);
+  assert.equal(s.speed, 400 - ENEMY_GUN.muzzleSpeed);
+  assert.ok(s.speed < 0, "a rearward shot from a car slower than its gun must go backwards");
+
+  let taken = 0;
+  const target = {
+    worldY: -180, offset: 0, w: 34, h: 60, alive: true,
+    damage(hp) { taken += hp; },
+  };
+  const view = { distance: 0, playerY: 496, W: 600, H: 800 };
+  for (let i = 0; i < 120 && taken === 0; i++) shots.update(1 / 60, [target], view);
+
+  assert.equal(taken, ENEMY_GUN.damage, "the round should have run down onto the car behind it");
+  assert.ok(!s.alive, "and been consumed by the hit");
+  assert.ok(s.worldY < 0, "it must have ended up behind where it was fired");
+});
+
+// An armed hostile at the origin, with the player somewhere near it, driven
+// through a real hostile behaviour. `fired` / `laid` record what reached the
+// world hooks, which is the only observable this layer has.
+function hostileScenario(over = {}, worldOver = {}) {
+  const type = CAR_TYPES.find((t) => t.id === "interceptor");
+  const car = {
+    worldY: 0, offset: 0, w: type.w, h: type.h, speed: 420, cruiseSpeed: 420,
+    alive: true, nerve: 0, targetSpeed: 420, targetOffset: 0,
+    type, arms: armFor(type),
+    ...over,
+  };
+  const playerBody = {
+    worldY: 300, offset: 0, w: 34, h: 60, speed: 300, alive: true,
+    damage() {},
+    ...(worldOver.playerBody ?? {}),
+  };
+  const fired = [];
+  const laid = [];
+  const world = {
+    cars: [car], obstacles: [], playerBody,
+    player: new Player(300, 496), H: 800,
+    fireShot: (c, t, dir) => fired.push({ car: c, type: t, dir }),
+    dropMine: (c, t) => (laid.push({ car: c, type: t }), true),
+    ...worldOver,
+    playerBody, // worldOver may only override the body's FIELDS, above
+  };
+  behaviourFor("pursue")(car, 1 / 60, world);
+  return { car, world, fired, laid };
+}
+
+test("a hostile shoots at a player in front of it, up the road", () => {
+  const { fired } = hostileScenario();
+  assert.equal(fired.length, 1, "expected exactly one round");
+  assert.equal(fired[0].dir, 1, "a player ahead must be shot at up the road");
+  assert.equal(fired[0].type, ENEMY_GUN);
+});
+
+test("a hostile ahead of the player shoots back down the road", () => {
+  // The case the `dir` parameter exists for: the enemy is in front, which is
+  // where the framing puts most of them.
+  const { fired } = hostileScenario({}, { playerBody: { worldY: -260 } });
+  assert.equal(fired.length, 1);
+  assert.equal(fired[0].dir, -1, "a player behind must be shot at back down the road");
+});
+
+test("a hostile holds fire on a player out of its line", () => {
+  const { fired } = hostileScenario({}, { playerBody: { offset: 120 } });
+  assert.equal(fired.length, 0, "a shot two lanes wide of the player is wasted");
+});
+
+test("a hostile holds fire from off screen", () => {
+  // game/armament.js: "a car firing from beyond the edge of the screen is an
+  // unattributable hit". A player framed at 62% down an 800px canvas can see
+  // 304 units of road behind them, so a car 290 back may shoot and one 400 back
+  // may not — even though both are inside GUN_RANGE.
+  const seen = hostileScenario({}, { playerBody: { worldY: 290 } });
+  assert.equal(seen.fired.length, 1, "a car still on screen behind the player should fire");
+  const unseen = hostileScenario({}, { playerBody: { worldY: 400 } });
+  assert.equal(unseen.fired.length, 0, "a car below the bottom edge must not fire");
+});
+
+test("a hostile does not fire a round that cannot catch anything", () => {
+  // A car quicker than its own muzzle speed puts rearward rounds out that still
+  // drift forwards. Rather than tune the case away, the shot is not taken — and
+  // a car pulling away from the player ceasing fire reads correctly anyway.
+  const { fired } = hostileScenario(
+    { speed: ENEMY_GUN.muzzleSpeed + 400 },
+    { playerBody: { worldY: -260 } },
+  );
+  assert.equal(fired.length, 0, "a round that never closes must not be fired");
+});
+
+test("a civilian carries nothing and never fires", () => {
+  const sedan = CAR_TYPES.find((t) => t.id === "sedan");
+  assert.equal(armFor(sedan), null);
+  const { fired, laid } = hostileScenario({ type: sedan, arms: armFor(sedan) });
+  assert.equal(fired.length, 0);
+  assert.equal(laid.length, 0);
+});
+
+test("a hostile lays the catalogue's mine at a player on its tail", () => {
+  const { laid } = hostileScenario({}, { playerBody: { worldY: -200 } });
+  assert.equal(laid.length, 1, "expected one mine");
+  assert.equal(laid[0].type, obstacleTypeById("caltrop"), "the payload must be the mine");
+});
+
+test("a hostile does not mine somebody else's traffic", () => {
+  // The scoring rule of cartypes.js's NERVE section, at the other end: score.js
+  // pays out however a car died, so a civilian killed by a mine the player never
+  // laid would fine them for a kill they had no part in.
+  const between = {
+    worldY: -100, offset: 0, w: 34, h: 60, speed: 300, alive: true,
+    type: CAR_TYPES.find((t) => t.id === "sedan"),
+  };
+  const clear = hostileScenario({}, { playerBody: { worldY: -200 } });
+  assert.equal(clear.laid.length, 1, "the test is meaningless if this case does not lay one");
+
+  const blockedByTraffic = hostileScenario({}, {
+    playerBody: { worldY: -200 },
+    cars: [between],
+  });
+  assert.equal(blockedByTraffic.laid.length, 0, "a car between the two must veto the drop");
+});
+
+test("a hostile will not drop a mine into the player's face", () => {
+  // MINE_MIN_LEAD: a mine that appears with no road left to steer around it is
+  // not a threat the player can answer, it is just damage.
+  const { laid } = hostileScenario({}, { playerBody: { worldY: -40 } });
+  assert.equal(laid.length, 0);
+});
+
+test("a mine layer runs dry, and its magazine is what rations mines", () => {
+  // weapons.js's blaster is deliberately infinite and the layer deliberately is
+  // not — see game/armament.js. This pins the pair: a car cannot mine the road
+  // indefinitely.
+  const arms = armFor(CAR_TYPES.find((t) => t.id === "interceptor"));
+  assert.equal(arms.gun.ammo, Infinity, "the enemy gun must never run out");
+  assert.ok(Number.isFinite(arms.layer.ammo) && arms.layer.ammo > 0);
+  for (let i = 0; i < arms.layer.type.ammo; i++) {
+    arms.layer.cooldown = 0;
+    assert.ok(arms.layer.tryFire());
+  }
+  arms.layer.cooldown = 0;
+  assert.ok(!arms.layer.tryFire(), "the layer should be empty");
+});
+
+test("a laid mine sits clear behind the car that dropped it", () => {
+  // obstacles.js's DROP_CLEARANCE: the contact test makes no exception for
+  // whoever laid it, so a car sitting inside its own mine would detonate it on
+  // the tick it appeared.
+  const obstacles = new Obstacles(new Explosions());
+  const mine = obstacleTypeById("caltrop");
+  const car = { worldY: 1000, offset: 20, h: 62, w: 34 };
+  assert.ok(obstacles.drop(mine, car));
+
+  const o = obstacles.list[0];
+  assert.ok(o.laid, "a dropped obstacle must be marked as laid");
+  assert.equal(o.offset, 20, "it belongs where the car was, not on a lane centre");
+  assert.ok(o.worldY < car.worldY, "it must be behind the car");
+  assert.ok(
+    car.worldY - o.worldY > (car.h + o.h) / 2,
+    "the dropper is sitting inside its own mine",
+  );
+});
+
+test("laid mines and road furniture are budgeted separately", () => {
+  // obstacles.js keeps two caps: a run of roadblocks must not quietly disarm
+  // every enemy on the road, and a firefight must not starve the road of
+  // obstacles. Each failure would look like a bug in the other system.
+  const obstacles = new Obstacles(new Explosions());
+  const mine = obstacleTypeById("caltrop");
+  const car = { worldY: 1000, offset: 0, h: 62, w: 34 };
+
+  let laid = 0;
+  while (obstacles.drop(mine, car)) laid++;
+  assert.ok(laid > 0 && laid < 8, `expected a small mine cap, got ${laid}`);
+  assert.equal(obstacles.count(true), laid);
+  assert.equal(obstacles.count(false), 0, "no mine may count against the spawner's budget");
+
+  // ...and the spawner still works with the mine budget full.
+  const world = obstacleWorld();
+  obstacles.spawn(world);
+  assert.equal(obstacles.count(false), 1, "the spawner should be unaffected by laid mines");
+});
+
+// --- Obstacle placement -------------------------------------------------------
+
+test("each obstacle type is placed where its catalogue entry says", () => {
+  // obstacletypes.js's placement modes, resolved through the real spawner. This
+  // is the whole user-visible point of the field: barrels at the edge, trestles
+  // in a lane, tetras in the middle, mines anywhere.
+  const spots = (id, n) => {
+    const type = obstacleTypeById(id);
+    const [w] = OBSTACLE_SHAPES[type.shape].size;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      // A fresh road each time, so nothing that was just placed blocks the next.
+      const offset = new Obstacles(new Explosions()).freeOffset(type, 1000, []);
+      assert.notEqual(offset, null, `${id}: found nowhere to go on an empty road`);
+      out.push({ offset, w });
+    }
+    return out;
+  };
+
+  const edge = ROAD_HALF_WIDTH;
+  for (const { offset, w } of spots("barrels", 20)) {
+    // Flush with a barrier: the box edge touches the road edge on one side.
+    const touching = Math.min(Math.abs(offset - w / 2 + edge), Math.abs(offset + w / 2 - edge));
+    assert.ok(touching < 0.001, `barrels at ${offset.toFixed(1)} is not against a barrier`);
+  }
+
+  const laneCentres = Array.from({ length: LANE_COUNT }, (_, i) => laneOffset(i));
+  for (const { offset } of spots("trestle", 20)) {
+    assert.ok(laneCentres.includes(offset), `trestle at ${offset} is not on a lane centre`);
+  }
+
+  for (const { offset } of spots("tetra", 10)) {
+    assert.equal(offset, 0, "a tetra belongs on the centre-line");
+  }
+
+  // The mine is the only type that may be anywhere — which is only observable as
+  // it NOT collapsing onto the handful of offsets the other three use.
+  const mines = spots("caltrop", 30).map((s) => s.offset);
+  assert.ok(new Set(mines).size > 20, "mine placement looks quantised, not free");
+  assert.ok(
+    mines.some((o) => !laneCentres.includes(o)),
+    "no mine landed off a lane centre",
+  );
+});
+
+test("every obstacle keeps its whole box on the road, bar the oversize trestle", () => {
+  // A placement may push a hazard to the edge, but only a shape WIDER THAN A
+  // LANE is allowed to overhang — obstacletypes.js calls that out for the
+  // trestle specifically, and it is worth knowing if a second one joins it.
+  for (const type of OBSTACLE_TYPES) {
+    const [w] = OBSTACLE_SHAPES[type.shape].size;
+    const offset = new Obstacles(new Explosions()).freeOffset(type, 1000, []);
+    assert.notEqual(offset, null, `${type.id}: found nowhere to go on an empty road`);
+    const overhang = Math.abs(offset) + w / 2 - ROAD_HALF_WIDTH;
+    if (overhang > 0) {
+      assert.ok(
+        w > LANE_WIDTH,
+        `${type.id} overhangs the barrier by ${overhang.toFixed(1)}px but fits in a lane`,
+      );
+    }
+  }
+});
+
+test("a spawn never closes the road, whatever the placement asks for", () => {
+  // THE PASSAGE RULE (game/obstacles.js), which replaced a lane count: the
+  // question is whether a drivable gap survives, not whether a lane index is
+  // free. Four mines on four lane centres pass a lane count and are impassable,
+  // which is exactly the case the old rule got wrong.
+  const obstacles = new Obstacles(new Explosions());
+  const mine = obstacleTypeById("caltrop");
+  const [mineW] = OBSTACLE_SHAPES[mine.shape].size;
+
+  // Park a mine on every lane centre by hand. Between them they leave gaps of
+  // LANE_WIDTH - mineW = 39px, which no car in the catalogue fits through.
+  for (let i = 0; i < LANE_COUNT; i++) {
+    obstacles.list.push({
+      alive: true, laid: false, worldY: 1000, offset: laneOffset(i), w: mineW, h: 26,
+    });
+  }
+  const widest = Math.max(...CAR_TYPES.map((t) => t.w));
+  assert.ok(LANE_WIDTH - mineW < widest, "this fixture no longer blocks the road");
+
+  for (const type of OBSTACLE_TYPES) {
+    assert.equal(
+      obstacles.freeOffset(type, 1000, []),
+      null,
+      `${type.id} was placed on a road that already has no way through`,
+    );
+  }
+});
+
+test("the passage rule is sized against the widest car in the catalogue", () => {
+  // A relation between two files: obstacles.js promises a way through, and that
+  // promise is only worth making if the rig can use it. Widen a car past the gap
+  // the spawner guarantees and the road starts producing hazards the heaviest
+  // traffic cannot get around however well it drives.
+  const obstacles = new Obstacles(new Explosions());
+  const widest = Math.max(...CAR_TYPES.map((t) => t.w));
+
+  // One wall spanning the road from the left barrier, leaving exactly `gap` of
+  // clear tarmac against the right one.
+  const leaves = (gap) =>
+    obstacles.leavesPassage(1000, -gap / 2, 2 * ROAD_HALF_WIDTH - gap);
+
+  for (let gap = 0; gap <= 2 * ROAD_HALF_WIDTH; gap += 2) {
+    if (leaves(gap)) {
+      assert.ok(
+        gap >= widest,
+        `a ${gap}px gap was accepted, but the widest car is ${widest}px`,
+      );
+    }
+  }
+  // ...and it has to accept something, or the rule reduces to "never spawn".
+  assert.ok(leaves(2 * ROAD_HALF_WIDTH), "an empty road must be placeable");
 });

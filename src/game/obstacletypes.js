@@ -32,6 +32,8 @@
 //               nothing at the rim — same falloff Traffic gives a car's own
 //               death. The player has 100 hull; a TrafficCar's ranges 25..220
 //               (cartypes.js)
+//   placement   where across the road this type belongs — PLACE_LANE / _SIDE /
+//               _CENTRE / _ANY. See the block above
 //   weight      relative spawn frequency (see obstacles.js's pickObstacleType)
 //
 // THE WEIGHT-CLASS LADDER. obstacleshapes.js already orders the three
@@ -44,6 +46,39 @@
 // not about how many rounds it shrugs off.
 import { obstacleShapeIndex } from "./obstacleshapes.js";
 
+// WHERE A HAZARD SITS ACROSS THE ROAD, and it is a property of the OBSTACLE
+// rather than of the spawner — a barrels stack that turned up mid-lane and a
+// trestle jammed against the barrier would both read as the road having no idea
+// what it was doing. The four modes below are what the catalogue can ask for;
+// game/obstacles.js turns each into candidate offsets and picks one that fits.
+//
+//   PLACE_LANE    centred in a lane, like traffic. The thing to drive AROUND:
+//                 it owns a lane and leaves the others alone. Note the trestle
+//                 is 1.25 lanes wide, so in an outer lane it overhangs the
+//                 barrier slightly — that is the shape being wider than a lane,
+//                 not a placement bug, and it reads as a barricade propped
+//                 against the wall.
+//   PLACE_SIDE    hard against a barrier, box flush with the edge. Road
+//                 furniture that has been PUT somewhere rather than dropped: it
+//                 narrows the road from one side and never blocks the middle.
+//   PLACE_CENTRE  straddling the centre-line, which on a four-lane road means
+//                 sitting across the two middle lanes and splitting the traffic
+//                 either side of it.
+//   PLACE_ANY     anywhere across the tarmac, lane centres included. For the
+//                 mine, which is the one hazard nobody placed deliberately —
+//                 the whole point of it is that it is not where you expect.
+//
+// THE PASSAGE RULE IS WHAT KEEPS THIS SAFE. Whatever a type asks for, obstacles.js
+// refuses a spot that would leave no gap wide enough for the widest car in the
+// catalogue to get through (see leavesPassage there). So a placement is a
+// PREFERENCE about where a hazard looks right, never a promise the spawner will
+// find room for it — a type whose spots are all taken simply doesn't spawn this
+// interval.
+export const PLACE_LANE = "lane";
+export const PLACE_SIDE = "side";
+export const PLACE_CENTRE = "centre";
+export const PLACE_ANY = "any";
+
 export const OBSTACLE_TYPES = [
   {
     id: "trestle",
@@ -52,6 +87,11 @@ export const OBSTACLE_TYPES = [
     health: 20, // one cannon round (34 dmg) puts it down
     blastRadius: 26,
     blastDamage: 8,
+    // A lane closure, which is what a folding trestle IS. It is also the type
+    // the traffic-avoidance work was tuned against (behaviours.js's
+    // HAZARD_DODGE_SPAN is sized from this shape's width), so keeping it on lane
+    // centres keeps that tuning meaning what it says.
+    placement: PLACE_LANE,
     weight: 3, // the backbone of the roadblock spread — see cartypes.js's sedan
   },
   {
@@ -62,6 +102,12 @@ export const OBSTACLE_TYPES = [
     // still free: see blastDamage below
     blastRadius: 30,
     blastDamage: 5, // the deliberate exception — see the header
+    // Against a barrier. Barrels are the softest hit in the catalogue and
+    // effects.js calls their burst "the one destruction in the game that is good
+    // news" — so they are worth going OUT OF YOUR WAY for, and putting them at
+    // the road's edge is what makes that a decision. Mid-lane they would just be
+    // free points collected on the racing line.
+    placement: PLACE_SIDE,
     weight: 2.5,
   },
   {
@@ -72,6 +118,11 @@ export const OBSTACLE_TYPES = [
     // around rather than shooting out
     blastRadius: 30,
     blastDamage: 24, // heaviest hit among the blocks, matching its "immovable" billing
+    // Straddling the centre-line, splitting the road in two. The tank trap is
+    // the one block worth steering around rather than shooting out, and putting
+    // it in the middle is what turns that into a CHOICE OF SIDE made early —
+    // which is the most interesting thing a static object can ask of a driver.
+    placement: PLACE_CENTRE,
     weight: 1.2,
   },
   {
@@ -86,6 +137,13 @@ export const OBSTACLE_TYPES = [
     // that found it, unlike the blocks' contact-only radii above.
     blastRadius: 66,
     blastDamage: 30, // the single hardest hit anything on the road can deal
+    // ANYWHERE, and it is the only type that gets to be. The other three are
+    // road furniture — somebody put them there, and where they sit says so. A
+    // mine is the opposite: nobody laid it out for the player's benefit, and
+    // being off the lane grid is precisely what makes it read as a mine rather
+    // than as a very small roadblock. It is also the narrowest thing in the
+    // catalogue (26px), so it can afford to be anywhere without closing the road.
+    placement: PLACE_ANY,
     weight: 0.8, // rare — see cartypes.js's rival for the same reasoning
   },
 ];
@@ -101,4 +159,13 @@ export function pickObstacleType() {
     if (roll <= 0) return type;
   }
   return OBSTACLE_TYPES[OBSTACLE_TYPES.length - 1];
+}
+
+// One named obstacle type. Mirrors cartypes.js's carTypeById, and exists for the
+// same reason the `shape` fields above are looked up by name: something that
+// wants THE MINE specifically — an enemy car's mine layer (game/armament.js) —
+// must not reach in by index and get a trestle the day the catalogue is
+// reordered.
+export function obstacleTypeById(id) {
+  return OBSTACLE_TYPES.find((t) => t.id === id) ?? null;
 }

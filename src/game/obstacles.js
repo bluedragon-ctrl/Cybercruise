@@ -8,6 +8,14 @@
 // eventually scrolls far enough behind the player to be dropped. Its `worldY`
 // is therefore written once, at spawn, and never touched again.
 //
+// TWO WAYS ONTO THE ROAD, and they are deliberately different. spawn() places
+// road FURNITURE far ahead of the player under placement rules built for
+// fairness (a lane is always left open, nothing lands on top of a car). drop()
+// lets a hostile car LAY a mine where it is, right now, under none of them. The
+// difference is who chose it: furniture is something the game put in the
+// player's way and therefore owes them a way through, while a laid mine is an
+// enemy's move that the player watched being made and is expected to answer.
+//
 // ONE PASS, ONE HIT. A roadblock or mine sits at a fixed point on an
 // infinitely scrolling road — nothing can double back on the player's minimum
 // speed (player.js), so nothing ever gets a second run at the same obstacle.
@@ -40,9 +48,15 @@
 // traffic.update() runs after — both get picked up the same tick they died.
 
 import { drawObstacleCached } from "./sprites.js";
-import { pickObstacleType } from "./obstacletypes.js";
+import {
+  pickObstacleType,
+  PLACE_SIDE,
+  PLACE_CENTRE,
+  PLACE_ANY,
+} from "./obstacletypes.js";
 import { OBSTACLE_SHAPES, MINE } from "./obstacleshapes.js";
-import { centerXAt, laneOffset, LANE_COUNT } from "./road.js";
+import { CAR_TYPES } from "./cartypes.js";
+import { centerXAt, laneOffset, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 
 
 // Hazards simulated at once. Sized against SPAWN_MARGIN below rather than
@@ -52,6 +66,21 @@ import { centerXAt, laneOffset, LANE_COUNT } from "./road.js";
 // for that short life and, left alone, became the thing limiting how often the
 // player meets an obstacle at all.
 const MAX_OBSTACLES = 8;
+
+// ...and, COUNTED SEPARATELY, mines laid on the road by hostile cars (see
+// drop()). Two budgets rather than one shared cap, because the two compete for
+// nothing and mean opposite things: road furniture is scenery the spawner puts
+// out ahead of the player, and a laid mine is something a car just DID to them.
+// Sharing one number would let a run of roadblocks quietly disarm every enemy on
+// the road, and let a busy firefight starve the road of obstacles — each failure
+// looking like a bug in the other system.
+const MAX_LAID = 4;
+
+// World units of clear road left between a car's tail and the mine it lays, so
+// the dropper is not sitting inside its own mine on the tick it leaves it (the
+// contact test below makes no exception for whoever put it there). It only ever
+// grows from here — the car is driving away from it.
+const DROP_CLEARANCE = 12;
 const SPAWN_INTERVAL = 2.2;   // seconds between spawn attempts — rarer than traffic
 
 // HOW FAR AHEAD A HAZARD IS PLACED, and this is not a framing choice — it is
@@ -78,12 +107,39 @@ const DRAW_MARGIN = 140;      // px past the screen edge still worth blitting. K
                               // a screen-height beyond the top edge and would
                               // otherwise be drawn for seconds before it is visible
 const SPAWN_GAP = 90;         // min world-units of CLEAR ROAD between two obstacles'
-                              // boxes in the same lane, measured edge to edge —
-                              // same idea as traffic.js's SPAWN_GAP
-// A spawn must leave at least one lane clear within this many world-units of
-// itself — measured against every OTHER live obstacle, not just ones in the
-// same lane — so a run of unlucky rolls can never wall off the whole road.
+                              // boxes where they overlap laterally, measured edge
+                              // to edge — same idea as traffic.js's SPAWN_GAP
+// How much road either side of a spawn counts as "the same stretch" when asking
+// whether there is still a way through it.
 const CLUSTER_WINDOW = 130;
+
+// THE PASSAGE RULE — the one thing a spawn may never do is close the road.
+//
+// This used to be counted in LANES: a spawn was refused if it would leave every
+// lane spoken for. That worked only while every hazard sat on a lane centre, and
+// it stopped being true the moment the catalogue gained placements (see
+// obstacletypes.js) — a barrels stack flush against the barrier occupies no lane
+// squarely, and a tetra on the centre-line occupies two of them badly.
+//
+// So the question is asked directly instead: after this spawn, is there still a
+// CONTINUOUS GAP across the road wide enough to drive through? That is both
+// stricter and more honest — four mines on four lane centres leave four 39px
+// gaps and pass a lane count while being impassable — and it needs no notion of
+// a lane at all, which is what lets a hazard sit anywhere.
+//
+// Sized against the CATALOGUE rather than picked: the widest car has to fit, or
+// the rule guarantees a way through that the rig cannot use. Asserted in
+// test/invariants.test.js, since it is a relation between two files.
+const WIDEST_CAR = Math.max(...CAR_TYPES.map((t) => t.w));
+const PASSAGE_CLEARANCE = 6;  // px of daylight either side, so the gap is drivable
+                              // rather than exactly car-shaped
+const MIN_PASSAGE = WIDEST_CAR + PASSAGE_CLEARANCE * 2;
+
+// How many random offsets a PLACE_ANY type tries before giving up this interval.
+// Small on purpose: failing to find a spot is a perfectly good outcome (the road
+// is busy), and retrying forever would just push mines into the gaps the rule
+// above is protecting.
+const ANY_TRIES = 6;
 
 // Matches the mine pulse formula demo/gallery.js uses for the same shape
 // (`0.5 + 0.5 * Math.sin(seconds * 7)`), so the asset gallery and the live
@@ -92,11 +148,18 @@ const PULSE_RATE = 7;
 
 // One obstacle on the road. Constructed by the spawner below.
 class RoadObstacle {
-  constructor(type, worldY, lane) {
+  // NO LANE INDEX. An obstacle is placed by its type's `placement`
+  // (obstacletypes.js) and only one of the four modes lands on a lane centre at
+  // all, so a `lane` field would be a lie for most of the catalogue — and a lie
+  // that reads as truth, since laneAt() answers for any offset. Everything that
+  // used to ask "same lane?" now asks whether the two boxes actually overlap
+  // laterally, which is the question it meant in the first place.
+  constructor(type, worldY, offset) {
     this.type = type;
     this.worldY = worldY; // fixed for life — obstacles do not move
-    this.lane = lane;
-    this.offset = laneOffset(lane);
+    this.offset = offset;
+    this.laid = false; // true when a car put it here rather than the spawner —
+                       // see drop() and the two placement budgets above
     this.health = type.health;
     this.alive = true;
     this.exploded = false; // set once its destruction effect has been spawned,
@@ -141,6 +204,55 @@ class RoadObstacle {
     if (this.health <= 0) {
       this.health = 0;
       this.alive = false;
+    }
+  }
+}
+
+// The stretch of road a box of width `w` centred at `offset` occupies, clamped
+// to the tarmac. Used by the passage scan, where anything hanging over a barrier
+// is not road being taken away from anybody.
+function span(offset, w) {
+  return [
+    Math.max(-ROAD_HALF_WIDTH, offset - w / 2),
+    Math.min(ROAD_HALF_WIDTH, offset + w / 2),
+  ];
+}
+
+// The lateral offsets a placement is willing to be put at, best first. Nothing
+// here checks whether a spot is FREE — that is freeOffset's job; this only says
+// where this kind of hazard belongs. See obstacletypes.js for what each mode
+// means and why each type asks for the one it does.
+function placementOffsets(placement, w) {
+  // The furthest from the centre-line a box of this width can sit and still keep
+  // its whole span on the tarmac.
+  const limit = ROAD_HALF_WIDTH - w / 2;
+
+  switch (placement) {
+    case PLACE_SIDE: {
+      // Both barriers, the coin-tossed one first, so a run of them doesn't all
+      // end up on the same side of the road.
+      const side = Math.random() < 0.5 ? 1 : -1;
+      return [side * limit, -side * limit];
+    }
+
+    case PLACE_CENTRE:
+      return [0];
+
+    case PLACE_ANY: {
+      const spots = [];
+      for (let i = 0; i < ANY_TRIES; i++) spots.push((Math.random() * 2 - 1) * limit);
+      return spots;
+    }
+
+    // PLACE_LANE, and the fallback for a type that names nothing: lane centres,
+    // in random order so the spawner doesn't favour the left. Deliberately NOT
+    // clamped by `limit` — a lane centre is a lane centre, and a shape wider than
+    // a lane (the trestle) is meant to overhang the barrier out there.
+    default: {
+      const start = Math.floor(Math.random() * LANE_COUNT);
+      const spots = [];
+      for (let i = 0; i < LANE_COUNT; i++) spots.push(laneOffset((start + i) % LANE_COUNT));
+      return spots;
     }
   }
 }
@@ -197,8 +309,46 @@ export class Obstacles {
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
       this.spawnTimer = SPAWN_INTERVAL;
-      if (this.list.length < MAX_OBSTACLES) this.spawn(world);
+      if (this.count(false) < MAX_OBSTACLES) this.spawn(world);
     }
+  }
+
+  // How many live obstacles were laid by a car (`true`) or placed by the spawner
+  // (`false`). The two budgets are kept apart — see MAX_LAID.
+  count(laid) {
+    return this.list.reduce((n, o) => n + (o.alive && o.laid === laid ? 1 : 0), 0);
+  }
+
+  // Lay one obstacle on the road immediately behind `body`, and report whether
+  // there was room for it. This is the hostile mine drop (game/armament.js);
+  // main.js hands it to traffic as a world hook so nothing in the AI has to
+  // import this file.
+  //
+  // `body` is anything exposing { worldY, offset, h } — the same body interface
+  // collisions.js documents, so a car satisfies it without an adapter.
+  //
+  // NOT SUBJECT TO THE SPAWNER'S PLACEMENT RULES, and that is the point of it
+  // being a separate method rather than a flag on spawn(). freeOffset() below
+  // honours the type's placement, refuses to close the road and refuses to drop
+  // a hazard on top of a car, because road furniture the game itself put there
+  // has to be FAIR — the player never chose to meet it. A mine laid by an enemy
+  // is the opposite kind of event: somebody aimed it, the player watched them do
+  // it, and the answer is to not be there. It goes exactly where that car was,
+  // whatever its type's placement says, and the only things bounding it are
+  // MAX_LAID and the layer's own magazine.
+  //
+  // A laid mine still COUNTS against the passage rule for later spawns, so the
+  // road can be narrowed by enemy action but never sealed by the spawner adding
+  // to it.
+  drop(type, body) {
+    if (!type || this.count(true) >= MAX_LAID) return false;
+    const [, h] = OBSTACLE_SHAPES[type.shape].size;
+    const worldY = body.worldY - (body.h + h) / 2 - DROP_CLEARANCE;
+
+    const o = new RoadObstacle(type, worldY, body.offset);
+    o.laid = true;
+    this.list.push(o);
+    return true;
   }
 
   // Break every obstacle killed this tick — by the contact pass above or by
@@ -256,20 +406,21 @@ export class Obstacles {
     this.list = this.list.filter((o) => o.alive && o.worldY > behind);
   }
 
-  // Introduce one obstacle just off the top of the screen.
+  // Introduce one obstacle just off the top of the screen, where its type says
+  // it belongs across the road.
   spawn({ distance, player, cars = [] }) {
     const type = pickObstacleType();
     const worldY = distance + player.y + SPAWN_MARGIN;
-    const [w, h] = OBSTACLE_SHAPES[type.shape].size;
 
-    const lane = this.freeLane(worldY, w, h, cars);
-    if (lane === -1) return; // no lane both clear and fair right now — try next interval
+    const offset = this.freeOffset(type, worldY, cars);
+    if (offset === null) return; // nowhere both clear and fair — try next interval
 
-    this.list.push(new RoadObstacle(type, worldY, lane));
+    this.list.push(new RoadObstacle(type, worldY, offset));
   }
 
-  // A lane with nothing already sitting near `worldY`, subject to the
-  // fairness rule in the header — or -1 if none qualifies.
+  // A lateral offset this type may be placed at near `worldY`, or null if none
+  // of the spots its placement offers will do. Candidates are tried in order and
+  // the first that passes every check wins.
   //
   // LIVE TRAFFIC COUNTS as much as another obstacle does, and for a reason that
   // is not symmetric with it: an obstacle appearing on top of a car gives that
@@ -279,20 +430,21 @@ export class Obstacles {
   // slightly larger one), so without this a mine materialises a few units in
   // front of a car that then detonates it before the player ever sees it — and
   // no amount of driving skill on the car's part could have avoided it.
-  freeLane(worldY, w, h, cars = []) {
-    const start = Math.floor(Math.random() * LANE_COUNT);
-    for (let i = 0; i < LANE_COUNT; i++) {
-      const lane = (start + i) % LANE_COUNT;
-      const offset = laneOffset(lane);
+  freeOffset(type, worldY, cars = []) {
+    const [w, h] = OBSTACLE_SHAPES[type.shape].size;
 
-      const tooClose = this.list.some(
-        (o) => o.lane === lane && Math.abs(o.worldY - worldY) - (o.h + h) / 2 < SPAWN_GAP,
+    for (const offset of placementOffsets(type.placement, w)) {
+      // Another hazard too close along the road, where the two would overlap
+      // laterally. Tested by OVERLAP rather than by lane, since most placements
+      // are not lane-aligned and a block can be wider than a lane anyway.
+      const crowded = this.list.some(
+        (o) =>
+          o.alive &&
+          Math.abs(o.offset - offset) < (o.w + w) / 2 &&
+          Math.abs(o.worldY - worldY) - (o.h + h) / 2 < SPAWN_GAP,
       );
-      if (tooClose) continue;
+      if (crowded) continue;
 
-      // Traffic is tested by LATERAL OVERLAP rather than by lane number: a
-      // block can be wider than a lane, and ramming leaves cars sitting between
-      // lanes, so "which lane is it in" is the wrong question for both of them.
       const onTraffic = cars.some(
         (c) =>
           c.alive &&
@@ -301,20 +453,39 @@ export class Obstacles {
       );
       if (onTraffic) continue;
 
-      // Fairness: which lanes are already spoken for near this stretch of
-      // road, PLUS the one this spawn would take. If that covers every lane,
-      // this candidate would seal the road off — reject it and try another.
-      const blocked = new Set(
-        this.list
-          .filter((o) => Math.abs(o.worldY - worldY) < CLUSTER_WINDOW)
-          .map((o) => o.lane),
-      );
-      blocked.add(lane);
-      if (blocked.size >= LANE_COUNT) continue;
+      if (!this.leavesPassage(worldY, offset, w)) continue;
 
-      return lane;
+      return offset;
     }
-    return -1;
+    return null;
+  }
+
+  // Would a hazard of width `w` at `offset` still leave a drivable gap across
+  // this stretch of road? See THE PASSAGE RULE above.
+  //
+  // The scan is a plain sweep of the occupied spans in lateral order, tracking
+  // the widest run of clear tarmac between them — barriers included as the two
+  // ends. Spans are CLAMPED to the road first, since a shape wider than a lane
+  // (the trestle) overhangs the barrier in an outer lane and the overhang is not
+  // road anybody was going to drive on.
+  leavesPassage(worldY, offset, w) {
+    const spans = [span(offset, w)];
+    for (const o of this.list) {
+      if (!o.alive) continue;
+      if (Math.abs(o.worldY - worldY) >= CLUSTER_WINDOW) continue;
+      spans.push(span(o.offset, o.w));
+    }
+    spans.sort((a, b) => a[0] - b[0]);
+
+    let widest = 0;
+    let cursor = -ROAD_HALF_WIDTH;
+    for (const [lo, hi] of spans) {
+      if (lo - cursor > widest) widest = lo - cursor;
+      if (hi > cursor) cursor = hi;
+    }
+    if (ROAD_HALF_WIDTH - cursor > widest) widest = ROAD_HALF_WIDTH - cursor;
+
+    return widest >= MIN_PASSAGE;
   }
 
   // No lateral interpolation, for the same reason bullets and explosions skip

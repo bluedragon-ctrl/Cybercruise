@@ -21,15 +21,30 @@
 // write car.offset / car.speed / car.worldY directly, or a truck would be able
 // to corner like a roadster and the physics would live in two places.
 //
+// THE TWO EXCEPTIONS — the only things a behaviour may DO rather than intend —
+// are the world's own hooks, and they exist because putting a bullet or a mine
+// into the world is not something the car's own physics can integrate later:
+//     world.fireShot(car, weaponType, dir)  a round leaves the muzzle, +1 up the
+//                                           road or -1 back down it
+//     world.dropMine(car, obstacleType)     a mine is laid behind the car;
+//                                           returns whether there was room
+// Both are wired up in main.js and are OPTIONAL: they are what keeps this file
+// and traffic.js free of any import of projectiles.js or obstacles.js. Neither
+// is called from here directly — game/armament.js decides when, and the hostile
+// tactics at the bottom of this file decide who asks.
+//
 // Behaviours are also free to be STATEFUL by stashing fields on `car` (a timer,
 // a chosen lane) — each car is a plain object owned by one behaviour for life.
 //
-// Phase 3 ships two real tactics, `cruise` and `overtake`. The enemy tactics
-// (`pursue`, `ram`, `block`, `weave`, `convoy`) exist as STUBS at the bottom of
-// this file: the car types already name them, so Phase 4 is a matter of filling
-// in a function body, not of rewiring the catalogue.
+// Two real DRIVING tactics ship today, `cruise` and `overtake`. The named
+// tactics at the bottom of this file (`pursue`, `ram`, `block`, `weave`,
+// `convoy`) still delegate their driving to one of those two — the car types
+// already name them, so finishing one is a matter of filling in a function body,
+// not of rewiring the catalogue. The four HOSTILE ones are no longer pure stubs:
+// their driving is still borrowed, but they shoot and lay mines for real.
 
 import { laneAt, laneOffset, LANE_COUNT, LANE_WIDTH, ROAD_HALF_WIDTH } from "./road.js";
+import { useArms } from "./armament.js";
 
 // Clear road a cruising car wants between its nose and the tail of the car in
 // front, in world units, plus a term for how fast it is closing. Traffic can
@@ -447,41 +462,60 @@ function avoidHazards(car, world) {
   if (safe < car.targetSpeed) car.targetSpeed = Math.max(0, safe);
 }
 
-// --- Phase 4 tactics: stubs -------------------------------------------------
+// --- Phase 4 tactics --------------------------------------------------------
 // Every car type in the catalogue names the behaviour it will EVENTUALLY have,
-// and each of those names resolves to a real function here that currently
-// delegates to `cruise` or `overtake`. Named stubs rather than pointing the types
-// at `cruise` directly, for two reasons: behaviourFor falls back silently on an
-// unknown key, so a real entry is what proves the wiring is live today; and
-// filling one in later is then a single function body, with no edit to
-// cartypes.js and no chance of a type being left behind.
+// and each of those names resolves to a real function here. The DRIVING half of
+// each is still a stub delegating to `cruise` or `overtake`; the SHOOTING half
+// is live, and identical across all four.
 //
-// Each stub delegates to whichever of the two shipped tactics is the closest
+// Named functions rather than pointing the types at `cruise` directly, for two
+// reasons: behaviourFor falls back silently on an unknown key, so a real entry is
+// what proves the wiring is live today; and filling one in later is then a single
+// function body, with no edit to cartypes.js and no chance of a type being left
+// behind.
+//
+// Each delegates to whichever of the two shipped tactics is the closest
 // approximation, so the road already drives sensibly: the hunters flow through
 // traffic, the heavies hold their lane.
+//
+// WHY `useArms` IS CALLED FROM EACH OF THESE and not from cruise/overtake, which
+// would be one call site instead of four: those two are the CIVILIAN tactics as
+// well, and the next step is per-behaviour differentiation — a weaver that lays
+// mines where a pursuer shoots. Splitting the call now means that step edits
+// these four bodies and nothing else. Today all four ask for the same thing
+// (game/armament.js decides what that is), so the difference costs nothing yet.
+//
+// Arms are used AFTER the driving is decided, always. Nothing a car shoots at
+// changes where it is going, and keeping that one-way makes the two halves
+// separable — a tactic can be retuned without wondering what its trigger finger
+// did to its line.
 
 // Will steer onto the player's lateral offset and close the gap, instead of
 // treating the player as just another obstacle to be passed.
 function pursue(car, dt, world) {
   overtake(car, dt, world);
+  useArms(car, world);
 }
 
 // Will line up behind the player and spend its speed on the impact, rather than
 // braking for it. The one behaviour that deliberately does NOT keep a gap.
 function ram(car, dt, world) {
   cruise(car, dt, world);
+  useArms(car, world);
 }
 
 // Will match the player's lane from IN FRONT and hold station there, slowing to
 // bottle the player up rather than driving away.
 function block(car, dt, world) {
   overtake(car, dt, world);
+  useArms(car, world);
 }
 
 // Will cross the road on a timer, alternating pass sides — hard to shoot and
 // hard to predict, which is what a light, fast enemy is for.
 function weave(car, dt, world) {
   overtake(car, dt, world);
+  useArms(car, world);
 }
 
 // Will pair rigs nose-to-tail across adjacent lanes into a rolling roadblock the

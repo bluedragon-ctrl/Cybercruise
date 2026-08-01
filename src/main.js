@@ -47,10 +47,47 @@ const shotTargets = [];
 
 // The guns, and the bullets they put in the air. The player holds a Loadout
 // (each weapon's cooldown and ammo — weapons.js); the world holds the shots
-// (projectiles.js). Kept apart because the enemy will carry the same Weapon
-// class in the next step while firing into the same pool.
+// (projectiles.js). Every armed enemy car holds an Armament of the same Weapon
+// class (game/armament.js).
 const loadout = new Loadout();
 const shots = new Projectiles();
+
+// HOSTILE FIRE GETS ITS OWN POOL, and the reason is targeting rather than
+// bookkeeping. projectiles.js resolves one pool against one list of targets —
+// "WHO CAN BE HIT is the CALLER'S choice" — so two pools is how a bullet knows
+// whose side it is on, with no notion of a faction anywhere in that file.
+//
+// Enemy rounds are resolved against the PLAYER ALONE: they pass through traffic
+// and through road hazards untouched. That is deliberate and it is score.js's
+// doing — the scoreboard pays out however a car died, so a civilian shot by an
+// enemy would fine the player for a kill they had no part in, exactly the
+// oddity cartypes.js's NERVE section already had to design mines around. The
+// same goes for a hostile round setting off a mine.
+const enemyShots = new Projectiles();
+// Reused every tick rather than rebuilt. Traffic's PlayerBody is already the
+// player expressed as something with { worldY, offset, w, h, alive, damage } —
+// the exact target interface projectiles.js documents — so it needs no adapter
+// of its own.
+const enemyTargets = [traffic.playerBody];
+
+// --- The two things a hostile car may do to the world ------------------------
+//
+// Handed to traffic on the world view each tick, so behaviours.js and
+// game/armament.js can put a bullet or a mine into the world without importing
+// either system — the same shape of wiring as Traffic's `onDestroyed` callback,
+// which is what keeps traffic.js from ever knowing what a point is.
+
+// A round leaves `car`'s muzzle: its nose when firing up the road, its tail when
+// firing back down it at a player who is behind.
+function fireShot(car, type, dir) {
+  enemyShots.spawn(car.worldY + dir * (car.h / 2), car.offset, car.speed, type, W, dir);
+}
+
+// A mine is laid immediately behind `car`. Returns whether the road had room —
+// see obstacles.js's drop(), which owns the placement and the budget.
+function dropMine(car, type) {
+  return obstacles.drop(type, car);
+}
 
 // `distance` is how far we've driven, in world units. It grows with speed and
 // drives everything that scrolls (road curve, lane dashes). See road.js for the
@@ -86,10 +123,10 @@ function update(dt) {
     const centerX = road.centerXAt(distance, W);
     shots.spawn(distance + player.h / 2, player.x - centerX, player.speed, weapon.type, W);
   }
-  // Traffic cars and road obstacles are both fair game for gunfire — one flat
-  // list, built fresh each tick into the reused scratch array, so a shot stops
-  // at whichever it actually crosses first (see projectiles.js's firstHit).
-  // Enemy fire (next step) passes the player's body here instead.
+  // Traffic cars and road obstacles are both fair game for the PLAYER'S gunfire
+  // — one flat list, built fresh each tick into the reused scratch array, so a
+  // shot stops at whichever it actually crosses first (see projectiles.js's
+  // firstHit). Hostile fire is resolved separately, after traffic — see below.
   shotTargets.length = 0;
   for (const car of traffic.cars) shotTargets.push(car);
   for (const o of obstacles.list) shotTargets.push(o);
@@ -99,7 +136,15 @@ function update(dt) {
   // for bullets: anything an obstacle kills this tick (a car caught in a mine
   // blast) must still be picked up by traffic.update()'s own detonate() sweep
   // in the SAME tick, not a tick late — see game/obstacles.js's header.
-  const world = { player, distance, W, H, cars: traffic.cars, obstacles: obstacles.list };
+  const world = {
+    player, distance, W, H,
+    cars: traffic.cars,
+    obstacles: obstacles.list,
+    // The hostile weapons' way into the world — see above, and the contract at
+    // the top of game/behaviours.js.
+    fireShot,
+    dropMine,
+  };
   obstacles.update(dt, world);
 
   // retire() REPLACES obstacles.list with a filtered array, so re-point the
@@ -113,6 +158,13 @@ function update(dt) {
   // player is NOT read-only here: traffic resolves ramming for every car and the
   // player together, which can shove and damage the player (collisions.js).
   traffic.update(dt, world);
+
+  // Hostile fire resolves AFTER traffic, not before it like the player's. Two
+  // reasons, and they point the same way: the rounds fired during traffic.update
+  // this tick get to move and land in the tick they were fired, and the
+  // PlayerBody they are tested against has just been synced to where the player
+  // actually is now rather than to where it was at the top of the frame.
+  enemyShots.update(dt, enemyTargets, { distance, playerY: player.y, W, H });
 }
 
 function drawHud() {
@@ -195,7 +247,10 @@ function render(alpha) {
   obstacles.render(ctx, distance, player.y, W, H);
   traffic.render(ctx, distance, player.y, W, H, alpha);
   // Bullets over the traffic they're flying at, under the player's own car.
+  // Hostile rounds draw with them and in the enemy's own red (weapons.js), so
+  // which way a tracer is going is never a question the player has to work out.
   shots.render(ctx, distance, player.y, W, H);
+  enemyShots.render(ctx, distance, player.y, W, H);
   player.render(ctx, alpha);
   drawHud();
 }

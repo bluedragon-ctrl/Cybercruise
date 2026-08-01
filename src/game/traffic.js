@@ -31,6 +31,7 @@
 import { drawCarCached } from "./sprites.js";
 import { behaviourFor } from "./behaviours.js";
 import { pickCarType } from "./cartypes.js";
+import { armFor } from "./armament.js";
 import { Explosions } from "./effects.js";
 import { resolveCollisions, PlayerBody } from "./collisions.js";
 import { PLAYER_MASS } from "./player.js";
@@ -114,6 +115,12 @@ class TrafficCar {
     // tick would weave at the roadblock instead of committing either way.
     this.nerve = Math.random() * (type.nerve ?? 0);
 
+    // What this car is carrying, if anything — its own cooldowns and magazines,
+    // so two interceptors do not share a trigger (game/armament.js). Null for
+    // every civilian, which is what makes the arms code a no-op for most of the
+    // road rather than something every behaviour has to guard.
+    this.arms = armFor(type);
+
     this.health = type.health;
     this.maxHealth = type.health;
     this.alive = true;
@@ -169,6 +176,11 @@ class TrafficCar {
       this.type.speedMin,
       Math.min(this.type.speedMax, this.baseSpeed * wander),
     );
+
+    // Weapons recover BEFORE the behaviour decides, so a car that has just come
+    // into range finds its gun as ready as it has earned by waiting, rather than
+    // a tick behind.
+    if (this.arms) this.arms.update(dt);
 
     behaviourFor(this.type.behaviour)(this, dt, world);
 
@@ -391,7 +403,7 @@ export class Traffic {
       ? distance + player.y + SPAWN_MARGIN
       : distance - (H - player.y) - SPAWN_MARGIN;
 
-    const lane = this.freeLane(worldY, type.h);
+    const lane = this.freeLane(worldY, type.w, type.h);
     if (lane === -1) return; // every lane busy here; try again next interval
 
     this.cars.push(new TrafficCar(type, worldY, lane, speed));
@@ -415,7 +427,7 @@ export class Traffic {
   }
 
   // A lane with nothing already sitting near `worldY`, or -1 if there is none.
-  // `h` is the length of the car being placed, since the clearance wanted is
+  // `w`/`h` are the size of the car being placed, since the clearance wanted is
   // between the two BOXES, not their centres. Lanes are tried in random order so
   // traffic doesn't favour the left.
   //
@@ -426,15 +438,25 @@ export class Traffic {
   // same lane and is already inside it, with no road left to steer around it.
   // Avoidance (behaviours.js) cannot save a car that was never given any
   // warning, so the fix belongs at placement rather than in the driving.
-  freeLane(worldY, h) {
+  //
+  // Hazards are tested by LATERAL OVERLAP against the lane's centre-line rather
+  // than by a lane index, because most of them no longer have one: an obstacle
+  // is placed by its type's `placement` (obstacletypes.js) and only one of the
+  // four modes lands on a lane centre. A tetra straddling the centre-line is in
+  // two lanes' way and in neither lane's index.
+  freeLane(worldY, w, h) {
     const start = Math.floor(Math.random() * LANE_COUNT);
     for (let i = 0; i < LANE_COUNT; i++) {
       const lane = (start + i) % LANE_COUNT;
+      const offset = laneOffset(lane);
       const near = (other, otherH) =>
         Math.abs(other.worldY - worldY) - (otherH + h) / 2 < SPAWN_GAP;
 
       if (this.cars.some((car) => car.lane === lane && near(car, car.h))) continue;
-      if (this.view.obstacles.some((o) => o.alive && o.lane === lane && near(o, o.h))) continue;
+      const hazard = this.view.obstacles.some(
+        (o) => o.alive && Math.abs(o.offset - offset) < (o.w + w) / 2 && near(o, o.h),
+      );
+      if (hazard) continue;
       return lane;
     }
     return -1;
