@@ -155,7 +155,9 @@ const GLOW_PAD = 18;
 // positions keeps the roll smooth while capping the cache at 8 frames per car
 // colour (a 4px-wide wheel can't show finer detail than this anyway).
 const WHEEL_PERIOD = 4;
-const WHEEL_FRAMES = 8;
+// Exported so the sprite-cache budget in cartypes.js can be asserted rather than
+// only documented (see test/invariants.test.js).
+export const WHEEL_FRAMES = 8;
 
 // Cached drawCar. Identical output to drawCar, except the wheel tread snaps to
 // one of WHEEL_FRAMES positions.

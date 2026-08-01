@@ -1,0 +1,11 @@
+{
+  "name": "cybercruise",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "80s neon Spy Hunter-like car game. Zero dependencies; the game runs from index.html as native ES modules.",
+  "scripts": {
+    "test": "node --test test/",
+    "serve": "python -m http.server 5173"
+  }
+}

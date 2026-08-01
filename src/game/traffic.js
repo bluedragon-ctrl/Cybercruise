@@ -49,7 +49,9 @@ const SPAWN_GAP = 150;       // min world-units of CLEAR ROAD between the boxes 
                              // box edges, not centres: the rig is 124 units long,
                              // and a centre-to-centre rule would let one appear
                              // half inside another
-const ACCEL = 340;           // world units/sec² traffic uses to reach targetSpeed.
+// Exported so the ACCEL / FOLLOW_REACTION / speed-band relation described below
+// can be asserted rather than only documented (see test/invariants.test.js).
+export const ACCEL = 340;    // world units/sec² traffic uses to reach targetSpeed.
                              // Sized against the CATALOGUE, not against feel: the
                              // speed band runs 180..730 (cartypes.js) and the
                              // player can be down at 120, so a car can close at up
@@ -243,7 +245,16 @@ export class Traffic {
     Object.assign(this.view, world);
     this.view.cars = this.cars;
     this.view.playerBody = this.playerBody;
-    for (const car of this.cars) car.update(dt, this.view);
+    // DEAD CARS DO NOT DRIVE. A car can already be dead when we're called: main.js
+    // resolves bullets BEFORE traffic (so a kill scores in the frame it lands), and
+    // the corpse is not dropped until retire() at the end of this tick. Letting it
+    // take a step would move it a full tick past the spot the shot killed it at,
+    // and detonate() below would then put the wreck there instead of where the car
+    // actually died. The other half of that is in behaviours.js, which must not
+    // brake for a corpse either.
+    for (const car of this.cars) {
+      if (car.alive) car.update(dt, this.view);
+    }
 
     // Everything has moved; now sort out who is inside whom. Done here rather
     // than in main.js because traffic owns the cars, and the player has already

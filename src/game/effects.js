@@ -627,8 +627,4 @@ export class Explosions {
       else drawWreck(ctx, sx, sy, t, s);
     }
   }
-
-  get liveCount() {
-    return this.slots.reduce((n, s) => n + (s.alive ? 1 : 0), 0);
-  }
 }

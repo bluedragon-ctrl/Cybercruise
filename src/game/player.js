@@ -7,9 +7,11 @@ import { drawCarCached } from "./sprites.js";
 import { steerAxis, throttleAxis } from "../engine/input.js";
 import { PLAYER, PLAYER_THRUST, HAZARD } from "../engine/palette.js";
 
-const MIN_SPEED = 120; // world units/sec (also the road scroll speed)
-const MAX_SPEED = 620;
-const ACCEL = 380; // speed change per second at full throttle
+// Exported: the traffic catalogue is pinned to both ends of the player's speed
+// band (see cartypes.js), and that relation is asserted in test/invariants.test.js.
+export const MIN_SPEED = 120; // world units/sec (also the road scroll speed)
+export const MAX_SPEED = 620;
+export const ACCEL = 380; // speed change per second at full throttle
 const STEER_SPEED = 260; // horizontal px/sec at full lock
 
 const MAX_HEALTH = 100;

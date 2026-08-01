@@ -43,7 +43,9 @@ import { laneAt, laneOffset, ROAD_HALF_WIDTH } from "./road.js";
 // more than 2 * ACCEL * FOLLOW_REACTION. Widen the speed band and one of ACCEL
 // or FOLLOW_REACTION has to move with it, or the road starts rear-ending itself.
 const FOLLOW_GAP = 40;
-const FOLLOW_REACTION = 1.0; // seconds of closing rate added to the gap
+// Exported so the constraint spelled out above can be asserted rather than only
+// documented (see test/invariants.test.js).
+export const FOLLOW_REACTION = 1.0; // seconds of closing rate added to the gap
 
 // Drive on, holding a lane and a steady speed — but don't drive INTO whatever is
 // in front, traffic or player. Cars do collide now (collisions.js), so this is
@@ -84,6 +86,10 @@ function leadCar(car, world, offset, ignore) {
   let bestGap = Infinity;
   const consider = (other) => {
     if (other === car || other === ignore) return;
+    // A car killed earlier this tick is still in the list until traffic.js retires
+    // it at the end of the tick (see Traffic.update). It is about to explode and
+    // leave nothing solid behind, so it is not something to brake for.
+    if (!other.alive) return;
     if (Math.abs(other.offset - offset) >= (other.w + car.w) / 2) return;
     const gap = other.worldY - car.worldY;
     if (gap > 0 && gap < bestGap) {
@@ -224,6 +230,7 @@ function blocked(car, target, line, world) {
   const to = target.worldY + PASS_LOOK_AHEAD;
   const occupies = (other) => {
     if (other === car || other === target) return false;
+    if (!other.alive) return false; // a corpse must not veto a pass — see leadCar
     if (Math.abs(other.offset - line) >= (other.w + car.w) / 2) return false;
     return other.worldY > from && other.worldY < to;
   };

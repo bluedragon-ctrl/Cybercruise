@@ -102,10 +102,6 @@ export const WEAPON_TYPES = [
   },
 ];
 
-export function weaponTypeById(id) {
-  return WEAPON_TYPES.find((w) => w.id === id) ?? null;
-}
-
 // The default loadout: what the player starts every run holding.
 export const DEFAULT_WEAPON = WEAPON_TYPES[0];
 
