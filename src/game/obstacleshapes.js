@@ -119,18 +119,35 @@ function stripes(ctx, x, y, w, h, color, step = 9) {
 //   debris  BLOCK only: SPLINTER, WATER or IMPACT
 //   pulse   true if the look depends on the `pulse` argument (0..1)
 //   draw    (ctx, cx, cy, pulse) — anchored at the obstacle's centre
+// THE TRESTLE MUST FIT INSIDE A LANE, artwork and all.
+//
+// It is the one obstacle placed on lane centres (obstacletypes.js's PLACE_LANE),
+// and "in the middle of a lane" is only true of something a lane can hold. At
+// its original 1.25 lanes it was 81px in a 65px lane, so a trestle in an inner
+// lane spilled 8px over the dashed centre-line and one in an outer lane hung
+// over the barrier — it read as a block that had been dropped carelessly rather
+// than as a lane closure.
+//
+// The bound is on the ARTWORK, not just the collision box: `extent` below is
+// half this plus the glow, and that is what has to stay inside LANE_WIDTH / 2
+// (32.5). At 0.8 lanes the beam is 52px and the artwork reaches 29px, clearing
+// the lane edge by 3.5px on each side. Widen this past ~59px and the overhang
+// comes back — test/invariants.test.js asserts no obstacle overhangs the road,
+// which catches the outer-lane half of it.
+const TRESTLE_WIDTH = LANE_WIDTH * 0.8;
+
 export const OBSTACLE_SHAPES = [
   {
-    // The widest and flattest block: it eats most of a lane but is shallow, so a
-    // committed lane change still clears it. The stripes do the communicating —
+    // The widest and flattest block: it fills most of its lane but is shallow, so
+    // a committed lane change still clears it. The stripes do the communicating —
     // at distance this is a bright bar across the tarmac and nothing else.
     name: "TRESTLE",
     family: BLOCK,
-    size: [LANE_WIDTH * 1.25, 14],
-    extent: { x: LANE_WIDTH * 0.63 + 3, up: 14, down: 14 },
+    size: [TRESTLE_WIDTH, 14],
+    extent: { x: TRESTLE_WIDTH / 2 + 3, up: 14, down: 14 },
     debris: SPLINTER, // light thing on legs — it just comes apart
     draw(ctx, cx, cy) {
-      const hw = (LANE_WIDTH * 1.25) / 2;
+      const hw = TRESTLE_WIDTH / 2;
 
       // Folding feet, at ground level, drawn first so the beam overlaps them and
       // the trestle reads as a solid object rather than a flat sticker.

@@ -40,7 +40,7 @@ import { plotAt, plotColumns, plotRows, BUILDING, EMPTY } from "../src/game/city
 import { resolveCollisions } from "../src/game/collisions.js";
 import { Score, DISTANCE_POINTS } from "../src/game/score.js";
 import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES } from "../src/game/weapons.js";
-import { OBSTACLE_TYPES, obstacleTypeById } from "../src/game/obstacletypes.js";
+import { OBSTACLE_TYPES, obstacleTypeById, PLACE_LANE } from "../src/game/obstacletypes.js";
 import { Obstacles, SPAWN_MARGIN as OBSTACLE_SPAWN_MARGIN } from "../src/game/obstacles.js";
 import { Explosions } from "../src/game/effects.js";
 import { Projectiles } from "../src/game/projectiles.js";
@@ -899,21 +899,39 @@ test("each obstacle type is placed where its catalogue entry says", () => {
   );
 });
 
-test("every obstacle keeps its whole box on the road, bar the oversize trestle", () => {
-  // A placement may push a hazard to the edge, but only a shape WIDER THAN A
-  // LANE is allowed to overhang — obstacletypes.js calls that out for the
-  // trestle specifically, and it is worth knowing if a second one joins it.
+test("every obstacle keeps its whole box on the road", () => {
+  // A placement may push a hazard flush against a barrier, never past one.
   for (const type of OBSTACLE_TYPES) {
     const [w] = OBSTACLE_SHAPES[type.shape].size;
     const offset = new Obstacles(new Explosions()).freeOffset(type, 1000, []);
     assert.notEqual(offset, null, `${type.id}: found nowhere to go on an empty road`);
     const overhang = Math.abs(offset) + w / 2 - ROAD_HALF_WIDTH;
-    if (overhang > 0) {
-      assert.ok(
-        w > LANE_WIDTH,
-        `${type.id} overhangs the barrier by ${overhang.toFixed(1)}px but fits in a lane`,
-      );
-    }
+    assert.ok(
+      overhang <= 0.001,
+      `${type.id} overhangs the barrier by ${overhang.toFixed(1)}px`,
+    );
+  }
+});
+
+test("a lane-placed obstacle fits inside its lane, artwork and all", () => {
+  // The defect this catches, reported against the live game: the trestle was
+  // 1.25 lanes wide, so sitting on a lane centre put it 8px over the dashed
+  // centre-line. PLACE_LANE only means "in the middle of a lane" for something a
+  // lane can hold — and the bound is on the ARTWORK (`extent`), not the
+  // collision box, since the glow is what the player actually sees crossing the
+  // line. See TRESTLE_WIDTH in obstacleshapes.js.
+  for (const type of OBSTACLE_TYPES) {
+    if (type.placement !== PLACE_LANE) continue;
+    const shape = OBSTACLE_SHAPES[type.shape];
+    const [w] = shape.size;
+    assert.ok(
+      w <= LANE_WIDTH,
+      `${type.id} is ${w}px wide but a lane is only ${LANE_WIDTH}px`,
+    );
+    assert.ok(
+      shape.extent.x <= LANE_WIDTH / 2,
+      `${type.id}'s artwork reaches ${shape.extent.x}px, past its lane's ${LANE_WIDTH / 2}px edge`,
+    );
   }
 });
 
