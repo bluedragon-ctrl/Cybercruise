@@ -88,10 +88,11 @@ export const OBSTACLE_TYPES = [
     health: 20, // one cannon round (34 dmg) puts it down
     blastRadius: 26,
     blastDamage: 8,
-    // A lane closure, which is what a folding trestle IS. It is also the type
-    // the traffic-avoidance work was tuned against (behaviours.js's
-    // HAZARD_DODGE_SPAN is sized from this shape's width), so keeping it on lane
-    // centres keeps that tuning meaning what it says.
+    // A lane closure, which is what a folding trestle IS, and the type the
+    // traffic-avoidance work was tuned against. Keeping it on lane centres is
+    // what makes that tuning mean what it says. It does NOT set the size of the
+    // dodge: behaviours.js's HAZARD_DODGE_SPAN follows the MINE's free
+    // placement, so narrowing this shape leaves it untouched.
     placement: PLACE_LANE,
     weight: 3, // the backbone of the roadblock spread — see cartypes.js's sedan
   },

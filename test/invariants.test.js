@@ -21,6 +21,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { CAR_TYPES } from "../src/game/cartypes.js";
 import { CAR_SHAPES, carShapeExtent } from "../src/game/carshapes.js";
@@ -1074,6 +1075,68 @@ test("a lane- or side-placed obstacle fits inside one lane, artwork and all", ()
       shape.extent.x <= LANE_WIDTH / 2,
       `${type.id}'s artwork reaches ${shape.extent.x}px, past its lane's ${LANE_WIDTH / 2}px edge`,
     );
+  }
+});
+
+test("every obstacle extent is derived from the shape's own geometry", () => {
+  // THIS TEST GUARDS THE TEST ABOVE. The lane-fit assertion is only worth
+  // anything if `extent` is the artwork's real reach, and for three of the four
+  // shapes it once was not: the trestle declared 29 and drew 33, the tetra
+  // declared 37.8 and drew 39, the caltrop declared 20 and drew 21. Nothing
+  // broke visibly — sprites.js pads by GLOW_PAD, which absorbed the shortfall —
+  // but the lane-fit test was passing on a number that was not the drawing, and
+  // the trestle really was half a pixel over its lane edge.
+  //
+  // The honest check would render each shape and scan the pixels. Node has no
+  // canvas, and an obstacle's artwork is a draw() call rather than the point
+  // data carShapeExtent gets to measure, so that check cannot run here — see
+  // GLOW_BLEED in obstacleshapes.js for the browser snippet that does it.
+  //
+  // What CAN be enforced headlessly is the discipline that made the numbers
+  // right: every extent field must be an expression over the shape's own named
+  // constants plus a measured *_BLEED, never a literal somebody typed. A
+  // hand-typed number is a claim no one re-measures; a derived one moves when
+  // the geometry moves.
+  const src = readFileSync(new URL("../src/game/obstacleshapes.js", import.meta.url), "utf8");
+
+  // Extent objects contain no nested braces, so a non-greedy brace match is
+  // enough of a parser here.
+  const blocks = src.match(/extent:\s*\{[^}]*\}/g) ?? [];
+  assert.equal(
+    blocks.length,
+    OBSTACLE_SHAPES.length,
+    "every shape should declare exactly one extent block that this test can read",
+  );
+
+  for (const block of blocks) {
+    const body = block.replace(/extent:\s*\{/, "").replace(/\}$/, "");
+    const fields = body.split(",").map((f) => f.trim()).filter(Boolean);
+    assert.deepEqual(
+      fields.map((f) => f.split(":")[0].trim()),
+      ["x", "up", "down"],
+      `extent must declare x, up and down: ${block}`,
+    );
+    for (const field of fields) {
+      const expr = field.slice(field.indexOf(":") + 1).trim();
+      assert.match(
+        expr,
+        /_BLEED\b/,
+        `extent field "${field}" must add a measured glow bleed — the artwork ` +
+        "reaches past its geometry, and that is the part that leaves the lane",
+      );
+      // ...and no TERM of the sum may be a bare number, which is what rules out
+      // the old `x: 20 + GLOW_BLEED` shape of thing: the bleed was named, but
+      // the reach it was added to was still typed from memory. A divisor is
+      // fine (TRESTLE_WIDTH / 2 is half a named width, not a guess).
+      for (const term of expr.split("+")) {
+        assert.match(
+          term.trim(),
+          /[A-Z][A-Z0-9_]*/,
+          `extent field "${field}" adds a bare number — derive it from the ` +
+          "shape's own constants so it moves when the artwork does",
+        );
+      }
+    }
   }
 });
 
