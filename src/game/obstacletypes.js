@@ -52,12 +52,13 @@ import { obstacleShapeIndex } from "./obstacleshapes.js";
 // what it was doing. The four modes below are what the catalogue can ask for;
 // game/obstacles.js turns each into candidate offsets and picks one that fits.
 //
-//   PLACE_LANE    centred in a lane, like traffic. The thing to drive AROUND:
-//                 it owns a lane and leaves the others alone. Note the trestle
-//                 is 1.25 lanes wide, so in an outer lane it overhangs the
-//                 barrier slightly — that is the shape being wider than a lane,
-//                 not a placement bug, and it reads as a barricade propped
-//                 against the wall.
+//   PLACE_LANE    centred in a lane, like traffic. The thing to drive AROUND: it
+//                 owns one lane and leaves the others alone. A type asking for
+//                 this must be NARROWER THAN A LANE, artwork included, or it is
+//                 not in the middle of anything — it spills over the centre-line
+//                 or the barrier and reads as carelessly dropped. See
+//                 TRESTLE_WIDTH in obstacleshapes.js, which is bounded for
+//                 exactly this reason.
 //   PLACE_SIDE    hard against a barrier, box flush with the edge. Road
 //                 furniture that has been PUT somewhere rather than dropped: it
 //                 narrows the road from one side and never blocks the middle.

@@ -323,19 +323,21 @@ const HAZARD_CLEARANCE = 6;   // px of daylight wanted when steering past one
 // while the cycle also arrives at nearly four times the speed, so one number
 // cannot be right for both. Measured against a live road, a flat 260 units left
 // every type arriving with roughly the time for ONE lane change and no more,
-// which is not enough: a car centred on a trestle has to cross more than a lane
-// to get its whole box clear of it, so it was still overlapping on arrival and
+// which is not enough: a car meeting the wider blocks has to cross more than a
+// lane to get its whole box clear, so it was still overlapping on arrival and
 // traffic went on clearing ~90% of the hazards off the road.
 //
 // So the lookahead is DERIVED: the time this car needs to slide clear, times
 // the speed it is closing at. A hazard never moves, so the closing speed is
 // simply the car's own.
-// TWO lane widths, not one. A car centred on the widest block (the trestle, at
-// 1.25 lanes) has to put ~64px between the two boxes to be clear of it, and the
-// nearest LANE CENTRE that manages it is often the second one over rather than
-// the first — one lane across is 65px, which the trestle's own half-width eats
-// almost entirely. Sizing this at one lane is what left cars finishing their
-// swerve still overlapping the thing they were avoiding.
+// TWO lane widths, not one, and the case that sets it is the widest block in the
+// catalogue where it actually sits. Barrels are 81px and placed against a
+// barrier (obstacletypes.js's PLACE_SIDE), so a car needs ~63px between the two
+// boxes to be clear — which from the outer lane means the THIRD lane over, 130px
+// away, exactly two lane widths. (The trestle used to set this bound instead,
+// back when it was wider than a lane; it now fits inside one and is a single
+// lane change to dodge.) Sizing this at one lane is what left cars finishing
+// their swerve still overlapping the thing they were avoiding.
 const HAZARD_DODGE_SPAN = 2; // lane widths a dodge may have to cover
 const HAZARD_SAFETY = 1.3;   // slack, so a car arrives already clear rather than
                              // finishing its swerve exactly at the obstacle

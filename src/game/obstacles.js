@@ -246,8 +246,10 @@ function placementOffsets(placement, w) {
 
     // PLACE_LANE, and the fallback for a type that names nothing: lane centres,
     // in random order so the spawner doesn't favour the left. Deliberately NOT
-    // clamped by `limit` — a lane centre is a lane centre, and a shape wider than
-    // a lane (the trestle) is meant to overhang the barrier out there.
+    // clamped by `limit` — a lane centre is a lane centre, and nudging a hazard
+    // off it to make it fit would quietly turn "in the middle of a lane" into
+    // "near a lane". A type too wide for a lane is a mistake in the CATALOGUE,
+    // caught by test/invariants.test.js, not something to paper over here.
     default: {
       const start = Math.floor(Math.random() * LANE_COUNT);
       const spots = [];
@@ -465,9 +467,9 @@ export class Obstacles {
   //
   // The scan is a plain sweep of the occupied spans in lateral order, tracking
   // the widest run of clear tarmac between them — barriers included as the two
-  // ends. Spans are CLAMPED to the road first, since a shape wider than a lane
-  // (the trestle) overhangs the barrier in an outer lane and the overhang is not
-  // road anybody was going to drive on.
+  // ends. Spans are CLAMPED to the road first: nothing in the catalogue should
+  // overhang a barrier today, but a gap measured against a span that does would
+  // be measured against road nobody could drive on anyway.
   leavesPassage(worldY, offset, w) {
     const spans = [span(offset, w)];
     for (const o of this.list) {
