@@ -25,9 +25,24 @@
 import { neonStroke } from "../engine/neon.js";
 import { carShapeOutline } from "./carshapes.js";
 import { centerXAt } from "./road.js";
+import {
+  CRITICAL_FLASH,
+  GREEN_BRIGHT,
+  GREEN_DIM,
+  GREEN_PALE,
+  NEUTRAL,
+  NEUTRAL_DEEP,
+  NEUTRAL_PALE,
+  PLAYER,
+} from "../engine/palette.js";
+import { OBSTACLE_SHAPES, SPLINTER, WATER, IMPACT } from "./obstacleshapes.js";
 
 // Seconds from detonation to gone.
 export const WRECK_DURATION = 0.75;
+
+// A mine's blast is a different event from a car dying and is over faster — see
+// drawMineBlast below.
+export const MINE_BLAST_DURATION = 0.55;
 
 const PARTICLES = 14;  // interior streaks
 const CHUNKS = 4;      // larger tumbling pieces
@@ -163,6 +178,330 @@ export function drawWreck(ctx, cx, cy, t, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// MINE DETONATION — "EMP BLOOM"
+//
+// Deliberately NOT the car wreck. drawWreck is a SHELL BREAKING UP: fragments of
+// the car's own outline tumbling outward with its guts spraying from under it,
+// and it says "a vehicle died". A mine has no silhouette worth preserving, so
+// this says "the road erupted" instead, and it says it in ENERGY rather than
+// fire: a jittering hexagonal cage blows outward and dissolves into branching
+// arcs. Nothing here reuses the shell/streak/chunk vocabulary, so a mine going
+// off next to a wreck stays tellable apart.
+//
+// It also runs faster (MINE_BLAST_DURATION vs WRECK_DURATION) — a mine is an
+// instant, not a death throe.
+//
+// COLOUR. The cool end of the palette is what makes this read as synthetic
+// discharge, so it borrows the player's cyan. That is safe only because the
+// blast lasts half a second and expands from a point the player is nowhere near
+// by then; a longer or slower cyan effect would start competing with the one
+// thing on screen that must always be findable — the player's own car.
+//
+// Like drawWreck, this is a PURE function of `t` (0 -> 1): the jitter and the
+// arcs are re-rolled every frame from the seed, which is exactly what makes the
+// discharge crackle, and it means a live blast is four numbers in the pool.
+// Everything goes through neonStroke — a blast covers a big bounding box, and
+// ctx.shadowBlur is priced by box AREA (see engine/neon.js).
+export function drawMineBlast(ctx, cx, cy, t, opts = {}) {
+  if (t < 0 || t >= 1) return;
+  const { seed = 1, radius = 58 } = opts;
+  const rand = rng(seed);
+  // sqrt-ish growth: the cage is thrown out hard and then coasts to a stop.
+  const R = radius * Math.sqrt(Math.min(1, t * 1.15));
+
+  ctx.save();
+
+  // The cage: two counter-rotating hexagons with per-vertex jitter, so the
+  // outline crackles instead of expanding as a clean ring.
+  for (let ring = 0; ring < 2; ring++) {
+    const r = R * (1 - ring * 0.3);
+    const rot = (ring ? -1 : 1) * t * 2.4;
+    neonStroke(ctx, (c) => {
+      for (let i = 0; i <= 6; i++) {
+        const a = rot + (i / 6) * Math.PI * 2;
+        const j = 1 + (rand() - 0.5) * 0.22;
+        const x = cx + Math.cos(a) * r * j;
+        const y = cy + Math.sin(a) * r * j;
+        if (i === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
+      }
+    }, ring ? PLAYER : CRITICAL_FLASH, 2.5 - ring, 4, 0.14,
+      Math.max(0, 1 - Math.pow(t, 1.5)));
+  }
+
+  // Arcs: kinked lightning branches from the centre out past the cage, batched
+  // into one path so all eight share a single set of strokes. They fade in over
+  // the first instant, so the flash lands before the discharge does.
+  neonStroke(ctx, (c) => {
+    for (let i = 0; i < 8; i++) {
+      let a = (i / 8) * Math.PI * 2 + rand() * 0.5;
+      let x = cx;
+      let y = cy;
+      c.moveTo(x, y);
+      for (let k = 0; k < 3; k++) {
+        a += (rand() - 0.5) * 1.1;
+        const seg = (R / 3) * (0.7 + rand() * 0.7);
+        x += Math.cos(a) * seg;
+        y += Math.sin(a) * seg;
+        c.lineTo(x, y);
+      }
+    }
+  }, PLAYER, 1.5, 4, 0.13, Math.max(0, 1 - t) * (t < 0.12 ? t / 0.12 : 1));
+
+  // The collapsing white core — the charge dumping itself.
+  if (t < 0.3) {
+    const k = 1 - t / 0.3;
+    const r = 14 * k + 3;
+    neonStroke(ctx, (c) => {
+      c.moveTo(cx + r, cy);
+      c.arc(cx, cy, r, 0, Math.PI * 2);
+    }, "#ffffff", 4, 5, 0.2, k);
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// ROADBLOCK DESTRUCTION
+//
+// A roadblock breaking is a THIRD kind of event, and the whole point of these
+// three drawers is that the player learns what they just hit without being told:
+//
+//   SPLINTER (the trestle) — it was a light thing on legs, and it comes apart
+//   like one. Thin slats fly out fast, spin, and are gone. No shockwave, no
+//   lingering debris, no white core: nothing here says "that cost you", because
+//   ploughing through a trestle shouldn't feel like it did.
+//
+//   WATER (the barrels) — see drawWaterBurst: a crown of green spray settling
+//   into a puddle. The one destruction in the game that is good news.
+//
+//   IMPACT (the tetra) — you hit something that did not want to
+//   move. The vocabulary is inverted: the pieces are FEWER, THICKER, SLOWER and
+//   they decelerate hard instead of flying clear, and the energy goes into a
+//   flash and a squat shockwave ring at the point of contact rather than into
+//   travel. Heavy is communicated by things NOT going far.
+//
+// Both are pure functions of `t` (0 -> 1) like drawWreck and drawMineBlast, both
+// stay in the amber family so the debris is still recognisably road furniture,
+// and both go through neonStroke for the reason engine/neon.js documents.
+
+// Seconds from hit to gone, per style (obstacleshapes.js names the styles). The
+// heavy one runs longest — the debris settling is the part that reads as weight,
+// so it needs the time to settle in.
+// Water runs longest of the three: the puddle settling is the payoff, and it is
+// the only debris that should still be visible as the player drives past it.
+export const OBSTACLE_WRECK_DURATION = { [SPLINTER]: 0.45, [WATER]: 0.7, [IMPACT]: 0.6 };
+
+// Light debris: slats thrown clear and tumbling. `w`/`h` are the obstacle's
+// footprint, so a wider block sheds its pieces across a wider front.
+function drawSplinters(ctx, cx, cy, t, w, h, seed) {
+  const rand = rng(seed);
+  const tt = t * OBSTACLE_WRECK_DURATION[SPLINTER];
+  const travel = (1 - Math.exp(-2.6 * tt)) / 2.6; // mild drag: they keep going
+
+  neonStroke(ctx, (c) => {
+    for (let i = 0; i < 12; i++) {
+      // Origins spread along the beam, not from a point, so the break runs the
+      // whole width of the thing that broke.
+      const sx = (rand() - 0.5) * w;
+      const sy = (rand() - 0.5) * h;
+      const a = rand() * Math.PI * 2;
+      const speed = 120 + rand() * 190;
+      const px = cx + sx + Math.cos(a) * speed * travel;
+      const py = cy + sy + Math.sin(a) * speed * travel;
+
+      // Each slat is a short segment lying along its own tumble angle — a stick,
+      // not a spark, which is what makes this read as splintered timber/plastic
+      // rather than as an explosion.
+      const len = 5 + rand() * 7;
+      const spin = a + (rand() - 0.5) * 8 * tt;
+      c.moveTo(px - Math.cos(spin) * len, py - Math.sin(spin) * len);
+      c.lineTo(px + Math.cos(spin) * len, py + Math.sin(spin) * len);
+    }
+  }, NEUTRAL, 2, 4, 0.13, Math.max(0, 1 - Math.pow(t, 1.4)));
+
+  // A few brighter stripe shards, from the painted face of the beam. They fade
+  // first, so the last thing on screen is plain debris.
+  neonStroke(ctx, (c) => {
+    for (let i = 0; i < 4; i++) {
+      const sx = (rand() - 0.5) * w;
+      const a = rand() * Math.PI * 2;
+      const speed = 150 + rand() * 160;
+      const px = cx + sx + Math.cos(a) * speed * travel;
+      const py = cy + Math.sin(a) * speed * travel;
+      c.moveTo(px, py);
+      c.lineTo(px - Math.cos(a) * 9, py - Math.sin(a) * 9);
+    }
+  }, NEUTRAL_PALE, 1.5, 4, 0.13, Math.max(0, 1 - t * 1.8));
+}
+
+// Heavy debris: a hard hit that mostly stays where it happened.
+function drawHeavyImpact(ctx, cx, cy, t, w, h, seed) {
+  const rand = rng(seed);
+  const tt = t * OBSTACLE_WRECK_DURATION[IMPACT];
+  const size = Math.max(w, h);
+
+  // The jolt: a squat ring that snaps outward and stops almost immediately.
+  // Short reach on purpose — a shockwave that raced away would read light.
+  if (t < 0.55) {
+    const k = t / 0.55;
+    const r = size * (0.22 + 0.42 * Math.sqrt(k));
+    neonStroke(ctx, (c) => {
+      c.moveTo(cx + r, cy);
+      c.arc(cx, cy, r, 0, Math.PI * 2);
+    }, NEUTRAL_PALE, 3.5, 4, 0.15, 1 - k);
+  }
+
+  // Four stubby lances at the contact point: the force having nowhere to go.
+  if (t < 0.3) {
+    const k = 1 - t / 0.3;
+    const L = size * 0.42 * (1 - k * 0.45);
+    neonStroke(ctx, (c) => {
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        c.moveTo(cx + Math.cos(a) * L * 0.25, cy + Math.sin(a) * L * 0.25);
+        c.lineTo(cx + Math.cos(a) * L, cy + Math.sin(a) * L);
+      }
+    }, "#ffffff", 3.5, 5, 0.18, k);
+  }
+
+  // The chunks. Heavy drag (8/sec vs the splinters' 2.6) means they lurch out
+  // and stop dead inside the first fifth of a second, then just lie there
+  // rocking — the settle is what sells the weight.
+  const travel = (1 - Math.exp(-8 * tt)) / 8;
+  neonStroke(ctx, (c) => {
+    for (let i = 0; i < 6; i++) {
+      const sx = (rand() - 0.5) * w * 0.7;
+      const sy = (rand() - 0.5) * h * 0.7;
+      const a = rand() * Math.PI * 2;
+      const speed = 130 + rand() * 150;
+      const px = cx + sx + Math.cos(a) * speed * travel;
+      const py = cy + sy + Math.sin(a) * speed * travel;
+
+      // Chunks are quads, not sticks: a lump of concrete or welded steel with
+      // area, tumbling to a halt as its drag runs out.
+      const r = 4 + rand() * 5;
+      const ang = (rand() - 0.5) * 5 * travel * 8;
+      for (let k = 0; k < 4; k++) {
+        const a1 = ang + (k / 4) * Math.PI * 2;
+        const a2 = ang + ((k + 1) / 4) * Math.PI * 2;
+        c.moveTo(px + Math.cos(a1) * r, py + Math.sin(a1) * r);
+        c.lineTo(px + Math.cos(a2) * r, py + Math.sin(a2) * r);
+      }
+    }
+  }, NEUTRAL, 2, 4, 0.13, t < 0.7 ? 1 : Math.max(0, 1 - (t - 0.7) / 0.3));
+
+  // Dust: a dim, slowly spreading ring of dashes low to the tarmac, still
+  // hanging there after the chunks have stopped. The one part of the effect
+  // that outlives the impact, so the spot stays marked for a beat.
+  neonStroke(ctx, (c) => {
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + rand() * 0.4;
+      const r = size * (0.35 + 0.55 * t) * (0.75 + rand() * 0.5);
+      c.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+      c.lineTo(cx + Math.cos(a + 0.22) * r, cy + Math.sin(a + 0.22) * r);
+    }
+  }, NEUTRAL_DEEP, 2.5, 3, 0.12, Math.max(0, 1 - t) * 0.7);
+}
+
+// A burst water barrel. The odd one out of the three, on purpose: it is the only
+// destruction in the game that is GOOD NEWS, so it borrows none of the impact
+// vocabulary — no shockwave, no white lance flash, no tumbling chunks. It is a
+// crown of spray that spreads, slows and settles into a puddle, with a few
+// amber shards of plastic drum mixed in so it still reads as a barrel that
+// burst rather than as weather.
+//
+// COLOUR. The spray is GREEN, not cyan. Cyan is the player's own colour and the
+// mine blast already borrows it, and water is the one effect on the road that
+// means "you are fine" — putting it in the world's phosphor green says harmless
+// the way amber says hazard. It also keeps the spray from competing with the one
+// thing that must always be findable on screen: the player's car.
+function drawWaterBurst(ctx, cx, cy, t, w, h, seed) {
+  const rand = rng(seed);
+  const tt = t * OBSTACLE_WRECK_DURATION[WATER];
+  const size = Math.max(w, h);
+
+  // The crown: a ring with a scalloped edge, thrown up at the moment of impact.
+  // The scallops are what stop it reading as the impact's clean shockwave — a
+  // sheet of water tears as it spreads.
+  if (t < 0.6) {
+    const k = t / 0.6;
+    const r = size * (0.18 + 0.5 * Math.sqrt(k));
+    neonStroke(ctx, (c) => {
+      const N = 28;
+      for (let i = 0; i <= N; i++) {
+        const a = (i / N) * Math.PI * 2;
+        const rr = r * (1 + 0.13 * Math.sin(a * 5 + seed));
+        const x = cx + Math.cos(a) * rr;
+        const y = cy + Math.sin(a) * rr;
+        if (i === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
+      }
+    }, GREEN_BRIGHT, 2.5, 4, 0.14, 1 - k);
+  }
+
+  // Droplets. Heavy drag (5/sec) and short streaks that get shorter as they
+  // slow: water goes out fast, loses everything it had, and falls.
+  const travel = (1 - Math.exp(-5 * tt)) / 5;
+  neonStroke(ctx, (c) => {
+    for (let i = 0; i < 20; i++) {
+      const sx = (rand() - 0.5) * w * 0.6;
+      const sy = (rand() - 0.5) * h * 0.6;
+      const a = rand() * Math.PI * 2;
+      const speed = 110 + rand() * 210;
+      const px = cx + sx + Math.cos(a) * speed * travel;
+      const py = cy + sy + Math.sin(a) * speed * travel;
+      const len = (3 + rand() * 6) * Math.max(0.25, 1 - t);
+      c.moveTo(px, py);
+      c.lineTo(px - Math.cos(a) * len, py - Math.sin(a) * len);
+    }
+  }, GREEN_PALE, 2, 4, 0.13, Math.max(0, 1 - Math.pow(t, 1.7)));
+
+  // The puddle: a wide, dim, wobbling pool that spreads slowly and is the LAST
+  // thing to fade. Water doesn't vanish, it lies there — and it gives the barrels
+  // an afterimage that the tetra's dust ring deliberately echoes at half the
+  // friendliness.
+  neonStroke(ctx, (c) => {
+    const N = 24;
+    const pr = size * (0.3 + 0.42 * t);
+    for (let i = 0; i <= N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      const rr = pr * (1 + 0.16 * Math.sin(a * 3 + seed * 1.7));
+      const x = cx + Math.cos(a) * rr;
+      const y = cy + Math.sin(a) * rr * 0.8; // squashed: a pool spreads sideways
+      if (i === 0) c.moveTo(x, y);
+      else c.lineTo(x, y);
+    }
+  }, GREEN_DIM, 2.5, 3, 0.12, t < 0.5 ? 0.85 : Math.max(0, 1 - (t - 0.5) / 0.5) * 0.85);
+
+  // Shards of the drum itself, so the burst stays attached to the object that
+  // burst. Amber, few, and gone early — the water is the event, not these.
+  neonStroke(ctx, (c) => {
+    for (let i = 0; i < 5; i++) {
+      const a = rand() * Math.PI * 2;
+      const speed = 90 + rand() * 130;
+      const px = cx + Math.cos(a) * speed * travel;
+      const py = cy + Math.sin(a) * speed * travel;
+      const spin = a + (rand() - 0.5) * 7 * tt;
+      const len = 4 + rand() * 5;
+      c.moveTo(px - Math.cos(spin) * len, py - Math.sin(spin) * len);
+      c.lineTo(px + Math.cos(spin) * len, py + Math.sin(spin) * len);
+    }
+  }, NEUTRAL, 2, 4, 0.13, Math.max(0, 1 - t * 1.6));
+}
+
+// Break a roadblock apart. `style` is SPLINTER, WATER or IMPACT
+// (obstacleshapes.js says which per entry), `w`/`h` are the block's footprint.
+export function drawObstacleWreck(ctx, cx, cy, t, opts = {}) {
+  if (t < 0 || t >= 1) return;
+  const { style = IMPACT, w = 60, h = 20, seed = 1 } = opts;
+  ctx.save();
+  if (style === SPLINTER) drawSplinters(ctx, cx, cy, t, w, h, seed);
+  else if (style === WATER) drawWaterBurst(ctx, cx, cy, t, w, h, seed);
+  else drawHeavyImpact(ctx, cx, cy, t, w, h, seed);
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
 // THE POOL
 //
 // Explosions are spawned mid-collision, at the exact moment the frame is already
@@ -178,10 +517,29 @@ export function drawWreck(ctx, cx, cy, t, opts = {}) {
 
 const MAX_WRECKS = 8;
 
+// Slot kinds. Cars, mines and roadblocks share ONE pool rather than getting one
+// each: they are the same four numbers with a different drawer, they compete for
+// the same frame budget, and a road that is simultaneously full of wrecks, mine
+// blasts and shattered barriers is exactly the moment we want a hard ceiling on
+// all three.
+const WRECK = "wreck";
+const BLAST = "blast";
+const RUBBLE = "rubble";
+
+// How long a slot lives. Not a plain map, because a roadblock's lifetime depends
+// on its debris STYLE (a trestle is gone before a tetra has finished settling).
+function slotDuration(s) {
+  if (s.kind === BLAST) return MINE_BLAST_DURATION;
+  if (s.kind === RUBBLE) return OBSTACLE_WRECK_DURATION[s.style];
+  return WRECK_DURATION;
+}
+
 export class Explosions {
   constructor(max = MAX_WRECKS) {
     this.slots = Array.from({ length: max }, () => ({
       alive: false,
+      kind: WRECK, // which drawer and duration this slot uses
+      style: IMPACT, // RUBBLE only: which debris look
       elapsed: 0,
       worldY: 0,
       offset: 0,
@@ -196,19 +554,27 @@ export class Explosions {
     this.seed = 1;
   }
 
-  // Blow up a car. `car` supplies where it died; `type` supplies how it looked —
-  // pass a CAR_TYPES entry straight through.
-  spawn(worldY, offset, type) {
+  // Claim a slot, preferring a free one and otherwise retiring the oldest — the
+  // newest detonation is the one the player is looking at.
+  take(worldY, offset, kind) {
     let slot = this.slots.find((s) => !s.alive);
     if (!slot) {
       slot = this.slots[this.next];
       this.next = (this.next + 1) % this.slots.length;
     }
     slot.alive = true;
+    slot.kind = kind;
     slot.elapsed = 0;
     slot.worldY = worldY;
     slot.offset = offset;
     slot.seed = this.seed++;
+    return slot;
+  }
+
+  // Blow up a car. The position says where it died; `type` says how it looked —
+  // pass a CAR_TYPES entry straight through.
+  spawn(worldY, offset, type) {
+    const slot = this.take(worldY, offset, WRECK);
     slot.shape = type.shape ?? 0;
     slot.color = type.color;
     slot.thrust = type.thrust;
@@ -217,11 +583,31 @@ export class Explosions {
     return slot;
   }
 
+  // Detonate a mine. It carries no silhouette or colours of its own — the blast
+  // is the same discharge wherever it goes off — so position and seed are the
+  // whole record.
+  spawnMineBlast(worldY, offset) {
+    return this.take(worldY, offset, BLAST);
+  }
+
+  // Break a roadblock. `shape` indexes OBSTACLE_SHAPES, which is where both the
+  // debris style and the footprint the pieces spread across come from — so a new
+  // roadblock is destructible the day it is added, exactly as a new car type is.
+  spawnObstacleWreck(worldY, offset, shape) {
+    const entry = OBSTACLE_SHAPES[shape] ?? OBSTACLE_SHAPES[0];
+    const slot = this.take(worldY, offset, RUBBLE);
+    slot.style = entry.debris ?? IMPACT;
+    slot.shape = shape;
+    slot.w = entry.size[0];
+    slot.h = entry.size[1];
+    return slot;
+  }
+
   update(dt) {
     for (const s of this.slots) {
       if (!s.alive) continue;
       s.elapsed += dt;
-      if (s.elapsed >= WRECK_DURATION) s.alive = false;
+      if (s.elapsed >= slotDuration(s)) s.alive = false;
     }
   }
 
@@ -235,7 +621,10 @@ export class Explosions {
       const sy = playerY - (s.worldY - distance);
       if (sy < -H || sy > H * 2) continue;
       const sx = centerXAt(s.worldY, W) + s.offset;
-      drawWreck(ctx, sx, sy, s.elapsed / WRECK_DURATION, s);
+      const t = s.elapsed / slotDuration(s);
+      if (s.kind === BLAST) drawMineBlast(ctx, sx, sy, t, s);
+      else if (s.kind === RUBBLE) drawObstacleWreck(ctx, sx, sy, t, s);
+      else drawWreck(ctx, sx, sy, t, s);
     }
   }
 

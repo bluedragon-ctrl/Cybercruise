@@ -5,10 +5,18 @@
 // To add an asset: draw it in src/game/sprites.js, then register a cell below.
 
 import { clear, glowLine } from "../engine/neon.js";
-import { drawCar, drawBuilding } from "../game/sprites.js";
+import { drawCar, drawBuilding, drawObstacle } from "../game/sprites.js";
 import { drawShape, SHAPE_NAMES } from "../game/buildingshapes.js";
 import { CAR_SHAPES } from "../game/carshapes.js";
-import { drawWreck, WRECK_DURATION } from "../game/effects.js";
+import { OBSTACLE_SHAPES, obstacleShapeIndex, BLOCK } from "../game/obstacleshapes.js";
+import {
+  drawWreck,
+  WRECK_DURATION,
+  drawMineBlast,
+  MINE_BLAST_DURATION,
+  drawObstacleWreck,
+  OBSTACLE_WRECK_DURATION,
+} from "../game/effects.js";
 import { CAR_TYPES, ENEMY_FACTION } from "../game/cartypes.js";
 import * as pal from "../engine/palette.js";
 
@@ -126,6 +134,18 @@ CAR_SHAPES.forEach((s, i) => {
     { animate: true });
 });
 
+// Road obstacles, straight from their catalogue — the three amber roadblocks
+// and the mine. `phase` is px travelled, so dividing by the cruising speed gives
+// seconds and the mine can blink at a fixed rate regardless of frame time.
+OBSTACLE_SHAPES.forEach((s, i) => {
+  cell(`OBS · ${s.name}`, (ctx, size, phase) =>
+    drawObstacle(ctx, size / 2, size / 2, {
+      shape: i,
+      pulse: 0.5 + 0.5 * Math.sin((phase / 260) * 7),
+    }),
+    { animate: true });
+});
+
 // Destruction. The cell loops: the car sits intact for a beat, then is wrecked,
 // so the effect can be judged against the sprite it replaces. `phase` is px
 // travelled at a known speed, so dividing by it gives us seconds. The seed
@@ -149,6 +169,49 @@ cell("FX · WRECK", (ctx, size, phase) => {
     drawWreck(ctx, size / 2, size / 2, (time - FX_PAUSE) / WRECK_DURATION, opts);
   }
 }, { animate: true });
+
+// The mine detonation, on the same armed-then-blown loop as the wreck cell above
+// so the two effects can be compared back to back — telling them apart at a
+// glance is the whole point of the EMP bloom being energy rather than debris.
+const MINE_CYCLE = FX_PAUSE + MINE_BLAST_DURATION;
+cell("FX · MINE BLAST", (ctx, size, phase) => {
+  const seconds = phase / 260;
+  const time = seconds % MINE_CYCLE;
+  if (time < FX_PAUSE) {
+    drawObstacle(ctx, size / 2, size / 2, {
+      shape: obstacleShapeIndex("CALTROP"),
+      pulse: 0.5 + 0.5 * Math.sin(seconds * 7),
+    });
+  } else {
+    drawMineBlast(ctx, size / 2, size / 2, (time - FX_PAUSE) / MINE_BLAST_DURATION, {
+      seed: Math.floor(seconds / MINE_CYCLE) + 1,
+    });
+  }
+}, { animate: true });
+
+// Roadblocks breaking, one cell per block, on the same intact-then-destroyed
+// loop. Each block uses the debris style its catalogue entry names, so the light
+// trestle and the two heavy blocks can be compared directly — that contrast is
+// the whole point of having two styles.
+OBSTACLE_SHAPES.forEach((s, i) => {
+  if (s.family !== BLOCK) return;
+  const cycle = FX_PAUSE + OBSTACLE_WRECK_DURATION[s.debris];
+  cell(`FX · ${s.name} HIT`, (ctx, size, phase) => {
+    const seconds = phase / 260;
+    const time = seconds % cycle;
+    if (time < FX_PAUSE) {
+      drawObstacle(ctx, size / 2, size / 2, { shape: i });
+    } else {
+      drawObstacleWreck(ctx, size / 2, size / 2,
+        (time - FX_PAUSE) / OBSTACLE_WRECK_DURATION[s.debris], {
+          style: s.debris,
+          w: s.size[0],
+          h: s.size[1],
+          seed: Math.floor(seconds / cycle) + 1,
+        });
+    }
+  }, { animate: true });
+});
 
 // Cube buildings. Base is placed low in the cell so the extruded roof has room
 // above it. Varied width/depth/height show the skyline range.
