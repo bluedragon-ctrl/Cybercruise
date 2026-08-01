@@ -50,6 +50,36 @@ export function blitSprite(ctx, sprite, cx, cy) {
   ctx.drawImage(sprite.canvas, cx - sprite.originX, cy - sprite.originY);
 }
 
+// Below this many radians (~0.06°) a rotation is invisible, so it is skipped
+// entirely: the sprite goes through the plain axis-aligned blit above and keeps
+// its pixels UNRESAMPLED. Worth the branch — a road is straight-ish a fair
+// fraction of the time, and that is exactly when the crispest artwork shows.
+const ANGLE_EPSILON = 0.001;
+
+// Blit a cached sprite ROTATED by `angle` radians (clockwise on screen, matching
+// canvas convention) about its anchor, so the anchor still lands on (cx, cy).
+//
+// Rotation happens HERE, at blit time, and deliberately never reaches the cache
+// key. Baking angle into the key instead would multiply every entry by however
+// many angle steps were sampled — the car catalogue alone (160 sprites, ~7MB)
+// would become thousands of entries and ~100MB, to buy a look that still stepped
+// visibly on a slow bend. Rotating the blit costs one transform and a resample of
+// the same pixels drawImage was already touching, and the cache stays exactly the
+// size it was.
+export function blitSpriteRotated(ctx, sprite, cx, cy, angle) {
+  if (Math.abs(angle) < ANGLE_EPSILON) {
+    blitSprite(ctx, sprite, cx, cy);
+    return;
+  }
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  // Anchor is now the origin, so the sprite hangs off it by the same vector the
+  // unrotated blit subtracts — the rotation carries it round for free.
+  ctx.drawImage(sprite.canvas, -sprite.originX, -sprite.originY);
+  ctx.restore();
+}
+
 // Number of distinct sprites currently held — handy for asserting in dev that a
 // cache key hasn't accidentally become unbounded.
 export function spriteCacheSize() {

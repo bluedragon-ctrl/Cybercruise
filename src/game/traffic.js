@@ -35,7 +35,7 @@ import { armFor } from "./armament.js";
 import { Explosions } from "./effects.js";
 import { resolveCollisions, PlayerBody } from "./collisions.js";
 import { PLAYER_MASS } from "./player.js";
-import { centerXAt, laneOffset, laneAt, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
+import { centerXAt, headingAt, laneOffset, laneAt, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 import { CRITICAL_FLASH } from "../engine/palette.js";
 
 const MAX_CARS = 7;          // cars simulated at once
@@ -488,6 +488,10 @@ export class Traffic {
         w: car.type.w,
         h: car.type.h,
         wheelPhase: car.wheelPhase,
+        // Point the car along the road at ITS OWN worldY, not the player's: the
+        // heading swings by up to ~29° across a screen height, so a shared angle
+        // would shear the whole column of traffic into a bend it isn't in yet.
+        angle: headingAt(car.worldY),
       });
     }
 

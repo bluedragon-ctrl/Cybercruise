@@ -34,6 +34,7 @@ import { MIN_SPEED, MAX_SPEED, ACCEL as PLAYER_ACCEL, Player } from "../src/game
 import { WHEEL_FRAMES } from "../src/game/sprites.js";
 import {
   LANE_COUNT, LANE_WIDTH, ROAD_HALF_WIDTH, laneAt, laneOffset, centerXAt,
+  centerOffset, headingAt,
 } from "../src/game/road.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import { plotAt, plotColumns, plotRows, BUILDING, EMPTY } from "../src/game/citygrid.js";
@@ -154,6 +155,37 @@ test("laneAt clamps anything shoved past the barriers", () => {
   // avoid dropping traffic on top of them, so it must never return a bad index.
   assert.equal(laneAt(-ROAD_HALF_WIDTH * 4), 0);
   assert.equal(laneAt(ROAD_HALF_WIDTH * 4), LANE_COUNT - 1);
+});
+
+test("headingAt is the true slope of centerOffset", () => {
+  // Every car, obstacle and tracking round on screen is rotated by headingAt, so
+  // if it ever stops being the derivative of centerOffset the whole world points
+  // along a road that isn't there — and it would go wrong SMOOTHLY, which is the
+  // hardest kind of wrong to spot by eye. The two are written as separate
+  // closed-form expressions over shared constants (road.js), so this compares the
+  // analytic answer against a central difference of the curve itself.
+  const h = 0.01;
+  for (let y = 0; y < 40000; y += 37) {
+    const numeric = (centerOffset(y + h) - centerOffset(y - h)) / (2 * h);
+    assert.ok(
+      Math.abs(Math.tan(headingAt(y)) - numeric) < 1e-6,
+      `headingAt disagrees with centerOffset's slope at worldY ${y}`,
+    );
+  }
+});
+
+test("the road never turns sharply enough to rotate a car onto its side", () => {
+  // The rotated blit (engine/spritecache.js) is cheap precisely because the lean
+  // is small: sprites are rasterised axis-aligned and resampled at an angle, and
+  // thin neon strokes soften as that angle grows. road.js documents the range as
+  // ±17.5°; this is what keeps a retuned curve from quietly making the artwork
+  // mushy — or from swinging cars far enough to look like a spin rather than a
+  // lean.
+  let max = 0;
+  for (let y = 0; y < 400000; y += 3) max = Math.max(max, Math.abs(headingAt(y)));
+  const deg = (max * 180) / Math.PI;
+  assert.ok(deg > 15, `the road barely turns (${deg.toFixed(1)}°) — rotation buys nothing`);
+  assert.ok(deg < 25, `the road leans cars ${deg.toFixed(1)}°, past the documented ±17.5°`);
 });
 
 // --- The city floor is a pure function of its plot index ---------------------

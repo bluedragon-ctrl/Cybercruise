@@ -58,7 +58,7 @@
 // oldest, which is off-screen or nearly so by definition.
 
 import { neonStroke } from "../engine/neon.js";
-import { centerXAt, ROAD_HALF_WIDTH } from "./road.js";
+import { centerXAt, headingAt, ROAD_HALF_WIDTH } from "./road.js";
 import { FLIGHT_TRACKING } from "./weapons.js";
 
 const MAX_SHOTS = 32;  // in flight at once. The cannon fires ~6/sec and a shot
@@ -239,8 +239,25 @@ export class Projectiles {
             const sy = playerY - (s.worldY - distance);
             if (sy < -s.length || sy > H + s.length) continue;
             const sx = centerXAt(s.worldY, W) + s.offset;
-            c.moveTo(sx, sy + s.length / 2);
-            c.lineTo(sx, sy - s.length / 2);
+
+            // A tracer is drawn along the line it is actually travelling, which
+            // is where the two flight modes visibly part company now that the
+            // world leans into its bends. A TRACKING round holds its distance
+            // from the centre-line, so it curves with the road and is drawn on
+            // the road's heading. A STRAIGHT round holds the screen line it was
+            // fired along and stays vertical — so into a bend you can watch it
+            // drift off the tarmac towards the barrier it is going to die on,
+            // which is exactly the trade the player is making by carrying it.
+            if (s.tracking) {
+              const a = headingAt(s.worldY);
+              const hx = (Math.sin(a) * s.length) / 2;
+              const hy = (-Math.cos(a) * s.length) / 2;
+              c.moveTo(sx - hx, sy - hy);
+              c.lineTo(sx + hx, sy + hy);
+            } else {
+              c.moveTo(sx, sy + s.length / 2);
+              c.lineTo(sx, sy - s.length / 2);
+            }
           }
         },
         color,

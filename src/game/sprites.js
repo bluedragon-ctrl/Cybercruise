@@ -4,7 +4,7 @@
 // given (cx, cy) so callers control placement.
 
 import { glowPoly, glowLine } from "../engine/neon.js";
-import { getSprite, blitSprite } from "../engine/spritecache.js";
+import { getSprite, blitSprite, blitSpriteRotated } from "../engine/spritecache.js";
 import { drawCarShape, carShapeExtent, CAR_SHAPES } from "./carshapes.js";
 import { drawObstacleShape, obstacleExtent, OBSTACLE_SHAPES } from "./obstacleshapes.js";
 import {
@@ -160,7 +160,12 @@ const WHEEL_PERIOD = 4;
 export const WHEEL_FRAMES = 8;
 
 // Cached drawCar. Identical output to drawCar, except the wheel tread snaps to
-// one of WHEEL_FRAMES positions.
+// one of WHEEL_FRAMES positions and the whole car is rotated by `angle` radians
+// (the road's heading — see road.headingAt) so it points where it is driving.
+//
+// `angle` is applied to the BLIT and is deliberately absent from the cache key,
+// which is what keeps the catalogue at its documented size no matter how many
+// distinct headings the traffic is spread across. See blitSpriteRotated.
 export function drawCarCached(ctx, cx, cy, opts = {}) {
   const {
     shape = 0,
@@ -169,6 +174,7 @@ export function drawCarCached(ctx, cx, cy, opts = {}) {
     w = CAR_SHAPES[shape].size[0],
     h = CAR_SHAPES[shape].size[1],
     wheelPhase = 0,
+    angle = 0,
   } = opts;
 
   // Quantise the tread scroll (positive modulo — wheelPhase only grows, but a
@@ -197,7 +203,7 @@ export function drawCarCached(ctx, cx, cy, opts = {}) {
       wheelPhase: (frame / WHEEL_FRAMES) * WHEEL_PERIOD,
     }),
   );
-  blitSprite(ctx, sprite, cx, cy);
+  blitSpriteRotated(ctx, sprite, cx, cy, angle);
 }
 
 // A mine's pulse is continuous, so it is quantised before it reaches the cache
@@ -207,10 +213,14 @@ export function drawCarCached(ctx, cx, cy, opts = {}) {
 const PULSE_FRAMES = 8;
 
 // Cached drawObstacle. Identical output, except a mine's pulse snaps to one of
-// PULSE_FRAMES levels. Inert obstacles ignore `pulse` entirely and therefore key
-// to a single sprite each.
+// PULSE_FRAMES levels and the whole obstacle is rotated by `angle` to sit square
+// on the tarmac. Obstacles rotate for the same reason cars do, and it matters
+// MORE for the ones that span a lane: a roadblock left axis-aligned beside cars
+// that lean into the bend reads as more broken than nothing rotating at all.
+// Inert obstacles ignore `pulse` entirely and therefore key to a single sprite
+// each — `angle` never touches the key either.
 export function drawObstacleCached(ctx, cx, cy, opts = {}) {
-  const { shape = 0, pulse = 1 } = opts;
+  const { shape = 0, pulse = 1, angle = 0 } = opts;
   const pulses = OBSTACLE_SHAPES[shape]?.pulse;
   const frame = pulses ? Math.min(PULSE_FRAMES - 1, Math.floor(pulse * PULSE_FRAMES)) : 0;
 
@@ -228,7 +238,7 @@ export function drawObstacleCached(ctx, cx, cy, opts = {}) {
   const sprite = getSprite(key, sw, sh, originX, originY, (sctx, ox, oy) =>
     drawObstacleShape(sctx, ox, oy, shape, (frame + 0.5) / PULSE_FRAMES),
   );
-  blitSprite(ctx, sprite, cx, cy);
+  blitSpriteRotated(ctx, sprite, cx, cy, angle);
 }
 
 // A fixed catalogue of building looks. Placement code picks a variant INDEX

@@ -74,6 +74,15 @@ export class Player {
     if (this.speed > MAX_SPEED) this.speed = MAX_SPEED;
 
     // Constrain to the road; scraping a barrier costs health and scrubs speed.
+    //
+    // This stays a plain half-WIDTH test even though the car is now drawn rotated
+    // into the bend (see render). It is tempting to widen it by the rotated
+    // bounding box, but that would be measuring the wrong thing: the barrier is
+    // slanted by the same angle the car is. Working perpendicular to the road, a
+    // car parked at this limit sits (w/2)·cos θ from the barrier line while
+    // needing w/2 — at the road's steepest (17.5°) that is an overlap of 0.8px,
+    // which is less than the barrier's own stroke width. The unrotated clamp was
+    // the approximation; rotating the car is what made it nearly exact.
     const half = this.w / 2;
     this.hitWall = false;
     if (this.x < bounds.left + half) {
@@ -100,7 +109,11 @@ export class Player {
     if (this.flash > 0) this.flash -= dt;
   }
 
-  render(ctx, alpha) {
+  // `angle` is the road's heading at the player's row (road.headingAt(distance),
+  // since the player is pinned to worldY === distance). Passed in rather than
+  // derived here for the same reason `bounds` is: this class knows about steering
+  // and damage, not about the shape of the road.
+  render(ctx, alpha, angle = 0) {
     // Interpolate x between the last two logic steps for smooth motion.
     const x = this.prevX + (this.x - this.prevX) * alpha;
 
@@ -114,6 +127,7 @@ export class Player {
       w: this.w,
       h: this.h,
       wheelPhase: this.wheelPhase,
+      angle,
     });
   }
 }

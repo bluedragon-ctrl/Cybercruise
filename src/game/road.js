@@ -34,8 +34,47 @@ export const ROAD_HALF_WIDTH = 130;
 //   centre range ≈ 300 ± 130 = [170, 430]
 //   road edges   ≈ [170-130, 430+130] = [40, 560]  → always ≥40px off each edge,
 //   and up to ~170px of roadside when the road is centred.
+//
+// The two waves are spelled out as named constants ONLY so headingAt() below can
+// differentiate the same curve without the two functions silently drifting apart
+// — a retuned turn here would otherwise leave every car pointing along the old
+// road. Keep them the single source of truth for the road's shape.
+const WAVE_A_AMP = 90;
+const WAVE_A_FREQ = 0.0016;
+const WAVE_B_AMP = 40;
+const WAVE_B_FREQ = 0.0043;
+const WAVE_B_PHASE = 1.7;
+
 export function centerOffset(worldY) {
-  return 90 * Math.sin(worldY * 0.0016) + 40 * Math.sin(worldY * 0.0043 + 1.7);
+  return (
+    WAVE_A_AMP * Math.sin(worldY * WAVE_A_FREQ) +
+    WAVE_B_AMP * Math.sin(worldY * WAVE_B_FREQ + WAVE_B_PHASE)
+  );
+}
+
+// Which way the road POINTS at a given world distance, as a screen-space angle in
+// radians (0 = straight up the canvas, positive = nosed to the right).
+//
+// This is the exact derivative of centerOffset, not a finite difference between
+// two samples: the curve is analytic, so the slope is too, and an analytic answer
+// costs the same two cosines that sampling would cost in sines while staying
+// correct at any step size.
+//
+// The sign works out because screen y runs OPPOSITE to worldY (see the coordinate
+// model at the top of this file): moving one unit further up the road means one
+// unit UP the screen and `slope` units to the right, so the heading is atan of
+// the slope with no extra negation.
+//
+// Range, over the constants above: |slope| ≤ 0.316, i.e. **±17.5°**, averaging
+// ~7°. Cars therefore lean into bends rather than swinging wildly — and because
+// the heading varies by up to ~29° across a single screen height, every entity
+// must ask for the angle at ITS OWN worldY. One angle for the whole frame would
+// visibly shear the traffic.
+export function headingAt(worldY) {
+  const slope =
+    WAVE_A_AMP * WAVE_A_FREQ * Math.cos(worldY * WAVE_A_FREQ) +
+    WAVE_B_AMP * WAVE_B_FREQ * Math.cos(worldY * WAVE_B_FREQ + WAVE_B_PHASE);
+  return Math.atan(slope);
 }
 
 // Screen x of the road's centre-line at a given world distance.

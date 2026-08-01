@@ -251,7 +251,9 @@ function render(alpha) {
   // which way a tracer is going is never a question the player has to work out.
   shots.render(ctx, distance, player.y, W, H);
   enemyShots.render(ctx, distance, player.y, W, H);
-  player.render(ctx, alpha);
+  // The player sits at worldY === distance, so that is where its heading comes
+  // from — it leans into a bend along with the traffic around it.
+  player.render(ctx, alpha, road.headingAt(distance));
   drawHud();
 }
 
