@@ -1,0 +1,260 @@
+// Enemy armament — what a hostile car is carrying, and when it uses it.
+//
+// THE SPLIT is the same one cartypes.js and behaviours.js already use, for the
+// same reason: data that can be retuned without reading code, separated from the
+// code that acts on it.
+//
+//   ARMAMENTS   pure DATA. One entry is a hostile loadout: which gun, which mine
+//               layer. Arming a new kind of enemy differently is adding an
+//               entry, not editing a function.
+//   Armament    the RUNTIME state of one car's kit — its cooldowns and what is
+//               left in its magazines. Every armed car gets its own; the profile
+//               behind it is shared.
+//   useArms     the default TACTIC: given a car, its kit and the world, decide
+//               whether to take a shot or lay a mine this tick.
+//
+// UNIFORM FOR NOW, ON PURPOSE. Every enemy-faction type gets the same profile
+// and the same tactic, so an interceptor and a bruiser shoot alike. That is what
+// this step is for: the road has to be ABLE to do these things before it is
+// worth arguing about which car does which, how often. The two seams the next
+// step needs are already cut —
+//
+//   * `armamentFor` picks a profile, and a car type naming `arms: "..."`
+//     overrides the faction default. Per-type kit is then a catalogue edit.
+//   * behaviours.js calls `useArms` from each HOSTILE TACTIC separately rather
+//     than from the shared cruise/overtake path. Per-behaviour tactics are then
+//     a matter of what each of those four functions asks for — `weave` laying
+//     mines where `pursue` shoots, and so on.
+//
+// Note the consequence of that second seam: being ARMED follows from the
+// faction, but USING the arms follows from the behaviour. An enemy type given a
+// civilian behaviour would carry a gun it never fires. That is the right way
+// round — a car's tactics are what decide whether it is fighting — but it is
+// worth knowing before wondering why a new type sits there quietly.
+//
+// WHAT THIS FILE NEVER DOES: touch the world. It decides, and then calls one of
+// two hooks the world hands it (`world.fireShot`, `world.dropMine`, wired up in
+// main.js). That is what keeps traffic.js and behaviours.js free of any import
+// of projectiles.js or obstacles.js — the same trick Traffic's `onDestroyed`
+// callback uses to keep it from ever knowing what a point is. Both hooks are
+// OPTIONAL: a caller with no projectile pool (the tests, the gallery) simply
+// leaves them off and armed cars go through the motions without firing.
+
+import { Weapon, ENEMY_WEAPON_TYPES } from "./weapons.js";
+import { ENEMY_FACTION } from "./cartypes.js";
+import { obstacleTypeById } from "./obstacletypes.js";
+
+const ENEMY_GUN = ENEMY_WEAPON_TYPES[0];
+
+// The mine layer, expressed as a WEAPON — because from the carrier's point of
+// view that is exactly what it is: a rate of fire and a magazine. `Weapon`
+// (weapons.js) already models both and reads nothing else off its type, so the
+// layer reuses it instead of growing a second cooldown-and-ammo class beside it.
+// `payload` is the one field weapons.js would not recognise, and it names an
+// OBSTACLE_TYPES entry rather than describing a bullet.
+const MINE_LAYER = {
+  id: "minelayer",
+  label: "MINES",
+  // SIX SECONDS AND THREE OF THEM, for the car's whole life. A mine is the
+  // hardest single hit anything on the road can deal (30 hull — obstacletypes.js)
+  // and, unlike a bullet, it stays there: laying them freely would carpet the
+  // road behind every enemy and turn the mine from an event into weather. The
+  // magazine is what makes a drop worth noticing, and it is also why the gun
+  // above is deliberately infinite — the two are rationed differently on
+  // purpose.
+  interval: 6,
+  ammo: 3,
+  payload: "caltrop",
+};
+
+// The one hostile profile. See UNIFORM FOR NOW above.
+const HOSTILE = { gun: ENEMY_GUN, layer: MINE_LAYER };
+
+// Keyed BY NAME, exactly like behaviours.js's BEHAVIOURS table, so a car type
+// can name its kit in the catalogue the same way it already names its tactics.
+const ARMAMENTS = { hostile: HOSTILE };
+
+// The profile a car type carries, or null if it carries nothing.
+export function armamentFor(type) {
+  // A named profile always wins, so the catalogue is the authority the moment
+  // there is more than one profile to choose between.
+  if (type.arms) return ARMAMENTS[type.arms] ?? null;
+  // Until then: every hostile is armed, and nothing else is. Faction is the
+  // right default rather than a per-type flag, because "an enemy car that cannot
+  // fight" is not a thing the game has a use for — a new hostile type is armed
+  // by existing rather than by remembering to say so.
+  return type.faction === ENEMY_FACTION ? HOSTILE : null;
+}
+
+// One car's kit. Constructed once per car, at spawn.
+export class Armament {
+  constructor(profile) {
+    this.gun = new Weapon(profile.gun);
+    this.layer = new Weapon(profile.layer);
+    // Resolved ONCE, here, rather than looked up per drop: the payload is a
+    // catalogue entry that never changes, and doing it at construction is what
+    // makes a typo in `payload` show up when the car spawns rather than six
+    // seconds later when it tries to use it.
+    this.payload = obstacleTypeById(profile.layer.payload);
+  }
+
+  // Cooldowns run whether or not the car is in a position to use anything, for
+  // the same reason the player's whole Loadout cools down together (weapons.js):
+  // a weapon that only recovered while it had a target would fire instantly
+  // every time one appeared.
+  update(dt) {
+    this.gun.update(dt);
+    this.layer.update(dt);
+  }
+}
+
+// The kit for a car type, ready to be handed to one car. Null for anything
+// unarmed, which is what traffic.js stores and what behaviours.js tests.
+export function armFor(type) {
+  const profile = armamentFor(type);
+  return profile ? new Armament(profile) : null;
+}
+
+// --- The default tactic ------------------------------------------------------
+
+// THE GUN.
+//
+// An enemy shoots at the player and at nothing else (see main.js for the other
+// half of that: hostile rounds are resolved against the player alone). Two rules
+// shape when the trigger is pulled, and both are about the player rather than
+// about the enemy:
+//
+//   IT MUST BE SEEN COMING. A car firing from beyond the edge of the screen is
+//   an unattributable hit — the hull bar drops and there is nothing to blame. So
+//   the range is capped by what is actually ON SCREEN, which the world already
+//   knows: screen y is playerY - (worldY - distance), one world unit per pixel,
+//   so `player.y` is exactly the road visible ahead of the player and
+//   `H - player.y` the road visible behind them (see visibleRoad). The constant
+//   below is a further ceiling, and with the player framed at 62% down the
+//   screen it is not usually the binding one.
+//
+//   IT MUST BE ABLE TO CONNECT. A rearward shot leaves the muzzle at the
+//   shooter's speed MINUS the muzzle speed, so a fast car firing behind it puts
+//   out rounds that barely move; and a forward shot at a player who is quicker
+//   than the bullet never lands either. Rather than tune those cases away, the
+//   shot is simply not taken unless it closes on the target at a useful rate.
+//   That reads correctly too — a car pulling away stops shooting behind it.
+const GUN_RANGE = 520;      // world units, before visibility cuts it down
+const GUN_MIN_RANGE = 70;   // roughly a car length: contact range is for ramming
+const GUN_CLOSING = 200;    // world units/sec a round must gain on its target
+// How far off the target's line a shot is still worth taking. Sized from the
+// BULLET's own hit test (projectiles.js: |offset difference| < (target.w +
+// bullet.width) / 2) plus slack, so the aim window is roughly the window in
+// which a hit is possible — a little wider, since the player may steer into it,
+// but not so wide that half the rounds are fired at empty tarmac.
+const GUN_AIM_SLACK = 8;
+
+// THE MINE LAYER.
+//
+// Mines go BEHIND, at the player, and only when the player is the thing actually
+// following. The second half of that is not politeness — it is the scoring rule
+// cartypes.js's NERVE section already had to design around: score.js pays out
+// however a car died, so a civilian killed by a mine the player never laid would
+// fine them for a kill they had no part in. Traffic is kept clear of mines by
+// nobody having the nerve to drive onto one; laid mines need the matching rule
+// at the other end, which is that a car does not lay one with somebody else's
+// traffic between it and its target.
+const MINE_RANGE = 300;     // world units back the target may be...
+const MINE_MIN_LEAD = 150;  // ...and no nearer, or it appears in their face with
+                            // no road left to steer around it. The player steers
+                            // at 260px/sec and needs ~30px to clear a mine, so
+                            // this is several times the reaction it demands
+const MINE_AIM = 45;        // how nearly in line the target must be — about two
+                            // thirds of a lane, so a mine is laid in the player's
+                            // path rather than somewhere off to one side
+
+// Use whatever this car is carrying, if anything, at whatever it is worth using
+// on. Called by each hostile behaviour (behaviours.js) once its driving is
+// decided — arms never change where a car is going.
+export function useArms(car, world) {
+  const arms = car.arms;
+  if (!arms) return; // civilians, and any type whose profile is unknown
+  // The player in road coordinates, which is the only target either weapon has.
+  // Traffic syncs it before any behaviour runs, so it is always current here;
+  // absent means a caller with no player at all (the gallery, a test fixture).
+  const target = world.playerBody;
+  if (!target) return;
+
+  shoot(car, arms, target, world);
+  layMine(car, arms, target, world);
+}
+
+// Take a shot at `target` if this is a shot worth taking. Returns whether one
+// was fired.
+function shoot(car, arms, target, world) {
+  if (!world.fireShot || !arms.gun.ready) return false;
+
+  const along = target.worldY - car.worldY;
+  const dir = along >= 0 ? 1 : -1;
+  const range = Math.abs(along);
+  if (range < GUN_MIN_RANGE || range > GUN_RANGE) return false;
+  if (range > visibleRoad(world, dir)) return false;
+
+  const type = arms.gun.type;
+  if (Math.abs(target.offset - car.offset) > (target.w + type.width) / 2 + GUN_AIM_SLACK) {
+    return false;
+  }
+
+  // Would the round actually gain on it? See IT MUST BE ABLE TO CONNECT above.
+  // The sign trick covers both directions at once: firing forward wants the
+  // bullet faster than the target, firing backward wants it slower (or moving
+  // the other way entirely), and both are `dir * (bullet - target) > 0`.
+  const bulletSpeed = car.speed + dir * type.muzzleSpeed;
+  if (dir * (bulletSpeed - target.speed) < GUN_CLOSING) return false;
+
+  if (!arms.gun.tryFire()) return false;
+  world.fireShot(car, type, dir);
+  return true;
+}
+
+// How far a shooter firing in `dir` may be from the player and still be ON
+// SCREEN — see IT MUST BE SEEN COMING. Screen and world units are 1:1 along the
+// road (screen y = playerY - (worldY - distance)), so this is exact rather than
+// an approximation.
+//
+// MIND WHICH END. `dir` describes where the TARGET is, so it names the opposite
+// edge of the screen from the shooter: a car firing forward (dir +1) is one the
+// player has left BEHIND them, and the road behind the player is the H - y below
+// the car. A car firing backward is ahead, up in the y above it.
+function visibleRoad(world, dir) {
+  const { player, H } = world;
+  if (!player || !H) return GUN_RANGE;
+  return dir > 0 ? H - player.y : player.y;
+}
+
+// Lay a mine behind this car if the player is the one who will find it. Returns
+// whether one was laid.
+function layMine(car, arms, target, world) {
+  if (!world.dropMine || !arms.layer.ready || !arms.payload) return false;
+
+  const lead = car.worldY - target.worldY; // positive while the target trails us
+  if (lead < MINE_MIN_LEAD || lead > MINE_RANGE) return false;
+  if (Math.abs(target.offset - car.offset) > MINE_AIM) return false;
+  if (trafficBetween(car, world, lead)) return false;
+
+  // The drop is attempted BEFORE the round is spent, so a mine the road had no
+  // room for costs the car nothing: this is the one weapon with a magazine small
+  // enough that quietly swallowing a shot would be felt.
+  if (!world.dropMine(car, arms.payload)) return false;
+  arms.layer.tryFire();
+  return true;
+}
+
+// Is somebody else's car in the stretch of road this mine would land in? See THE
+// MINE LAYER above for why this exists — it is a scoring rule wearing a driving
+// rule's clothes.
+function trafficBetween(car, world, lead) {
+  for (const other of world.cars ?? []) {
+    if (other === car || !other.alive) continue;
+    const gap = car.worldY - other.worldY;
+    if (gap <= 0 || gap > lead) continue;
+    if (Math.abs(other.offset - car.offset) > MINE_AIM + other.w / 2) continue;
+    return true;
+  }
+  return false;
+}

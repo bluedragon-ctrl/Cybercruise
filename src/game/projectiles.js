@@ -26,8 +26,18 @@
 // shooter's speed plus the weapon's muzzle speed — rather than a speed relative
 // to anything. Two consequences that both matter: a shot fired at 600 units/sec
 // keeps its 600 when the player brakes, so slowing down doesn't drag your own
-// bullets back; and an enemy shooting forward in the next step needs no new
-// maths, only a different `speed` at spawn.
+// bullets back; and firing BACKWARD is then the same maths with the muzzle speed
+// subtracted instead (`dir` in spawn), which is what lets a hostile car running
+// in front of the player shoot at them at all.
+//
+// A REARWARD SHOT IS ORDINARILY A NEGATIVE SPEED, and nothing here needs a case
+// for it: worldY simply decreases, the swept test takes min/max of the two ends
+// so it is direction-agnostic, and retirement already checks both bounds. The
+// one thing that does NOT follow automatically is whether such a shot can catch
+// what it was aimed at — a car driving faster than its own muzzle speed fires
+// rounds that still drift forwards. That is a question about the SHOT BEING
+// WORTH TAKING rather than about flight, so it is answered where the trigger is
+// pulled (game/armament.js), not here.
 //
 // SWEPT HITS. A bullet covers ~15 world units per tick and the shortest car is
 // 54 long, so a naive point-in-box test would already be marginal, and any
@@ -87,13 +97,15 @@ export class Projectiles {
     this.batchColors = []; // scratch for render's per-colour batching, reused
   }
 
-  // Fire one round. `type` is a WEAPON_TYPES entry (weapons.js); `worldY` and
-  // `offset` are the muzzle, `shooterSpeed` is what the bullet inherits, and `W`
-  // is the canvas width the centre-line is measured against.
+  // Fire one round. `type` is a weapon-catalogue entry (weapons.js); `worldY`
+  // and `offset` are the muzzle, `shooterSpeed` is what the bullet inherits, and
+  // `W` is the canvas width the centre-line is measured against. `dir` is +1 up
+  // the road and -1 back down it — see SPEED IS ABSOLUTE above. It defaults to
+  // forward, so every existing caller reads unchanged.
   //
   // Both flight modes are spawned from the same (worldY, offset) muzzle — the
   // straight shot simply converts it, ONCE, into the screen line it will hold.
-  spawn(worldY, offset, shooterSpeed, type, W) {
+  spawn(worldY, offset, shooterSpeed, type, W, dir = 1) {
     let s = this.shots.find((b) => !b.alive);
     if (!s) {
       s = this.shots[this.next];
@@ -105,7 +117,7 @@ export class Projectiles {
     s.offset = offset;
     s.tracking = type.flight === FLIGHT_TRACKING;
     s.screenX = centerXAt(worldY, W) + offset;
-    s.speed = shooterSpeed + type.muzzleSpeed;
+    s.speed = shooterSpeed + dir * type.muzzleSpeed;
     s.damage = type.damage;
     s.length = type.length;
     s.width = type.width;
