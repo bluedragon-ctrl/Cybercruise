@@ -56,7 +56,7 @@ import {
 } from "./obstacletypes.js";
 import { OBSTACLE_SHAPES, MINE } from "./obstacleshapes.js";
 import { CAR_TYPES } from "./cartypes.js";
-import { centerXAt, laneOffset, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
+import { centerXAt, headingAt, laneOffset, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 
 
 // Hazards simulated at once. Sized against SPAWN_MARGIN below rather than
@@ -500,7 +500,11 @@ export class Obstacles {
 
       const sx = centerXAt(o.worldY, W) + o.offset;
       const pulse = 0.5 + 0.5 * Math.sin(o.pulseTime * PULSE_RATE + o.pulsePhase);
-      drawObstacleCached(ctx, sx, sy, { shape: o.type.shape, pulse });
+      drawObstacleCached(ctx, sx, sy, {
+        shape: o.type.shape,
+        pulse,
+        angle: headingAt(o.worldY),
+      });
     }
   }
 }
