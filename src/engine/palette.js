@@ -15,9 +15,7 @@ export const GREEN = "#39ff88";        // primary neon green (barriers, building
 export const GREEN_BRIGHT = "#7dffb0"; // brighter readouts / emphasis
 export const GREEN_PALE = "#b6ffcc";   // pale green (lane dashes, secondary text, labels)
 export const GREEN_DIM = "#1f8f52";    // muted green (faint fills / far scenery)
-export const ROADSIDE_FILL = "rgba(30,120,70,0.12)"; // faint green ground OUTSIDE the road
-                                                     // (the road surface itself stays black)
-export const GRID_LINE = "rgba(57,255,136,0.22)";    // roadside floor grid (Tron-style)
+export const GRID_LINE = "rgba(57,255,136,0.22)";    // grid backdrop in the asset gallery
 export const FLOOR_GRID = "rgba(57,255,136,0.14)";   // the LOWER city floor grid (dimmer,
                                                      // it's further from the camera than the road)
 export const ROAD_SURFACE = "#04060a";  // opaque road tarmac — occludes the city floor below,

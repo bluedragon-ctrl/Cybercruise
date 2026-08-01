@@ -352,9 +352,6 @@ export const CAR_SHAPES = [
   },
 ];
 
-export const CAR_SHAPE_COUNT = CAR_SHAPES.length;
-export const CAR_SHAPE_NAMES = CAR_SHAPES.map((s) => s.name);
-
 // Look a shape up by name. Car types (cartypes.js) select their silhouette
 // through this rather than by writing a bare index: the catalogue above is
 // ordered for reading, and inserting a shape in the middle of it must not

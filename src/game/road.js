@@ -21,10 +21,6 @@
 import { neonStroke } from "../engine/neon.js";
 import { GREEN, GREEN_PALE, GREEN_DIM, ROAD_SURFACE, WALL_FILL } from "../engine/palette.js";
 
-// Spacing of the roadside floor grid, in px/world-units (square cells). Also the
-// natural unit for placing Phase 2 buildings, which will sit on this grid.
-export const GRID_SPACING = 60;
-
 // Distance from the road centre-line to each barrier, in px. The full road is
 // twice this wide. Deliberately kept well under the 600px canvas width so the
 // road never fills the screen — turns leave wide roadside space on both sides

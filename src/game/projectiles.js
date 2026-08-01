@@ -269,8 +269,4 @@ export class Projectiles {
       );
     }
   }
-
-  get liveCount() {
-    return this.shots.reduce((n, s) => n + (s.alive ? 1 : 0), 0);
-  }
 }
