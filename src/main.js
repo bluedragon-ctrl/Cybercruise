@@ -235,25 +235,48 @@ function drawHud() {
 
 function render(alpha) {
   clear(ctx);
+
+  // THE CAMERA IS QUANTISED TO WHOLE PIXELS, once, here, and the rounded value
+  // is what every layer below is drawn against.
+  //
+  // Two of those layers are now blitted from pre-rendered canvases (the road's
+  // strip cache in road.js, the floor grid's tile in scenery.js), and a blit is
+  // only pixel-exact on an integer offset — at a fractional one the browser
+  // resamples and the neon softens. Rounding ONCE rather than per-layer is what
+  // matters: every entity derives its screen row from `playerY - (worldY - d)`,
+  // so a single shared `d` keeps the cars welded to the road they are driving on,
+  // where per-layer rounding would let them shear apart by up to a pixel.
+  //
+  // The cost is that the world advances in whole-pixel steps. At the 4-10px/frame
+  // the speed band produces, that is invisible.
+  //
+  // NOT the simulation's `distance` — only the value rendering reads. The
+  // odometer and the distance term of the score run off the real float (see
+  // update), and rounding that would slowly bleed travelled road away.
+  const camY = Math.round(distance);
+
   // Lower city floor first (parallax, behind everything), then the elevated road
-  // ribbon paints an opaque surface over it, then the player on top.
-  scenery.render(ctx, distance, player.y, W, H);
-  road.render(ctx, distance, player.y, W, H);
+  // ribbon paints an opaque surface over it, then the player on top. The floor
+  // runs on its own half-speed clock and rounds it itself — see scenery.render.
+  scenery.render(ctx, camY, player.y, W, H);
+  road.render(ctx, camY, player.y, W, H);
   // Obstacles before traffic, so a car passing over one is never hidden
   // underneath it; traffic before the player, so the player's car is never
   // hidden under one. Traffic draws the shared explosion pool last (car
   // wrecks, mine blasts and roadblock rubble alike), so a blast is never drawn
   // under something still driving through it — see traffic.js's render.
-  obstacles.render(ctx, distance, player.y, W, H);
-  traffic.render(ctx, distance, player.y, W, H, alpha);
+  obstacles.render(ctx, camY, player.y, W, H);
+  traffic.render(ctx, camY, player.y, W, H, alpha);
   // Bullets over the traffic they're flying at, under the player's own car.
   // Hostile rounds draw with them and in the enemy's own red (weapons.js), so
   // which way a tracer is going is never a question the player has to work out.
-  shots.render(ctx, distance, player.y, W, H);
-  enemyShots.render(ctx, distance, player.y, W, H);
+  shots.render(ctx, camY, player.y, W, H);
+  enemyShots.render(ctx, camY, player.y, W, H);
   // The player sits at worldY === distance, so that is where its heading comes
-  // from — it leans into a bend along with the traffic around it.
-  player.render(ctx, alpha, road.headingAt(distance));
+  // from — it leans into a bend along with the traffic around it. Read at camY,
+  // like everything else drawn this frame, so the car's lean matches the bend of
+  // the road actually on screen.
+  player.render(ctx, alpha, road.headingAt(camY));
   drawHud();
 }
 

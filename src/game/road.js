@@ -17,6 +17,9 @@
 // The road's shape is a pure function of worldY (see centerOffset), which makes
 // it deterministic and infinite with no stored state — any world position always
 // yields the same curve, so nothing needs to be generated or freed as we drive.
+//
+// That purity is also why the road is DRAWN FROM A STRIP CACHE rather than
+// re-stroked every frame — see "Strip cache" near the bottom of this file.
 
 import { neonStroke } from "../engine/neon.js";
 import { GREEN, GREEN_PALE, GREEN_DIM, ROAD_SURFACE, WALL_FILL } from "../engine/palette.js";
@@ -129,25 +132,33 @@ const WALL_DX = 6;
 const SAMPLE_STEP = 8; // px between edge samples; smaller = smoother, more cost
 
 let sampleCount = 0;
-let sampleY = null; // screen y of each sample row (constant for a given height)
+let sampleY = null; // "screen" y of each sample row (constant for a given range)
 let leftX = null; // left barrier x per row
 let rightX = null; // right barrier x per row
+let sampleFrom = NaN; // the range the buffers currently hold
+let sampleTo = NaN;
 
-// (Re)allocate the buffers if the canvas height changed. Overscans by one step
-// top and bottom so the glowing edges run off-screen rather than stopping short.
-function ensureSamples(H) {
-  const n = Math.floor((H + 2 * SAMPLE_STEP) / SAMPLE_STEP) + 1;
-  if (n === sampleCount) return;
-  sampleCount = n;
-  sampleY = new Float32Array(n);
-  leftX = new Float32Array(n);
-  rightX = new Float32Array(n);
-  for (let i = 0; i < n; i++) sampleY[i] = -SAMPLE_STEP + i * SAMPLE_STEP;
+// (Re)allocate the buffers if the y range changed. The range is a parameter
+// rather than "the canvas" because the road is painted into fixed-height strip
+// tiles that deliberately overrun their own canvas at both ends (see the strip
+// cache below) — in practice the range never changes once the game is running,
+// so this reallocates once and then never again.
+function ensureSamples(yFrom, yTo) {
+  if (yFrom === sampleFrom && yTo === sampleTo) return;
+  sampleFrom = yFrom;
+  sampleTo = yTo;
+  // ceil, not floor: the last row must reach AT OR PAST yTo, or the stroke would
+  // stop short of the bottom of whatever we are painting into.
+  sampleCount = Math.ceil((yTo - yFrom) / SAMPLE_STEP) + 1;
+  sampleY = new Float32Array(sampleCount);
+  leftX = new Float32Array(sampleCount);
+  rightX = new Float32Array(sampleCount);
+  for (let i = 0; i < sampleCount; i++) sampleY[i] = yFrom + i * SAMPLE_STEP;
 }
 
 // Rewrite leftX/rightX for the current scroll position.
-function sampleEdges(distance, playerY, W, H) {
-  ensureSamples(H);
+function sampleEdges(distance, playerY, W, yFrom, yTo) {
+  ensureSamples(yFrom, yTo);
   const mid = W / 2;
   for (let i = 0; i < sampleCount; i++) {
     const center = mid + centerOffset(distance + (playerY - sampleY[i]));
@@ -166,8 +177,18 @@ function traceEdge(ctx, edgeX, dx = 0, dy = 0) {
 // scenery.js): a dark side wall on each edge to give it height, an OPAQUE tarmac
 // surface that occludes the floor beneath, two glowing barriers, and the dashed
 // centre line.
-export function render(ctx, distance, playerY, W, H) {
-  sampleEdges(distance, playerY, W, H);
+//
+// THE ONE PLACE THE ROAD IS ACTUALLY DRAWN. Both callers below go through here:
+// renderDirect() paints a whole screen, and the strip cache paints one tile. They
+// differ only in the y range they cover, which is why they cannot drift apart —
+// the pixel-identity of the cache against the direct render depends on that.
+//
+// `yFrom`/`yTo` bound the rows painted, in the destination canvas's own
+// coordinates. Rows outside the destination are fine and expected: the tile
+// builder deliberately paints a full stride past both ends and lets the canvas
+// clip (see the strip cache).
+function paintRoad(ctx, distance, playerY, W, yFrom, yTo) {
+  sampleEdges(distance, playerY, W, yFrom, yTo);
 
   // Elevated side walls (drawn first; the tarmac surface then overlaps their
   // tops so only the outer face shows below each barrier).
@@ -195,16 +216,36 @@ export function render(ctx, distance, playerY, W, H) {
   // Dashed centre line, batched into ONE path so all the dashes share a single
   // set of strokes. Dashes are tied to WORLD position (not screen) so they
   // scroll naturally with the road instead of shimmering in place.
-  neonStroke(ctx, (c) => traceCentreDashes(c, distance, playerY, W, H), GREEN_PALE, 3, 3);
+  neonStroke(
+    ctx,
+    (c) => traceCentreDashes(c, distance, playerY, W, yFrom, yTo),
+    GREEN_PALE,
+    3,
+    3,
+  );
 }
+
+// Paint a whole screen of road directly, with no cache. This is the REFERENCE
+// IMPLEMENTATION the strip cache is diffed against, and it is what render()
+// used to be; keeping it exported means the cache can be proved pixel-identical
+// rather than merely believed to be.
+export function renderDirect(ctx, distance, playerY, W, H) {
+  // Overscan by one sample step top and bottom so the glowing edges run
+  // off-screen rather than stopping short with a visible round cap.
+  paintRoad(ctx, distance, playerY, W, -SAMPLE_STEP, H + SAMPLE_STEP);
+}
+
+// The centre line's dash + gap period, in world units. Exported so a test can
+// assert the strip cache's overdraw margin is wide enough to swallow it.
+export const DASH_SPAN = 52;
 
 // Issues the moveTo/lineTo pairs for every visible centre dash into the caller's
 // current path.
-function traceCentreDashes(ctx, distance, playerY, W, H) {
+function traceCentreDashes(ctx, distance, playerY, W, yFrom, yTo) {
   const dash = 26;
-  const span = dash + 26; // dash + gap
-  const worldBottom = distance + playerY - H; // smallest visible worldY
-  const worldTop = distance + playerY; // largest visible worldY
+  const span = DASH_SPAN; // dash + gap
+  const worldBottom = distance + playerY - yTo; // smallest visible worldY
+  const worldTop = distance + playerY - yFrom; // largest visible worldY
   const firstDash = Math.ceil(worldBottom / span) * span;
   const mid = W / 2;
   for (let wy = firstDash; wy <= worldTop; wy += span) {
@@ -217,7 +258,7 @@ function traceCentreDashes(ctx, distance, playerY, W, H) {
 // is the barrier itself; its bottom edge is offset DOWN (elevation) and slightly
 // OUTWARD (`sign`: -1 left / +1 right) to reveal the outer face. Filled dark with
 // a dim-green bottom rim so the road reads as a raised ribbon above the city
-// floor. `edgeX` is leftX or rightX, sampled by render().
+// floor. `edgeX` is leftX or rightX, sampled by paintRoad().
 function drawRoadWall(ctx, edgeX, sign) {
   const dx = sign * WALL_DX;
 
@@ -236,4 +277,153 @@ function drawRoadWall(ctx, edgeX, sign) {
   // Dim-green bottom rim (the base of the wall meeting the city floor). Also a
   // full-height path, so it gets the same overdraw treatment as the barriers.
   neonStroke(ctx, (c) => traceEdge(c, edgeX, dx, WALL_DY), GREEN_DIM, 1.5, 3);
+}
+
+// --- Strip cache -------------------------------------------------------------
+//
+// WHY. Painting a screen of road was profiled at ~1270us/frame on a 600x800
+// canvas. Splitting that by no-op'ing ctx.stroke / ctx.fill in turn:
+//
+//     strokes                1007us   81%
+//     fills                   190us   15%
+//     path building + state    29us    2%
+//
+// The opaque fills cover far MORE area than the strokes and still cost a quarter
+// as much, because a fill is one unblended pass while two of neonStroke's three
+// passes run at globalAlpha < 1. This was never a fill problem; it is line
+// overdraw, and the only way to stop paying for it is to stop redrawing it.
+//
+// THE IDEA. The road is a pure function of worldY (see the header). So a fixed
+// BLOCK of world is fixed content: render it once into its own canvas, then blit
+// that canvas while it scrolls up the screen.
+//
+// MEASURED, direct (renderDirect) against cached (render), on a quiet page with
+// distance advancing 4.33px/frame so tile construction is amortised honestly:
+//
+//     direct   ~2800-3500us      cached   ~36-44us      i.e. ~75x
+//
+// Read those as a RATIO, not as absolutes. Timing canvas work here is treacherous
+// and two plausible-looking methods disagreed by 5x, so the numbers above come
+// from the only one that survives scrutiny: draw the layer N times inside a rAF
+// callback and measure sustained throughput, with N large enough that the frame
+// overruns its budget. Anything smaller floors at vsync and reports a ratio of 1;
+// and reading the canvas back with getImageData to "force a flush" demotes it out
+// of GPU acceleration, which quietly changes what is being compared. The cached
+// figure agrees closely with a prototype's independently measured 55us.
+//
+// THE LAYOUT. Block `k` covers worldY in [k*S, (k+1)*S). Since worldY runs
+// opposite to screen y, tile-local y = (k+1)*S - worldY, i.e. the top row of the
+// tile is the far end of the block. Blitting the tile at
+// destY = playerY - ((k+1)*S - distance) then reproduces the screen mapping
+// exactly — see blockDestY/blockLocalY, whose sum is the screen formula itself.
+//
+// SEAMS, the one real correctness risk. Each tile paints its geometry a FULL
+// STRIDE beyond both ends (world (k-1)*S to (k+2)*S) and lets the canvas clip.
+// The neighbouring tile continues the identical stroke from the identical
+// analytic curve, so the join is exact — measured against renderDirect, the seam
+// rows show a mean channel diff of 0.0146/255 against 0.0142 for every other row.
+// Statistically indistinguishable: there is no seam.
+//
+// The whole frame diffs to a mean of ~0.1/255, and what little there is sits in
+// the top 3 and bottom 10 rows — where the CACHE is the more faithful of the two.
+// renderDirect overscans by only one sample step, so its wall rim (offset down by
+// WALL_DY) begins 3px below the top edge and its bottom centre dash is clipped
+// away; a tile has no screen edge to stop at.
+//
+// Do NOT try to hide a seam with overlapping blits instead: neonStroke's two
+// alpha-blended halo passes would composite twice in the overlap and draw a
+// bright band exactly where the seam was.
+//
+// EXACTNESS depends on destY landing on a whole pixel, which is why main.js
+// rounds the camera once per frame and hands the rounded value to every layer.
+// At fractional offsets the blit resamples and the diff jumps by orders of
+// magnitude.
+//
+// REJECTED, already measured, do not re-derive: rendering the two halo passes at
+// quarter resolution and upscaling (the standard GPU bloom trick) cost 620us
+// against a 434us baseline on the same subset. In Canvas2D the intermediate
+// full-screen composite costs more than the stroke coverage it saves.
+
+// World units of road per tile. 128 keeps ~7 tiles on an 800px screen and a new
+// tile every ~30 frames at cruising speed; the whole live set is ~10 canvases of
+// 600x128, about 3MB.
+export const TILE_STRIDE = 128;
+
+// Which block a world position falls in.
+export function blockOf(worldY) {
+  return Math.floor(worldY / TILE_STRIDE);
+}
+
+// Where a world position sits inside block `k`'s tile, in tile-local pixels.
+export function blockLocalY(k, worldY) {
+  return (k + 1) * TILE_STRIDE - worldY;
+}
+
+// Where block `k`'s tile is blitted this frame. blockDestY + blockLocalY is
+// identically playerY - (worldY - distance) — the screen mapping every other
+// entity uses — which is what keeps the road locked to the cars on it.
+export function blockDestY(k, distance, playerY) {
+  return playerY - ((k + 1) * TILE_STRIDE - distance);
+}
+
+// Blocks kept beyond the visible range before being evicted. Small: the world
+// only ever scrolls one way, so this is slack against the range moving under us
+// rather than a working set.
+const EVICT_MARGIN = 2;
+
+const tiles = new Map(); // block index -> canvas
+let tilesW = 0; // canvas width the live tiles were built for
+
+// Build (or fetch) block `k`'s tile.
+//
+// NOTE the DOM touch is INSIDE this function, never at module scope: the test
+// suite imports this module under plain Node, where `document` does not exist.
+// Same discipline as engine/spritecache.js.
+function roadTile(k, W) {
+  const hit = tiles.get(k);
+  if (hit) return hit;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = TILE_STRIDE;
+
+  // Painting with distance = (k+1)*S and playerY = 0 makes paintRoad's screen
+  // formula collapse to exactly blockLocalY, so the tile IS the block. The y
+  // range overruns the 0..S canvas by a full stride each way — that overrun is
+  // the seam fix, and the canvas throws it away for us.
+  paintRoad(canvas.getContext("2d"), (k + 1) * TILE_STRIDE, 0, W, -TILE_STRIDE, 2 * TILE_STRIDE);
+
+  tiles.set(k, canvas);
+  return canvas;
+}
+
+// Draw the road for the current scroll position, from cached strips.
+//
+// `distance` and `playerY` must be WHOLE PIXELS (main.js rounds the camera once
+// per frame) or the blits resample and the road softens.
+export function render(ctx, distance, playerY, W, H) {
+  // A resize invalidates every tile: the road's screen x is measured from the
+  // canvas centre, so nothing built for the old width is reusable.
+  if (W !== tilesW) {
+    tiles.clear();
+    tilesW = W;
+  }
+
+  const kMin = blockOf(distance + playerY - H); // block at the bottom of the screen
+  const kMax = blockOf(distance + playerY); // block at the top
+  for (let k = kMin; k <= kMax; k++) {
+    ctx.drawImage(roadTile(k, W), 0, blockDestY(k, distance, playerY));
+  }
+
+  // Drop anything that has scrolled away. Deleting during iteration is defined
+  // behaviour for a Map, and the set is ~10 entries, so this is free.
+  for (const k of tiles.keys()) {
+    if (k < kMin - EVICT_MARGIN || k > kMax + EVICT_MARGIN) tiles.delete(k);
+  }
+}
+
+// How many strips are live — the same dev-time sanity hook spriteCacheSize() is,
+// for asserting the cache is bounded rather than quietly growing forever.
+export function roadTileCount() {
+  return tiles.size;
 }

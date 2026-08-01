@@ -35,9 +35,11 @@ import { WHEEL_FRAMES } from "../src/game/sprites.js";
 import {
   LANE_COUNT, LANE_WIDTH, ROAD_HALF_WIDTH, laneAt, laneOffset, centerXAt,
   centerOffset, headingAt,
+  TILE_STRIDE, DASH_SPAN, blockOf, blockLocalY, blockDestY,
 } from "../src/game/road.js";
+import { gridPhase } from "../src/game/scenery.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
-import { plotAt, plotColumns, plotRows, BUILDING, EMPTY } from "../src/game/citygrid.js";
+import { CELL, plotAt, plotColumns, plotRows, BUILDING, EMPTY } from "../src/game/citygrid.js";
 import { resolveCollisions } from "../src/game/collisions.js";
 import { Score, DISTANCE_POINTS } from "../src/game/score.js";
 import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES } from "../src/game/weapons.js";
@@ -186,6 +188,102 @@ test("the road never turns sharply enough to rotate a car onto its side", () => 
   const deg = (max * 180) / Math.PI;
   assert.ok(deg > 15, `the road barely turns (${deg.toFixed(1)}°) — rotation buys nothing`);
   assert.ok(deg < 25, `the road leans cars ${deg.toFixed(1)}°, past the documented ±17.5°`);
+});
+
+// --- The cached scrolling layers ---------------------------------------------
+//
+// The road and the floor grid are no longer stroked each frame; they are blitted
+// from pre-rendered canvases (road.js's strip cache, scenery.js's grid tile).
+// Nothing here can look at pixels — these run under plain Node — but the whole
+// correctness of both caches is arithmetic about WHERE a blit lands, and that
+// can be asserted exactly. A pixel diff of the two against their direct renders
+// belongs in the browser; this is the part that can fail silently.
+
+test("a road strip blits exactly where the direct render would have drawn it", () => {
+  // This is the cache's entire claim: for any world position, the tile-local row
+  // plus the tile's blit offset must come out at the SAME screen row the plain
+  // formula gives — the one traffic, obstacles and bullets all use. If it ever
+  // drifts, the cars slide against the tarmac they are driving on.
+  const playerY = 496;
+  for (let distance = 0; distance < 5000; distance += 37) {
+    for (let worldY = distance - 800; worldY < distance + 400; worldY += 13) {
+      const k = blockOf(worldY);
+      const cached = blockDestY(k, distance, playerY) + blockLocalY(k, worldY);
+      const direct = playerY - (worldY - distance);
+      assert.ok(
+        Math.abs(cached - direct) < 1e-9,
+        `strip ${k} puts worldY ${worldY} at ${cached}, direct render says ${direct}`,
+      );
+    }
+  }
+});
+
+test("the blitted strips cover the whole screen, top and bottom", () => {
+  // road.render walks blocks from the screen's bottom world row to its top. A
+  // sign slip or an off-by-one in that range would leave an unpainted band at one
+  // edge — through which the city floor would show, since the tarmac is what
+  // occludes it.
+  const H = 800;
+  const playerY = 496;
+  for (let distance = 0; distance < 4000; distance += 17) {
+    const kMin = blockOf(distance + playerY - H);
+    const kMax = blockOf(distance + playerY);
+    assert.ok(
+      blockDestY(kMax, distance, playerY) <= 0,
+      `the top strip starts at ${blockDestY(kMax, distance, playerY)}, leaving a gap above it`,
+    );
+    assert.ok(
+      blockDestY(kMin, distance, playerY) + TILE_STRIDE >= H,
+      `the bottom strip ends above the screen bottom at distance ${distance}`,
+    );
+  }
+});
+
+test("a strip's overdraw margin is wider than anything drawn across its seam", () => {
+  // Seams are handled by painting each tile a full stride past both ends and
+  // letting the canvas clip, so a neighbouring tile continues the identical
+  // stroke. That only works while the margin is wider than the longest feature
+  // that can straddle a boundary — the centre line's dash-plus-gap period. Shrink
+  // TILE_STRIDE below that and dashes start winking out at tile joins.
+  assert.ok(
+    TILE_STRIDE >= DASH_SPAN,
+    `a ${TILE_STRIDE}px overdraw cannot cover a ${DASH_SPAN}px dash period`,
+  );
+});
+
+test("the floor grid's tile phase reproduces the world-anchored horizontals", () => {
+  // The grid tile is blitted at gridPhase() - CELL. Every horizontal in the tile
+  // sits at a multiple of CELL, so every horizontal ON SCREEN must land in the
+  // same residue class as the world-anchored line the direct render would draw.
+  // The playerY term in the phase is the load-bearing part and the easy one to
+  // drop: without it the grid is misplaced by a mean channel diff of 18.6/255.
+  for (const playerY of [0, 496, 500, 803]) {
+    for (let fDist = 0; fDist < 3000; fDist += 7) {
+      const phase = gridPhase(fDist, playerY);
+      assert.ok(phase >= 0 && phase < CELL, `phase ${phase} is outside one cell`);
+      // Where the direct render puts the world line at wy = k*CELL.
+      for (const k of [-3, 0, 11, 47]) {
+        const direct = playerY - (k * CELL - fDist);
+        const residue = (((direct - phase) % CELL) + CELL) % CELL;
+        assert.ok(
+          residue < 1e-9 || CELL - residue < 1e-9,
+          `world line ${k * CELL} lands at ${direct}, off the tile's phase ${phase}`,
+        );
+      }
+    }
+  }
+});
+
+test("one extra cell of tile height is enough to cover the screen at any phase", () => {
+  // The tile is H + CELL tall and blitted at a negative offset in [-CELL, 0).
+  // That single extra cell is what lets ONE blit cover the screen whatever the
+  // phase — the reason this layer needs no position-keyed cache at all.
+  const H = 800;
+  for (let fDist = 0; fDist < 640; fDist += 0.5) {
+    const destY = gridPhase(fDist, 496) - CELL;
+    assert.ok(destY <= 0 && destY >= -CELL, `blit offset ${destY} is outside [-CELL, 0]`);
+    assert.ok(destY + (H + CELL) >= H, `the tile stops ${-(destY + CELL)}px short of the bottom`);
+  }
 });
 
 // --- The city floor is a pure function of its plot index ---------------------
