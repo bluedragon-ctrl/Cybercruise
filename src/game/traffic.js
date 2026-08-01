@@ -40,7 +40,10 @@ import { CRITICAL_FLASH } from "../engine/palette.js";
 const MAX_CARS = 7;          // cars simulated at once
 const SPAWN_INTERVAL = 1.1;  // seconds between spawn attempts
 const SPAWN_MARGIN = 120;    // world units past the screen edge a car appears at
-const RETIRE_MARGIN = 320;   // ...and how far past it before the car is dropped.
+// Exported because obstacles.js has to place hazards BEYOND the traffic field —
+// a car spawned inside one gets no road to steer around it (see that file's
+// SPAWN_MARGIN, and test/invariants.test.js).
+export const RETIRE_MARGIN = 320; // ...and how far past it before the car is dropped.
                              // Comfortably beyond SPAWN_MARGIN so a fresh car is
                              // never retired on the tick after it spawns.
 const SPAWN_GAP = 150;       // min world-units of CLEAR ROAD between the boxes of
@@ -102,6 +105,14 @@ class TrafficCar {
     // simply drives on.
     this.targetOffset = this.offset;
     this.targetSpeed = speed;
+
+    // How much hull THIS driver will eat to hold its line past a road hazard
+    // rather than steer around it (behaviours.js). Rolled uniformly in
+    // [0, type.nerve] so the catalogue's figure is a ceiling and each car is
+    // its own gamble — see NERVE in cartypes.js. Rolled ONCE, like the speed
+    // above: a barger is a barger for life, because a car that re-decided every
+    // tick would weave at the roadblock instead of committing either way.
+    this.nerve = Math.random() * (type.nerve ?? 0);
 
     this.health = type.health;
     this.maxHealth = type.health;
@@ -215,23 +226,33 @@ export class Traffic {
   // business knowing what a point is: main.js owns the scoreboard and decides
   // that a dead car is worth something (score.js). Chain-reaction kills come
   // through here exactly like direct ones — a kill is a kill, whoever lit it.
-  constructor(onDestroyed = null) {
+  //
+  // `explosions` defaults to a private pool so `new Traffic()` still works
+  // standalone (tests, the gallery), but main.js passes in the SAME pool it
+  // hands to Obstacles — see effects.js's Explosions header and
+  // game/obstacles.js: cars, mines and roadblocks are meant to share one pool
+  // and one frame budget, not get one each.
+  constructor(onDestroyed = null, explosions = new Explosions()) {
     this.onDestroyed = onDestroyed;
     this.cars = [];
     this.spawnTimer = 0;
     // The view handed to the car behaviours: main.js's world plus the car list.
     // Reused across ticks rather than rebuilt, since every car reads it.
-    this.view = { player: null, distance: 0, W: 0, H: 0, cars: this.cars };
+    // `obstacles` starts empty rather than absent so the view's shape never
+    // changes between ticks, and so a caller with no obstacle system at all
+    // (the tests) still hands the behaviours something iterable.
+    this.view = { player: null, distance: 0, W: 0, H: 0, cars: this.cars, obstacles: [] };
 
     // The player as something collisions.js can push around, plus the scratch
     // list of bodies handed to it. Both are reused rather than rebuilt per tick.
     this.playerBody = new PlayerBody(PLAYER_MASS, ROAD_HALF_WIDTH);
     this.bodies = [];
 
-    // Wrecks. Owned here because traffic is what dies: a car's destruction and
+    // Wrecks (and, when the pool is shared, mine blasts and roadblock rubble
+    // too). Owned here because traffic is what dies: a car's destruction and
     // its explosion are the same event, and keeping them together means main.js
     // never has to know that cars can blow up.
-    this.explosions = new Explosions();
+    this.explosions = explosions;
   }
 
   // `world` = { player, distance, W, H }, built by main.js each tick. Behaviours
@@ -397,16 +418,24 @@ export class Traffic {
   // `h` is the length of the car being placed, since the clearance wanted is
   // between the two BOXES, not their centres. Lanes are tried in random order so
   // traffic doesn't favour the left.
+  //
+  // ROAD HAZARDS COUNT TOO, and they matter more here than another car does.
+  // The two spawn points very nearly coincide — traffic appears a SPAWN_MARGIN
+  // past the screen edge and obstacles a slightly larger one (game/obstacles.js)
+  // — so without this a car lands about twenty units short of a roadblock in the
+  // same lane and is already inside it, with no road left to steer around it.
+  // Avoidance (behaviours.js) cannot save a car that was never given any
+  // warning, so the fix belongs at placement rather than in the driving.
   freeLane(worldY, h) {
     const start = Math.floor(Math.random() * LANE_COUNT);
     for (let i = 0; i < LANE_COUNT; i++) {
       const lane = (start + i) % LANE_COUNT;
-      const blocked = this.cars.some(
-        (car) =>
-          car.lane === lane &&
-          Math.abs(car.worldY - worldY) - (car.h + h) / 2 < SPAWN_GAP,
-      );
-      if (!blocked) return lane;
+      const near = (other, otherH) =>
+        Math.abs(other.worldY - worldY) - (otherH + h) / 2 < SPAWN_GAP;
+
+      if (this.cars.some((car) => car.lane === lane && near(car, car.h))) continue;
+      if (this.view.obstacles.some((o) => o.alive && o.lane === lane && near(o, o.h))) continue;
+      return lane;
     }
     return -1;
   }

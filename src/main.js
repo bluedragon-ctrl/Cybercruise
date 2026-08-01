@@ -10,6 +10,8 @@ import { Player } from "./game/player.js";
 import { Projectiles } from "./game/projectiles.js";
 import { Score } from "./game/score.js";
 import { Traffic } from "./game/traffic.js";
+import { Obstacles } from "./game/obstacles.js";
+import { Explosions } from "./game/effects.js";
 import { Loadout } from "./game/weapons.js";
 import * as road from "./game/road.js";
 import * as scenery from "./game/scenery.js";
@@ -29,7 +31,19 @@ const player = new Player(W / 2, H * 0.62);
 // blows up, main.js reports the road covered (see update). Traffic itself knows
 // nothing about points — see score.js.
 const score = new Score();
-const traffic = new Traffic((car) => score.destroyed(car.type));
+
+// One explosion pool shared by traffic (car wrecks) and the road obstacles
+// (mine blasts, roadblock rubble) — see effects.js's Explosions header and
+// game/obstacles.js for why they must not each get their own.
+const explosions = new Explosions();
+const traffic = new Traffic((car) => score.destroyed(car.type), explosions);
+const obstacles = new Obstacles(explosions);
+
+// Scratch target list for bullets: cars AND obstacles in one flat array, so a
+// shot resolves against whichever it actually crosses first regardless of
+// which system owns it (see projectiles.js's firstHit). Reused every tick
+// rather than rebuilt, same as Traffic.bodies.
+const shotTargets = [];
 
 // The guns, and the bullets they put in the air. The player holds a Loadout
 // (each weapon's cooldown and ammo — weapons.js); the world holds the shots
@@ -72,16 +86,33 @@ function update(dt) {
     const centerX = road.centerXAt(distance, W);
     shots.spawn(distance + player.h / 2, player.x - centerX, player.speed, weapon.type, W);
   }
-  // Traffic cars are the only targets for now. Enemy fire (next step) passes the
-  // player's body here instead — see projectiles.js.
-  shots.update(dt, traffic.cars, { distance, playerY: player.y, W, H });
+  // Traffic cars and road obstacles are both fair game for gunfire — one flat
+  // list, built fresh each tick into the reused scratch array, so a shot stops
+  // at whichever it actually crosses first (see projectiles.js's firstHit).
+  // Enemy fire (next step) passes the player's body here instead.
+  shotTargets.length = 0;
+  for (const car of traffic.cars) shotTargets.push(car);
+  for (const o of obstacles.list) shotTargets.push(o);
+  shots.update(dt, shotTargets, { distance, playerY: player.y, W, H });
+
+  // Obstacles run BEFORE traffic, on the same principle main.js already uses
+  // for bullets: anything an obstacle kills this tick (a car caught in a mine
+  // blast) must still be picked up by traffic.update()'s own detonate() sweep
+  // in the SAME tick, not a tick late — see game/obstacles.js's header.
+  const world = { player, distance, W, H, cars: traffic.cars, obstacles: obstacles.list };
+  obstacles.update(dt, world);
+
+  // retire() REPLACES obstacles.list with a filtered array, so re-point the
+  // world at the live one before traffic reads it — a stale reference would
+  // have the car behaviours steering around hazards that no longer exist.
+  world.obstacles = obstacles.list;
 
   // Traffic runs on the UPDATED distance, so a car spawned this tick lands
   // relative to where the player actually is now. The object handed over becomes
   // the view of the world the car behaviours get (behaviours.js). Note the
   // player is NOT read-only here: traffic resolves ramming for every car and the
   // player together, which can shove and damage the player (collisions.js).
-  traffic.update(dt, { player, distance, W, H });
+  traffic.update(dt, world);
 }
 
 function drawHud() {
@@ -156,7 +187,12 @@ function render(alpha) {
   // ribbon paints an opaque surface over it, then the player on top.
   scenery.render(ctx, distance, player.y, W, H);
   road.render(ctx, distance, player.y, W, H);
-  // Traffic before the player, so the player's car is never hidden under one.
+  // Obstacles before traffic, so a car passing over one is never hidden
+  // underneath it; traffic before the player, so the player's car is never
+  // hidden under one. Traffic draws the shared explosion pool last (car
+  // wrecks, mine blasts and roadblock rubble alike), so a blast is never drawn
+  // under something still driving through it — see traffic.js's render.
+  obstacles.render(ctx, distance, player.y, W, H);
   traffic.render(ctx, distance, player.y, W, H, alpha);
   // Bullets over the traffic they're flying at, under the player's own car.
   shots.render(ctx, distance, player.y, W, H);
