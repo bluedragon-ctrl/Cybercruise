@@ -330,14 +330,21 @@ const HAZARD_CLEARANCE = 6;   // px of daylight wanted when steering past one
 // So the lookahead is DERIVED: the time this car needs to slide clear, times
 // the speed it is closing at. A hazard never moves, so the closing speed is
 // simply the car's own.
-// TWO lane widths, not one, and the case that sets it is the widest block in the
-// catalogue where it actually sits. Barrels are 81px and placed against a
-// barrier (obstacletypes.js's PLACE_SIDE), so a car needs ~63px between the two
-// boxes to be clear — which from the outer lane means the THIRD lane over, 130px
-// away, exactly two lane widths. (The trestle used to set this bound instead,
-// back when it was wider than a lane; it now fits inside one and is a single
-// lane change to dodge.) Sizing this at one lane is what left cars finishing
-// their swerve still overlapping the thing they were avoiding.
+// TWO lane widths, not one, and what sets it is no longer a question of WIDTH.
+// Every block in the catalogue now fits in or beside a lane, and each is a
+// single lane change to clear. The binding case is the MINE, and it is binding
+// because of where it is allowed to be rather than how big it is: PLACE_ANY
+// (obstacletypes.js) lets it land BETWEEN two lane centres, and a mine sitting
+// on the line between two lanes spoils both of them at once. Measured against
+// the catalogue, the worst case is a rig in the outer lane with a mine at -72:
+// its own lane and the next one in are both unusable, so the nearest lane centre
+// it can actually take is the third one over — 130px away, exactly two lane
+// widths.
+//
+// So this number follows PLACE_ANY. Take the free placement away and one lane
+// would do; give another type a free placement and this stays right. Sizing it
+// at one lane is what left cars finishing their swerve still overlapping the
+// thing they were avoiding.
 const HAZARD_DODGE_SPAN = 2; // lane widths a dodge may have to cover
 const HAZARD_SAFETY = 1.3;   // slack, so a car arrives already clear rather than
                              // finishing its swerve exactly at the obstacle

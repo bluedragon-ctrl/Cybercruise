@@ -136,6 +136,29 @@ function stripes(ctx, x, y, w, h, color, step = 9) {
 // which catches the outer-lane half of it.
 const TRESTLE_WIDTH = LANE_WIDTH * 0.8;
 
+// THE BARRELS FIT INSIDE A LANE TOO, for a related but not identical reason.
+//
+// This one is placed against a barrier (PLACE_SIDE), not on a lane centre, so
+// nothing forces it to be lane-sized geometrically. The reason is what the block
+// is FOR: it is the barge-able one, the block the player is meant to line up and
+// smash. A hazard 1.24 lanes wide cannot be lined up on without hanging out of
+// your own lane, which made the one inviting obstacle the one you had to leave
+// your lane to take. Two barrels inside a lane is a target you can aim at from
+// the lane you are already in.
+//
+// The pair also stops eating more than a lane's worth of a four-lane road, so a
+// barrels stack at the edge always leaves the other three lanes intact.
+// MEASURED, not assumed. The bound has to hold for what is actually DRAWN, and
+// a barrel's glow reaches about 5px past its rim (lineWidth plus shadowBlur) —
+// so the arithmetic below is rim + GLOW_BLEED, checked against the real canvas
+// rather than against the radius. Sizing this off the rim alone put the artwork
+// 3px outside the lane while every number in the file said it fitted.
+const GLOW_BLEED = 6;
+const BARREL_RADIUS = 12;
+const BARREL_SPREAD = LANE_WIDTH * 0.21; // each barrel's offset from the centre
+const BARREL_RISE = 9;                   // ...and up or down the road
+const BARRELS_WIDTH = (BARREL_SPREAD + BARREL_RADIUS) * 2;
+
 export const OBSTACLE_SHAPES = [
   {
     // The widest and flattest block: it fills most of its lane but is shallow, so
@@ -174,16 +197,27 @@ export const OBSTACLE_SHAPES = [
 
   {
     // Water-filled crash barrels — the middle weight, and the interesting one.
-    // Staggered, not in a row, so the gaps between them are real and readable:
-    // this is the block that looks barge-able. It IS barge-able, and it bursts
-    // when barged (debris: WATER), which is the set's one moment of relief — the
-    // player gets to smash something and be rewarded with a splash instead of a
-    // jolt. The silhouette is all circles, with no square skirt, so a barrel
-    // never gets confused with the tetra's hub plate at distance.
+    // TWO of them, staggered rather than in a row, so the gap between them is
+    // real and readable: this is the block that looks barge-able. It IS
+    // barge-able, and it bursts when barged (debris: WATER), which is the set's
+    // one moment of relief — the player gets to smash something and be rewarded
+    // with a splash instead of a jolt. The silhouette is all circles, with no
+    // square skirt, so a barrel never gets confused with the tetra's hub plate
+    // at distance.
+    //
+    // Sized by the same rule as the trestle above: the PAIR fits inside one
+    // lane, artwork included (see BARRELS_WIDTH). It used to be three barrels
+    // spanning 1.24 lanes, which meant the one block the player is invited to
+    // aim AT was also the one they could not line up on without hanging out of
+    // their lane.
     name: "BARRELS",
     family: BLOCK,
-    size: [LANE_WIDTH * 0.84 + 26, 44],
-    extent: { x: LANE_WIDTH * 0.42 + 14, up: 23, down: 22 },
+    size: [BARRELS_WIDTH, (BARREL_RISE + BARREL_RADIUS) * 2],
+    extent: {
+      x: BARREL_SPREAD + BARREL_RADIUS + GLOW_BLEED,
+      up: BARREL_RISE + BARREL_RADIUS + GLOW_BLEED,
+      down: BARREL_RISE + BARREL_RADIUS + GLOW_BLEED,
+    },
     debris: WATER,
     draw(ctx, cx, cy) {
       // Top-down, a barrel is concentric: a wide dark base ring on the tarmac, a
@@ -199,9 +233,12 @@ export const OBSTACLE_SHAPES = [
         glowLine(ctx, x - r * 0.3, y, x + r * 0.3, y, NEUTRAL_DEEP, 1.5, 5); // lid rib
       };
 
-      barrel(cx - LANE_WIDTH * 0.42, cy + 9, 12);
-      barrel(cx, cy - 9, 13);
-      barrel(cx + LANE_WIDTH * 0.42, cy + 9, 12);
+      // Offset on BOTH axes, so the pair reads as a diagonal rather than as a
+      // pair of eyes — and so the gap between them survives the pair being
+      // narrow enough to fit a lane. Measured rim to rim along the diagonal it
+      // is ~10px, where measured straight across it would be under 5.
+      barrel(cx - BARREL_SPREAD, cy + BARREL_RISE, BARREL_RADIUS);
+      barrel(cx + BARREL_SPREAD, cy - BARREL_RISE, BARREL_RADIUS);
     },
   },
 

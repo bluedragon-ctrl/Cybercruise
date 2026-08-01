@@ -40,7 +40,9 @@ import { plotAt, plotColumns, plotRows, BUILDING, EMPTY } from "../src/game/city
 import { resolveCollisions } from "../src/game/collisions.js";
 import { Score, DISTANCE_POINTS } from "../src/game/score.js";
 import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES } from "../src/game/weapons.js";
-import { OBSTACLE_TYPES, obstacleTypeById, PLACE_LANE } from "../src/game/obstacletypes.js";
+import {
+  OBSTACLE_TYPES, obstacleTypeById, PLACE_LANE, PLACE_SIDE,
+} from "../src/game/obstacletypes.js";
 import { Obstacles, SPAWN_MARGIN as OBSTACLE_SPAWN_MARGIN } from "../src/game/obstacles.js";
 import { Explosions } from "../src/game/effects.js";
 import { Projectiles } from "../src/game/projectiles.js";
@@ -913,15 +915,25 @@ test("every obstacle keeps its whole box on the road", () => {
   }
 });
 
-test("a lane-placed obstacle fits inside its lane, artwork and all", () => {
-  // The defect this catches, reported against the live game: the trestle was
-  // 1.25 lanes wide, so sitting on a lane centre put it 8px over the dashed
-  // centre-line. PLACE_LANE only means "in the middle of a lane" for something a
-  // lane can hold — and the bound is on the ARTWORK (`extent`), not the
-  // collision box, since the glow is what the player actually sees crossing the
-  // line. See TRESTLE_WIDTH in obstacleshapes.js.
+test("a lane- or side-placed obstacle fits inside one lane, artwork and all", () => {
+  // Two defects, both reported against the live game, both this shape:
+  //
+  //   PLACE_LANE  the trestle was 1.25 lanes wide, so sitting on a lane centre
+  //               put it 8px over the dashed centre-line. "In the middle of a
+  //               lane" only means anything for something a lane can hold.
+  //   PLACE_SIDE  the barrels were 1.24 lanes wide, which made the one block the
+  //               player is invited to aim AT also the one they could not line
+  //               up on from inside their own lane. It also kept a four-lane
+  //               road from having three clean lanes left beside it.
+  //
+  // The bound is on the ARTWORK (`extent`), not the collision box, since the
+  // glow is what the player actually sees crossing a line. See TRESTLE_WIDTH and
+  // BARRELS_WIDTH in obstacleshapes.js.
+  //
+  // PLACE_CENTRE is deliberately exempt: the tetra is meant to straddle the
+  // centre-line and take a bite out of both middle lanes.
   for (const type of OBSTACLE_TYPES) {
-    if (type.placement !== PLACE_LANE) continue;
+    if (type.placement !== PLACE_LANE && type.placement !== PLACE_SIDE) continue;
     const shape = OBSTACLE_SHAPES[type.shape];
     const [w] = shape.size;
     assert.ok(
