@@ -158,10 +158,27 @@ function profile(delta = {}) {
 }
 
 // --- The catalogue ------------------------------------------------------------
+// THE CIVILIAN ROAD IS A LANE GRADIENT, and it is built here rather than in any
+// one profile. Four of the five civilian types now state a `laneHome`, and they
+// state it BY SPEED: the two slow haulers want the lanes by the barrier, the two
+// fast machines want the lanes by the centre-line, and the sedan — the reference
+// car, at the middle of the civilian speed range — wants nothing in particular
+// and fills in whatever is left. The road therefore sorts itself, and the
+// player's choice of lane becomes a choice about what they will meet there
+// rather than four interchangeable strips of tarmac. Asserted in
+// test/invariants.test.js, so a retune that puts a rig in the fast lane fails
+// rather than merely looking odd.
+//
+// ONE PROFILE PER TYPE, from here on. The van and the rig could share a
+// "slow and heavy" table, and deliberately do not: their most legible difference
+// is that the van wanders and the rig does not, which is one field, and folding
+// them together would cost exactly that field. The enemy already works this way
+// for the same reason.
 export const DRIVING_PROFILES = {
-  // The reference, and the fallback for anything that names nothing. Sedan, van,
-  // rig and hypercar all drive this today: the civilian road is deliberately
-  // uniform apart from the one car below, so that the difference is legible.
+  // The reference, and the fallback for anything that names nothing. The SEDAN
+  // alone drives it now — which is the point of it being the reference: it is
+  // the car every other profile in this file is a described difference FROM, so
+  // it should stay the plain one.
   commuter: profile(),
 
   // The roadster. The impatient civilian — same `overtake` tactic as the sedan,
@@ -194,6 +211,171 @@ export const DRIVING_PROFILES = {
     contact: 6,
   }),
 
+  // The van. The working vehicle: slow, wide, out of the way, and — uniquely on
+  // this road — able to express itself through `contact` rather than `nerve`.
+  //
+  // WHY THE VAN AND NOT THE ROADSTER. `contactCost` scales with the car's own
+  // steerSpeed (behaviours.js), so what a lane change costs is set by how fast
+  // the car arrives sideways. The van steers at 60 against collisions.js's floor
+  // of 40, which puts its whole catalogue of contacts in the 0.7 to 1.5 hull
+  // band — so a ceiling of 1.2, ROLLED PER CAR, comes out as: squeezes past a
+  // roadster about two times in five, a sedan one in three, another van one in
+  // eight, and never a rig. That is a driver who leans on small cars and gives
+  // way to big ones, out of one number. The roadster cannot do this: it steers
+  // at 140, its contacts cost 4 to 9, and its dial is coarse by comparison.
+  //
+  // MOST OF THE TABLE IS INERT HERE, and it is worth knowing before tuning it.
+  // The van's tactic is `cruise`, which never passes, so `patience`, the whole
+  // pass* family and `passEffort` are never read. `passLookAhead` and
+  // `passLookBehind` ARE — `blocked` uses them for the lane preference below and
+  // for the hazard dodge — which is why they are the only two left at the
+  // commuter's figures rather than tuned.
+  hauler: profile({
+    laneDiscipline: 0.85, // a big box that never quite settles on the centre-line
+    laneHome: "outer",    // keeps out of the way: the slow side of the gradient
+    // Heavier than it looks and slower to shed speed than it looks, so it starts
+    // backing off early. Free of the braking floor at these speeds — 145 of
+    // closing needs 31 units of road against the 229 this leaves.
+    followGap: 55,
+    followReaction: 1.2,
+    hazardClearance: 10, // a wide vehicle gives a roadblock a wide berth
+    nerve: 0,            // amber: it dodges everything, without exception
+    contact: 1.2,        // ...but it will lean on something small. See above.
+  }),
+
+  // The rig. The one that cannot react, and drives like it knows.
+  //
+  // DELIBERATELY THE OPPOSITE OF THE VAN ON DISCIPLINE. laneDiscipline is left at
+  // the commuter's 1.0 rather than loosened, so the rig tracks dead straight
+  // while the van wanders — the wandering thing on this road should be the panel
+  // van, not the truck, and against the van's 0.85 that inversion is the most
+  // visible line in either table.
+  juggernaut: profile({
+    laneHome: "outer", // a lane-and-a-half of wall belongs by the barrier
+    // The longest look-ahead on the road. 95 of closing needs 13 units against
+    // the 242 this leaves, so the figures are pure character: a rig sheds speed
+    // from a long way back, because a rig that brakes late reads as a car.
+    followGap: 90,
+    followReaction: 1.6,
+    hazardClearance: 14, // the widest berth in the catalogue
+    nerve: 0,            // amber, and the type most likely to be standing near a
+                         // hazard the player wanted left alone
+    // A BINARY SWITCH FOR THIS TYPE, AND THE ONE PROFILE FIELD THAT DOES NOTHING
+    // UNLESS behaviours.js SAYS SO. The rig steers at 35, under collisions.js's
+    // DAMAGE_FLOOR of 40, so every lane change it could ever make prices at
+    // exactly zero hull: there is no middle setting available to it, only "never"
+    // and "always", and until `tolerated` learned to read the ceiling rather than
+    // the price, zero silently meant "always".
+    //
+    // NEVER is the setting, and it was measured rather than argued. Two 100
+    // rig-minute batches per side: contacts fall from 7.0-8.8 per minute to
+    // 3.9-5.9, hazard strikes land at 0.10-0.24 either way (indistinguishable,
+    // and both well under the 0.32 the rig ran on the commuter profile), and the
+    // rig gives up 2-3% of its life stopped in a live lane. Free contacts are
+    // still SHOVES: a 4-mass wall displaces whatever it touches, and a road where
+    // the truck moves over eight times a minute is chaos that the damage model
+    // happens not to bill for.
+    //
+    // A NOTE ON THAT MEASUREMENT, because it nearly went the other way. At 20
+    // sim runs this read as contact 0 TRIPLING hazard strikes, and the profile
+    // was written up that way. Sixty runs said the opposite. Per-type rates on
+    // the rarer types swing by 40% between batches of twenty — take nothing off
+    // this harness at that sample size.
+    contact: 0,
+  }),
+
+  // The hypercar. Fast and immaculate — and the deliberate counterweight to the
+  // roadster, since those two are the road's only pale civilians. Same faction,
+  // same shade, similar speed, opposite manners: the roadster rides the lane
+  // edge and cuts past at 7px, this one holds the centre-line exactly and sweeps
+  // by at 20. Telling those two apart at a glance is the clearest evidence the
+  // profile system does anything at all.
+  showpiece: profile({
+    laneHome: "inner", // the fast side of the gradient
+    patience: 0.15,    // it does not queue. It is behind you for a blink
+    // ITS CAUTION IS FORCED, NOT CHOSEN, which is the nicest thing about this
+    // profile. Its driver tops out at 700, so the braking rule documented on
+    // followReaction has to cover 580 of closing — 495 units of road, against the
+    // 534 this pair allows. The fastest civilian on the road is therefore
+    // necessarily the one that leaves the most room in front of it.
+    followGap: 70,
+    followReaction: 0.8,
+    // AND THE TRIGGER HAS TO CLEAR THE BRAKING GAP. followSpeed starts backing
+    // off inside 70 + 580*0.8 = 534 units, so at the commuter's trigger of 220
+    // this car would have matched the blocker's speed long before it ever
+    // considered going round — precisely wrong for the one civilian whose whole
+    // character is that it does not slow down. 560 commits it first.
+    passTrigger: 560,
+    passLookAhead: 260,  // it needs to see further, because it eats road faster
+    passLookBehind: 140,
+    passSpeedMargin: 60, // and only bothers for a gain it can actually realise:
+                         // this is what stops it committing to a pass on a cycle
+    passClearance: 20,   // it does not scrape. The widest pass on the road
+    // DELIBERATELY 1.0, AND THE CATALOGUE IS WHY. passSpeed caps at the type's
+    // own speedMax, and the hypercar's cruise roll runs right up to that cap, so
+    // a car rolling near 700 gets no extra at all and one rolling at 630 gets
+    // 11%. Rather than a number that quietly does nothing for half the type, say
+    // it: this car is already 200 units/sec faster than anything it would want to
+    // pass, and does not need to try harder to get by.
+    passEffort: 1.0,
+    hazardClearance: 12,
+    nerve: 0,   // pale, so it is ALLOWED to barge — and doesn't. 45 hull, and a
+                // showpiece that scrapes is not a showpiece
+    // Never leans on anyone: at 160px/sec sideways its cheapest contact in the
+    // catalogue is 4.5 hull, a tenth of its life.
+    //
+    // IT COSTS SOMETHING, and the cost is the one figure in this profile that
+    // held steady across every sample: the hypercar spends 8-11% of its life
+    // stopped, against 4% on the commuter it replaced, because a driver that will
+    // not take an occupied lane has only the brake left. Giving it a ceiling of 7
+    // — enough to squeeze past something light — bought two of those points back
+    // and cost contacts to do it. Zero is kept because a showpiece that would
+    // rather stop than scrape is the character; if the stopping ever reads as
+    // broken rather than as fastidious, this is the number to move.
+    contact: 0,
+  }),
+
+  // The muscle car. Heavy AND reckless — the combination the civilian road did
+  // not have, and the reason this type was moved across from the enemy.
+  //
+  // RUDENESS THAT COSTS THE DRIVER NOTHING. The roadster is the other impatient
+  // civilian, and it pays for every liberty it takes: 4 to 9 hull a contact, off
+  // 40. This one steers at 85 and weighs 1.7, so its contacts price at 1.1 (a
+  // cycle) to 3.3 (the rig) against 110 hull — a rounding error. A ceiling of 3
+  // therefore reads as "will lean on anything smaller than a truck": a roadster
+  // one time in two, a sedan two in five, a van one in four, and a rig never,
+  // because a rig is the one thing out here it cannot win against.
+  //
+  // AND IT DODGES EVERY HAZARD, without exception, because it is AMBER. That is
+  // not a compromise — it is what keeps the two kinds of aggression separate.
+  // Barging a stack of barrels is a claim about the driver's judgement; leaning
+  // on the car beside it is a claim about their manners. This car has bad
+  // manners and perfectly good judgement, and the palette is why it can.
+  brawler: profile({
+    laneDiscipline: 0.6, // sloppier than the sedan, tidier than the roadster
+    laneHome: "any",     // no preference at all: it drives where it likes, which
+                         // is also what keeps it out of the road's speed gradient
+    patience: 0.4,       // it gives you a moment. Not much of one
+    passSpeedMargin: 8,  // and will go for a small gain
+    passClearance: 9,    // passing close enough to be a statement
+    // Sits on your bumper. Its drivers top out at 360, so 240 of closing needs 85
+    // units of road against the 145 this leaves — the tailgating is comfortably
+    // legal, and unlike the roadster's it stays legal if something quicker is
+    // ever pointed at this profile.
+    followGap: 25,
+    followReaction: 0.5,
+    // Muscle, used as muscle. Capped at the type's speedMax like every
+    // passEffort, and the catalogue clips it the same way the hypercar's is
+    // clipped: 310 * 1.2 = 372 against a ceiling of 360, so a car that rolled
+    // slow gets the full shove and one that rolled at the top gets none. Worth
+    // knowing before tuning it — the cruise roll and the hard cap are the same
+    // field, so no type can have headroom above its own fastest cruise.
+    passEffort: 1.2,
+    nerve: 0,    // amber: it dodges everything. See above — this is the load-
+                 // bearing half of the design, not a concession
+    contact: 3,  // ...and leans on everything. See above
+  }),
+
   // --- Hostile dispositions --------------------------------------------------
   // One per enemy type, carrying the nerve figures that used to sit in
   // cartypes.js. They are separate profiles rather than one shared "hostile"
@@ -203,8 +385,18 @@ export const DRIVING_PROFILES = {
   // they will be tuned through.
   pursuer: profile({ nerve: 12 }),   // interceptor: through a trestle a third of
                                      // the time — the baseline gamble
-  enforcer: profile({ nerve: 16 }),  // muscle: half the time; a heavy already
-                                     // built to shove
+  // UNCLAIMED. This was the muscle car's, and the muscle car is a civilian now
+  // (cartypes.js). Kept rather than deleted because the ROLE it describes did not
+  // go anywhere — a heavy hostile that shoves, and gambles on a trestle half the
+  // time — and the replacement enemy will want exactly this row. A profile nobody
+  // drives constrains nothing and costs nothing: the braking-rule invariant skips
+  // it, and `typesDriving` returns an empty list.
+  //
+  // STILL UNCLAIMED after the stocker. The replacement hostile arrived and wanted
+  // something else — it races rather than shoves, so it drives `roadracer` below
+  // and left the `block` tactic here with this row. The pair is waiting for a
+  // second heavy that gets in front of the player and sits there.
+  enforcer: profile({ nerve: 16 }),
   batterer: profile({ nerve: 20 }),  // bruiser: three in five, the type least
                                      // interested in going round
   duelist: profile({ nerve: 10 }),   // rival: a driver, not a battering ram — it
@@ -223,7 +415,14 @@ export const DRIVING_PROFILES = {
   // trestle costs it a third of its life, and it is the nimblest thing on the
   // road. It goes round because going round is what it is FOR — the contrast
   // with the bruiser above is why these are per type at all.
-  darter: profile({ nerve: 0, contact: 4 }),
+  //
+  // `contact` READ 4 UNTIL THE QUANTISATION TEST WENT IN, and 4 was a setting
+  // that did nothing: the cycle steers at 180, so its cheapest possible contact
+  // in the whole catalogue is 7.35 hull and no roll under a ceiling of 4 ever
+  // reached it. Zero is what it always meant. It is also what it should say —
+  // any contact at all costs this type at least a third of its 25 hull, so the
+  // one car on the road that goes round everything goes round cars too.
+  darter: profile({ nerve: 0, contact: 0 }),
 };
 
 // The profile a car type drives by. A named profile always wins, so the

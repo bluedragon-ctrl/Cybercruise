@@ -229,14 +229,26 @@ export const CAR_TYPES = [
     h: 68,
     health: 95,
     mass: 1.6,
-    speedMin: 195,
-    speedMax: 255,
+    // RAISED FROM 195-255 when the van was given the outer lane. The rig runs
+    // 180-215 and also wants that lane, so the old range put a fifth of all vans
+    // permanently behind a rig they were never going to pass — `cruise` does not
+    // overtake, so that queue is for life. 205 leaves a 10-unit overlap instead
+    // of a 20-unit one and keeps the van clearly under the sedan's 215 floor, so
+    // the speed gradient across the road still reads.
+    speedMin: 205,
+    speedMax: 265,
+    // LOAD-BEARING, and not only for how it corners. behaviours.js prices a lane
+    // change from this figure against collisions.js's DAMAGE_FLOOR of 40, so 60
+    // is what puts the van's contacts in a 0.7-1.5 hull band and gives the
+    // `hauler` profile the only finely-graded `contact` dial in the file. Drop it
+    // near 40 and that dial goes binary, as the rig's already is.
     steerSpeed: 60,
     blastRadius: 42,
     blastDamage: 18,
     value: CIVILIAN_VALUE,
     minDistance: 0, // the city's own traffic: on the road from the first metre
     behaviour: "cruise", // slow and wide: it holds its lane and makes you go round
+    driving: "hauler",   // out of the way, and it will lean on a small car
     weight: 2,
   },
   {
@@ -289,6 +301,12 @@ export const CAR_TYPES = [
     // it is the reason a slow player still sees a moving road.
     speedMin: 180,
     speedMax: 215,
+    // UNDER collisions.js's DAMAGE_FLOOR of 40, and left there on purpose. It
+    // means every lane change a rig makes is free, so its `contact` dial has only
+    // two settings rather than a range — see driving.js's `juggernaut`. Raising
+    // it to clear the floor would also shrink dodgeDistance, which is the figure
+    // obstacles.js sizes its whole spawn margin against, so this number is not
+    // the rig's alone to change.
     steerSpeed: 35,
     // It is carrying something. Killing a rig in traffic is the biggest event on
     // the road — the blast covers most of the tarmac around it and will take a
@@ -297,13 +315,14 @@ export const CAR_TYPES = [
     blastDamage: 46,
     value: CIVILIAN_VALUE,
     minDistance: 0, // the city's own traffic: on the road from the first metre
-    // Even the rolling wall dodges — it drives the commuter profile, at nerve 0.
-    // A rig ploughing a trestle is tempting flavour, but it is also the one
-    // civilian heavy enough to be somewhere near a hazard the player wanted left
-    // standing, and the AMBER cars dodging without exception is what makes one
-    // swerving read as "there is something in that lane" rather than as one
-    // type's quirk.
+    // Even the rolling wall dodges — `juggernaut` keeps nerve at 0. A rig
+    // ploughing a trestle is tempting flavour, but it is also the one civilian
+    // heavy enough to be somewhere near a hazard the player wanted left standing,
+    // and the AMBER cars dodging without exception is what makes one swerving
+    // read as "there is something in that lane" rather than as one type's quirk.
     behaviour: "convoy",
+    driving: "juggernaut", // dead straight, brakes from a long way out, and
+                           // expects to be given room rather than to ask for it
     weight: 0.8,
   },
   {
@@ -327,7 +346,65 @@ export const CAR_TYPES = [
     value: CIVILIAN_VALUE,
     minDistance: 0, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
+    // The other pale civilian, and the deliberate opposite of the roadster: same
+    // shade, same tactic, similar pace, and it holds a perfect line and sweeps
+    // wide where the roadster rides the edge and cuts close. Two profiles, one
+    // silhouette apart — see driving.js.
+    driving: "showpiece",
     weight: 0.4,
+  },
+
+  {
+    id: "muscle",
+    label: "MUSCLE",
+    shape: carShapeIndex("MUSCLE"),
+    // THE HOLE IN THE CIVILIAN ROAD, and it was a specific one: every heavy
+    // civilian was careful and the only reckless one was the frailest thing out
+    // here. The roadster is rude at mass 0.8 and 40 hull, so the player swats it
+    // aside for free and rudeness costs them nothing. Nothing on this side of the
+    // road leaned back.
+    //
+    // MOVED HERE FROM THE ENEMY, silhouette and stats intact. It was the hostile
+    // that blocked the player's lane from in front; the shape and the weight
+    // class were already right for a civilian brawler, and a car that is
+    // aggressive WITHOUT being out to get you is a different thing from an enemy
+    // — it is traffic that will not yield. The hostile role it vacated is a fresh
+    // enemy type's to fill (behaviours.js still holds the `block` tactic and
+    // driving.js the `enforcer` profile, both unclaimed and waiting).
+    faction: NEUTRAL_FACTION,
+    // Deep amber, the heavy-neutral shade it shares with the rig. Colour carries
+    // faction and weight class only, so two heavy civilians matching is correct —
+    // the MUSCLE silhouette is what tells them apart, and nothing else has to.
+    color: NEUTRAL_DEEP,
+    thrust: NEUTRAL_THRUST,
+    w: 38,
+    h: 68,
+    health: 110,
+    // Heavier than the player: it wins a shoving match, slowly. Unchanged from
+    // its hostile days and now the whole point of the type — this is the civilian
+    // the player cannot simply move out of the way.
+    mass: 1.7,
+    speedMin: 310,
+    speedMax: 360,
+    // AND THE FIGURE THAT MAKES IT RECKLESS RATHER THAN JUST BIG. At 85 against
+    // the damage floor of 40 its contacts price at 1.1 to 3.3 hull, which off 110
+    // hull is nothing at all — so the `brawler` profile can hand it a genuinely
+    // bold `contact` and the car pays for it in nothing but other people's
+    // trouble. Compare the roadster, whose rudeness costs it 4-9 hull off 40.
+    steerSpeed: 85,
+    blastRadius: 44,
+    blastDamage: 24,
+    value: CIVILIAN_VALUE, // killing one is a fine, like any other civilian
+    minDistance: 0,        // the city's own traffic: on the road from the first metre
+    behaviour: "overtake", // it does not block for anyone; it just goes past
+    driving: "brawler",    // heavy, impatient, and it will lean on you
+    // Kept at exactly what it was as a hostile, which MOVES THE FACTION MIX and
+    // is worth knowing: civilian weight goes 7.7 -> 8.9 and hostile 5.3 -> 4.1,
+    // so past DIST 100 the road is now about 68% civilian rather than 59%. That
+    // is a thinner enemy presence, not a rebalanced one — the figure to restore
+    // when the replacement hostile arrives, rather than something to paper over
+    // by inflating the four types left.
+    weight: 1.2,
   },
 
   // --- Enemy: everything that is out here for you ---------------------------
@@ -354,41 +431,30 @@ export const CAR_TYPES = [
     weight: 2, // the standard hostile: whatever else is out, one of these is too
   },
   {
-    id: "muscle",
-    label: "MUSCLE",
-    shape: carShapeIndex("MUSCLE"),
-    faction: ENEMY_FACTION,
-    color: ENEMY_DEEP,
-    thrust: ENEMY_THRUST,
-    w: 38,
-    h: 68,
-    health: 110,
-    mass: 1.7, // heavier than the player: it wins a shoving match, slowly
-    speedMin: 310,
-    speedMax: 360,
-    steerSpeed: 85,
-    blastRadius: 44,
-    blastDamage: 24,
-    value: ENEMY_VALUE,
-    minDistance: ENEMY_MIN_DISTANCE,
-    behaviour: "block",
-    driving: "enforcer", // nerve 16: half the time — a heavy built to shove
-    weight: 1.2,
-  },
-  {
     id: "stocker",
     label: "STOCKER",
+    // THE HOSTILE THE MUSCLE VACATED. When the muscle crossed to the civilian
+    // side it took the enemy's mid-field heavy with it, and this is the car that
+    // fills the hole — deliberately not a copy of it. The muscle was a street
+    // heavy that got in front of you and sat there; the STOCKER came off a
+    // circuit, and it CHASES. The `block` tactic and the `enforcer` profile the
+    // muscle left behind are still unclaimed, and still the right pair for a
+    // second heavy that leans on the player rather than racing them.
     shape: carShapeIndex("STOCKER"),
     faction: ENEMY_FACTION,
-    color: ENEMY_DEEP, // deep red: the heavy class, same as the muscle and bruiser
+    // Deep red: the heavy hostile class, shared with the bruiser. Its own
+    // silhouette — flared over every wheel, caged, winged — is what tells the two
+    // apart, exactly as the MUSCLE outline now does on the civilian side.
+    color: ENEMY_DEEP,
     thrust: ENEMY_THRUST,
     w: 40,
     h: 70,
-    health: 130, // a caged car: it takes more than the muscle, less than the bruiser
+    health: 130, // a caged car: more than the departed muscle's 110, less than
+                 // the bruiser's 160
     mass: 1.9,
-    // Fills the hole between the muscle's 360 and the interceptor's 400: a heavy
-    // that is genuinely quick, so being ahead of one is not the escape it is with
-    // the rest of the heavy class.
+    // Fills the enemy's speed hole between the bruiser's 330 and the
+    // interceptor's 400: a heavy that is genuinely quick, so being ahead of one
+    // is not the escape it is with the rest of the heavy class.
     speedMin: 355,
     speedMax: 415,
     steerSpeed: 100, // quicker across the road than any other heavy
@@ -396,9 +462,15 @@ export const CAR_TYPES = [
     blastDamage: 26,
     value: ENEMY_VALUE,
     minDistance: ENEMY_MIN_DISTANCE,
-    behaviour: "pursue", // it chases, where the muscle gets in front and sits there
+    behaviour: "pursue",  // it comes after you, where the muscle used to sit in
+                          // front of you
     driving: "roadracer", // nerve 14: a racer's nerve, between pursuer and enforcer
-    weight: 1,
+    // Exactly the weight the muscle took with it, which RESTORES THE FACTION MIX
+    // the muscle's move disturbed: hostile weight goes 4.1 -> 5.3 and civilian
+    // stays 8.9, so past DIST 100 the road returns to roughly 63% civilian. See
+    // the note on the muscle's own weight above — this is the replacement hostile
+    // it asks for.
+    weight: 1.2,
   },
   {
     id: "cycle",
