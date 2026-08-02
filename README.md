@@ -140,8 +140,8 @@ traffic doesn't mean touching the simulation:
   blast radius and damage, spawn weight, how far into the run the type unlocks
   (`minDistance` — see below), and the name of its behaviour. New traffic = a
   new entry here.
-- `src/game/carshapes.js` — the silhouettes. Ten of them, and the catalogue is a
-  1:1 map onto it: **shape** is what tells one type from another, so colour is
+- `src/game/carshapes.js` — the silhouettes. Eleven of them, and the catalogue is
+  a 1:1 map onto it: **shape** is what tells one type from another, so colour is
   left to carry only faction (red hostile / amber civilian) and weight class, and
   shades repeat across types. The one shape shared with the player is given to an
   enemy — your own outline in red reads as a rival.
@@ -175,7 +175,9 @@ road from weaving at once — and means sitting in front of a rig at 180 works,
 while sitting in front of anything nimble does not. The muscle car is the
 exception that proves it: heavy, and an overtaker anyway, because a heavy that
 comes past you rather than sitting behind you is the one civilian the player has
-to actually give way to.
+to actually give way to. The stocker is the hostile answer to the same idea — a
+heavy that hunts, so weight stops being a promise that a car will leave you
+alone.
 
 ### Distance, and the spawn gate
 
@@ -202,7 +204,7 @@ DIST-readout units, so "the enemy turns up at 100" means the number on the HUD.
   obvious candidate) can be held back later without new machinery.
 
 The gate **reweights** the draw rather than re-rolling until something passes:
-before `DIST 100` the five civilian types share the whole spawn weight, so the
+before `DIST 100` the six civilian types share the whole spawn weight, so the
 opening road is as busy as any other stretch. Rejection sampling would have
 thinned it to half strength, which is the opposite of what a quiet start should
 feel like. `pickCarType`/`pickObstacleType` return `null` only if *everything*
@@ -288,8 +290,19 @@ that shape: every heavy civilian was careful, and the only rude one was the
 frailest car out here, so rudeness never cost the player anything. A car that is
 aggressive *without* being out to get you is a different thing from an enemy. It
 still dodges every hazard, because it is amber and that signal is not negotiable
-— bad manners, perfectly good judgement. The `block` tactic and the `enforcer`
-profile it left behind are unclaimed, waiting for the hostile that replaces it.
+— bad manners, perfectly good judgement.
+
+The **stocker** took the hostile slot it vacated, and deliberately isn't a copy:
+the muscle got in front of you and sat there, where the stocker *chases*. It is
+the enemy's quick heavy — 130 hull and mass 1.9 at 355–415, filling the gap
+between the bruiser's 330 and the interceptor's 400, so being ahead of one is
+not the escape it is with the rest of that class. It drives `roadracer`, the
+only hostile profile that runs a **racing line**: it lives on the lane edges and
+pulls out early, so a stocker closes from the side of the road rather than up
+the middle. Its nerve (14) sits above the interceptor's because the cage means
+junk in the road costs it paint rather than a wheel. That leaves the `block`
+tactic and the `enforcer` profile the muscle left behind still unclaimed — and
+still the right pair for a second heavy that leans on the player.
 
 The preferences also add up to a **lane gradient**. The two slow haulers want the
 lanes by the barrier and the two fast machines want the lanes by the centre-line,
@@ -357,6 +370,7 @@ behind if faster, so they always cross the screen — and retired once well past
 | sedan | 215–290 | the widest range: civilians are a spread of ordinary drivers |
 | bruiser | 280–330 | |
 | muscle | 310–360 | the heavy civilian that leans on people |
+| stocker | 355–415 | the quick heavy: being ahead of one is not an escape |
 | interceptor | 400–470 | |
 | roadster | 430–560 | sits just under the player's ceiling |
 | rival | 580–650 | straddles the player's ceiling — draws level, neither escapes |
