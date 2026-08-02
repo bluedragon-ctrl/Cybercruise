@@ -29,8 +29,9 @@
 // them have moved.
 
 import { drawCarCached } from "./sprites.js";
-import { behaviourFor } from "./behaviours.js";
+import { driveCar } from "./behaviours.js";
 import { pickCarType } from "./cartypes.js";
+import { drivingFor } from "./driving.js";
 import { armFor } from "./armament.js";
 import { Explosions } from "./effects.js";
 import { resolveCollisions, PlayerBody } from "./collisions.js";
@@ -107,13 +108,25 @@ class TrafficCar {
     this.targetOffset = this.offset;
     this.targetSpeed = speed;
 
-    // How much hull THIS driver will eat to hold its line past a road hazard
-    // rather than steer around it (behaviours.js). Rolled uniformly in
-    // [0, type.nerve] so the catalogue's figure is a ceiling and each car is
-    // its own gamble — see NERVE in cartypes.js. Rolled ONCE, like the speed
-    // above: a barger is a barger for life, because a car that re-decided every
-    // tick would weave at the roadblock instead of committing either way.
-    this.nerve = Math.random() * (type.nerve ?? 0);
+    // HOW THIS ONE DRIVES — the shared, frozen profile its type names
+    // (game/driving.js). Everything behaviours.js used to hard-code reads off
+    // here, so two cars running the same tactic can still be a timid driver and
+    // an impatient one. Shared, never written to: a hundred sedans hold the same
+    // object.
+    this.drive = drivingFor(type);
+
+    // How much hull THIS driver will eat rather than lift off its line — for a
+    // road hazard (`nerve`) and for another car (`contact`). Rolled uniformly in
+    // [0, the profile's figure] so the profile is a CEILING and each car is its
+    // own gamble; see the NERVE section in driving.js. Rolled ONCE, like the
+    // speed above: a barger is a barger for life, because a car that re-decided
+    // every tick would weave at the roadblock instead of committing either way.
+    this.nerve = Math.random() * this.drive.nerve;
+    this.contact = Math.random() * this.drive.contact;
+
+    // Seconds spent stuck behind something it would rather be in front of.
+    // Drives `patience` (behaviours.js startPass).
+    this.heldTime = 0;
 
     // What this car is carrying, if anything — its own cooldowns and magazines,
     // so two interceptors do not share a trigger (game/armament.js). Null for
@@ -182,7 +195,9 @@ class TrafficCar {
     // a tick behind.
     if (this.arms) this.arms.update(dt);
 
-    behaviourFor(this.type.behaviour)(this, dt, world);
+    // Tactic, then the hazard reflex, then whatever it is carrying — all three
+    // in one call, so the order can't drift per tactic. See behaviours.js.
+    driveCar(this, dt, world);
 
     // Speed: approach the requested speed at a fixed rate rather than snapping,
     // so a behaviour can ask for anything without teleporting the car.
@@ -395,7 +410,11 @@ export class Traffic {
   // overtakes). Spawning a slow car behind would leave it dropping away, never
   // seen — and a fast one ahead would simply vanish over the horizon.
   spawn({ distance, player, H }) {
-    const type = this.pickType();
+    const type = this.pickType(distance);
+    // Nothing in the catalogue is unlocked this early — see cartypes.js's
+    // `minDistance`. Treated exactly like a full road: skip, try next interval.
+    if (!type) return;
+
     const speed = type.speedMin + Math.random() * (type.speedMax - type.speedMin);
 
     const ahead = speed < player.speed;
@@ -416,14 +435,19 @@ export class Traffic {
   // closing at 40 units/sec stays for half a minute. Measured over a minute of
   // steady cruising, that left all seven slots holding the one type that happened
   // to match — so re-roll a type that already holds its share of the live cars.
-  pickType() {
+  // `distance` is passed straight through to the catalogue, which drops types the
+  // player hasn't driven far enough to meet (cartypes.js's `minDistance`). The
+  // share cap below then works on whatever is left, so the opening run spreads
+  // itself across the civilian types instead of across all ten.
+  pickType(distance) {
     const cap = Math.max(2, Math.floor(this.cars.length / 3));
     for (let attempt = 0; attempt < 4; attempt++) {
-      const type = pickCarType();
+      const type = pickCarType(distance);
+      if (!type) return null;
       const held = this.cars.reduce((n, car) => n + (car.type === type ? 1 : 0), 0);
       if (held < cap) return type;
     }
-    return pickCarType(); // crowded road — take whatever came up
+    return pickCarType(distance); // crowded road — take whatever came up
   }
 
   // A lane with nothing already sitting near `worldY`, or -1 if there is none.

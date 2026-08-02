@@ -30,6 +30,9 @@
 // test should use); `extent` is how far its artwork reaches from the anchor
 // (what the sprite bounds need). The tetra's spikes and the caltrop's prongs
 // reach past the body they defend, so the two are not the same number.
+//
+// EVERY `extent` IN THIS FILE IS DERIVED, never typed. See GLOW_BLEED below for
+// why, and for how to re-measure after changing any artwork.
 
 import { glowLine, glowPoly } from "../engine/neon.js";
 import { LANE_WIDTH } from "./road.js";
@@ -119,6 +122,40 @@ function stripes(ctx, x, y, w, h, color, step = 9) {
 //   debris  BLOCK only: SPLINTER, WATER or IMPACT
 //   pulse   true if the look depends on the `pulse` argument (0..1)
 //   draw    (ctx, cx, cy, pulse) — anchored at the obstacle's centre
+// --- Glow bleed ------------------------------------------------------------
+//
+// How far past its own geometry a neon part actually PAINTS. Every `extent` in
+// this file is geometry + one of these constants, and that is the whole point:
+// an extent that is typed by hand is a claim nobody checks, and the lane-fit
+// test in test/invariants.test.js asserts against `extent`, so a hand-typed
+// number that under-reports lets the test pass while the drawing crosses the
+// lane edge. That is exactly what the trestle did — declared 29, drew 33.
+//
+// MEASURED, not derived from lineWidth and shadowBlur by formula. Render a
+// shape to an offscreen canvas and scan for its alpha > 40 bounding box:
+//
+//   for (const shape of OBSTACLE_SHAPES) {
+//     const c = document.createElement("canvas"); c.width = c.height = 300;
+//     const ctx = c.getContext("2d"); shape.draw(ctx, 150, 150, 1);
+//     const d = ctx.getImageData(0, 0, 300, 300).data;   // ...bounding box of
+//   }                                                    // pixels with a > 40
+//
+// (Node has no canvas, which is why this cannot be a unit test; the test can
+// only check that the extents are still DERIVED. Re-run the scan by hand after
+// touching any draw().)
+//
+// A 1.5–2px stroke with shadowBlur 7–10 — nearly every part in this file —
+// lands 5–6px past the edge it is stroked on. The trestle's beam is the one
+// outlier: a 2px stroke with shadowBlur 11, reaching 7.
+const GLOW_BLEED = 6;
+const BEAM_GLOW_BLEED = 7;
+
+// Some parts fade under the alpha threshold before the full bleed shows up —
+// the caltrop's spikes taper to a needle, so their tips measure only 2px of
+// bleed. Those extents therefore over-declare by a few px. That is the right
+// direction to be wrong in: it costs a slightly larger cached sprite and
+// nothing else, where under-declaring clips artwork and lies to the test.
+
 // THE TRESTLE MUST FIT INSIDE A LANE, artwork and all.
 //
 // It is the one obstacle placed on lane centres (obstacletypes.js's PLACE_LANE),
@@ -128,13 +165,14 @@ function stripes(ctx, x, y, w, h, color, step = 9) {
 // over the barrier — it read as a block that had been dropped carelessly rather
 // than as a lane closure.
 //
-// The bound is on the ARTWORK, not just the collision box: `extent` below is
-// half this plus the glow, and that is what has to stay inside LANE_WIDTH / 2
-// (32.5). At 0.8 lanes the beam is 52px and the artwork reaches 29px, clearing
-// the lane edge by 3.5px on each side. Widen this past ~59px and the overhang
-// comes back — test/invariants.test.js asserts no obstacle overhangs the road,
-// which catches the outer-lane half of it.
-const TRESTLE_WIDTH = LANE_WIDTH * 0.8;
+// The bound is on the ARTWORK, not just the collision box: extent.x below is
+// half this plus BEAM_GLOW_BLEED, and that is what has to stay inside
+// LANE_WIDTH / 2 (32.5). At 0.8 lanes the beam was 52px and the artwork
+// measured 33 — half a pixel over the edge the whole time, hidden because the
+// declared extent said 29. At 0.775 the beam is 50.4px and the artwork reaches
+// 32.2. Anything past LANE_WIDTH * 0.784 puts it back outside.
+const TRESTLE_WIDTH = LANE_WIDTH * 0.775;
+const TRESTLE_FOOT_HALF = 13; // the folding feet run cy ± this, past the beam
 
 // THE BARRELS FIT INSIDE A LANE TOO, for a related but not identical reason.
 //
@@ -148,16 +186,26 @@ const TRESTLE_WIDTH = LANE_WIDTH * 0.8;
 //
 // The pair also stops eating more than a lane's worth of a four-lane road, so a
 // barrels stack at the edge always leaves the other three lanes intact.
-// MEASURED, not assumed. The bound has to hold for what is actually DRAWN, and
-// a barrel's glow reaches about 5px past its rim (lineWidth plus shadowBlur) —
-// so the arithmetic below is rim + GLOW_BLEED, checked against the real canvas
-// rather than against the radius. Sizing this off the rim alone put the artwork
-// 3px outside the lane while every number in the file said it fitted.
-const GLOW_BLEED = 6;
 const BARREL_RADIUS = 12;
 const BARREL_SPREAD = LANE_WIDTH * 0.21; // each barrel's offset from the centre
 const BARREL_RISE = 9;                   // ...and up or down the road
 const BARRELS_WIDTH = (BARREL_SPREAD + BARREL_RADIUS) * 2;
+
+// The tetra's three welded beams sit 60 degrees apart, so its widest point is
+// the horizontal arm's tip and its tallest is a slanted arm's outer corner —
+// the arm's own half-length projected on y, plus the beam's half-thickness
+// projected the other way.
+const TETRA_ARM = LANE_WIDTH * 0.52; // hub to tip; under a lane wide, immovable
+const TETRA_HALF_THICK = 4;          // half a beam's thickness
+const TETRA_REACH_Y =
+  TETRA_ARM * Math.sin(Math.PI / 3) + TETRA_HALF_THICK * Math.cos(Math.PI / 3);
+
+// The caltrop reaches furthest at the top of its pulse, which is the frame the
+// sprite bounds have to hold — the spikes breathe, the hex core does not.
+const CALTROP_CORE = 9;
+const CALTROP_SPIKE = 8;       // spike length at rest...
+const CALTROP_SPIKE_PULSE = 2; // ...and how much further a full pulse pushes it
+const CALTROP_REACH = CALTROP_CORE + CALTROP_SPIKE + CALTROP_SPIKE_PULSE;
 
 export const OBSTACLE_SHAPES = [
   {
@@ -167,17 +215,24 @@ export const OBSTACLE_SHAPES = [
     name: "TRESTLE",
     family: BLOCK,
     size: [TRESTLE_WIDTH, 14],
-    extent: { x: TRESTLE_WIDTH / 2 + 3, up: 14, down: 14 },
+    // The beam is the widest part and the feet are the tallest, so x comes off
+    // the beam (with the wide blur it carries) and up/down off the feet.
+    extent: {
+      x: TRESTLE_WIDTH / 2 + BEAM_GLOW_BLEED,
+      up: TRESTLE_FOOT_HALF + GLOW_BLEED,
+      down: TRESTLE_FOOT_HALF + GLOW_BLEED,
+    },
     debris: SPLINTER, // light thing on legs — it just comes apart
     draw(ctx, cx, cy) {
       const hw = TRESTLE_WIDTH / 2;
+      const fh = TRESTLE_FOOT_HALF;
 
       // Folding feet, at ground level, drawn first so the beam overlaps them and
       // the trestle reads as a solid object rather than a flat sticker.
       for (const fx of [-hw * 0.62, hw * 0.62]) {
         glowPoly(ctx, [
-          [cx + fx - 3, cy - 13], [cx + fx + 3, cy - 13],
-          [cx + fx + 3, cy + 13], [cx + fx - 3, cy + 13],
+          [cx + fx - 3, cy - fh], [cx + fx + 3, cy - fh],
+          [cx + fx + 3, cy + fh], [cx + fx - 3, cy + fh],
         ], NEUTRAL_DEEP, 1.5, 7, CAR_FILL);
         glowLine(ctx, cx + fx - 3, cy, cx + fx + 3, cy, NEUTRAL_DEEP, 1, 4);
       }
@@ -248,19 +303,23 @@ export const OBSTACLE_SHAPES = [
     // top of the screen, where both are only a few pixels of amber.
     name: "TETRA",
     family: BLOCK,
-    size: [LANE_WIDTH * 1.04, LANE_WIDTH * 0.9],
-    extent: { x: LANE_WIDTH * 0.52 + 4, up: LANE_WIDTH * 0.45 + 4, down: LANE_WIDTH * 0.45 + 4 },
+    size: [TETRA_ARM * 2, LANE_WIDTH * 0.9],
+    extent: {
+      x: TETRA_ARM + GLOW_BLEED,
+      up: TETRA_REACH_Y + GLOW_BLEED,
+      down: TETRA_REACH_Y + GLOW_BLEED,
+    },
     debris: IMPACT, // welded steel — the heaviest hit on the road
     draw(ctx, cx, cy) {
-      const R = LANE_WIDTH * 0.52; // arm length — under a lane wide, but immovable
+      const R = TETRA_ARM;
 
       // Three beams 60 degrees apart, each an OPAQUE slab so the crossings look
       // welded instead of transparent.
       for (const a of [0, Math.PI / 3, (2 * Math.PI) / 3]) {
         const dx = Math.cos(a);
         const dy = Math.sin(a);
-        const nx = -dy * 4; // half-thickness, perpendicular to the beam
-        const ny = dx * 4;
+        const nx = -dy * TETRA_HALF_THICK; // perpendicular to the beam
+        const ny = dx * TETRA_HALF_THICK;
         glowPoly(ctx, [
           [cx - dx * R + nx, cy - dy * R + ny], [cx + dx * R + nx, cy + dy * R + ny],
           [cx + dx * R - nx, cy + dy * R - ny], [cx - dx * R - nx, cy - dy * R - ny],
@@ -285,11 +344,16 @@ export const OBSTACLE_SHAPES = [
     name: "CALTROP",
     family: MINE,
     size: [26, 26],
-    extent: { x: 20, up: 20, down: 20 },
+    extent: {
+      x: CALTROP_REACH + GLOW_BLEED,
+      up: CALTROP_REACH + GLOW_BLEED,
+      down: CALTROP_REACH + GLOW_BLEED,
+    },
     pulse: true,
     draw(ctx, cx, cy, pulse) {
-      const r = 9;
-      const spike = 8 + pulse * 2; // the spikes breathe; the core does not
+      const r = CALTROP_CORE;
+      const spike = CALTROP_SPIKE + pulse * CALTROP_SPIKE_PULSE; // the spikes
+                                                 // breathe; the core does not
 
       // Each spike is a tapered triangle rather than a line, so it survives the
       // glow at this size instead of dissolving into a smudge.

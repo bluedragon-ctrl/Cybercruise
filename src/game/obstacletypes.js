@@ -35,6 +35,14 @@
 //   placement   where across the road this type belongs — PLACE_LANE / _SIDE /
 //               _CENTRE / _ANY. See the block above
 //   weight      relative spawn frequency (see obstacles.js's pickObstacleType)
+//   minDistance how far the player must have driven before this type may spawn,
+//               in DIST-READOUT units — the same gate cartypes.js documents at
+//               length, and the same units the HUD counts in (road.js). Every
+//               hazard is currently 0: a roadblock is the CITY's, not the
+//               enemy's, so it belongs on the opening road alongside the traffic
+//               that has to swerve round it. The field is here so a type can be
+//               held back without new machinery — the caltrop is the obvious
+//               candidate the day the opening wants to be gentler still
 //
 // THE WEIGHT-CLASS LADDER. obstacleshapes.js already orders the three
 // roadblocks light -> heavy (TRESTLE, BARRELS, TETRA) by their SILHOUETTE and
@@ -45,6 +53,7 @@
 // though its health sits in the middle: bargeable is a promise about the hit,
 // not about how many rounds it shrugs off.
 import { obstacleShapeIndex } from "./obstacleshapes.js";
+import { DIST_UNITS } from "./road.js";
 
 // WHERE A HAZARD SITS ACROSS THE ROAD, and it is a property of the OBSTACLE
 // rather than of the spawner — a barrels stack that turned up mid-lane and a
@@ -88,12 +97,14 @@ export const OBSTACLE_TYPES = [
     health: 20, // one cannon round (34 dmg) puts it down
     blastRadius: 26,
     blastDamage: 8,
-    // A lane closure, which is what a folding trestle IS. It is also the type
-    // the traffic-avoidance work was tuned against (behaviours.js's
-    // HAZARD_DODGE_SPAN is sized from this shape's width), so keeping it on lane
-    // centres keeps that tuning meaning what it says.
+    // A lane closure, which is what a folding trestle IS, and the type the
+    // traffic-avoidance work was tuned against. Keeping it on lane centres is
+    // what makes that tuning mean what it says. It does NOT set the size of the
+    // dodge: behaviours.js's HAZARD_DODGE_SPAN follows the MINE's free
+    // placement, so narrowing this shape leaves it untouched.
     placement: PLACE_LANE,
     weight: 3, // the backbone of the roadblock spread — see cartypes.js's sedan
+    minDistance: 0,
   },
   {
     id: "barrels",
@@ -110,6 +121,7 @@ export const OBSTACLE_TYPES = [
     // free points collected on the racing line.
     placement: PLACE_SIDE,
     weight: 2.5,
+    minDistance: 0,
   },
   {
     id: "tetra",
@@ -125,6 +137,7 @@ export const OBSTACLE_TYPES = [
     // which is the most interesting thing a static object can ask of a driver.
     placement: PLACE_CENTRE,
     weight: 1.2,
+    minDistance: 0,
   },
   {
     id: "caltrop",
@@ -146,20 +159,38 @@ export const OBSTACLE_TYPES = [
     // catalogue (26px), so it can afford to be anywhere without closing the road.
     placement: PLACE_ANY,
     weight: 0.8, // rare — see cartypes.js's rival for the same reasoning
+    minDistance: 0,
   },
 ];
 
-const TOTAL_WEIGHT = OBSTACLE_TYPES.reduce((sum, t) => sum + t.weight, 0);
+// Whether `type` may appear yet, given the RAW world odometer. Mirrors
+// cartypes.js's typeAvailable — the readout-unit conversion happens here so no
+// caller has to know about it.
+export function obstacleAvailable(type, distance) {
+  return distance >= (type.minDistance ?? 0) * DIST_UNITS;
+}
 
-// A random obstacle type, honouring `weight`. Mirrors cartypes.js's
-// pickCarType exactly — same shape of problem, same answer.
-export function pickObstacleType() {
-  let roll = Math.random() * TOTAL_WEIGHT;
+// A random obstacle type the player has driven far enough to meet, honouring
+// `weight`. Mirrors cartypes.js's pickCarType exactly, gate included — same
+// shape of problem, same answer — so read the reasoning there: the eligible
+// types are REWEIGHTED rather than re-rolled, and null means nothing is
+// unlocked yet (obstacles.js treats that as "no room this interval").
+export function pickObstacleType(distance = Infinity) {
+  let total = 0;
   for (const type of OBSTACLE_TYPES) {
+    if (obstacleAvailable(type, distance)) total += type.weight;
+  }
+  if (total <= 0) return null;
+
+  let roll = Math.random() * total;
+  let last = null;
+  for (const type of OBSTACLE_TYPES) {
+    if (!obstacleAvailable(type, distance)) continue;
+    last = type;
     roll -= type.weight;
     if (roll <= 0) return type;
   }
-  return OBSTACLE_TYPES[OBSTACLE_TYPES.length - 1];
+  return last;
 }
 
 // One named obstacle type. Mirrors cartypes.js's carTypeById, and exists for the
