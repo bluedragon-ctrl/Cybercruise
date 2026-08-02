@@ -138,14 +138,14 @@ test("every car type has a coherent speed range", () => {
 // --- The sprite-cache budget -------------------------------------------------
 
 test("sprite-cache budget matches the figure cartypes.js documents", () => {
-  // cartypes.js: "10 types * 8 * 2 = 160 sprites at the absolute worst" — one
+  // cartypes.js: "11 types * 8 * 2 = 176 sprites at the absolute worst" — one
   // per (type, wheel frame), doubled for the critical-hull blink colour. This is
   // what keeps the cache bounded, so it must not grow silently.
   const worstCase = CAR_TYPES.length * WHEEL_FRAMES * 2;
   assert.equal(
     worstCase,
-    160,
-    `traffic sprite worst case is now ${worstCase}, not the documented 160 ` +
+    176,
+    `traffic sprite worst case is now ${worstCase}, not the documented 176 ` +
       `(${CAR_TYPES.length} types x ${WHEEL_FRAMES} wheel frames x 2 colours)`,
   );
 });

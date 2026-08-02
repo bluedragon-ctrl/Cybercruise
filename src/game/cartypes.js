@@ -52,7 +52,7 @@
 //
 // SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) combination is
 // a cache key in sprites.js, times WHEEL_FRAMES (8) wheel positions, plus one
-// more colour for the critical-hull blink: 10 types * 8 * 2 = 160 sprites at the
+// more colour for the critical-hull blink: 11 types * 8 * 2 = 176 sprites at the
 // absolute worst, built lazily as each type first appears. That is the same order
 // as the city's building cache. Keeping the catalogue a small FIXED list is what
 // bounds it — so vary cars by ADDING A TYPE, never by rolling continuous
@@ -374,6 +374,31 @@ export const CAR_TYPES = [
     behaviour: "block",
     driving: "enforcer", // nerve 16: half the time — a heavy built to shove
     weight: 1.2,
+  },
+  {
+    id: "stocker",
+    label: "STOCKER",
+    shape: carShapeIndex("STOCKER"),
+    faction: ENEMY_FACTION,
+    color: ENEMY_DEEP, // deep red: the heavy class, same as the muscle and bruiser
+    thrust: ENEMY_THRUST,
+    w: 40,
+    h: 70,
+    health: 130, // a caged car: it takes more than the muscle, less than the bruiser
+    mass: 1.9,
+    // Fills the hole between the muscle's 360 and the interceptor's 400: a heavy
+    // that is genuinely quick, so being ahead of one is not the escape it is with
+    // the rest of the heavy class.
+    speedMin: 355,
+    speedMax: 415,
+    steerSpeed: 100, // quicker across the road than any other heavy
+    blastRadius: 46,
+    blastDamage: 26,
+    value: ENEMY_VALUE,
+    minDistance: ENEMY_MIN_DISTANCE,
+    behaviour: "pursue", // it chases, where the muscle gets in front and sits there
+    driving: "roadracer", // nerve 14: a racer's nerve, between pursuer and enforcer
+    weight: 1,
   },
   {
     id: "cycle",

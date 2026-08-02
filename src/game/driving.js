@@ -209,6 +209,16 @@ export const DRIVING_PROFILES = {
                                      // interested in going round
   duelist: profile({ nerve: 10 }),   // rival: a driver, not a battering ram — it
                                      // would rather keep the line clean
+  // The stocker: a heavy that came off a circuit rather than out of a garage. It
+  // is the only hostile that runs a RACING line — it lives on the lane edges and
+  // pulls out early, so a stocker closing on the player arrives from the side of
+  // the road rather than up the middle. The cage is why its nerve sits above the
+  // interceptor's: junk in the road costs it paint, not a wheel.
+  roadracer: profile({
+    laneDiscipline: 0.35,
+    patience: 0.5,
+    nerve: 14,
+  }),
   // The cycle, and the catalogue's clearest use of the dial: 25 hull means a
   // trestle costs it a third of its life, and it is the nimblest thing on the
   // road. It goes round because going round is what it is FOR — the contrast
