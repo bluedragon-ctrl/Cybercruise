@@ -200,7 +200,14 @@ test("headingAt is the true slope of centerOffset", () => {
   // hardest kind of wrong to spot by eye. The two are written as separate
   // closed-form expressions over shared constants (road.js), so this compares the
   // analytic answer against a central difference of the curve itself.
-  const h = 0.01;
+  //
+  // h is small because the curve is C1 but not C2: at the joins where the road
+  // settles into a straight, the curvature steps and a central difference
+  // straddling the join carries an O(h) error that is nothing to do with
+  // headingAt being wrong. h = 0.001 keeps that a hundredth of the tolerance,
+  // still far above the cancellation floor (~1e-11) of differencing a ~90px
+  // offset.
+  const h = 0.001;
   for (let y = 0; y < 40000; y += 37) {
     const numeric = (centerOffset(y + h) - centerOffset(y - h)) / (2 * h);
     assert.ok(
@@ -214,14 +221,46 @@ test("the road never turns sharply enough to rotate a car onto its side", () => 
   // The rotated blit (engine/spritecache.js) is cheap precisely because the lean
   // is small: sprites are rasterised axis-aligned and resampled at an angle, and
   // thin neon strokes soften as that angle grows. road.js documents the range as
-  // ±17.5°; this is what keeps a retuned curve from quietly making the artwork
+  // ±12°; this is what keeps a retuned curve from quietly making the artwork
   // mushy — or from swinging cars far enough to look like a spin rather than a
   // lean.
+  //
+  // The upper bound is also what keeps the road a HIGHWAY. All three shape knobs
+  // in game/tuning.js multiply into this angle, so it is the one number that
+  // catches "gentle sweeping curves" drifting back into the wavy forest road the
+  // road used to be — you cannot turn often and hard without showing up here.
   let max = 0;
   for (let y = 0; y < 400000; y += 3) max = Math.max(max, Math.abs(headingAt(y)));
   const deg = (max * 180) / Math.PI;
-  assert.ok(deg > 15, `the road barely turns (${deg.toFixed(1)}°) — rotation buys nothing`);
-  assert.ok(deg < 25, `the road leans cars ${deg.toFixed(1)}°, past the documented ±17.5°`);
+  assert.ok(deg > 7, `the road barely turns (${deg.toFixed(1)}°) — rotation buys nothing`);
+  assert.ok(deg < 16, `the road leans cars ${deg.toFixed(1)}° — sweeping curves, not switchbacks`);
+});
+
+test("the road spends real stretches dead straight between its turns", () => {
+  // The whole point of the soft clip in road.js: a pure sine road is turn after
+  // turn with nothing between them, which reads as constant snaking. This pins
+  // BOTH ends of the trade — enough straight road to feel like relief, but not so
+  // much that the road stops being a road worth steering. Retune with
+  // ROAD_STRAIGHTNESS in game/tuning.js.
+  let flat = 0;
+  let longest = 0;
+  let run = 0;
+  const samples = 400000 / 3;
+  for (let y = 0; y < 400000; y += 3) {
+    if (headingAt(y) === 0) {
+      flat++;
+      run += 3;
+      longest = Math.max(longest, run);
+    } else {
+      run = 0;
+    }
+  }
+  const pct = (100 * flat) / samples;
+  assert.ok(pct > 45, `only ${pct.toFixed(0)}% of the road is straight — still snaky`);
+  assert.ok(pct < 78, `${pct.toFixed(0)}% of the road is straight — barely a road`);
+  // ~260 world units/second at cruising speed. A highway may hold one line for a
+  // long while, but "a whole minute without a bend" is a different game.
+  assert.ok(longest < 260 * 35, `a straight runs ${(longest / 260).toFixed(0)}s — too long`);
 });
 
 // --- The cached scrolling layers ---------------------------------------------
