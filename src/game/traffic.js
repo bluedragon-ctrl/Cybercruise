@@ -29,8 +29,9 @@
 // them have moved.
 
 import { drawCarCached } from "./sprites.js";
-import { behaviourFor } from "./behaviours.js";
+import { driveCar } from "./behaviours.js";
 import { pickCarType } from "./cartypes.js";
+import { drivingFor } from "./driving.js";
 import { armFor } from "./armament.js";
 import { Explosions } from "./effects.js";
 import { resolveCollisions, PlayerBody } from "./collisions.js";
@@ -107,13 +108,25 @@ class TrafficCar {
     this.targetOffset = this.offset;
     this.targetSpeed = speed;
 
-    // How much hull THIS driver will eat to hold its line past a road hazard
-    // rather than steer around it (behaviours.js). Rolled uniformly in
-    // [0, type.nerve] so the catalogue's figure is a ceiling and each car is
-    // its own gamble — see NERVE in cartypes.js. Rolled ONCE, like the speed
-    // above: a barger is a barger for life, because a car that re-decided every
-    // tick would weave at the roadblock instead of committing either way.
-    this.nerve = Math.random() * (type.nerve ?? 0);
+    // HOW THIS ONE DRIVES — the shared, frozen profile its type names
+    // (game/driving.js). Everything behaviours.js used to hard-code reads off
+    // here, so two cars running the same tactic can still be a timid driver and
+    // an impatient one. Shared, never written to: a hundred sedans hold the same
+    // object.
+    this.drive = drivingFor(type);
+
+    // How much hull THIS driver will eat rather than lift off its line — for a
+    // road hazard (`nerve`) and for another car (`contact`). Rolled uniformly in
+    // [0, the profile's figure] so the profile is a CEILING and each car is its
+    // own gamble; see the NERVE section in driving.js. Rolled ONCE, like the
+    // speed above: a barger is a barger for life, because a car that re-decided
+    // every tick would weave at the roadblock instead of committing either way.
+    this.nerve = Math.random() * this.drive.nerve;
+    this.contact = Math.random() * this.drive.contact;
+
+    // Seconds spent stuck behind something it would rather be in front of.
+    // Drives `patience` (behaviours.js startPass).
+    this.heldTime = 0;
 
     // What this car is carrying, if anything — its own cooldowns and magazines,
     // so two interceptors do not share a trigger (game/armament.js). Null for
@@ -182,7 +195,9 @@ class TrafficCar {
     // a tick behind.
     if (this.arms) this.arms.update(dt);
 
-    behaviourFor(this.type.behaviour)(this, dt, world);
+    // Tactic, then the hazard reflex, then whatever it is carrying — all three
+    // in one call, so the order can't drift per tactic. See behaviours.js.
+    driveCar(this, dt, world);
 
     // Speed: approach the requested speed at a fixed rate rather than snapping,
     // so a behaviour can ask for anything without teleporting the car.

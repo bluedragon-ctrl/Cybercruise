@@ -36,8 +36,8 @@
 //   - each car then WANDERS ±4% around its roll on its own period, so a pair
 //     that happened to roll close together separates instead of locking into
 //     formation (traffic.js DRIFT);
-//   - an overtaker spends up to 15% more while it is committed to a pass
-//     (behaviours.js PASS_EFFORT), so passing reads as effort.
+//   - an overtaker spends up to its profile's `passEffort` more while it is
+//     committed to a pass (driving.js), so passing reads as effort.
 // Civilian types carry the widest ranges, since a civilian type is a spread of
 // ordinary drivers; the speed machines are defined by their ceiling and stay
 // narrow. Both extras are CAPPED by speedMin/speedMax, so the band below is a
@@ -47,7 +47,8 @@
 // behaviours.js sizes a follower's gap from that rate. The largest closing speed
 // the catalogue can now produce is 730 - 120 = 610 units/sec, and ACCEL is set so
 // one second of closing rate still covers the road needed to match it. Widening
-// the band further means revisiting that pair — see FOLLOW_REACTION.
+// the band further means revisiting that pair — see driving.js's followReaction,
+// which is now sized PER PROFILE against the types that actually drive it.
 //
 // SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) combination is
 // a cache key in sprites.js, times WHEEL_FRAMES (8) wheel positions, plus one
@@ -88,39 +89,21 @@ export const ENEMY_FACTION = "enemy";
 const ENEMY_VALUE = 100;
 const CIVILIAN_VALUE = -100;
 
-// NERVE — who is willing to drive THROUGH a roadblock.
+// TWO AXES OF BEHAVIOUR, and a type names both.
 //
-// Traffic steers around road hazards (behaviours.js), and it has to: left to
-// plough through them, the city's own cars clear ~90% of the obstacles off the
-// road before the player ever reaches one, and the whole hazard system becomes
-// something only the player's rear-view mirror ever sees.
+//   behaviour  the TACTIC — which manoeuvres this car knows (behaviours.js)
+//   driving    the PROFILE — how boldly it runs them (driving.js)
 //
-// But "everything always dodges" is its own kind of wrong. A hostile car that
-// breaks off a chase to tiptoe around a folding trestle stops reading as
-// hostile. So `nerve` is the hull damage a driver will EAT to keep its line,
-// and each car rolls its own tolerance uniformly in [0, nerve] at spawn — which
-// makes the type's figure a CEILING and turns the whole thing into a per-car
-// chance rather than a per-type rule. Two interceptors meet the same trestle
-// and only one of them goes through it.
+// That split is what makes a new type cheap. Before it, everything a driver
+// might feel about the road was hard-coded in behaviours.js, so two civilians
+// naming `overtake` drove identically and telling them apart meant writing a
+// second function. Now the sedan and the roadster share one tactic and differ
+// entirely in the table they point at — including `nerve`, which used to sit
+// here among the physical stats and is a disposition rather than a property of
+// the chassis. Nothing outside behaviours.js ever read it.
 //
-// The probabilities fall straight out of the obstacle catalogue, because the
-// thing being compared against is the hazard's own `blastDamage`
-// (obstacletypes.js: trestle 8, barrels 5, tetra 24, mine 30):
-//
-//   P(barge) = 1 - damage/nerve, or 0 when damage >= nerve
-//
-// so an interceptor (nerve 12) shrugs through a trestle a third of the time and
-// a bruiser (20) does it three times in five. Retune by moving THIS number or
-// the hazard's blastDamage — the relation is the point, not either figure.
-//
-// THE CEILING IS DELIBERATE: no type reaches the tetra's 24, and therefore none
-// reaches the mine's 30. Nothing in traffic ever drives onto a mine. That keeps
-// mines the PLAYER'S problem — they are the one hazard that would otherwise be
-// swept up by the road itself — and it sidesteps a scoring oddity, since a
-// civilian killed by a mine would fine the player for a kill they had no part
-// in (score.js pays out however a car died). Asserted in
-// test/invariants.test.js so raising a nerve past a hazard can't do it quietly.
-const CIVILIAN_NERVE = 0; // civilians dodge everything, without exception
+// A type that names no profile gets the commuter's, which is the sedan's: bland,
+// careful, and obviously so.
 
 // Fields:
 //   id          stable key (save data, spawn tables, debugging)
@@ -152,14 +135,15 @@ const CIVILIAN_NERVE = 0; // civilians dodge everything, without exception
 //               the enemy, negative for the city's own traffic — killing a
 //               civilian is a fine, not a reward. Paid however the car died,
 //               including a chain reaction the player only lit the fuse for
-//   nerve       the most hull this type will ever accept to hold its line past a
-//               road hazard rather than steer around it (behaviours.js). See
-//               NERVE below — 0 means "always dodges", which is every civilian
-//   behaviour   key into behaviours.js. The nimble types `overtake` — they pull
-//               out and pass whatever is holding them up, the player included;
-//               the heavy ones `cruise`, so sitting in front of a rig means it
-//               stays there. That split is what stops every car on the road
-//               weaving at once. The enemy tactics are Phase 4 stubs for now
+//   behaviour   key into behaviours.js — the TACTIC. The nimble types `overtake`
+//               — they pull out and pass whatever is holding them up, the player
+//               included; the heavy ones `cruise`, so sitting in front of a rig
+//               means it stays there. That split is what stops every car on the
+//               road weaving at once. The enemy tactics still borrow their
+//               driving from those two
+//   driving     key into driving.js — the PROFILE: following distances, patience,
+//               lane discipline, and how much hull this driver will accept
+//               hitting. Omitted means `commuter`
 //   weight      relative spawn frequency
 export const CAR_TYPES = [
   // --- Neutral: the city's own traffic --------------------------------------
@@ -183,7 +167,6 @@ export const CAR_TYPES = [
     blastRadius: 36,
     blastDamage: 14,
     value: CIVILIAN_VALUE,
-    nerve: CIVILIAN_NERVE,
     behaviour: "overtake",
     weight: 3, // the backbone of the road
   },
@@ -204,7 +187,6 @@ export const CAR_TYPES = [
     blastRadius: 42,
     blastDamage: 18,
     value: CIVILIAN_VALUE,
-    nerve: CIVILIAN_NERVE,
     behaviour: "cruise", // slow and wide: it holds its lane and makes you go round
     weight: 2,
   },
@@ -219,14 +201,25 @@ export const CAR_TYPES = [
     h: 54,
     health: 40,
     mass: 0.8, // light and fragile: the one car the player can simply swat aside
-    speedMin: 400,
-    speedMax: 490,
+    // Raised from 400-490 so it sits just under the player's 620: a player flat
+    // out only just pulls away from a roadster, where before they left it behind
+    // comfortably. It also un-caps `passEffort` for the type — at a 490 ceiling
+    // the profile's extra pass speed was clipped to nothing for any roadster that
+    // rolled near the top of its range (see behaviours.js passSpeed). Kept 130
+    // wide rather than 160: still the widest spread in the catalogue, which is
+    // right for a civilian, but not so wide that two roadsters differ by more
+    // than a sedan's entire range.
+    speedMin: 430,
+    speedMax: 560,
     steerSpeed: 140,
     blastRadius: 30,
     blastDamage: 9,
     value: CIVILIAN_VALUE,
-    nerve: CIVILIAN_NERVE,
     behaviour: "overtake",
+    // The road's impatient civilian, and the reason driving.js exists: the same
+    // tactic as the sedan, so every difference between the two of them on the
+    // road comes out of the profile table and nothing else.
+    driving: "hustler",
     weight: 1.5,
   },
   {
@@ -253,12 +246,12 @@ export const CAR_TYPES = [
     blastRadius: 72,
     blastDamage: 46,
     value: CIVILIAN_VALUE,
-    // Even the rolling wall dodges. A rig ploughing a trestle is tempting
-    // flavour, but it is also the one civilian heavy enough to be somewhere
-    // near a hazard the player wanted left standing — and civilians dodging
-    // WITHOUT exception is what makes an amber car swerving read as "there is
-    // something in that lane" rather than as one type's quirk.
-    nerve: CIVILIAN_NERVE,
+    // Even the rolling wall dodges — it drives the commuter profile, at nerve 0.
+    // A rig ploughing a trestle is tempting flavour, but it is also the one
+    // civilian heavy enough to be somewhere near a hazard the player wanted left
+    // standing, and the AMBER cars dodging without exception is what makes one
+    // swerving read as "there is something in that lane" rather than as one
+    // type's quirk.
     behaviour: "convoy",
     weight: 0.8,
   },
@@ -281,7 +274,6 @@ export const CAR_TYPES = [
     blastRadius: 32,
     blastDamage: 10,
     value: CIVILIAN_VALUE,
-    nerve: CIVILIAN_NERVE,
     behaviour: "overtake",
     weight: 0.4,
   },
@@ -304,8 +296,8 @@ export const CAR_TYPES = [
     blastRadius: 38,
     blastDamage: 16,
     value: ENEMY_VALUE,
-    nerve: 12, // through a trestle a third of the time — the baseline gamble
     behaviour: "pursue",
+    driving: "pursuer", // nerve 12: through a trestle a third of the time
     weight: 2, // the standard hostile: whatever else is out, one of these is too
   },
   {
@@ -325,8 +317,8 @@ export const CAR_TYPES = [
     blastRadius: 44,
     blastDamage: 24,
     value: ENEMY_VALUE,
-    nerve: 16, // half the time — a heavy that is already built to shove
     behaviour: "block",
+    driving: "enforcer", // nerve 16: half the time — a heavy built to shove
     weight: 1.2,
   },
   {
@@ -349,13 +341,12 @@ export const CAR_TYPES = [
     blastRadius: 24,
     blastDamage: 7,
     value: ENEMY_VALUE,
-    // The one hostile that dodges everything, and the catalogue's clearest use
-    // of this dial: 25 hull means a trestle costs a cycle a third of its life,
-    // and it is the nimblest thing on the road. It goes round because going
-    // round is what it is FOR — the contrast with the bruiser below is the
-    // whole point of the number being per type.
-    nerve: 0,
     behaviour: "weave",
+    // The one hostile that dodges everything, and the clearest use of the dial:
+    // 25 hull means a trestle costs a cycle a third of its life, and it is the
+    // nimblest thing on the road. It goes round because going round is what it
+    // is FOR — the contrast with the bruiser below is why these are per type.
+    driving: "darter",
     weight: 1,
   },
   {
@@ -375,8 +366,9 @@ export const CAR_TYPES = [
     blastRadius: 52,
     blastDamage: 32,
     value: ENEMY_VALUE,
-    nerve: 20, // three times in five: the type least interested in going round
     behaviour: "ram",
+    driving: "batterer", // nerve 20: three times in five, the type least
+                         // interested in going round
     weight: 0.8,
   },
   {
@@ -400,8 +392,9 @@ export const CAR_TYPES = [
     blastRadius: 40,
     blastDamage: 20,
     value: ENEMY_VALUE,
-    nerve: 10, // a driver, not a battering ram — it would rather keep the line clean
     behaviour: "pursue",
+    driving: "duelist", // nerve 10: a driver, not a battering ram — it would
+                        // rather keep the line clean
     weight: 0.3, // rare enough that meeting one is an event
   },
 ];
