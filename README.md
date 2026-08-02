@@ -56,8 +56,8 @@ Car types are the exception: the gallery walks the catalogue, so a new entry in
 | --- | --- |
 | ←/→ or A/D | Steer |
 | ↑/↓ | Accelerate / brake |
-| Space | Fire (later phase) |
-| Shift / Q | Swap weapon (later phase) |
+| Space | Fire |
+| Tab / Shift / Q | Swap weapon |
 
 ## Tech
 
@@ -275,11 +275,18 @@ src/
 Work lands via Pull Requests, one phase at a time; each phase leaves the game
 playable.
 
+Not every PR is phase work. Building a phase surfaces problems in what is
+already there — a barrier that doesn't fit its lane, cars pointing the wrong way
+through a bend, a renderer spending most of the frame on two layers that never
+change. Those get fixed as they turn up rather than deferred to Phase 9, so the
+history interleaves phase features with side-steps into earlier phases' code.
+
 - [x] **Phase 0** — Skeleton: neon car steering over a scrolling grid
-- [ ] **Phase 1** — Road: infinite curving highway + barriers
-- [ ] **Phase 2** — Surroundings A: simplified box buildings along the road
-- [ ] **Phase 3** — Traffic: neutral/enemy cars, ramming physics
+- [x] **Phase 1** — Road: infinite curving highway + barriers
+- [x] **Phase 2** — Surroundings A: simplified box buildings along the road
+- [x] **Phase 3** — Traffic: neutral/enemy cars, ramming physics
 - [ ] **Phase 4** — Combat: shooting, explosions, enemy AI (shoot / mines)
+      — **in progress**
 - [ ] **Phase 5** — Weapons: multiple weapons + swap pickups
 - [ ] **Phase 6** — Score/states: scoring, penalties, game-over, difficulty ramp
 - [ ] **Phase 7** — Surroundings B: richer lit / parallax city
