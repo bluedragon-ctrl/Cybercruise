@@ -43,7 +43,7 @@ import {
 import { gridPhase } from "../src/game/scenery.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import { CELL, plotAt, plotColumns, plotRows, BUILDING, EMPTY } from "../src/game/citygrid.js";
-import { resolveCollisions, impactCost } from "../src/game/collisions.js";
+import { resolveCollisions, impactCost, SIDE_DAMAGE } from "../src/game/collisions.js";
 import { Score, DISTANCE_POINTS } from "../src/game/score.js";
 import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES } from "../src/game/weapons.js";
 import {
@@ -826,6 +826,40 @@ test("a nerve setting is either zero or bold enough to do something", () => {
   }
 });
 
+// The cheapest lane change `type` could ever make: behaviours.js prices one as a
+// side-swipe at the car's own steering rate, so the only thing left to vary is
+// who it swipes, and the lightest neighbour is the cheapest. Below this figure a
+// `contact` ceiling cannot buy the type anything at all.
+function cheapestContact(type) {
+  return Math.min(
+    ...CAR_TYPES.map((other) => impactCost(type, other, type.steerSpeed, SIDE_DAMAGE)),
+  );
+}
+
+test("a contact ceiling is either zero or bold enough to do something", () => {
+  // The same trap as the nerve test above, sprung by different arithmetic.
+  // `contact` is compared against a cost that scales with the car's own
+  // steerSpeed, so what counts as a bold number is a property of the TYPE, not
+  // of the dial — and a ceiling under the cheapest contact its drivers can even
+  // be offered is a tuning attempt that silently did nothing.
+  //
+  // THIS TEST FOUND ONE. `darter` sat at contact 4 while the cycle's cheapest
+  // possible contact is 7.35 hull, so the cycle had been driving at contact 0
+  // since the profile was written, and the table said otherwise.
+  for (const [name, p] of Object.entries(DRIVING_PROFILES)) {
+    if (p.contact === 0) continue; // zero is a decision, not a dead setting
+    const users = typesDriving(name, CAR_TYPES);
+    if (users.length === 0) continue;
+    const floor = Math.min(...users.map(cheapestContact));
+    assert.ok(
+      p.contact > floor,
+      `profile "${name}" has contact ${p.contact}, under the cheapest contact its ` +
+        `drivers can be offered (${floor.toFixed(2)} hull) and therefore identical ` +
+        `to contact 0. Raise it, or set it to 0 and say so.`,
+    );
+  }
+});
+
 // A cruising car in lane 1, and a hazard somewhere ahead of it. `gap` is how
 // much road it gets, which is what decides whether steering alone is enough.
 function hazardScenario(gap, over = {}) {
@@ -949,6 +983,33 @@ test("a sloppy driver holds the line it was shoved to", () => {
   assert.notEqual(car.targetOffset, laneOffset(1));
 });
 
+test("the civilian road is a speed gradient across the lanes", () => {
+  // driving.js states the lane preferences BY SPEED: the slow haulers want the
+  // lanes by the barrier and the fast machines want the lanes by the centre-line,
+  // so the road sorts itself and the player's choice of lane is a choice about
+  // what they will meet there. It is the kind of design that survives exactly
+  // until somebody retunes a speed range, at which point nothing breaks and the
+  // road just quietly stops making sense — so it is asserted rather than written
+  // down.
+  const civilians = CAR_TYPES.filter((t) => t.value < 0);
+  const pace = (t) => (t.speedMin + t.speedMax) / 2;
+  const paces = civilians.map(pace).sort((a, b) => a - b);
+  const median = paces[Math.floor(paces.length / 2)];
+
+  for (const t of civilians) {
+    const home = drivingFor(t).laneHome;
+    if (home === "any") continue; // the reference car, filling in what is left
+    const wanted = pace(t) < median ? "outer" : "inner";
+    assert.equal(
+      home,
+      wanted,
+      `${t.id} cruises at ${pace(t)} against a civilian median of ${median} and wants ` +
+        `the ${home} lanes. A car on the wrong side of the median makes the gradient ` +
+        `unreadable — retune its speed, or its laneHome.`,
+    );
+  }
+});
+
 test("a lane preference is not worth a lane change through traffic", () => {
   // The hustler wants the inner lane. It may drift over when the road allows it
   // and must not grind across when it does not — every swerve is a collision.
@@ -964,11 +1025,18 @@ test("a lane preference is not worth a lane change through traffic", () => {
 // A hazard dead ahead in lane 1, with every other lane occupied by traffic. The
 // only way through is a lane with a car in it — so what the driver does here is
 // decided entirely by what it is willing to hit.
-function boxedIn(contact) {
+//
+// `contact` is set on BOTH the car and the profile behind it, because those are
+// two different things and behaviours.js reads both: the profile carries the
+// CEILING (and a ceiling of zero means "nobody at all"), the car carries the
+// figure it rolled under that ceiling. A fixture that set only the roll was
+// describing a car whose profile forbids what the car is doing.
+function boxedIn(contact, steerSpeed = 90) {
   const car = driver({
     worldY: 0, offset: laneOffset(1), w: 34, h: 60, speed: 300, cruiseSpeed: 300,
     targetSpeed: 300, targetOffset: laneOffset(1), contact,
-    type: { behaviour: "cruise", w: 34, steerSpeed: 90, speedMax: 400 },
+    drive: { ...COMMUTER, contact },
+    type: { behaviour: "cruise", w: 34, steerSpeed, speedMax: 400 },
   });
   const hazard = {
     worldY: 150, offset: laneOffset(1), w: 60, h: 14, alive: true, threat: 8,
@@ -997,6 +1065,26 @@ test("a driver that will take the bump keeps rolling instead", () => {
   const car = boxedIn(10);
   assert.ok(car.targetSpeed > 0, "it should have taken a lane and kept moving");
   assert.notEqual(car.targetOffset, laneOffset(1));
+});
+
+test("a contact ceiling of zero means nobody, even when the swipe would be free", () => {
+  // The rig's case, and the reason behaviours.js reads the ceiling off the
+  // PROFILE instead of just testing the rolled figure. `contactCost` returns 0
+  // for any car steering slower than collisions.js's DAMAGE_FLOOR of 40, so
+  // `0 <= 0` used to wave every occupied lane on the road through — which left
+  // the heaviest, least agile vehicle in the catalogue as the single one that
+  // would slide into a lane with somebody in it without a thought, in flat
+  // contradiction of the profile it names.
+  const rig = CAR_TYPES.find((t) => t.id === "rig");
+  assert.equal(
+    cheapestContact(rig),
+    0,
+    "this proves nothing unless the rig's lane changes really are free",
+  );
+  assert.ok(rig.steerSpeed < 40, "...which is only true while it steers under the floor");
+
+  const timid = boxedIn(0, rig.steerSpeed);
+  assert.equal(timid.targetSpeed, 0, "a free swipe is still a swipe, and this one said no");
 });
 
 test("a car that stops for a hazard still gets off the hazard's line", () => {

@@ -170,9 +170,12 @@ jinking into each other, since every swerve is now a collision. Overtakers still
 brake for whatever is ahead in *either* lane while changing lanes, so a pass that
 can't be completed degrades to following rather than to a rear-end.
 
-The heavy types (van, rig, bruiser, muscle) just `cruise`, which is what keeps
-the whole road from weaving at once — and means sitting in front of a rig at 180
-works, while sitting in front of anything nimble does not.
+The heavy types (van, rig, bruiser) just `cruise`, which is what keeps the whole
+road from weaving at once — and means sitting in front of a rig at 180 works,
+while sitting in front of anything nimble does not. The muscle car is the
+exception that proves it: heavy, and an overtaker anyway, because a heavy that
+comes past you rather than sitting behind you is the one civilian the player has
+to actually give way to.
 
 ### Distance, and the spawn gate
 
@@ -257,7 +260,45 @@ Measured over 15 car-minutes of headless road: the sedan sits **2.1px** from its
 lane centre against the roadster's **18.1**, and commits **1.0** pass per
 car-minute against **10.7**.
 
-Two of those rows are load-bearing rather than flavour:
+#### One profile per civilian
+
+All six civilians have their own, and the sedan keeps `commuter` precisely
+because it is the reference every other table is described as a difference from.
+
+| | drives | in one line |
+|---|---|---|
+| sedan | `commuter` | the plain one, and the yardstick |
+| van | `hauler` | out of the way, and it will lean on something small |
+| rig | `juggernaut` | dead straight, brakes early, expects to be given room |
+| muscle | `brawler` | heavy and rude, and it doesn't feel the contacts |
+| roadster | `hustler` | fast and rude, and it does |
+| hypercar | `showpiece` | fast and immaculate |
+
+Three pairs carry the whole idea. **Roadster against hypercar**: the road's only
+two pale civilians, similar speed, opposite manners — one rides the lane edge and
+cuts past at 7px of clearance, the other holds the centre-line exactly and sweeps
+by at 20. **Van against rig**: the wandering one is the panel van, not the truck.
+**Muscle against roadster**: both are impatient, but the roadster pays 4–9 hull
+off 40 for every liberty it takes while the muscle car pays 1–3 off 110. One is
+reckless; the other simply doesn't have to care.
+
+The muscle car was a **hostile** until recently — the one that blocked your lane
+from in front. It moved across because the civilian road had a hole in exactly
+that shape: every heavy civilian was careful, and the only rude one was the
+frailest car out here, so rudeness never cost the player anything. A car that is
+aggressive *without* being out to get you is a different thing from an enemy. It
+still dodges every hazard, because it is amber and that signal is not negotiable
+— bad manners, perfectly good judgement. The `block` tactic and the `enforcer`
+profile it left behind are unclaimed, waiting for the hostile that replaces it.
+
+The preferences also add up to a **lane gradient**. The two slow haulers want the
+lanes by the barrier and the two fast machines want the lanes by the centre-line,
+so the road sorts itself by speed and choosing a lane becomes a choice about what
+you will meet in it. That relation is asserted in the test suite, because a
+retune that puts a rig in the fast lane breaks nothing — it just quietly stops
+making sense.
+
+Three of those rows are load-bearing rather than flavour:
 
 **`nerve` is quantised by the obstacle catalogue.** It is compared against a
 hazard's `blastDamage` (barrels 5, trestle 8, tetra 24, mine 30), so anything
@@ -278,11 +319,29 @@ hazard strike in a 15 car-minute sample. Fixing it took civilian hazard strikes
 from 0.43 to 0.14 per car-minute. Having already given up its speed, the contact
 the car accepts in the refuge is a nudge rather than a swipe.
 
-`npm run sim` runs the road headless for a few minutes and reports what each
-profile actually did — lane deviation, passes committed and completed, time spent
-stopped, contacts, hazards struck. "Does the roadster feel different" is not a
-question a canvas answers honestly; these are the numbers behind the claims
-above.
+**`contact` is quantised too, but by the car rather than by the catalogue.** A
+lane change is priced as a side-swipe at the car's *own* steering rate, so what
+counts as a bold setting is a property of the type. The van steers at 60 against
+a damage floor of 40, which puts its contacts in a 0.7–1.5 hull band and gives it
+the only finely-graded dial on the road — it squeezes past a roadster two times
+in five and never a rig. The rig steers at 35, *under* the floor, so every lane
+change it could make costs exactly nothing and its dial has only two positions.
+Both ends of that are traps: a ceiling under the cheapest contact a type can be
+offered does nothing at all (the cycle sat at 4 against a floor of 7.35 for a
+while, and the table said otherwise), and a ceiling of zero has to mean "nobody"
+rather than "anybody it happens to be free to hit", or the heaviest vehicle in
+the catalogue becomes the one that shoves.
+
+`npm run sim` runs the road headless and reports what each profile actually did —
+lane deviation, passes committed and completed, time spent stopped, contacts,
+hazards struck. "Does the roadster feel different" is not a question a canvas
+answers honestly; these are the numbers behind the claims above.
+
+**Use `node tools/drivesim.js 300 60` for a tuning decision**, not the default
+five runs. Rates are per car-minute, the rare types earn them slowly, and two
+identical 20-run batches disagree by ~40% on contacts and hazard strikes for a
+rig or a hypercar. A 20-run batch once produced a confident, fully written-up
+conclusion about the rig's `contact` setting that 60 runs reversed outright.
 
 Cars are positioned as `worldY` (along the road) plus a lateral `offset` from
 the centre-line, so they track every curve without steering. They exist only
@@ -294,10 +353,10 @@ behind if faster, so they always cross the screen — and retired once well past
 | | | |
 |---|---|---|
 | rig | 180–215 | the floor — half again the player's minimum |
-| van | 195–255 | |
+| van | 205–265 | |
 | sedan | 215–290 | the widest range: civilians are a spread of ordinary drivers |
 | bruiser | 280–330 | |
-| muscle | 310–360 | |
+| muscle | 310–360 | the heavy civilian that leans on people |
 | interceptor | 400–470 | |
 | roadster | 430–560 | sits just under the player's ceiling |
 | rival | 580–650 | straddles the player's ceiling — draws level, neither escapes |

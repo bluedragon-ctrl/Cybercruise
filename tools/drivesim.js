@@ -45,6 +45,23 @@ import { CAR_TYPES } from "../src/game/cartypes.js";
 import { DRIVING_PROFILES, drivingFor } from "../src/game/driving.js";
 import { laneAt, laneOffset, centerXAt } from "../src/game/road.js";
 
+// HOW MUCH ROAD YOU ACTUALLY NEED, which is a great deal more than the defaults.
+//
+// Every rate below is per CAR-MINUTE, and the rarer types earn car-minutes
+// slowly: at weight 0.4 the hypercar collects about 50 of them in 60 runs of
+// 300s, and the rig about 100. Batches of that size still disagree with each
+// other by roughly 40% on `bump/min` and `hazard` for those types — measured,
+// by running the same unchanged code twice.
+//
+// So the defaults are for a quick look at the COMMON types and nothing else. A
+// tuning decision on a rig, a hypercar or any of the rarer hostiles needs
+//
+//     node tools/drivesim.js 300 60
+//
+// run once per side of the comparison, and even then treat a difference under
+// about a third as no difference at all. A 20-run batch talked this project into
+// exactly the wrong `contact` setting for the rig once already — see driving.js's
+// `juggernaut`.
 const SECONDS = Number(process.argv[2] ?? 180);
 const RUNS = Number(process.argv[3] ?? 5);
 const DT = 1 / 60;
