@@ -73,7 +73,7 @@ the most expensive thing the renderer can do — its cost scales with the shadow
 addressed, glow accounted for ~80% of frame time (5.05ms → 1.01ms with
 `shadowBlur` forced to 0) and grew linearly with every object on screen.
 
-Two rules keep that from coming back as more visuals land:
+Three rules keep that from coming back as more visuals land:
 
 1. **Anything drawn per-frame per-entity goes through the sprite cache.** Use
    `drawCarCached` / `drawBuildingVariant` (`src/game/sprites.js`), or add a
@@ -85,15 +85,48 @@ Two rules keep that from coming back as more visuals land:
    `neonStroke` (`src/engine/neon.js`), which strokes a path several times at
    decreasing width instead. One full-height barrier: 865µs shadowed vs 217µs
    layered.
+3. **Anything that only SCROLLS is pre-rendered and blitted, not re-stroked.**
+   Once rule 2 is applied, `neonStroke`'s overdraw becomes the whole frame cost,
+   and the two biggest paths were pure functions of world position. The road is
+   drawn from a rolling cache of 128px strips (`road.js`) and the city floor grid
+   from a single tile (`scenery.js`). Together ~4.3ms/frame down to ~60µs. If a
+   new full-screen layer scrolls, it belongs in a cache too — check first whether
+   it *repeats* (one tile, forever) or not (a keyed sliding window).
 
-Current cost is ~1.9ms/frame at 600×800, and **flat in object count** (1.79ms at
-1 car, 1.86ms at 48) — so entities are effectively free and the remaining budget
-is governed by screen area. Note that budget assumes 480k pixels: going
-fullscreen 1080p is 4.3x the area, and glow cost scales with it.
+**The camera is quantised to whole pixels, and this is load-bearing.** `main.js`
+rounds `distance` ONCE at the top of the render pass and hands that value to
+every layer; `scenery.render` rounds its own half-speed parallax clock the same
+way. A blit is only pixel-exact at an integer offset, so interpolating the world
+scroll — or rounding per-layer instead of once — would resample both caches and
+soften the neon, and would shear the traffic against the road it drives on. The
+world advancing in whole-pixel steps is deliberate; at 4–10px/frame it is
+invisible. Do **not** round the simulation's `distance`: the odometer and the
+distance term of the score read the real float.
 
-Still open: the world scroll doesn't interpolate (`main.js` passes raw
-`distance` to render while the player interpolates `x`), which judders on
-120/144Hz displays; and the city has no culling, which will matter for Phase 7.
+Current cost is **under 1ms/frame** at 600×800 with a full screen of traffic,
+against a 16.7ms budget — measured by injecting known workloads alongside the
+live game until frames dropped, which put ~10ms+ of headroom on top. It is also
+**flat in object count**, so entities are effectively free and the remaining
+budget is governed by screen area. Note that budget assumes 480k pixels: going
+fullscreen 1080p is 4.3x the area, fill rate scales with it, and the cache tiles
+grow with it too (the grid tile alone goes 2MB → 8MB).
+
+There is nothing left above the noise floor: all building blits together are
+43µs, a cached car blit is ~8µs, `clear()` is ~25µs. Optimisation targets are
+absolute, not relative — removing the two big layers did not promote any of these
+to being worth touching. Future performance work should be triggered by a
+measurement, not a hunch; the likely triggers are a high-DPI backing store, a new
+full-screen effect (scanlines, CRT curvature, colour grade), or an order of
+magnitude more entities.
+
+Still open: the city has no culling, which will matter for Phase 7.
+
+Two traps when profiling canvas work here, both of which cost time to rediscover:
+`getImageData` used to "force a flush" demotes the canvas out of GPU acceleration
+and changes what is being compared; and measuring throughput inside `requestAnimationFrame`
+silently floors at vsync and reports a ratio of ~1 unless the load genuinely
+overruns the frame budget. Two plausible-looking methods disagreed by 5x. Prefer
+saturating rAF throughput, and sanity-check any ratio near 1.
 
 ### Traffic
 
