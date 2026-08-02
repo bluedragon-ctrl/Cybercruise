@@ -14,6 +14,26 @@ export const MAX_SPEED = 620;
 export const ACCEL = 380; // speed change per second at full throttle
 const STEER_SPEED = 260; // horizontal px/sec at full lock
 
+// Steering RAMPS rather than snapping. A keyboard axis is on or off, so applying
+// it straight to position means the smallest input the player can give is a
+// whole frame at full lock — and the shortest tap a human can manage is more
+// like 5-8 frames, which at STEER_SPEED covers a quarter of a lane (lanes are
+// 65px). That is why fine adjustments were impossible: there was no such thing
+// as a small steering input.
+//
+// So the axis drives a sideways VELOCITY that accelerates toward full lock
+// instead of arriving there. Measured over a 60Hz step, a 100ms tap now travels
+// 8px (an eighth of a lane, was 26px) and a 150ms one 14px (was 39px), which is
+// the range fine corrections live in. Held inputs barely change: full lock
+// arrives in 0.29s and a full second of steering still crosses 3.6 lanes of the
+// 4-lane road, so lane changes and dodges cost about what they always did.
+//
+// Releasing decays faster than pressing builds, so the car settles where you
+// let go instead of coasting past it; the same asymmetry makes a reversal snap
+// through zero rather than wallow there.
+const STEER_ACCEL = 900; // px/sec² while a steering key is held
+const STEER_RELEASE = 2600; // px/sec² while returning to centre (or reversing)
+
 const MAX_HEALTH = 100;
 const WALL_DAMAGE = 6; // health lost per wall-scrape tick
 const WALL_DAMAGE_INTERVAL = 0.25; // seconds between scrape ticks (rate-limits damage)
@@ -47,6 +67,7 @@ export class Player {
     this.wallTimer = 0; // counts down between scrape-damage ticks
     this.wheelPhase = 0; // accumulated roll distance, drives the wheel tread
 
+    this.vSteer = 0; // sideways velocity from steering, ramped toward the axis
     this.vLateral = 0; // sideways velocity from ramming (see collisions.js)
     this.flash = 0; // counts down after a hit; flashes the car red
   }
@@ -64,7 +85,20 @@ export class Player {
     this.prevX = this.x;
 
     // Steering, plus whatever is left of the last shove.
-    this.x += steerAxis() * STEER_SPEED * dt;
+    //
+    // Move vSteer toward the axis at whichever rate applies, without overshoot:
+    // building up uses STEER_ACCEL, anything that reduces the current lock (a
+    // release, or a reversal that has to pass through zero) uses the brisker
+    // STEER_RELEASE.
+    const target = steerAxis() * STEER_SPEED;
+    const rate = Math.abs(target) > Math.abs(this.vSteer) && target * this.vSteer >= 0
+      ? STEER_ACCEL
+      : STEER_RELEASE;
+    const step = rate * dt;
+    const delta = target - this.vSteer;
+    this.vSteer += Math.abs(delta) <= step ? delta : Math.sign(delta) * step;
+
+    this.x += this.vSteer * dt;
     this.x += this.vLateral * dt;
     this.vLateral -= this.vLateral * Math.min(1, SHOVE_DAMP * dt);
 
@@ -100,6 +134,7 @@ export class Player {
     if (this.hitWall) {
       this.speed *= WALL_SPEED_SCRUB;
       this.vLateral = 0; // the barrier absorbs the shove that put us here
+      this.vSteer = 0; // and the lock, so turning away builds from centre
       if (this.wallTimer <= 0) {
         this.damage(WALL_DAMAGE);
         this.wallTimer = WALL_DAMAGE_INTERVAL;
