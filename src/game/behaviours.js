@@ -143,8 +143,19 @@ function contactCost(car, other) {
 }
 
 // Would this driver accept putting itself where `other` is?
+//
+// A CEILING OF ZERO MEANS "NOBODY", not "anybody it happens to be free to hit",
+// and the difference is not academic. `contactCost` is zero whenever the car's
+// own steering rate is under collisions.js's DAMAGE_FLOOR, so the RIG — 35px/sec
+// against a floor of 40 — priced every lane change in the catalogue at nothing
+// and `0 <= 0` waved all of them through. The heaviest thing on the road was the
+// one vehicle that would slide into an occupied lane without a thought, which is
+// the exact opposite of what its profile says. Read the ceiling off the PROFILE
+// rather than the rolled figure, so a car that merely rolled low is still just a
+// timid car and not a special case.
 function tolerated(car, other) {
   if (other.threat !== undefined) return other.threat <= car.nerve;
+  if (car.drive.contact <= 0) return false;
   return contactCost(car, other) <= car.contact;
 }
 
@@ -624,7 +635,12 @@ const BEHAVIOURS = {
                                             // speed on the impact — the one tactic
                                             // that deliberately keeps no gap
   block: { drive: overtake, arms: true },   // will match the player's lane from IN
-                                            // FRONT and slow, to bottle them up
+                                            // FRONT and slow, to bottle them up.
+                                            // UNCLAIMED since the muscle car
+                                            // became a civilian — no type names
+                                            // it today, and it is held for the
+                                            // hostile that replaces it. See
+                                            // cartypes.js's muscle entry
   weave: { drive: overtake, arms: true },   // will cross the road on a timer, hard
                                             // to shoot and hard to predict
   convoy: { drive: cruise, arms: false },   // will pair rigs nose-to-tail across
