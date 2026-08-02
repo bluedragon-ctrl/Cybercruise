@@ -23,7 +23,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { CAR_TYPES } from "../src/game/cartypes.js";
+import { CAR_TYPES, pickCarType, typeAvailable } from "../src/game/cartypes.js";
 import { CAR_SHAPES, carShapeExtent } from "../src/game/carshapes.js";
 import {
   ACCEL as TRAFFIC_ACCEL,
@@ -38,6 +38,7 @@ import {
   LANE_COUNT, LANE_WIDTH, ROAD_HALF_WIDTH, laneAt, laneOffset, centerXAt,
   centerOffset, headingAt,
   TILE_STRIDE, DASH_SPAN, blockOf, blockLocalY, blockDestY,
+  DIST_UNITS,
 } from "../src/game/road.js";
 import { gridPhase } from "../src/game/scenery.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
@@ -46,7 +47,7 @@ import { resolveCollisions, impactCost } from "../src/game/collisions.js";
 import { Score, DISTANCE_POINTS } from "../src/game/score.js";
 import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES } from "../src/game/weapons.js";
 import {
-  OBSTACLE_TYPES, obstacleTypeById, PLACE_LANE, PLACE_SIDE,
+  OBSTACLE_TYPES, obstacleTypeById, obstacleAvailable, PLACE_LANE, PLACE_SIDE,
 } from "../src/game/obstacletypes.js";
 import { Obstacles, SPAWN_MARGIN as OBSTACLE_SPAWN_MARGIN } from "../src/game/obstacles.js";
 import { Explosions } from "../src/game/effects.js";
@@ -463,6 +464,70 @@ test("traffic does not brake for a corpse", () => {
   const corpse = ahead(false);
   driveCar(clear, 1 / 60, { cars: [clear, corpse], playerBody: null });
   assert.equal(clear.targetSpeed, clear.cruiseSpeed, "a dead car ahead must not cause braking");
+});
+
+// --- Distance gating ---------------------------------------------------------
+
+test("the opening road is civilian: no hostile type spawns before its gate", () => {
+  // cartypes.js's ENEMY_MIN_DISTANCE claim, in the units it is written in. The
+  // gate is on the DIST READOUT (road.js's DIST_UNITS), not on raw world units —
+  // get that conversion wrong by a factor of 100 and the "quiet start" is over
+  // in a third of a second, with nothing else in the game to say so.
+  const gate = Math.max(...CAR_TYPES.map((t) => t.minDistance ?? 0));
+  assert.ok(gate > 0, "no car type is gated at all — cartypes.js says the enemy should be");
+
+  const justBefore = gate * DIST_UNITS - 1;
+  for (let i = 0; i < 2000; i++) {
+    const type = pickCarType(justBefore);
+    assert.ok(type, "the catalogue must always offer SOMETHING on the opening road");
+    assert.ok(
+      typeAvailable(type, justBefore),
+      `${type.id} was offered at DIST ${(justBefore / DIST_UNITS).toFixed(2)}, ` +
+        `but its gate is ${type.minDistance}`,
+    );
+  }
+});
+
+test("every gated type is back in the draw once its distance is passed", () => {
+  // The other half: a gate must OPEN, or a type is simply switched off and the
+  // sprite-cache budget in cartypes.js's header is paying for artwork nobody
+  // ever meets.
+  const far = Math.max(...CAR_TYPES.map((t) => t.minDistance ?? 0)) * DIST_UNITS;
+  const seen = new Set();
+  for (let i = 0; i < 5000; i++) seen.add(pickCarType(far).id);
+  for (const type of CAR_TYPES) {
+    assert.ok(seen.has(type.id), `${type.id} never appeared even past every gate`);
+  }
+});
+
+test("gating reweights the draw rather than thinning the traffic", () => {
+  // pickCarType's own claim: before the enemy is unlocked the civilians share
+  // the WHOLE draw, so the opening road is as busy as any other stretch. A
+  // rejection-sampling implementation would return null (or nothing at all) for
+  // the gated share of the rolls, and the opening would feel empty instead of
+  // peaceful.
+  for (let i = 0; i < 500; i++) {
+    assert.ok(pickCarType(0), "a roll on the opening road must still yield a type");
+  }
+});
+
+test("obstacle gating uses the same units as the car catalogue", () => {
+  // Both catalogues are documented as speaking DIST-readout units, and
+  // obstacletypes.js is written as a mirror of cartypes.js. The hazards are all
+  // at 0 today, so this asserts the MECHANISM, not the current tuning.
+  for (const type of OBSTACLE_TYPES) {
+    assert.equal(typeof type.minDistance, "number", `${type.id} has no minDistance`);
+    assert.ok(
+      obstacleAvailable(type, type.minDistance * DIST_UNITS),
+      `${type.id} is still gated at exactly its own minDistance`,
+    );
+    if (type.minDistance > 0) {
+      assert.ok(
+        !obstacleAvailable(type, type.minDistance * DIST_UNITS - 1),
+        `${type.id} spawns a unit before its gate`,
+      );
+    }
+  }
 });
 
 // --- Scoring -----------------------------------------------------------------

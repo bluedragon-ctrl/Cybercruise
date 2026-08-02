@@ -30,6 +30,17 @@ import { GREEN, GREEN_PALE, GREEN_DIM, ROAD_SURFACE, WALL_FILL } from "../engine
 // for Phase 2 buildings/scenery.
 export const ROAD_HALF_WIDTH = 130;
 
+// World units per unit of the DIST readout. The simulation counts raw world
+// units — roughly a pixel each — which reaches five figures inside a minute and
+// reads as noise on the HUD, so the odometer is shown divided by this (main.js).
+//
+// It is exported because the readout is now a UNIT THE DESIGN SPEAKS IN, not
+// just a formatting detail: the spawn gates in cartypes.js and obstacletypes.js
+// (`minDistance`) are written in these same units, so "the enemy turns up at
+// 100" means the number the player watches tick past. Everything else — world
+// coordinates, spawn margins, the score's distance term — stays in raw units.
+export const DIST_UNITS = 100;
+
 // How far the road centre wanders left/right of the canvas centre, as a function
 // of world distance. Two layered sines of different wavelengths give smooth,
 // non-obviously-repeating turns. The summed amplitude (90 + 40 = 130) keeps the
