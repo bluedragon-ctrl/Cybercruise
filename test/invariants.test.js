@@ -23,7 +23,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { CAR_TYPES, pickCarType, typeAvailable } from "../src/game/cartypes.js";
+import { CAR_TYPES, FOCUS, pickCarType, typeAvailable } from "../src/game/cartypes.js";
 import { CAR_SHAPES, carShapeExtent } from "../src/game/carshapes.js";
 import {
   ACCEL as TRAFFIC_ACCEL,
@@ -467,6 +467,20 @@ test("traffic does not brake for a corpse", () => {
 });
 
 // --- Distance gating ---------------------------------------------------------
+
+test("the testing FOCUS switch is off", () => {
+  // FIRST, because a focused catalogue fails most of what follows for a reason
+  // that has nothing to do with the gate: cartypes.js's FOCUS narrows the road to
+  // the types being worked on, and is meant to be flipped back before anything is
+  // committed. Without this the suite reports "van never appeared even past every
+  // gate", which sends a reader hunting through weights.
+  assert.deepEqual(
+    FOCUS,
+    [],
+    `cartypes.js FOCUS is still set to [${FOCUS.join(", ")}] — the road is narrowed ` +
+      `to those types. Set it back to [] before committing.`,
+  );
+});
 
 test("the opening road is civilian: no hostile type spawns before its gate", () => {
   // cartypes.js's ENEMY_MIN_DISTANCE claim, in the units it is written in. The

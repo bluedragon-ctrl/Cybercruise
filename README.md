@@ -210,6 +210,28 @@ by name and are not gated — the car that lays them already was.
 Staging the enemy per type (interceptors early, a rival only much later) is a
 matter of spreading those numbers out; nothing in `traffic.js` needs to change.
 
+#### The focus switch
+
+Tuning one type's driving means watching it, and a road running the full
+catalogue gives you a few seconds of the car you care about between everything
+else. `cartypes.js` exports **`FOCUS`**, a list of type ids: set it and only
+those reach the road.
+
+```js
+export const FOCUS = ["sedan", "roadster"];   // civilian profiles, nothing else
+```
+
+It is an override on the same `typeAvailable` gate the game ships with, not a
+filter of its own, so a focused road is still a road the real spawner built —
+same reweighting, same `pickCarType`, same everything-gated path. A measurement
+harness that measured a different code path would not be measuring the game. A
+focused type keeps its own `minDistance`, so focusing on the interceptor still
+waits for `DIST 100`.
+
+**Ship it empty.** The first test in `invariants.test.js` asserts `FOCUS` is
+`[]`, because a focused catalogue also fails the gating invariants and
+"`van` never appeared" is a much worse error message than "`FOCUS` is still set".
+
 ### Driving profiles
 
 A car type names **two** things: a tactic (which manoeuvres it knows) and a
