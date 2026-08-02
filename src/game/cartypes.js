@@ -52,7 +52,7 @@
 //
 // SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) combination is
 // a cache key in sprites.js, times WHEEL_FRAMES (8) wheel positions, plus one
-// more colour for the critical-hull blink: 10 types * 8 * 2 = 160 sprites at the
+// more colour for the critical-hull blink: 11 types * 8 * 2 = 176 sprites at the
 // absolute worst, built lazily as each type first appears. That is the same order
 // as the city's building cache. Keeping the catalogue a small FIXED list is what
 // bounds it — so vary cars by ADDING A TYPE, never by rolling continuous
@@ -429,6 +429,48 @@ export const CAR_TYPES = [
     behaviour: "pursue",
     driving: "pursuer", // nerve 12: through a trestle a third of the time
     weight: 2, // the standard hostile: whatever else is out, one of these is too
+  },
+  {
+    id: "stocker",
+    label: "STOCKER",
+    // THE HOSTILE THE MUSCLE VACATED. When the muscle crossed to the civilian
+    // side it took the enemy's mid-field heavy with it, and this is the car that
+    // fills the hole — deliberately not a copy of it. The muscle was a street
+    // heavy that got in front of you and sat there; the STOCKER came off a
+    // circuit, and it CHASES. The `block` tactic and the `enforcer` profile the
+    // muscle left behind are still unclaimed, and still the right pair for a
+    // second heavy that leans on the player rather than racing them.
+    shape: carShapeIndex("STOCKER"),
+    faction: ENEMY_FACTION,
+    // Deep red: the heavy hostile class, shared with the bruiser. Its own
+    // silhouette — flared over every wheel, caged, winged — is what tells the two
+    // apart, exactly as the MUSCLE outline now does on the civilian side.
+    color: ENEMY_DEEP,
+    thrust: ENEMY_THRUST,
+    w: 40,
+    h: 70,
+    health: 130, // a caged car: more than the departed muscle's 110, less than
+                 // the bruiser's 160
+    mass: 1.9,
+    // Fills the enemy's speed hole between the bruiser's 330 and the
+    // interceptor's 400: a heavy that is genuinely quick, so being ahead of one
+    // is not the escape it is with the rest of the heavy class.
+    speedMin: 355,
+    speedMax: 415,
+    steerSpeed: 100, // quicker across the road than any other heavy
+    blastRadius: 46,
+    blastDamage: 26,
+    value: ENEMY_VALUE,
+    minDistance: ENEMY_MIN_DISTANCE,
+    behaviour: "pursue",  // it comes after you, where the muscle used to sit in
+                          // front of you
+    driving: "roadracer", // nerve 14: a racer's nerve, between pursuer and enforcer
+    // Exactly the weight the muscle took with it, which RESTORES THE FACTION MIX
+    // the muscle's move disturbed: hostile weight goes 4.1 -> 5.3 and civilian
+    // stays 8.9, so past DIST 100 the road returns to roughly 63% civilian. See
+    // the note on the muscle's own weight above — this is the replacement hostile
+    // it asks for.
+    weight: 1.2,
   },
   {
     id: "cycle",

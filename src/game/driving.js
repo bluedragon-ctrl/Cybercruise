@@ -390,13 +390,27 @@ export const DRIVING_PROFILES = {
   // go anywhere — a heavy hostile that shoves, and gambles on a trestle half the
   // time — and the replacement enemy will want exactly this row. A profile nobody
   // drives constrains nothing and costs nothing: the braking-rule invariant skips
-  // it, and `typesDriving` returns an empty list. Delete it if the new hostile
-  // turns out to want something else.
+  // it, and `typesDriving` returns an empty list.
+  //
+  // STILL UNCLAIMED after the stocker. The replacement hostile arrived and wanted
+  // something else — it races rather than shoves, so it drives `roadracer` below
+  // and left the `block` tactic here with this row. The pair is waiting for a
+  // second heavy that gets in front of the player and sits there.
   enforcer: profile({ nerve: 16 }),
   batterer: profile({ nerve: 20 }),  // bruiser: three in five, the type least
                                      // interested in going round
   duelist: profile({ nerve: 10 }),   // rival: a driver, not a battering ram — it
                                      // would rather keep the line clean
+  // The stocker: a heavy that came off a circuit rather than out of a garage. It
+  // is the only hostile that runs a RACING line — it lives on the lane edges and
+  // pulls out early, so a stocker closing on the player arrives from the side of
+  // the road rather than up the middle. The cage is why its nerve sits above the
+  // interceptor's: junk in the road costs it paint, not a wheel.
+  roadracer: profile({
+    laneDiscipline: 0.35,
+    patience: 0.5,
+    nerve: 14,
+  }),
   // The cycle, and the catalogue's clearest use of the dial: 25 hull means a
   // trestle costs it a third of its life, and it is the nimblest thing on the
   // road. It goes round because going round is what it is FOR — the contrast

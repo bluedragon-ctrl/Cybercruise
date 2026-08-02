@@ -350,6 +350,48 @@ export const CAR_SHAPES = [
       solid([[-0.86, 0.96], [0.86, 0.96], [0.86, 1.04], [-0.86, 1.04]], c);
     },
   },
+
+  {
+    name: "STOCKER",
+    size: [40, 70],
+    // The MUSCLE gone racing: same class, but squared off and bolted about. Where
+    // the muscle's outline is a smooth box, this one STEPS — a flare stands proud
+    // over each axle, so the silhouette is widest exactly where the wheels are and
+    // the two never get confused at speed.
+    profile: [
+      [0, -1.00], [0.62, -0.98], [0.84, -0.88], [0.82, -0.70], [0.96, -0.60],
+      [0.94, -0.30], [0.80, -0.16], [0.80, 0.26], [0.98, 0.40], [0.96, 0.84],
+      [0.64, 0.98], [0, 1.00],
+    ],
+    // Both axles sit inside their own flare, which is what the flares are for.
+    wheels: [[-0.46, 4, 11], [0.60, 6, 12]],
+    wing: 1.08,
+    exhaust: [0.34, 0.84, 0.96],
+    quad: true,
+    overhang: { x: 1.02, up: 1.12 },
+    low({ solid }, c) {
+      // Air dam at ground level, so the nose is drawn over it.
+      solid([[-1.02, -1.12], [1.02, -1.12], [0.92, -0.90], [-0.92, -0.90]], c, CAR_FILL);
+    },
+    flat({ line }, c, thrust, headlight) {
+      line(-0.50, -0.92, 0.50, -0.92, headlight, 1.5, 8); // lightbar across the grille
+      line(-0.96, -0.60, -0.96, -0.30, c); // flare edges, picked out in paint
+      line(0.96, -0.60, 0.96, -0.30, c);
+      line(-0.98, 0.40, -0.98, 0.84, c);
+      line(0.98, 0.40, 0.98, 0.84, c);
+    },
+    raised({ solid, line }, c) {
+      solid([[-0.46, -0.04], [0.46, -0.04], [0.46, 0.44], [-0.46, 0.44]], c); // squared cabin
+      solid([[-0.26, -0.72], [0.26, -0.72], [0.30, -0.42], [-0.30, -0.42]], c, CAR_FILL_HIGH);
+      line(-0.26, -0.58, 0.26, -0.58, c);
+    },
+    top({ line }, c) {
+      // Roll cage seen through the roof, and slats over the back window.
+      line(-0.46, 0.18, 0.46, 0.18, c);
+      line(0, -0.04, 0, 0.44, c);
+      for (const y of [0.54, 0.64, 0.74]) line(-0.36, y, 0.36, y, c);
+    },
+  },
 ];
 
 // Look a shape up by name. Car types (cartypes.js) select their silhouette
