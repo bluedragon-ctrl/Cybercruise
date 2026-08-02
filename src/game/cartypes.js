@@ -108,6 +108,26 @@ const CIVILIAN_VALUE = -100;
 // constant as the faction's floor.
 const ENEMY_MIN_DISTANCE = 100;
 
+// THE FOCUS SWITCH — a testing aid, and the reason `minDistance` is worth having
+// as a gate rather than as a spawn weight.
+//
+// Tuning one type's driving means watching it, and a road running the full
+// catalogue gives you a few seconds of the car you care about between everything
+// else. List the ids you are working on here and only those reach the road; an
+// EMPTY list is the shipping catalogue, untouched. Ship it empty.
+//
+//   const FOCUS = ["sedan", "roadster"];   // civilian profiles, nothing else
+//
+// Implemented as an override on the SAME gate the game ships with, rather than
+// as a filter of its own, so a focused road is still a road the real spawner
+// built: the same reweighting, the same "everything gated" path, the same
+// pickCarType. A filter bolted on beside it would be a second code path, and the
+// one thing a measurement harness must not do is measure a different game.
+// Exported so the suite can say so out loud: a focused catalogue breaks several
+// gating invariants below, and "van never appeared" is a much worse error
+// message than "FOCUS is still set". See test/invariants.test.js.
+export const FOCUS = [];
+
 // TWO AXES OF BEHAVIOUR, and a type names both.
 //
 //   behaviour  the TACTIC — which manoeuvres this car knows (behaviours.js)
@@ -439,7 +459,10 @@ export const CAR_TYPES = [
 // Whether `type` is allowed on the road yet. `distance` is the RAW world
 // odometer (main.js), and `minDistance` is in readout units, so the conversion
 // lives here and nowhere else — a caller only ever passes what it already has.
+// A focused type keeps its own gate (so focusing on the interceptor still waits
+// for DIST 100); everything else is gated for ever. See FOCUS above.
 export function typeAvailable(type, distance) {
+  if (FOCUS.length > 0 && !FOCUS.includes(type.id)) return false;
   return distance >= (type.minDistance ?? 0) * DIST_UNITS;
 }
 
