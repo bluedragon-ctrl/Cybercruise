@@ -23,6 +23,16 @@
 
 import { neonStroke } from "../engine/neon.js";
 import { GREEN, GREEN_PALE, GREEN_DIM, ROAD_SURFACE, WALL_FILL } from "../engine/palette.js";
+import {
+  ROAD_AMPLITUDE,
+  ROAD_STRAIGHTNESS,
+  ROAD_TURN_RATE,
+  ROAD_WAVE_A_FREQ,
+  ROAD_WAVE_A_WEIGHT,
+  ROAD_WAVE_B_FREQ,
+  ROAD_WAVE_B_WEIGHT,
+  ROAD_WAVE_B_PHASE,
+} from "./tuning.js";
 
 // Distance from the road centre-line to each barrier, in px. The full road is
 // twice this wide. Deliberately kept well under the 600px canvas width so the
@@ -30,29 +40,65 @@ import { GREEN, GREEN_PALE, GREEN_DIM, ROAD_SURFACE, WALL_FILL } from "../engine
 // for Phase 2 buildings/scenery.
 export const ROAD_HALF_WIDTH = 130;
 
-// How far the road centre wanders left/right of the canvas centre, as a function
-// of world distance. Two layered sines of different wavelengths give smooth,
-// non-obviously-repeating turns. The summed amplitude (90 + 40 = 130) keeps the
-// road on-canvas while always leaving roadside margin, on a 600px-wide canvas:
-//   centre range ≈ 300 ± 130 = [170, 430]
-//   road edges   ≈ [170-130, 430+130] = [40, 560]  → always ≥40px off each edge,
-//   and up to ~170px of roadside when the road is centred.
+// --- The shape of the road -------------------------------------------------
 //
-// The two waves are spelled out as named constants ONLY so headingAt() below can
-// differentiate the same curve without the two functions silently drifting apart
-// — a retuned turn here would otherwise leave every car pointing along the old
-// road. Keep them the single source of truth for the road's shape.
-const WAVE_A_AMP = 90;
-const WAVE_A_FREQ = 0.0016;
-const WAVE_B_AMP = 40;
-const WAVE_B_FREQ = 0.0043;
-const WAVE_B_PHASE = 1.7;
+// Every number that sets the road's shape lives in tuning.js; this section is
+// only the maths that turns them into a curve. Read tuning.js first — it
+// explains what each knob does. Here is what the code is doing:
+//
+// STEP 1, the wander. Two sines of different, non-harmonic wavelengths, summed
+// and normalised to [-1, 1]. On its own this is the old road: smooth, never
+// exactly repeating, and turning ALL THE TIME, which is what we are fixing.
+//
+// STEP 2, overdrive and soft-clip. Multiply the wander by ROAD_STRAIGHTNESS so
+// it overshoots [-1, 1], then flatten the overshoot away. Wherever the driven
+// wave is past the limit the result is a CONSTANT — a straight road holding a
+// fixed offset — and the road only turns while the wave passes back through the
+// middle. Turn the knob up and the straights grow; at 1 there is no overshoot
+// and the road turns forever, as it used to.
+//
+// The clip has to be C1 (continuous first derivative) or every car on screen
+// would snap its heading at the moment the road went straight. A hard clamp is
+// not: its slope drops from "whatever it was" to zero in one step. So the
+// clamped value is passed through a quarter-sine, whose own slope reaches zero
+// exactly at ±1 — the two pieces meet with the same value AND the same slope, so
+// the entry into a straight is invisible.
+//
+// headingAt() below differentiates this same expression analytically, which is
+// why the pieces are spelled out as small named functions instead of inlined:
+// the two must never drift apart, or every car would point along a road that
+// isn't there. Keep tuning.js the single source of truth for the numbers.
 
-export function centerOffset(worldY) {
+const WAVE_A_FREQ = ROAD_WAVE_A_FREQ * ROAD_TURN_RATE;
+const WAVE_B_FREQ = ROAD_WAVE_B_FREQ * ROAD_TURN_RATE;
+const WEIGHT_SUM = ROAD_WAVE_A_WEIGHT + ROAD_WAVE_B_WEIGHT;
+
+// The un-clipped wander, normalised to [-1, 1] (step 1).
+function wander(worldY) {
   return (
-    WAVE_A_AMP * Math.sin(worldY * WAVE_A_FREQ) +
-    WAVE_B_AMP * Math.sin(worldY * WAVE_B_FREQ + WAVE_B_PHASE)
+    (ROAD_WAVE_A_WEIGHT * Math.sin(worldY * WAVE_A_FREQ) +
+      ROAD_WAVE_B_WEIGHT * Math.sin(worldY * WAVE_B_FREQ + ROAD_WAVE_B_PHASE)) /
+    WEIGHT_SUM
   );
+}
+
+// d(wander)/d(worldY) — the exact derivative of the function above.
+function wanderSlope(worldY) {
+  return (
+    (ROAD_WAVE_A_WEIGHT * WAVE_A_FREQ * Math.cos(worldY * WAVE_A_FREQ) +
+      ROAD_WAVE_B_WEIGHT * WAVE_B_FREQ * Math.cos(worldY * WAVE_B_FREQ + ROAD_WAVE_B_PHASE)) /
+    WEIGHT_SUM
+  );
+}
+
+// How far the road centre sits left/right of the canvas centre, in px, at a
+// given world distance. Range ±ROAD_AMPLITUDE (60), which on a 600px canvas puts
+// the centre in [240, 360] and the barriers (ROAD_HALF_WIDTH = 130) in [110, 490]
+// — at least 110px of roadside on the tight side, and ~170px when centred.
+export function centerOffset(worldY) {
+  const driven = ROAD_STRAIGHTNESS * wander(worldY);
+  const clipped = driven < -1 ? -1 : driven > 1 ? 1 : driven;
+  return ROAD_AMPLITUDE * Math.sin((Math.PI / 2) * clipped);
 }
 
 // Which way the road POINTS at a given world distance, as a screen-space angle in
@@ -61,22 +107,30 @@ export function centerOffset(worldY) {
 // This is the exact derivative of centerOffset, not a finite difference between
 // two samples: the curve is analytic, so the slope is too, and an analytic answer
 // costs the same two cosines that sampling would cost in sines while staying
-// correct at any step size.
+// correct at any step size. It is the chain rule over centerOffset's two steps —
+// the quarter-sine's slope times the driven wander's slope — and it is EXACTLY
+// ZERO wherever the wave is clipped, which is what makes a straight straight.
 //
 // The sign works out because screen y runs OPPOSITE to worldY (see the coordinate
 // model at the top of this file): moving one unit further up the road means one
 // unit UP the screen and `slope` units to the right, so the heading is atan of
 // the slope with no extra negation.
 //
-// Range, over the constants above: |slope| ≤ 0.316, i.e. **±17.5°**, averaging
-// ~7°. Cars therefore lean into bends rather than swinging wildly — and because
-// the heading varies by up to ~29° across a single screen height, every entity
-// must ask for the angle at ITS OWN worldY. One angle for the whole frame would
-// visibly shear the traffic.
+// Range, over the tuning defaults: |slope| ≤ 0.213, i.e. **±12°**, and ~62% of
+// the road is dead flat, so the average lean is ~1°. That is deliberately small
+// — it is what makes the road read as a highway rather than a forest track — but
+// it is not zero, and it still varies across a single screen height, so every
+// entity must ask for the angle at ITS OWN worldY. One angle for the whole frame
+// would visibly shear the traffic.
 export function headingAt(worldY) {
+  const driven = ROAD_STRAIGHTNESS * wander(worldY);
+  if (driven <= -1 || driven >= 1) return 0; // clipped: the road is straight here
   const slope =
-    WAVE_A_AMP * WAVE_A_FREQ * Math.cos(worldY * WAVE_A_FREQ) +
-    WAVE_B_AMP * WAVE_B_FREQ * Math.cos(worldY * WAVE_B_FREQ + WAVE_B_PHASE);
+    ROAD_AMPLITUDE *
+    (Math.PI / 2) *
+    Math.cos((Math.PI / 2) * driven) *
+    ROAD_STRAIGHTNESS *
+    wanderSlope(worldY);
   return Math.atan(slope);
 }
 
