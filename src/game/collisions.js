@@ -45,7 +45,9 @@ const RESTITUTION = 0.25;
 // rear-end costs each car (300-40) * 0.15 = 39 hull.
 const DAMAGE_FLOOR = 40; // closing speed that does no harm at all
 const IMPACT_DAMAGE = 0.15; // hull per unit of closing speed above the floor
-const SIDE_DAMAGE = 0.35; // side-swipes hurt this much of a head-on for the same speed
+// Side-swipes hurt this much of a head-on for the same speed. Exported because
+// behaviours.js prices a lane change as a side-swipe — see impactCost.
+export const SIDE_DAMAGE = 0.35;
 
 // Sweeps per tick. Four is enough for the chains a 4-lane road can produce
 // (7 cars + the player), and the loop exits early once a sweep finds nothing.
@@ -127,7 +129,7 @@ function rearEnd(a, b, sign, overlap, shareA, shareB) {
   rear.speed = Math.max(0, rear.speed - impulse * rearShare);
   front.speed += impulse * frontShare;
 
-  applyDamage(a, b, closing, shareA, shareB, 1);
+  applyDamage(a, b, closing, 1);
 }
 
 // Across the road. `sign` is +1 when b sits to a's right; `relative` is a's
@@ -156,15 +158,35 @@ function sideSwipe(a, b, sign, overlap, shareA, shareB, relative, first) {
   a.vLateral -= sign * impulse * shareA;
   b.vLateral += sign * impulse * shareB;
 
-  applyDamage(a, b, closing, shareA, shareB, SIDE_DAMAGE);
+  applyDamage(a, b, closing, SIDE_DAMAGE);
 }
 
-function applyDamage(a, b, closing, shareA, shareB, scale) {
-  if (closing <= DAMAGE_FLOOR) return;
-  // x2 so that an equal-mass pair (share 0.5 each) takes the full figure.
-  const hull = (closing - DAMAGE_FLOOR) * IMPACT_DAMAGE * scale * 2;
-  a.damage(hull * shareA);
-  b.damage(hull * shareB);
+// Hull `a` takes from hitting `b` at `closing`, with `scale` picking the axis
+// (1 for a rear-end, SIDE_DAMAGE for a side-swipe). The x2 is so that an
+// equal-mass pair — half the correction each — takes the full figure between
+// them.
+//
+// A PURE FUNCTION, and exported, because the number is wanted in two places.
+// The solver below uses it to apply damage that has already happened;
+// behaviours.js uses it to PRICE a contact that has not happened yet, when a
+// driver is deciding whether a lane with a car in it is a lane it will take
+// (see driving.js's `contact`). Both must read the same formula or a car would
+// be making its decisions against physics the game does not run.
+//
+// `mass` defaults to 1 for a body that has none: the world's real bodies all
+// carry one, but the aim is that a fixture can be priced without inventing a
+// weight for it.
+export function impactCost(a, b, closing, scale = 1) {
+  if (closing <= DAMAGE_FLOOR) return 0;
+  const invA = 1 / (a.mass ?? 1);
+  const invB = 1 / (b.mass ?? 1);
+  const shareA = invA / (invA + invB);
+  return (closing - DAMAGE_FLOOR) * IMPACT_DAMAGE * scale * 2 * shareA;
+}
+
+function applyDamage(a, b, closing, scale) {
+  a.damage(impactCost(a, b, closing, scale));
+  b.damage(impactCost(b, a, closing, scale));
 }
 
 // --- The player as a body ---------------------------------------------------

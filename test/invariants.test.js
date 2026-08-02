@@ -30,7 +30,8 @@ import {
   RETIRE_MARGIN as TRAFFIC_RETIRE_MARGIN,
   Traffic,
 } from "../src/game/traffic.js";
-import { FOLLOW_REACTION, behaviourFor, dodgeDistance } from "../src/game/behaviours.js";
+import { driveCar, dodgeDistance } from "../src/game/behaviours.js";
+import { DRIVING_PROFILES, drivingFor, typesDriving } from "../src/game/driving.js";
 import { MIN_SPEED, MAX_SPEED, ACCEL as PLAYER_ACCEL, Player } from "../src/game/player.js";
 import { WHEEL_FRAMES } from "../src/game/sprites.js";
 import {
@@ -41,7 +42,7 @@ import {
 import { gridPhase } from "../src/game/scenery.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import { CELL, plotAt, plotColumns, plotRows, BUILDING, EMPTY } from "../src/game/citygrid.js";
-import { resolveCollisions } from "../src/game/collisions.js";
+import { resolveCollisions, impactCost } from "../src/game/collisions.js";
 import { Score, DISTANCE_POINTS } from "../src/game/score.js";
 import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES } from "../src/game/weapons.js";
 import {
@@ -51,26 +52,55 @@ import { Obstacles, SPAWN_MARGIN as OBSTACLE_SPAWN_MARGIN } from "../src/game/ob
 import { Explosions } from "../src/game/effects.js";
 import { Projectiles } from "../src/game/projectiles.js";
 import { armFor, armamentFor } from "../src/game/armament.js";
+import { NEUTRAL_PALE } from "../src/engine/palette.js";
+
+// A fixture car. Traffic cars are built by traffic.js, which hands them the two
+// things behaviours.js reads that a plain object literal would not have: the
+// driving profile (`drive`) and the tolerances rolled from it. Defaults are the
+// commuter's — careful, dead centre in its lane, unwilling to hit anything.
+const COMMUTER = DRIVING_PROFILES.commuter;
+function driver(over = {}) {
+  return {
+    drive: COMMUTER, nerve: 0, contact: 0, heldTime: 0, alive: true,
+    ...over,
+  };
+}
 
 const slowest = Math.min(...CAR_TYPES.map((t) => t.speedMin));
 const fastest = Math.max(...CAR_TYPES.map((t) => t.speedMax));
 
 // --- The speed band, and the braking rule sized against it -------------------
 
-test("traffic can always shed the largest closing speed the catalogue allows", () => {
-  // behaviours.js: a follower is given FOLLOW_REACTION seconds of closing rate
-  // to brake in, which only covers the distance needed while
-  //     largestClosing <= 2 * ACCEL * FOLLOW_REACTION
-  // (shedding dv costs dv^2 / (2 * ACCEL) of road). Widen the band or drop
-  // ACCEL without moving the other and traffic starts rear-ending itself.
-  const largestClosing = fastest - MIN_SPEED;
-  const canShed = 2 * TRAFFIC_ACCEL * FOLLOW_REACTION;
-  assert.ok(
-    largestClosing <= canShed,
-    `largest closing speed ${largestClosing} exceeds what a follower can shed ` +
-      `in ${FOLLOW_REACTION}s (${canShed}). Lower a speedMax, raise traffic ACCEL, ` +
-      `or raise FOLLOW_REACTION.`,
-  );
+test("every driving profile can shed the closing speed its own drivers reach", () => {
+  // behaviours.js gives a follower `followGap` plus `followReaction` seconds of
+  // closing rate to brake in, which only covers the road needed while
+  //     dv^2 / (2 * ACCEL)  <=  followGap + dv * followReaction
+  // for every closing speed dv its drivers can produce (shedding dv costs
+  // dv^2/(2*ACCEL) of road). Break it and traffic starts rear-ending itself.
+  //
+  // PER PROFILE, NOT PER CATALOGUE, and that is the whole reason `hustler` is
+  // allowed to tailgate: dv is the fastest type NAMING THAT PROFILE minus the
+  // player's minimum, not the catalogue's 610. A tight following distance is
+  // safe exactly as long as nothing quick drives it — so this fails the day
+  // somebody points the hypercar at the roadster's profile, which is the
+  // failure the per-profile form exists to catch.
+  for (const [name, p] of Object.entries(DRIVING_PROFILES)) {
+    const users = typesDriving(name, CAR_TYPES);
+    if (users.length === 0) continue; // a profile nobody drives constrains nothing
+    // Capped at each type's own speedMax, exactly as behaviours.js passSpeed does.
+    const top = Math.max(...users.map((t) => Math.min(t.speedMax, t.speedMax * p.passEffort)));
+    const dv = top - MIN_SPEED;
+    const needed = (dv * dv) / (2 * TRAFFIC_ACCEL);
+    const allowed = p.followGap + dv * p.followReaction;
+    const fastestUser = users.reduce((a, b) => (a.speedMax > b.speedMax ? a : b));
+    assert.ok(
+      allowed >= needed,
+      `profile "${name}" leaves ${allowed.toFixed(0)} units of road to shed ${dv} ` +
+        `units/sec of closing speed, which needs ${needed.toFixed(0)}. Its quickest ` +
+        `driver is the ${fastestUser.id} at ${fastestUser.speedMax}. Raise followGap ` +
+        `or followReaction, or move that type to another profile.`,
+    );
+  }
 });
 
 test("traffic cannot out-brake the player", () => {
@@ -413,17 +443,17 @@ test("a destroyed car is scored exactly once", () => {
 test("traffic does not brake for a corpse", () => {
   // The other half of the same window: a car killed this tick leaves nothing
   // solid on the road, so following cars must drive straight through the space.
-  const cruise = behaviourFor("cruise");
-  const follower = () => ({
-    worldY: 0, offset: 0, w: 34, h: 60, speed: 300, cruiseSpeed: 300, alive: true,
+  const follower = () => driver({
+    worldY: 0, offset: 0, w: 34, h: 60, speed: 300, cruiseSpeed: 300,
     targetSpeed: 300, targetOffset: 0,
+    type: { behaviour: "cruise", w: 34, steerSpeed: 90 },
   });
   // Close enough ahead to force a hard brake if it counts as an obstacle.
   const ahead = (alive) => ({ worldY: 100, offset: 0, w: 34, h: 60, speed: 0, alive });
 
   const braking = follower();
   const live = ahead(true);
-  cruise(braking, 1 / 60, { cars: [braking, live], playerBody: null });
+  driveCar(braking, 1 / 60, { cars: [braking, live], playerBody: null });
   assert.ok(
     braking.targetSpeed < braking.cruiseSpeed,
     "a LIVE car ahead must still be braked for — otherwise this test proves nothing",
@@ -431,7 +461,7 @@ test("traffic does not brake for a corpse", () => {
 
   const clear = follower();
   const corpse = ahead(false);
-  cruise(clear, 1 / 60, { cars: [clear, corpse], playerBody: null });
+  driveCar(clear, 1 / 60, { cars: [clear, corpse], playerBody: null });
   assert.equal(clear.targetSpeed, clear.cruiseSpeed, "a dead car ahead must not cause braking");
 });
 
@@ -627,11 +657,11 @@ test("hazards are placed beyond the traffic field, with room left to dodge", () 
 });
 
 test("no driver has the nerve to run onto a mine", () => {
-  // cartypes.js's NERVE section: no type's ceiling reaches the tetra's damage,
+  // driving.js's NERVE section: no profile's ceiling reaches the tetra's damage,
   // and therefore none reaches the mine's. That keeps mines the PLAYER'S
   // problem rather than something the road sweeps up for them, and it avoids
   // score.js fining the player for a civilian a mine killed unaided.
-  const boldest = Math.max(...CAR_TYPES.map((t) => t.nerve ?? 0));
+  const boldest = Math.max(...Object.values(DRIVING_PROFILES).map((p) => p.nerve));
   const mine = OBSTACLE_TYPES.find((t) => t.id === "caltrop");
   const tetra = OBSTACLE_TYPES.find((t) => t.id === "tetra");
   assert.ok(
@@ -645,35 +675,54 @@ test("no driver has the nerve to run onto a mine", () => {
   );
 });
 
-test("every civilian dodges, and at least one hostile gambles", () => {
-  // The shape of the dial, not its exact settings: civilians steering around
-  // everything is what makes an amber car swerving mean "something is in that
-  // lane", and a hostile that always tiptoed round a folding trestle would
-  // stop reading as hostile.
+test("the amber civilians always dodge, and at least one hostile gambles", () => {
+  // The shape of the dial, not its exact settings. AMBER civilians (palette
+  // NEUTRAL / NEUTRAL_DEEP — sedan, van, rig) steering around everything is what
+  // makes an amber car swerving mean "something is in that lane". The PALE
+  // civilians are a visibly different shade, which is what buys the roadster the
+  // room to shoulder through a stack of barrels without muddying that signal —
+  // see driving.js's NERVE section.
   const civilians = CAR_TYPES.filter((t) => t.value < 0);
-  for (const t of civilians) {
-    assert.equal(t.nerve, 0, `${t.id}: civilians must always dodge`);
+  const amber = civilians.filter((t) => t.color !== NEUTRAL_PALE);
+  assert.ok(amber.length > 0, "the signal needs someone to carry it");
+  for (const t of amber) {
+    assert.equal(drivingFor(t).nerve, 0, `${t.id}: amber civilians must always dodge`);
   }
   const trestle = OBSTACLE_TYPES.find((t) => t.id === "trestle");
-  const gamblers = CAR_TYPES.filter((t) => (t.nerve ?? 0) > trestle.blastDamage);
+  const gamblers = CAR_TYPES.filter((t) => drivingFor(t).nerve > trestle.blastDamage);
   assert.ok(gamblers.length > 0, "no hostile type can ever barge a trestle");
+});
+
+test("a nerve setting is either zero or bold enough to do something", () => {
+  // The dial is QUANTISED by the obstacle catalogue: nerve is compared against a
+  // hazard's blastDamage, so anything between 0 and the cheapest hazard behaves
+  // exactly like 0. There is no "slightly bolder", and a profile sitting in that
+  // dead band is a tuning attempt that silently did nothing.
+  const cheapest = Math.min(...OBSTACLE_TYPES.map((t) => t.blastDamage));
+  for (const [name, p] of Object.entries(DRIVING_PROFILES)) {
+    assert.ok(
+      p.nerve === 0 || p.nerve > cheapest,
+      `profile "${name}" has nerve ${p.nerve}, which is under the cheapest hazard ` +
+        `(${cheapest} hull) and therefore identical to nerve 0`,
+    );
+  }
 });
 
 // A cruising car in lane 1, and a hazard somewhere ahead of it. `gap` is how
 // much road it gets, which is what decides whether steering alone is enough.
 function hazardScenario(gap, over = {}) {
-  const car = {
+  const car = driver({
     worldY: 0, offset: laneOffset(1), w: 34, h: 60, speed: 300, cruiseSpeed: 300,
-    alive: true, nerve: 0, targetSpeed: 300, targetOffset: laneOffset(1),
+    targetSpeed: 300, targetOffset: laneOffset(1),
     // behaviours.js derives its hazard lookahead from speed and steerSpeed, so
     // a fixture without a steering rate would look ahead an undefined distance.
-    type: { w: 34, steerSpeed: 90 },
+    type: { behaviour: "cruise", w: 34, steerSpeed: 90 },
     ...over,
-  };
+  });
   const hazard = {
     worldY: gap, offset: laneOffset(1), w: 60, h: 14, alive: true, threat: 8,
   };
-  behaviourFor("cruise")(car, 1 / 60, { cars: [car], obstacles: [hazard], playerBody: null });
+  driveCar(car, 1 / 60, { cars: [car], obstacles: [hazard], playerBody: null });
   return { car, hazard };
 }
 
@@ -712,14 +761,14 @@ test("a boxed-in car still slows, even with no lane to aim at", () => {
   // Every lane hazardous: there is no line to steer to, and the car must not
   // simply give up and drive on at cruise. Stopping in front of a hazard is an
   // acceptable outcome — see behaviours.js's tier 3.
-  const car = {
+  const car = driver({
     worldY: 0, offset: 0, w: 34, h: 60, speed: 300, cruiseSpeed: 300,
-    alive: true, nerve: 0, targetSpeed: 300, targetOffset: 0,
-    type: { w: 34, steerSpeed: 90 },
-  };
+    targetSpeed: 300, targetOffset: 0,
+    type: { behaviour: "cruise", w: 34, steerSpeed: 90 },
+  });
   // One hazard wide enough to cover the whole road, close ahead.
   const wall = { worldY: 80, offset: 0, w: 1000, h: 14, alive: true, threat: 30 };
-  behaviourFor("cruise")(car, 1 / 60, { cars: [car], obstacles: [wall], playerBody: null });
+  driveCar(car, 1 / 60, { cars: [car], obstacles: [wall], playerBody: null });
   assert.ok(
     car.targetSpeed < car.cruiseSpeed,
     `a car with nowhere to go must slow down, got ${car.targetSpeed}`,
@@ -736,13 +785,172 @@ test("a driver with the nerve for it holds its line through a hazard", () => {
 test("behaviours still run with no obstacle system at all", () => {
   // `obstacles` is optional in the world view — Traffic seeds it empty, but a
   // caller that never sets it must not crash the road.
-  const cruise = behaviourFor("cruise");
-  const car = {
-    worldY: 0, offset: 0, w: 34, h: 60, speed: 300, cruiseSpeed: 300, alive: true,
-    nerve: 0, targetSpeed: 300, targetOffset: 0, type: { w: 34, steerSpeed: 90 },
-  };
-  cruise(car, 1 / 60, { cars: [car], playerBody: null });
+  const car = driver({
+    worldY: 0, offset: 0, w: 34, h: 60, speed: 300, cruiseSpeed: 300,
+    targetSpeed: 300, targetOffset: 0,
+    type: { behaviour: "cruise", w: 34, steerSpeed: 90 },
+  });
+  driveCar(car, 1 / 60, { cars: [car], playerBody: null });
   assert.equal(car.targetSpeed, car.cruiseSpeed);
+});
+
+// --- Driving profiles ----------------------------------------------------------
+//
+// Two cars running the SAME tactic and differing only in the table they point at
+// is the whole claim driving.js makes. These check the claim holds for each knob
+// that has teeth, rather than checking the numbers themselves.
+
+const HUSTLER = DRIVING_PROFILES.hustler;
+
+// A car mid-lane-1, optionally shoved off the centre-line, driven one tick.
+function laneScenario(offset, drive, world = { cars: [], playerBody: null }) {
+  const car = driver({
+    worldY: 0, offset, w: 34, h: 60, speed: 300, cruiseSpeed: 300,
+    targetSpeed: 300, targetOffset: offset, drive,
+    type: { behaviour: "cruise", w: 34, steerSpeed: 90, speedMax: 400 },
+  });
+  driveCar(car, 1 / 60, { obstacles: [], ...world, cars: [car, ...world.cars] });
+  return car;
+}
+
+test("a disciplined driver aims back at the lane centre it was shoved off", () => {
+  // Nothing else re-derives which lane a car belongs in: `cruise` never wrote
+  // targetOffset at all, so before keepLane a rammed car steered back to the
+  // lane it SPAWNED in, however many manoeuvres ago that was.
+  const car = laneScenario(laneOffset(1) + 20, COMMUTER);
+  assert.equal(car.targetOffset, laneOffset(1), "commuter discipline is dead centre");
+});
+
+test("a sloppy driver holds the line it was shoved to", () => {
+  // The same shove, the same tactic, the other profile. laneDiscipline is read
+  // as a tolerance, so the hustler accepts sitting off centre and rides the lane
+  // edge — which is the most visible difference between the two on the road.
+  const off = laneOffset(1) + 20;
+  const car = laneScenario(off, HUSTLER);
+  assert.equal(car.targetOffset, off, "the hustler should hold its line inside the slack");
+  assert.notEqual(car.targetOffset, laneOffset(1));
+});
+
+test("a lane preference is not worth a lane change through traffic", () => {
+  // The hustler wants the inner lane. It may drift over when the road allows it
+  // and must not grind across when it does not — every swerve is a collision.
+  const outer = laneOffset(0);
+  const clear = laneScenario(outer, HUSTLER);
+  assert.ok(clear.targetOffset > outer, "a free inner lane should draw it over");
+
+  const occupant = { worldY: 50, offset: laneOffset(1), w: 34, h: 60, speed: 300, alive: true };
+  const held = laneScenario(outer, HUSTLER, { cars: [occupant], playerBody: null });
+  assert.equal(held.targetOffset, outer, "an occupied inner lane must not");
+});
+
+// A hazard dead ahead in lane 1, with every other lane occupied by traffic. The
+// only way through is a lane with a car in it — so what the driver does here is
+// decided entirely by what it is willing to hit.
+function boxedIn(contact) {
+  const car = driver({
+    worldY: 0, offset: laneOffset(1), w: 34, h: 60, speed: 300, cruiseSpeed: 300,
+    targetSpeed: 300, targetOffset: laneOffset(1), contact,
+    type: { behaviour: "cruise", w: 34, steerSpeed: 90, speedMax: 400 },
+  });
+  const hazard = {
+    worldY: 150, offset: laneOffset(1), w: 60, h: 14, alive: true, threat: 8,
+  };
+  const others = [0, 2, 3].map((i) => ({
+    worldY: 60, offset: laneOffset(i), w: 34, h: 60, speed: 300, alive: true,
+  }));
+  driveCar(car, 1 / 60, { cars: [car, ...others], obstacles: [hazard], playerBody: null });
+  return car;
+}
+
+test("a careful driver stops for a hazard rather than drive into traffic", () => {
+  // The sedan's rule, and the one genuinely new capability behind it: with no
+  // lane it will take, the hazard is handed to followSpeed as a lead car doing
+  // zero. Following a hazard is never the answer WHILE A LANE IS AVAILABLE — and
+  // it is exactly the answer when none is.
+  const car = boxedIn(0);
+  assert.equal(car.targetSpeed, 0, "a commuter with nowhere to go must stop");
+});
+
+test("a driver that will take the bump keeps rolling instead", () => {
+  // Same road, same tactic, one number different. This is the trade that used to
+  // be hard-coded for every car on the road ("a fender-bender beats a blast")
+  // and is now the thing that tells two civilians apart: one gives up its speed,
+  // the other spends a bump to keep it.
+  const car = boxedIn(10);
+  assert.ok(car.targetSpeed > 0, "it should have taken a lane and kept moving");
+  assert.notEqual(car.targetOffset, laneOffset(1));
+});
+
+test("a car that stops for a hazard still gets off the hazard's line", () => {
+  // FOUND BY MEASURING THE ROAD, not by reading it. Stopping alone left the car
+  // holding the line it had — which is by definition the line with the roadblock
+  // in it. It then sat there as a stationary object in a live lane until
+  // something rear-ended it and shunted it into the very thing it had stopped
+  // for: every single civilian hazard strike in a 15 car-minute sample was that,
+  // and nothing else. So the refuge is taken even with somebody standing in it,
+  // because by then the car has already given up its speed and the contact it
+  // accepts is a nudge rather than a swipe.
+  const car = boxedIn(0);
+  const hazard = { offset: laneOffset(1), w: 60 };
+  assert.ok(
+    Math.abs(car.targetOffset - hazard.offset) >= (car.w + hazard.w) / 2,
+    `stopped car is aiming at ${car.targetOffset}, still inside the hazard's line`,
+  );
+});
+
+// A car held up by something slower in the same lane, driven for `seconds`.
+function heldUp(drive, seconds) {
+  const car = driver({
+    worldY: 0, offset: laneOffset(1), w: 34, h: 60, speed: 300, cruiseSpeed: 300,
+    targetSpeed: 300, targetOffset: laneOffset(1), drive,
+    type: { behaviour: "overtake", w: 34, steerSpeed: 90, speedMax: 400 },
+  });
+  const lead = {
+    worldY: 150, offset: laneOffset(1), w: 34, h: 60, speed: 200, alive: true,
+  };
+  const world = { cars: [car, lead], obstacles: [], playerBody: null };
+  for (let t = 0; t < seconds * 60; t++) driveCar(car, 1 / 60, world);
+  return car;
+}
+
+test("patience decides how long a car sits behind a blocker before passing", () => {
+  // Before this, a pass fired the instant the trigger distance was met, so the
+  // only thing separating two overtakers was how fast they could steer.
+  assert.equal(heldUp(COMMUTER, 0.5).passTarget ?? null, null, "1.2s of patience");
+  assert.ok(heldUp(COMMUTER, 2).passTarget, "and it does eventually go");
+  assert.ok(heldUp(HUSTLER, 0.5).passTarget, "0.2s of patience goes much sooner");
+});
+
+test("frustration is reset when the road clears, not carried around", () => {
+  // heldTime measures how long this car has been stuck, not how old it is —
+  // otherwise a car that spent a minute in clear traffic would pass the instant
+  // it ever met anybody.
+  const car = driver({
+    worldY: 0, offset: laneOffset(1), w: 34, h: 60, speed: 300, cruiseSpeed: 300,
+    targetSpeed: 300, targetOffset: laneOffset(1), heldTime: 5,
+    type: { behaviour: "overtake", w: 34, steerSpeed: 90, speedMax: 400 },
+  });
+  driveCar(car, 1 / 60, { cars: [car], obstacles: [], playerBody: null });
+  assert.equal(car.heldTime, 0, "an empty road must clear the timer");
+});
+
+test("a driver prices a contact with the same formula the solver applies", () => {
+  // behaviours.js decides whether to take a lane using collisions.js's own
+  // impactCost. A copy of the arithmetic would drift, and a driver making its
+  // decisions against physics the game does not run would be wrong in exactly
+  // the cases that matter.
+  const a = { mass: 1 };
+  const b = { mass: 1 };
+  let taken = 0;
+  const bodies = [
+    { ...a, worldY: 0, offset: 0, prevOffset: 0, w: 34, h: 60, speed: 300,
+      vLateral: 0, alive: true, damage: (hp) => (taken += hp) },
+    { ...b, worldY: 40, offset: 0, prevOffset: 0, w: 34, h: 60, speed: 100,
+      vLateral: 0, alive: true, damage: () => {} },
+  ];
+  resolveCollisions(bodies, 1 / 60);
+  assert.ok(taken > 0, "the fixture must actually collide, or this proves nothing");
+  assert.equal(taken, impactCost(a, b, 200, 1), "the solver and the estimate disagree");
 });
 
 // --- Enemy armament -----------------------------------------------------------
@@ -827,12 +1035,12 @@ test("a rearward round travels back down the road and still hits", () => {
 // world hooks, which is the only observable this layer has.
 function hostileScenario(over = {}, worldOver = {}) {
   const type = CAR_TYPES.find((t) => t.id === "interceptor");
-  const car = {
+  const car = driver({
     worldY: 0, offset: 0, w: type.w, h: type.h, speed: 420, cruiseSpeed: 420,
-    alive: true, nerve: 0, targetSpeed: 420, targetOffset: 0,
-    type, arms: armFor(type),
+    targetSpeed: 420, targetOffset: 0,
+    type, drive: drivingFor(type), arms: armFor(type),
     ...over,
-  };
+  });
   const playerBody = {
     worldY: 300, offset: 0, w: 34, h: 60, speed: 300, alive: true,
     damage() {},
@@ -848,7 +1056,7 @@ function hostileScenario(over = {}, worldOver = {}) {
     ...worldOver,
     playerBody, // worldOver may only override the body's FIELDS, above
   };
-  behaviourFor("pursue")(car, 1 / 60, world);
+  driveCar(car, 1 / 60, world);
   return { car, world, fired, laid };
 }
 
