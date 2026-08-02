@@ -187,7 +187,10 @@ function drawHud() {
     ctx.restore();
   }
 
-  glowText(ctx, `DIST ${Math.floor(distance)}`, W - 12, 58, GREEN_PALE, 13, "right");
+  // Shown in DIST_UNITS, not raw world units — see road.js. The same scale the
+  // catalogues' `minDistance` gates are written in, so a player who sees DIST 100
+  // is seeing exactly the moment the enemy is allowed on the road.
+  glowText(ctx, `DIST ${Math.floor(distance / road.DIST_UNITS)}`, W - 12, 58, GREEN_PALE, 13, "right");
   glowText(ctx, `SPD ${Math.round(player.speed)}`, W - 12, 76, GREEN_PALE, 13, "right");
 
   // Health bar (bottom-left): green draining to red as damage mounts.

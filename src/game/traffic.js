@@ -410,7 +410,11 @@ export class Traffic {
   // overtakes). Spawning a slow car behind would leave it dropping away, never
   // seen — and a fast one ahead would simply vanish over the horizon.
   spawn({ distance, player, H }) {
-    const type = this.pickType();
+    const type = this.pickType(distance);
+    // Nothing in the catalogue is unlocked this early — see cartypes.js's
+    // `minDistance`. Treated exactly like a full road: skip, try next interval.
+    if (!type) return;
+
     const speed = type.speedMin + Math.random() * (type.speedMax - type.speedMin);
 
     const ahead = speed < player.speed;
@@ -431,14 +435,19 @@ export class Traffic {
   // closing at 40 units/sec stays for half a minute. Measured over a minute of
   // steady cruising, that left all seven slots holding the one type that happened
   // to match — so re-roll a type that already holds its share of the live cars.
-  pickType() {
+  // `distance` is passed straight through to the catalogue, which drops types the
+  // player hasn't driven far enough to meet (cartypes.js's `minDistance`). The
+  // share cap below then works on whatever is left, so the opening run spreads
+  // itself across the civilian types instead of across all ten.
+  pickType(distance) {
     const cap = Math.max(2, Math.floor(this.cars.length / 3));
     for (let attempt = 0; attempt < 4; attempt++) {
-      const type = pickCarType();
+      const type = pickCarType(distance);
+      if (!type) return null;
       const held = this.cars.reduce((n, car) => n + (car.type === type ? 1 : 0), 0);
       if (held < cap) return type;
     }
-    return pickCarType(); // crowded road — take whatever came up
+    return pickCarType(distance); // crowded road — take whatever came up
   }
 
   // A lane with nothing already sitting near `worldY`, or -1 if there is none.

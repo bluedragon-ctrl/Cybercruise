@@ -101,7 +101,9 @@ scroll — or rounding per-layer instead of once — would resample both caches 
 soften the neon, and would shear the traffic against the road it drives on. The
 world advancing in whole-pixel steps is deliberate; at 4–10px/frame it is
 invisible. Do **not** round the simulation's `distance`: the odometer and the
-distance term of the score read the real float.
+distance term of the score read the real float. (The odometer is also *scaled*
+for display — see "Distance, and the spawn gate" below — but that too is a
+presentation step applied on the way to the HUD, never to `distance` itself.)
 
 Current cost is **under 1ms/frame** at 600×800 with a full screen of traffic,
 against a 16.7ms budget — measured by injecting known workloads alongside the
@@ -135,8 +137,9 @@ traffic doesn't mean touching the simulation:
 
 - `src/game/cartypes.js` — the catalogue. A type is pure data: silhouette,
   colours, size, health, cruising-speed range, how fast it can change lanes,
-  blast radius and damage, spawn weight, and the name of its behaviour. New
-  traffic = a new entry here.
+  blast radius and damage, spawn weight, how far into the run the type unlocks
+  (`minDistance` — see below), and the name of its behaviour. New traffic = a
+  new entry here.
 - `src/game/carshapes.js` — the silhouettes. Ten of them, and the catalogue is a
   1:1 map onto it: **shape** is what tells one type from another, so colour is
   left to carry only faction (red hostile / amber civilian) and weight class, and
@@ -170,6 +173,42 @@ can't be completed degrades to following rather than to a rear-end.
 The heavy types (van, rig, bruiser, muscle) just `cruise`, which is what keeps
 the whole road from weaving at once — and means sitting in front of a rig at 180
 works, while sitting in front of anything nimble does not.
+
+### Distance, and the spawn gate
+
+The simulation measures the road in **world units** — roughly one per pixel —
+and that is what every coordinate, spawn margin and blast radius is written in.
+It is *not* what the player sees: the **DIST** readout divides by
+`road.js`'s `DIST_UNITS` (100), because raw units reach five figures inside a
+minute and read as noise. So `DIST 50` is 5,000 world units driven.
+
+That readout is a unit the design speaks in, not just a bit of formatting.
+Every entry in the two spawn catalogues carries a **`minDistance`**: how far the
+player must have driven before that type may appear at all, written in
+DIST-readout units, so "the enemy turns up at 100" means the number on the HUD.
+
+- **Cars** (`cartypes.js`) — civilians are `0`, on the road from the first
+  metre; every hostile type is `ENEMY_MIN_DISTANCE` (100 ≈ 10,000 world units,
+  or about 16 seconds flat out). The opening run is therefore ordinary city
+  traffic, and the enemy arrives as a *change* rather than as the state of the
+  world from the first second. Dawdling stretches that quiet spell out —
+  deliberately: speed is what asks for the trouble.
+- **Obstacles** (`obstacletypes.js`) — all `0` today. A roadblock is the city's,
+  not the enemy's, so it belongs on the opening road alongside the traffic that
+  has to swerve round it. The field is there so a hazard (the mine is the
+  obvious candidate) can be held back later without new machinery.
+
+The gate **reweights** the draw rather than re-rolling until something passes:
+before `DIST 100` the five civilian types share the whole spawn weight, so the
+opening road is as busy as any other stretch. Rejection sampling would have
+thinned it to half strength, which is the opposite of what a quiet start should
+feel like. `pickCarType`/`pickObstacleType` return `null` only if *everything*
+is still gated, and the spawners treat that exactly like a full road: skip, try
+again next interval. Enemy-laid mines (`armament.js`) go through the catalogue
+by name and are not gated — the car that lays them already was.
+
+Staging the enemy per type (interceptors early, a rival only much later) is a
+matter of spreading those numbers out; nothing in `traffic.js` needs to change.
 
 ### Driving profiles
 

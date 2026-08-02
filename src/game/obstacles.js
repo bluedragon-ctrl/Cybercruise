@@ -411,7 +411,11 @@ export class Obstacles {
   // Introduce one obstacle just off the top of the screen, where its type says
   // it belongs across the road.
   spawn({ distance, player, cars = [] }) {
-    const type = pickObstacleType();
+    const type = pickObstacleType(distance);
+    // Nothing unlocked this early (obstacletypes.js's `minDistance`) — same
+    // answer as a road with nowhere to put it: skip, try next interval.
+    if (!type) return;
+
     const worldY = distance + player.y + SPAWN_MARGIN;
 
     const offset = this.freeOffset(type, worldY, cars);

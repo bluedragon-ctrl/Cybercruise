@@ -61,6 +61,7 @@
 // artwork.
 
 import { carShapeIndex } from "./carshapes.js";
+import { DIST_UNITS } from "./road.js";
 import {
   ENEMY,
   ENEMY_DEEP,
@@ -88,6 +89,24 @@ export const ENEMY_FACTION = "enemy";
 // there is a reason to tell types apart.
 const ENEMY_VALUE = 100;
 const CIVILIAN_VALUE = -100;
+
+// THE OPENING ROAD IS CIVILIAN. Every hostile type is held back until the player
+// has covered this much road, measured in the DIST readout's units (road.js), so
+// the run starts as ordinary traffic and the enemy arrives as a CHANGE the player
+// can feel rather than as the state of the world from the first second. It also
+// gives the opening a job: learn the car and the traffic before anything is out
+// here for you.
+//
+// 100 on the odometer is 10,000 world units — roughly 16 seconds flat out, or a
+// minute and a half at the player's minimum, so dawdling buys a longer quiet
+// spell. That is deliberate: speed is what asks for the trouble.
+//
+// One figure for the whole faction for now, exactly as ENEMY_VALUE is — the
+// point of putting `minDistance` on every type separately is that the enemy can
+// later be STAGED (interceptors early, a rival only much later) without touching
+// a line of traffic.js. Spread the entries when there is a reason to; leave this
+// constant as the faction's floor.
+const ENEMY_MIN_DISTANCE = 100;
 
 // TWO AXES OF BEHAVIOUR, and a type names both.
 //
@@ -145,6 +164,14 @@ const CIVILIAN_VALUE = -100;
 //               lane discipline, and how much hull this driver will accept
 //               hitting. Omitted means `commuter`
 //   weight      relative spawn frequency
+//   minDistance how far the player must have driven before this type may spawn
+//               at all, in DIST-READOUT units (road.js's DIST_UNITS) — the same
+//               number the HUD shows, so a gate reads as "this turns up at DIST
+//               100". 0 means from the first metre. Once the gate opens the type
+//               is picked on `weight` as usual; this only decides WHETHER it is
+//               in the draw. See ENEMY_MIN_DISTANCE above for why the enemy
+//               starts late, and pickCarType for what happens when everything is
+//               still gated
 export const CAR_TYPES = [
   // --- Neutral: the city's own traffic --------------------------------------
   {
@@ -167,6 +194,7 @@ export const CAR_TYPES = [
     blastRadius: 36,
     blastDamage: 14,
     value: CIVILIAN_VALUE,
+    minDistance: 0, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     weight: 3, // the backbone of the road
   },
@@ -187,6 +215,7 @@ export const CAR_TYPES = [
     blastRadius: 42,
     blastDamage: 18,
     value: CIVILIAN_VALUE,
+    minDistance: 0, // the city's own traffic: on the road from the first metre
     behaviour: "cruise", // slow and wide: it holds its lane and makes you go round
     weight: 2,
   },
@@ -215,6 +244,7 @@ export const CAR_TYPES = [
     blastRadius: 30,
     blastDamage: 9,
     value: CIVILIAN_VALUE,
+    minDistance: 0, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     // The road's impatient civilian, and the reason driving.js exists: the same
     // tactic as the sedan, so every difference between the two of them on the
@@ -246,6 +276,7 @@ export const CAR_TYPES = [
     blastRadius: 72,
     blastDamage: 46,
     value: CIVILIAN_VALUE,
+    minDistance: 0, // the city's own traffic: on the road from the first metre
     // Even the rolling wall dodges — it drives the commuter profile, at nerve 0.
     // A rig ploughing a trestle is tempting flavour, but it is also the one
     // civilian heavy enough to be somewhere near a hazard the player wanted left
@@ -274,6 +305,7 @@ export const CAR_TYPES = [
     blastRadius: 32,
     blastDamage: 10,
     value: CIVILIAN_VALUE,
+    minDistance: 0, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     weight: 0.4,
   },
@@ -296,6 +328,7 @@ export const CAR_TYPES = [
     blastRadius: 38,
     blastDamage: 16,
     value: ENEMY_VALUE,
+    minDistance: ENEMY_MIN_DISTANCE,
     behaviour: "pursue",
     driving: "pursuer", // nerve 12: through a trestle a third of the time
     weight: 2, // the standard hostile: whatever else is out, one of these is too
@@ -317,6 +350,7 @@ export const CAR_TYPES = [
     blastRadius: 44,
     blastDamage: 24,
     value: ENEMY_VALUE,
+    minDistance: ENEMY_MIN_DISTANCE,
     behaviour: "block",
     driving: "enforcer", // nerve 16: half the time — a heavy built to shove
     weight: 1.2,
@@ -341,6 +375,7 @@ export const CAR_TYPES = [
     blastRadius: 24,
     blastDamage: 7,
     value: ENEMY_VALUE,
+    minDistance: ENEMY_MIN_DISTANCE,
     behaviour: "weave",
     // The one hostile that dodges everything, and the clearest use of the dial:
     // 25 hull means a trestle costs a cycle a third of its life, and it is the
@@ -366,6 +401,7 @@ export const CAR_TYPES = [
     blastRadius: 52,
     blastDamage: 32,
     value: ENEMY_VALUE,
+    minDistance: ENEMY_MIN_DISTANCE,
     behaviour: "ram",
     driving: "batterer", // nerve 20: three times in five, the type least
                          // interested in going round
@@ -392,6 +428,7 @@ export const CAR_TYPES = [
     blastRadius: 40,
     blastDamage: 20,
     value: ENEMY_VALUE,
+    minDistance: ENEMY_MIN_DISTANCE,
     behaviour: "pursue",
     driving: "duelist", // nerve 10: a driver, not a battering ram — it would
                         // rather keep the line clean
@@ -399,16 +436,43 @@ export const CAR_TYPES = [
   },
 ];
 
-const TOTAL_WEIGHT = CAR_TYPES.reduce((sum, t) => sum + t.weight, 0);
+// Whether `type` is allowed on the road yet. `distance` is the RAW world
+// odometer (main.js), and `minDistance` is in readout units, so the conversion
+// lives here and nowhere else — a caller only ever passes what it already has.
+export function typeAvailable(type, distance) {
+  return distance >= (type.minDistance ?? 0) * DIST_UNITS;
+}
 
-// A random type, honouring `weight`.
-export function pickCarType() {
-  let roll = Math.random() * TOTAL_WEIGHT;
+// A random type the player has driven far enough to meet, honouring `weight`.
+//
+// The gate is applied by REWEIGHTING rather than by re-rolling until something
+// passes: the eligible types' weights are totalled fresh each call, so before
+// DIST 100 the five civilian types share the whole draw and the road is as busy
+// as it ever was. Rejection sampling would instead have thinned the traffic to
+// half strength for the opening run, which is the opposite of what a quiet start
+// should feel like.
+//
+// Returns null if NOTHING is available yet — only possible if every type is
+// given a gate, which the catalogue above deliberately does not do. Spawners
+// treat it the same as "no room this interval" and try again (traffic.js,
+// obstacles.js). The default of Infinity means a caller that doesn't care about
+// gating (tools, tests) gets the whole catalogue.
+export function pickCarType(distance = Infinity) {
+  let total = 0;
   for (const type of CAR_TYPES) {
+    if (typeAvailable(type, distance)) total += type.weight;
+  }
+  if (total <= 0) return null;
+
+  let roll = Math.random() * total;
+  let last = null;
+  for (const type of CAR_TYPES) {
+    if (!typeAvailable(type, distance)) continue;
+    last = type;
     roll -= type.weight;
     if (roll <= 0) return type;
   }
-  return CAR_TYPES[CAR_TYPES.length - 1];
+  return last; // float dust at the very top of the roll
 }
 
 export function carTypeById(id) {
