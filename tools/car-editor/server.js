@@ -195,6 +195,38 @@ async function handleCommit(req, res) {
   sendJson(res, 200, { branch: branchName, testsPassed: passed, testOutput: output });
 }
 
+async function handlePush(res) {
+  if (!pending) {
+    sendJson(res, 400, { error: "no tuning attempt is in flight" });
+    return;
+  }
+  const { branchName, originalBranch } = pending;
+  try {
+    await git.pushBranch(REPO_ROOT, branchName);
+  } catch (err) {
+    sendJson(res, 500, { error: err.message });
+    return; // pending stays set: branch and commit are untouched for a retry
+  }
+
+  const remote = await git.remoteUrl(REPO_ROOT);
+  const url = git.compareUrl(git.normalizeRemoteToHttps(remote), originalBranch, branchName);
+  await git.checkoutBranch(REPO_ROOT, originalBranch);
+  pending = null;
+  sendJson(res, 200, { url });
+}
+
+async function handleCancel(res) {
+  if (!pending) {
+    sendJson(res, 400, { error: "no tuning attempt is in flight" });
+    return;
+  }
+  const { branchName, originalBranch } = pending;
+  await git.checkoutBranch(REPO_ROOT, originalBranch);
+  await git.deleteBranch(REPO_ROOT, branchName);
+  pending = null;
+  sendJson(res, 200, { ok: true });
+}
+
 async function serveStatic(req, res) {
   const entry = STATIC_FILES[req.url];
   if (!entry) {
@@ -212,6 +244,8 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && req.url === "/api/state") return await handleState(res);
     if (req.method === "POST" && req.url === "/api/commit") return await handleCommit(req, res);
+    if (req.method === "POST" && req.url === "/api/push") return await handlePush(res);
+    if (req.method === "POST" && req.url === "/api/cancel") return await handleCancel(res);
     if (req.method === "GET") return await serveStatic(req, res);
     res.writeHead(405);
     res.end("Method not allowed");
