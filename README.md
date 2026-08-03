@@ -50,6 +50,17 @@ a sprite in `src/game/sprites.js`, then register a cell in `src/demo/gallery.js`
 Car types are the exception: the gallery walks the catalogue, so a new entry in
 `src/game/cartypes.js` shows up there on its own.
 
+### Enemy car editor
+
+A local tool for tuning the 5 enemy types' hull, speed, and driving-behavior
+knobs (`tools/car-editor/`) without hand-editing `cartypes.js`/`driving.js`.
+Double-click `tools/car-editor/edit.bat` (or run
+`node tools/car-editor/server.js`) and open the URL it prints. Every field
+shows its current value and a description of what it does; "Create Pull
+Request" patches the two source files on a fresh branch, runs the test suite
+before pushing, and opens GitHub's compare page so you finish the PR from
+there. Requires Git; does not require the GitHub CLI.
+
 ### Controls
 
 | Key | Action |
@@ -460,6 +471,9 @@ src/
   engine/           loop, input, neon draw helpers
   game/             player, road, traffic, weapons, ... (built per phase)
   audio/            wavesynth synth (later phase)
+tools/
+  drivesim.js       headless driving-profile measurement (see npm run sim)
+  car-editor/       browser UI for tuning enemy hull/speed/behavior — see below
 ```
 
 ## Development roadmap
