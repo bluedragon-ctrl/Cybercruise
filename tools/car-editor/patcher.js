@@ -47,6 +47,16 @@ export function patchCarType(sourceText, carId, changes) {
   if (objStart === -1) {
     throw new Error(`patchCarType: no opening '{' found before id "${carId}"`);
   }
+  // Guard against silently patching the wrong object: lastIndexOf only finds
+  // the entry's real opening brace if `id` is the first key. If a `}` sits
+  // between that brace and the `id:` line, what we found must actually be the
+  // closing brace of some earlier, already-closed object — meaning `id` is
+  // NOT the first key here and objStart points at the wrong block entirely.
+  if (sourceText.slice(objStart, idIndex).includes("}")) {
+    throw new Error(
+      `patchCarType: "id" is not the first key in the entry for "${carId}" — cannot safely locate its block`
+    );
+  }
   const objEnd = findMatchingBrace(sourceText, objStart);
 
   let block = sourceText.slice(objStart, objEnd + 1);

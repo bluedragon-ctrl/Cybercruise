@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { findMatchingBrace, patchCarType } from "../tools/car-editor/patcher.js";
 
 test("findMatchingBrace finds the matching closing brace", () => {
@@ -76,4 +77,39 @@ test("patchCarType throws for a field not present on the entry", () => {
     () => patchCarType(SAMPLE_CARTYPES, "sedan", { mass: 2 }),
     /field "mass" not found/
   );
+});
+
+// Fixture where `id` is NOT the first key: the field ahead of it is a string
+// that happens to contain a literal `}`, mimicking a prior, already-closed
+// object's closing brace bleeding into the text lastIndexOf scans back over.
+const SAMPLE_CARTYPES_BAD_ORDER = `export const CAR_TYPES = [
+  {
+    id: "closed",
+    health: 10,
+  },
+  {
+    note: "the previous entry closes with }",
+    id: "ghost",
+    health: 20,
+  },
+];
+`;
+
+test("patchCarType throws when id is not the first key in the entry", () => {
+  assert.throws(
+    () => patchCarType(SAMPLE_CARTYPES_BAD_ORDER, "ghost", { health: 30 }),
+    /"id" is not the first key/
+  );
+});
+
+test("patchCarType works against the real src/game/cartypes.js", () => {
+  const realSource = readFileSync(
+    new URL("../src/game/cartypes.js", import.meta.url),
+    "utf8"
+  );
+  const result = patchCarType(realSource, "interceptor", { health: 999 });
+  assert.match(result, /id: "interceptor",[\s\S]*?health: 999,/);
+  // The rest of the file must be untouched — same length delta as exactly
+  // one number changing from "70" to "999".
+  assert.equal(result.length - realSource.length, "999".length - "70".length);
 });
