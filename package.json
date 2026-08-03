@@ -5,7 +5,7 @@
   "type": "module",
   "description": "80s neon Spy Hunter-like car game. Zero dependencies; the game runs from index.html as native ES modules.",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
     "sim": "node tools/drivesim.js",
     "serve": "python -m http.server 5173"
   }
