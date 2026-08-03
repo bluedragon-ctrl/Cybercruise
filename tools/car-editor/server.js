@@ -15,7 +15,8 @@ import { patchCarType, patchDrivingProfile } from "./patcher.js";
 import * as git from "./git.js";
 import { carTypeById } from "../../src/game/cartypes.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, "../..");
 
 const CARTYPES_REL = "src/game/cartypes.js";
@@ -57,7 +58,14 @@ async function readBody(req) {
   return chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
 }
 
-function validateChanges(changes) {
+// Fields that must be strictly positive numbers, beyond just finite. Applied
+// after the generic finite-number check below, and also cross-checked as a
+// pair (speedMax >= speedMin) when a single request touches both — catching
+// nonsensical values like `health: -50` or an inverted speed range at the
+// boundary, rather than relying on downstream game-invariant tests to notice.
+const POSITIVE_FIELDS = new Set(["health", "speedMin", "speedMax"]);
+
+export function validateChanges(changes) {
   if (!changes || typeof changes !== "object" || Array.isArray(changes)) {
     throw new Error("body.changes must be an object");
   }
@@ -81,7 +89,19 @@ function validateChanges(changes) {
         }
       } else if (typeof value !== "number" || !Number.isFinite(value)) {
         throw new Error(`field "${field}" for "${carId}" must be a finite number, got ${JSON.stringify(value)}`);
+      } else if (POSITIVE_FIELDS.has(field) && value <= 0) {
+        throw new Error(`field "${field}" for "${carId}" must be a positive number, got ${JSON.stringify(value)}`);
       }
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(fields, "speedMin") &&
+      Object.prototype.hasOwnProperty.call(fields, "speedMax") &&
+      fields.speedMax < fields.speedMin
+    ) {
+      throw new Error(
+        `speedMax (${fields.speedMax}) must be >= speedMin (${fields.speedMin}) for "${carId}"`
+      );
     }
   }
 }
@@ -267,12 +287,20 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-execFile("git", ["--version"], (error) => {
-  if (error) {
-    console.error("git was not found on PATH. Install Git before running the car editor.");
-    process.exit(1);
-  }
-  server.listen(PORT, "127.0.0.1", () => {
-    console.log(`Car editor running at http://localhost:${PORT}`);
+// Only auto-start when run directly (`node tools/car-editor/server.js`, as
+// edit.bat does) — not when this module is imported (e.g. by tests that just
+// want validateChanges), which would otherwise bind a real socket and shell
+// out to git as a side effect of importing.
+const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === __filename;
+
+if (isMainModule) {
+  execFile("git", ["--version"], (error) => {
+    if (error) {
+      console.error("git was not found on PATH. Install Git before running the car editor.");
+      process.exit(1);
+    }
+    server.listen(PORT, "127.0.0.1", () => {
+      console.log(`Car editor running at http://localhost:${PORT}`);
+    });
   });
-});
+}

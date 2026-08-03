@@ -171,6 +171,32 @@ test("patchDrivingProfile works against the real src/game/driving.js", () => {
   assert.equal(result.length - realSource.length, "99".length - "12".length);
 });
 
+const SAMPLE_CARTYPES_NEGATIVE = `export const CAR_TYPES = [
+  {
+    id: "wreck",
+    health: -50,
+    speedMin: 200,
+    speedMax: 260,
+  },
+];
+`;
+
+test("patchCarType can find and replace a field whose current value is already negative", () => {
+  const result = patchCarType(SAMPLE_CARTYPES_NEGATIVE, "wreck", { health: 40 });
+  assert.match(result, /id: "wreck",\n {4}health: 40,/);
+});
+
+const SAMPLE_DRIVING_NEGATIVE = `export const DRIVING_PROFILES = {
+  commuter: profile(),
+  reckless: profile({ contact: -3 }),
+};
+`;
+
+test("patchDrivingProfile can find and replace a field whose current value is already negative", () => {
+  const result = patchDrivingProfile(SAMPLE_DRIVING_NEGATIVE, "reckless", { contact: 7 });
+  assert.match(result, /reckless: profile\(\{ contact: 7 \}\)/);
+});
+
 test("patchDrivingProfile inserts a field into a real single-line profile with no trailing comma", () => {
   // `enforcer: profile({ nerve: 16 }),` is a genuine single-line profile in
   // driving.js whose last (only) field has no trailing comma inside the

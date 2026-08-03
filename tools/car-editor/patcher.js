@@ -26,7 +26,7 @@ export function findMatchingBrace(text, openBraceIndex) {
 }
 
 function replaceNumericField(block, field, value) {
-  const re = new RegExp(`(\\b${field}:\\s*)[0-9.]+`);
+  const re = new RegExp(`(\\b${field}:\\s*)-?[0-9.]+`);
   if (!re.test(block)) return null;
   return block.replace(re, `$1${value}`);
 }
