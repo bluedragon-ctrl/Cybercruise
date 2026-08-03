@@ -71,6 +71,24 @@ function isOverridden(car, field) {
   return !car.behavior[field].inherited;
 }
 
+// Escapes text for safe interpolation into an innerHTML template string.
+// (showStatus() already uses textContent, which is safe by construction;
+// this is only needed for the showStatusHtml() call sites.)
+//
+// The textContent -> innerHTML round-trip only escapes &, < and > (the
+// characters that matter for plain text-node content); it leaves quote
+// characters untouched. That's fine for the call sites that land in plain
+// text (error messages, <pre>, <code>) but not for pushAttempt()'s success
+// message, which also interpolates data.url inside href="..." — a bare "
+// there would close the attribute early and let the rest of the string be
+// parsed as markup. Escaping quotes too makes this safe in both an
+// attribute-value context and a text-node context.
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = String(str);
+  return div.innerHTML.replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
 function currentValue(carId, field) {
   if (pendingChanges[carId] && field in pendingChanges[carId]) {
     return pendingChanges[carId][field];
@@ -247,11 +265,17 @@ async function pushAttempt() {
   const res = await fetch("/api/push", { method: "POST" });
   const data = await res.json();
   if (!res.ok) {
-    showStatus(`Push failed: ${data.error}`, "error");
+    showStatusHtml(
+      `Push failed: ${escapeHtml(data.error)}<br>` +
+        `<button id="cancel-btn">Cancel</button> <button id="retry-push-btn">Retry push</button>`,
+      "error"
+    );
+    document.getElementById("cancel-btn").addEventListener("click", cancelAttempt);
+    document.getElementById("retry-push-btn").addEventListener("click", pushAttempt);
     return;
   }
   showStatusHtml(
-    `Pushed. Opening the pull request page: <a href="${data.url}" target="_blank" rel="noopener">${data.url}</a>`,
+    `Pushed. Opening the pull request page: <a href="${escapeHtml(data.url)}" target="_blank" rel="noopener">${escapeHtml(data.url)}</a>`,
     "success"
   );
   window.open(data.url, "_blank", "noopener");
@@ -289,7 +313,7 @@ async function createPullRequest() {
 
   if (!commitData.testsPassed) {
     showStatusHtml(
-      `Tests failed on branch <code>${commitData.branch}</code>:<pre>${commitData.testOutput}</pre>` +
+      `Tests failed on branch <code>${escapeHtml(commitData.branch)}</code>:<pre>${escapeHtml(commitData.testOutput)}</pre>` +
         `<button id="cancel-btn">Cancel</button> <button id="push-anyway-btn">Push anyway</button>`,
       "error"
     );
