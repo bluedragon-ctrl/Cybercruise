@@ -66,7 +66,7 @@ execFile("git", ["--version"], (error) => {
     console.error("git was not found on PATH. Install Git before running the car editor.");
     process.exit(1);
   }
-  server.listen(PORT, () => {
+  server.listen(PORT, "127.0.0.1", () => {
     console.log(`Car editor running at http://localhost:${PORT}`);
   });
 });
