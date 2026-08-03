@@ -184,6 +184,23 @@ function noteFor(car, field) {
   return car.behavior[field].inherited ? "new override" : "changed";
 }
 
+// pendingChanges can accumulate no-op entries — a field the user changed and
+// then changed back to its original value. renderReview() already filters
+// these out of the diff table; this does the same filtering for what
+// actually gets sent to the server, using the identical comparison.
+function realChanges() {
+  const result = {};
+  for (const [carId, fields] of Object.entries(pendingChanges)) {
+    const car = cars.find((c) => c.id === carId);
+    for (const [field, value] of Object.entries(fields)) {
+      if (fieldValue(car, field) === value) continue;
+      result[carId] ??= {};
+      result[carId][field] = value;
+    }
+  }
+  return result;
+}
+
 function renderReview() {
   const section = document.getElementById("review");
   const tbody = document.querySelector("#review-table tbody");
@@ -211,7 +228,81 @@ function renderReview() {
   document.getElementById("create-pr").disabled = !hasChanges;
 }
 
+function showStatus(text, kind) {
+  const status = document.getElementById("status");
+  status.hidden = false;
+  status.className = kind;
+  status.textContent = text;
+}
+
+function showStatusHtml(html, kind) {
+  const status = document.getElementById("status");
+  status.hidden = false;
+  status.className = kind;
+  status.innerHTML = html;
+}
+
+async function pushAttempt() {
+  showStatus("Pushing branch…", "");
+  const res = await fetch("/api/push", { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) {
+    showStatus(`Push failed: ${data.error}`, "error");
+    return;
+  }
+  showStatusHtml(
+    `Pushed. Opening the pull request page: <a href="${data.url}" target="_blank" rel="noopener">${data.url}</a>`,
+    "success"
+  );
+  window.open(data.url, "_blank", "noopener");
+  for (const key of Object.keys(pendingChanges)) delete pendingChanges[key];
+}
+
+async function cancelAttempt() {
+  showStatus("Cancelling…", "");
+  const res = await fetch("/api/cancel", { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) {
+    showStatus(`Cancel failed: ${data.error}`, "error");
+    return;
+  }
+  showStatus("Cancelled. Your working tree is back to normal.", "success");
+  document.getElementById("create-pr").disabled = false;
+}
+
+async function createPullRequest() {
+  document.getElementById("create-pr").disabled = true;
+  showStatus("Committing and running tests…", "");
+
+  const commitRes = await fetch("/api/commit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ changes: realChanges() }),
+  });
+  const commitData = await commitRes.json();
+
+  if (!commitRes.ok) {
+    showStatus(`Could not start: ${commitData.error}`, "error");
+    document.getElementById("create-pr").disabled = false;
+    return;
+  }
+
+  if (!commitData.testsPassed) {
+    showStatusHtml(
+      `Tests failed on branch <code>${commitData.branch}</code>:<pre>${commitData.testOutput}</pre>` +
+        `<button id="cancel-btn">Cancel</button> <button id="push-anyway-btn">Push anyway</button>`,
+      "error"
+    );
+    document.getElementById("cancel-btn").addEventListener("click", cancelAttempt);
+    document.getElementById("push-anyway-btn").addEventListener("click", pushAttempt);
+    return;
+  }
+
+  await pushAttempt();
+}
+
 document.getElementById("review-button").addEventListener("click", renderReview);
+document.getElementById("create-pr").addEventListener("click", createPullRequest);
 
 await loadState();
 renderCarList();
