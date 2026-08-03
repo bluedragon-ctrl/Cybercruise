@@ -178,9 +178,13 @@ async function handleCommit(req, res) {
     try {
       await git.checkoutBranch(REPO_ROOT, originalBranch);
       await git.deleteBranch(REPO_ROOT, branchName);
-    } catch {
+    } catch (cleanupErr) {
       // Best-effort cleanup; if even this fails, the branch is left for the
       // user to sort out manually rather than masking the original error.
+      // Logged (not surfaced in the response) so it isn't a silent leak of
+      // partial state — the user finds out from the console, not by
+      // stumbling on `car-editor-*` cruft in `git branch` later.
+      console.error(`cleanup after commit failure also failed on branch "${branchName}":`, cleanupErr);
     }
     sendJson(res, 500, { error: err.message });
     return;
