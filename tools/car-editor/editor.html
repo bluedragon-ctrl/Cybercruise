@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Cybercruise — Enemy Car Editor</title>
+  <link rel="stylesheet" href="/editor.css" />
+</head>
+<body>
+  <header>
+    <h1>Enemy Car Editor</h1>
+    <p class="subtitle">Tune hull, speed and driving behavior for the enemy roster, then open a pull request.</p>
+  </header>
+
+  <main>
+    <nav id="car-list" aria-label="Enemy cars"></nav>
+
+    <div>
+      <section id="car-form" hidden>
+        <h2 id="car-form-title"></h2>
+
+        <fieldset>
+          <legend>Hull</legend>
+          <div id="hull-fields"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Speed</legend>
+          <div id="speed-fields"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Behavior</legend>
+          <div id="behavior-fields"></div>
+        </fieldset>
+      </section>
+
+      <button id="review-button">Review changes</button>
+
+      <section id="review" hidden>
+        <h2>Review changes</h2>
+        <table id="review-table">
+          <thead>
+            <tr><th>Car</th><th>Field</th><th>Before</th><th>After</th><th>Note</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <button id="create-pr">Create Pull Request</button>
+      </section>
+
+      <section id="status" hidden></section>
+    </div>
+  </main>
+
+  <script type="module" src="/editor.js"></script>
+</body>
+</html>

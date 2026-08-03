@@ -1,0 +1,152 @@
+:root {
+  --bg: #0b0d14;
+  --panel: #131726;
+  --text: #d8e2ff;
+  --muted: #7c88b8;
+  --accent: #35e6c2;
+  --accent-dim: #1c8f79;
+  --danger: #ff5470;
+  --border: #232a44;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  padding: 1.5rem 2rem 0.5rem;
+}
+
+h1 {
+  margin: 0;
+  color: var(--accent);
+  text-shadow: 0 0 8px var(--accent-dim);
+}
+
+.subtitle {
+  color: var(--muted);
+  margin: 0.25rem 0 0;
+}
+
+main {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 1.5rem;
+  padding: 1.5rem 2rem;
+}
+
+#car-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+#car-list button {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.6rem 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+#car-list button.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+legend {
+  color: var(--accent);
+  padding: 0 0.4rem;
+}
+
+.field {
+  margin-bottom: 0.9rem;
+}
+
+.field label {
+  display: block;
+  font-weight: 600;
+}
+
+.field input,
+.field select {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  width: 140px;
+}
+
+.field .description {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 0.2rem;
+  max-width: 46rem;
+}
+
+.field .override-tag {
+  color: var(--accent);
+  font-size: 0.75rem;
+  margin-left: 0.5rem;
+  font-weight: normal;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+th, td {
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+}
+
+button {
+  font: inherit;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+#status.error {
+  color: var(--danger);
+}
+
+#status.success {
+  color: var(--accent);
+}
+
+pre {
+  white-space: pre-wrap;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  padding: 0.75rem;
+  border-radius: 6px;
+  max-height: 20rem;
+  overflow: auto;
+}
