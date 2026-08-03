@@ -221,8 +221,20 @@ async function handleCancel(res) {
     return;
   }
   const { branchName, originalBranch } = pending;
-  await git.checkoutBranch(REPO_ROOT, originalBranch);
-  await git.deleteBranch(REPO_ROOT, branchName);
+  try {
+    await git.checkoutBranch(REPO_ROOT, originalBranch);
+    await git.deleteBranch(REPO_ROOT, branchName);
+  } catch (err) {
+    // Clear the lock even on failure: leaving `pending` set here would wedge
+    // every future /api/commit (409) and /api/cancel (this same failure)
+    // behind a stuck lock with no in-app way to clear it — the only escape
+    // would be restarting the server. Logging (not the response) is where
+    // the "something's off, go check `git status`" signal belongs.
+    pending = null;
+    console.error(`cancel failed to clean up branch "${branchName}":`, err);
+    sendJson(res, 500, { error: err.message });
+    return;
+  }
   pending = null;
   sendJson(res, 200, { ok: true });
 }
