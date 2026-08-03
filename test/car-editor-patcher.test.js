@@ -153,3 +153,15 @@ test("patchDrivingProfile throws for an unknown profile name", () => {
     /no "ghost: profile\(\{" found/
   );
 });
+
+test("patchDrivingProfile works against the real src/game/driving.js", () => {
+  const realSource = readFileSync(
+    new URL("../src/game/driving.js", import.meta.url),
+    "utf8"
+  );
+  const result = patchDrivingProfile(realSource, "pursuer", { nerve: 99 });
+  assert.match(result, /pursuer: profile\(\{ nerve: 99 \}\)/);
+  // The rest of the file must be untouched — same length delta as exactly
+  // one number changing from "12" to "99".
+  assert.equal(result.length - realSource.length, "99".length - "12".length);
+});
