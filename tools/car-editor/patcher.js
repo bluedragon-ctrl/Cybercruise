@@ -72,3 +72,43 @@ export function patchCarType(sourceText, carId, changes) {
 
   return sourceText.slice(0, objStart) + block + sourceText.slice(objEnd + 1);
 }
+
+function replaceStringField(block, field, value) {
+  const re = new RegExp(`(\\b${field}:\\s*)"[^"]*"`);
+  if (!re.test(block)) return null;
+  return block.replace(re, `$1"${value}"`);
+}
+
+const STRING_FIELDS = new Set(["laneHome"]);
+const INSERT_INDENT = "    ";
+
+// Patches (or adds — see Task 4) fields on the driving profile named
+// `profileName` — the argument object of `<profileName>: profile({ ... })`
+// in driving.js.
+export function patchDrivingProfile(sourceText, profileName, changes) {
+  const marker = `${profileName}: profile({`;
+  const markerIndex = sourceText.indexOf(marker);
+  if (markerIndex === -1) {
+    throw new Error(`patchDrivingProfile: no "${profileName}: profile({" found`);
+  }
+
+  const objStart = markerIndex + marker.length - 1; // index of the '{'
+  const objEnd = findMatchingBrace(sourceText, objStart);
+
+  let inner = sourceText.slice(objStart + 1, objEnd);
+  for (const [field, value] of Object.entries(changes)) {
+    const isString = STRING_FIELDS.has(field);
+    const patched = isString
+      ? replaceStringField(inner, field, value)
+      : replaceNumericField(inner, field, value);
+
+    if (patched === null) {
+      throw new Error(
+        `patchDrivingProfile: field "${field}" not found on profile "${profileName}" (insertion lands in Task 4)`
+      );
+    }
+    inner = patched;
+  }
+
+  return sourceText.slice(0, objStart + 1) + inner + sourceText.slice(objEnd);
+}

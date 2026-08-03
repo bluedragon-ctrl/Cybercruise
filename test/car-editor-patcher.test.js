@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { findMatchingBrace, patchCarType } from "../tools/car-editor/patcher.js";
+import {
+  findMatchingBrace,
+  patchCarType,
+  patchDrivingProfile,
+} from "../tools/car-editor/patcher.js";
 
 test("findMatchingBrace finds the matching closing brace", () => {
   const text = "before { inner } after";
@@ -114,4 +118,38 @@ test("patchCarType works against the real src/game/cartypes.js", () => {
   // The rest of the file must be untouched — same length delta as exactly
   // one number changing from "70" to "999".
   assert.equal(result.length - realSource.length, "999".length - "70".length);
+});
+
+const SAMPLE_DRIVING = `export const DRIVING_PROFILES = {
+  commuter: profile(),
+  pursuer: profile({ nerve: 12 }),
+  hustler: profile({
+    laneDiscipline: 0.3,
+    laneHome: "inner",
+    contact: 6,
+  }),
+};
+`;
+
+test("patchDrivingProfile replaces an existing single-line field", () => {
+  const result = patchDrivingProfile(SAMPLE_DRIVING, "pursuer", { nerve: 18 });
+  assert.match(result, /pursuer: profile\(\{ nerve: 18 \}\)/);
+});
+
+test("patchDrivingProfile replaces an existing multi-line field", () => {
+  const result = patchDrivingProfile(SAMPLE_DRIVING, "hustler", { contact: 4 });
+  assert.match(result, /contact: 4,\n {2}\}\)/);
+  assert.match(result, /laneDiscipline: 0.3,/); // untouched
+});
+
+test("patchDrivingProfile replaces a string-valued field", () => {
+  const result = patchDrivingProfile(SAMPLE_DRIVING, "hustler", { laneHome: "outer" });
+  assert.match(result, /laneHome: "outer",/);
+});
+
+test("patchDrivingProfile throws for an unknown profile name", () => {
+  assert.throws(
+    () => patchDrivingProfile(SAMPLE_DRIVING, "ghost", { nerve: 1 }),
+    /no "ghost: profile\(\{" found/
+  );
 });
