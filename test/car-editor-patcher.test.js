@@ -17,3 +17,14 @@ test("findMatchingBrace throws when index is not an opening brace", () => {
 test("findMatchingBrace throws when there is no matching brace", () => {
   assert.throws(() => findMatchingBrace("{ never closes", 0), /no matching/);
 });
+
+test("findMatchingBrace handles nested braces", () => {
+  const text = "before { outer { inner } still outer } after";
+  const openIndex = text.indexOf("{");
+  const closeIndex = findMatchingBrace(text, openIndex);
+  assert.equal(text[closeIndex], "}");
+  assert.equal(
+    text.slice(openIndex, closeIndex + 1),
+    "{ outer { inner } still outer }"
+  );
+});
