@@ -102,12 +102,15 @@ export function patchDrivingProfile(sourceText, profileName, changes) {
       ? replaceStringField(inner, field, value)
       : replaceNumericField(inner, field, value);
 
-    if (patched === null) {
-      throw new Error(
-        `patchDrivingProfile: field "${field}" not found on profile "${profileName}" (insertion lands in Task 4)`
-      );
+    if (patched !== null) {
+      inner = patched;
+    } else {
+      // Not overridden yet — append a new line just before the closing
+      // brace instead of touching whatever line happens to be last, so the
+      // diff reads as a pure addition.
+      const literal = isString ? `"${value}"` : `${value}`;
+      inner = inner.replace(/\s+$/, "") + `\n${INSERT_INDENT}${field}: ${literal},\n  `;
     }
-    inner = patched;
   }
 
   return sourceText.slice(0, objStart + 1) + inner + sourceText.slice(objEnd);
