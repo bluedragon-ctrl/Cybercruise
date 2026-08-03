@@ -174,7 +174,44 @@ function renderForm() {
   }
 }
 
-document.getElementById("review-button").addEventListener("click", () => {}); // wired in Task 14
+// Behavior fields flag whether this edit ADDS a new override to the car's
+// profile (it currently inherits the commuter default) or CHANGES an
+// override that was already there. Hull/speed fields are always plain
+// changes — cartypes.js sets them on every entry, so there's no "inherited"
+// state for the note to describe.
+function noteFor(car, field) {
+  if (field in car.hull || field in car.speed) return "";
+  return car.behavior[field].inherited ? "new override" : "changed";
+}
+
+function renderReview() {
+  const section = document.getElementById("review");
+  const tbody = document.querySelector("#review-table tbody");
+  tbody.innerHTML = "";
+
+  let hasChanges = false;
+  for (const [carId, fields] of Object.entries(pendingChanges)) {
+    const car = cars.find((c) => c.id === carId);
+    for (const [field, value] of Object.entries(fields)) {
+      const before = fieldValue(car, field);
+      if (before === value) continue;
+      hasChanges = true;
+      const row = document.createElement("tr");
+      const cells = [car.label, field, String(before), String(value), noteFor(car, field)];
+      for (const text of cells) {
+        const td = document.createElement("td");
+        td.textContent = text;
+        row.appendChild(td);
+      }
+      tbody.appendChild(row);
+    }
+  }
+
+  section.hidden = false;
+  document.getElementById("create-pr").disabled = !hasChanges;
+}
+
+document.getElementById("review-button").addEventListener("click", renderReview);
 
 await loadState();
 renderCarList();
