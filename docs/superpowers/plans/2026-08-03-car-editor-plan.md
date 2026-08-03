@@ -897,7 +897,12 @@ function commitMessage(changes) {
 
 function runTests() {
   return new Promise((resolve) => {
-    execFile("node", ["--test", "test/"], { cwd: REPO_ROOT }, (error, stdout, stderr) => {
+    // NOTE: `node --test test/` (a bare directory arg, matching package.json's
+    // own "test" script) fails with MODULE_NOT_FOUND on this machine's
+    // Node v24.14.0 — reproduced even outside this repo, so it's a Node/npm
+    // compatibility issue, not something introduced here. The glob form
+    // below is what actually works and is otherwise equivalent.
+    execFile("node", ["--test", "test/*.test.js"], { cwd: REPO_ROOT }, (error, stdout, stderr) => {
       resolve({ passed: !error, output: `${stdout}\n${stderr}` });
     });
   });
@@ -1899,8 +1904,10 @@ git commit -m "Document the enemy car editor in the README"
 
 - [ ] **Step 1: Run the full automated test suite**
 
-Run: `npm test`
+Run: `node --test test/*.test.js`
 Expected: all tests pass, including the new `test/car-editor-*.test.js` files alongside the existing `test/invariants.test.js`.
+
+(Not `npm test` — that script runs `node --test test/`, a bare directory argument which fails with `MODULE_NOT_FOUND` on this machine's Node v24.14.0. Reproduced outside this repo too, so it's a pre-existing Node/npm compatibility issue, not something this plan introduced. Worth fixing `package.json`'s script separately; out of scope here.)
 
 - [ ] **Step 2: Full manual walkthrough, ending just short of a real push**
 
