@@ -37,8 +37,8 @@
 
 // How far the road centre may sit from the canvas centre, in px. Also the
 // offset it holds on a straight, since straights are exactly where the curve is
-// pinned to its limit. On a 600px canvas with ROAD_HALF_WIDTH = 130 this leaves
-// at least 600/2 - 60 - 130 = 110px of roadside on the tight side. Raising it
+// pinned to its limit. On a 600px canvas with ROAD_HALF_WIDTH = 143 this leaves
+// at least 600/2 - 60 - 143 = 97px of roadside on the tight side. Raising it
 // steepens every turn in proportion.
 export const ROAD_AMPLITUDE = 60;
 

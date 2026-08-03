@@ -89,7 +89,7 @@ const SPAWN_INTERVAL = 2.2;   // seconds between spawn attempts — rarer than t
 // A hazard has to appear BEYOND EVERY LIVE CAR, with enough road left over for
 // the worst dodger in the catalogue to get out of the way. Traffic is simulated
 // out to traffic.js's RETIRE_MARGIN past the player, and the slowest-steering
-// type (the rig, at 35px/sec) needs about 1040 units to cross two lanes at
+// type (the rig, at 35px/sec) needs about 1142 units to cross two lanes at
 // cruising speed — so anything less than their sum drops hazards into the
 // middle of the traffic field, where the cars nearest the spawn point are given
 // a few dozen units of warning and cannot possibly use it.
@@ -100,7 +100,7 @@ const SPAWN_INTERVAL = 2.2;   // seconds between spawn attempts — rarer than t
 //
 // Exported and asserted in test/invariants.test.js, since the relation is
 // between three numbers in three different files.
-export const SPAWN_MARGIN = 1400; // world units past the player an obstacle appears at
+export const SPAWN_MARGIN = 1500; // world units past the player an obstacle appears at
 const RETIRE_MARGIN = 220;    // how far behind the player before it's dropped
 const DRAW_MARGIN = 140;      // px past the screen edge still worth blitting. Kept
                               // separate from SPAWN_MARGIN: a hazard spawns most of

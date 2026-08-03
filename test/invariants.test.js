@@ -1562,16 +1562,17 @@ test("a spawn never closes the road, whatever the placement asks for", () => {
   const obstacles = new Obstacles(new Explosions());
   const mine = obstacleTypeById("caltrop");
   const [mineW] = OBSTACLE_SHAPES[mine.shape].size;
+  const widest = Math.max(...CAR_TYPES.map((t) => t.w));
 
-  // Park a mine on every lane centre by hand. Between them they leave gaps of
-  // LANE_WIDTH - mineW = 39px, which no car in the catalogue fits through.
-  for (let i = 0; i < LANE_COUNT; i++) {
+  // Park mines wall-to-wall across the whole road, spaced so every gap between
+  // them is narrower than the widest car in the catalogue — a fixture that
+  // blocks the road by construction, independent of LANE_WIDTH/ROAD_HALF_WIDTH.
+  const step = mineW + widest - 1;
+  for (let offset = -ROAD_HALF_WIDTH + mineW / 2; offset - mineW / 2 < ROAD_HALF_WIDTH; offset += step) {
     obstacles.list.push({
-      alive: true, laid: false, worldY: 1000, offset: laneOffset(i), w: mineW, h: 26,
+      alive: true, laid: false, worldY: 1000, offset, w: mineW, h: 26,
     });
   }
-  const widest = Math.max(...CAR_TYPES.map((t) => t.w));
-  assert.ok(LANE_WIDTH - mineW < widest, "this fixture no longer blocks the road");
 
   for (const type of OBSTACLE_TYPES) {
     assert.equal(
