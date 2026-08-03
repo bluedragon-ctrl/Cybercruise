@@ -80,8 +80,10 @@ test("patchCarType throws for a field not present on the entry", () => {
 });
 
 // Fixture where `id` is NOT the first key: the field ahead of it is a string
-// that happens to contain a literal `}`, mimicking a prior, already-closed
-// object's closing brace bleeding into the text lastIndexOf scans back over.
+// that happens to contain a literal `}`. lastIndexOf still finds this entry's
+// own (correct) opening brace, but that stray `}` sitting between the brace
+// and "id:" is exactly the guard's trip condition — a real nested value would
+// leave the same signature, so this is a cheap stand-in for one.
 const SAMPLE_CARTYPES_BAD_ORDER = `export const CAR_TYPES = [
   {
     id: "closed",
