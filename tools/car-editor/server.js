@@ -28,6 +28,7 @@ const DRIVING_PATH = path.join(REPO_ROOT, DRIVING_REL);
 // so module-level state is enough; no session/locking machinery needed.
 let pending = null; // { branchName, originalBranch }
 
+// 5174 is duplicated in edit.bat's own no-arg default — keep both in sync.
 const PORT = Number(process.env.PORT ?? 5174);
 
 const STATIC_FILES = {

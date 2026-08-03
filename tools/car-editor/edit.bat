@@ -16,6 +16,7 @@ cd /d "%~dp0"
 if /i "%~1"=="--open" goto wait_and_open
 
 set PORT=%~1
+REM 5174 is duplicated in server.js's own no-arg default -- keep both in sync.
 if "%PORT%"=="" set PORT=5174
 
 where node >nul 2>nul
