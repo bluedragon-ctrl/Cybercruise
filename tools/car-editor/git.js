@@ -12,6 +12,8 @@ export function timestampBranchName(date = new Date()) {
   return `car-editor-${stamp}`;
 }
 
+// Only recognizes the SCP-like `git@host:owner/repo` SSH form, not the
+// `ssh://git@host/owner/repo` form (falls through unchanged for the latter).
 export function normalizeRemoteToHttps(remote) {
   const sshMatch = remote.match(/^git@([^:]+):(.+?)(\.git)?$/);
   if (sshMatch) {

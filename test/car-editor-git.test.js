@@ -19,6 +19,13 @@ test("normalizeRemoteToHttps passes an https remote through, minus .git", () => 
   );
 });
 
+test("normalizeRemoteToHttps passes an https remote through unchanged when it has no .git suffix", () => {
+  assert.equal(
+    normalizeRemoteToHttps("https://github.com/bluedragon-ctrl/Cybercruise"),
+    "https://github.com/bluedragon-ctrl/Cybercruise"
+  );
+});
+
 test("normalizeRemoteToHttps converts an ssh remote to https", () => {
   assert.equal(
     normalizeRemoteToHttps("git@github.com:bluedragon-ctrl/Cybercruise.git"),
