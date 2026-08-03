@@ -1,0 +1,71 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  buildCarState,
+  buildAllCarState,
+  ENEMY_IDS,
+  BEHAVIOR_FIELDS,
+  HULL_SPEED_FIELDS,
+} from "../tools/car-editor/state.js";
+
+test("buildAllCarState returns exactly the 5 enemy types", () => {
+  const all = buildAllCarState();
+  assert.deepEqual(
+    all.map((c) => c.id).sort(),
+    [...ENEMY_IDS].sort()
+  );
+});
+
+test("buildCarState returns hull, speed and every behavior field", () => {
+  const state = buildCarState("interceptor");
+  assert.equal(typeof state.hull.health, "number");
+  assert.equal(typeof state.speed.speedMin, "number");
+  assert.equal(typeof state.speed.speedMax, "number");
+  for (const field of BEHAVIOR_FIELDS) {
+    assert.ok(field in state.behavior, `missing behavior field ${field}`);
+    assert.equal(typeof state.behavior[field].inherited, "boolean");
+  }
+});
+
+test("laneHome is always one of the three known lane preferences", () => {
+  for (const id of ENEMY_IDS) {
+    const state = buildCarState(id);
+    assert.ok(["any", "inner", "outer"].includes(state.behavior.laneHome.value));
+  }
+});
+
+test("nerve is not flagged as inherited for any enemy type, except the cycle's coincidental default", () => {
+  // Every enemy profile explicitly sets its own nerve figure (see driving.js's
+  // "Hostile dispositions" section) — this is the field where the roster is
+  // least likely to accidentally read as bland defaults.
+  //
+  // The one exception is the cycle: its "darter" profile explicitly writes
+  // `nerve: 0`, which happens to be the same figure the commuter default
+  // already uses (COMMUTER.nerve = 0 in driving.js). buildCarState's
+  // "inherited" flag is a value-based approximation of "not explicitly
+  // overridden" (see state.js's header comment) — it cannot see that the
+  // source spells the value out, only that it matches the default — so it
+  // reports the cycle's nerve as inherited even though driving.js states it
+  // explicitly. That's the documented, accepted limitation of the approach,
+  // not a bug: the cycle really does dodge every hazard, same as a bland
+  // commuter, so the value is correct even if the "(overridden)" cosmetic
+  // tag would be missing in the UI.
+  for (const id of ENEMY_IDS) {
+    const state = buildCarState(id);
+    const expected = id === "cycle" ? true : false;
+    assert.equal(
+      state.behavior.nerve.inherited,
+      expected,
+      `${id}.nerve inherited flag should be ${expected}`
+    );
+  }
+});
+
+test("buildCarState throws for a car id outside the enemy roster", () => {
+  assert.throws(() => buildCarState("sedan"), /unknown car id "sedan"/);
+});
+
+test("HULL_SPEED_FIELDS and BEHAVIOR_FIELDS don't overlap", () => {
+  const overlap = HULL_SPEED_FIELDS.filter((f) => BEHAVIOR_FIELDS.includes(f));
+  assert.deepEqual(overlap, []);
+});
