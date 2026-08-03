@@ -149,7 +149,7 @@ test("patchDrivingProfile replaces a string-valued field", () => {
 
 test("patchDrivingProfile inserts a field the profile doesn't override yet", () => {
   const result = patchDrivingProfile(SAMPLE_DRIVING, "pursuer", { contact: 5 });
-  assert.match(result, /pursuer: profile\(\{ nerve: 12\n {4}contact: 5,\n {2}\}\)/);
+  assert.match(result, /pursuer: profile\(\{ nerve: 12,\n {4}contact: 5,\n {2}\}\)/);
 });
 
 test("patchDrivingProfile throws for an unknown profile name", () => {

@@ -345,7 +345,7 @@ Append to `test/car-editor-patcher.test.js`:
 ```js
 test("patchDrivingProfile inserts a field the profile doesn't override yet", () => {
   const result = patchDrivingProfile(SAMPLE_DRIVING, "pursuer", { contact: 5 });
-  assert.match(result, /pursuer: profile\(\{ nerve: 12\n {4}contact: 5,\n {2}\}\)/);
+  assert.match(result, /pursuer: profile\(\{ nerve: 12,\n {4}contact: 5,\n {2}\}\)/);
 });
 ```
 
@@ -371,9 +371,15 @@ In `tools/car-editor/patcher.js`, replace the loop body inside `patchDrivingProf
     } else {
       // Not overridden yet — append a new line just before the closing
       // brace instead of touching whatever line happens to be last, so the
-      // diff reads as a pure addition.
+      // diff reads as a pure addition. Single-line profiles like
+      // `profile({ nerve: 12 })` have no trailing comma on their last field
+      // (multi-line ones always do), so one has to be added here or the
+      // insertion produces invalid JS — caught by trying this against real
+      // profiles in driving.js during Task 4's implementation.
       const literal = isString ? `"${value}"` : `${value}`;
-      inner = inner.replace(/\s+$/, "") + `\n${INSERT_INDENT}${field}: ${literal},\n  `;
+      let trimmed = inner.replace(/\s+$/, "");
+      if (trimmed.length > 0 && !trimmed.endsWith(",")) trimmed += ",";
+      inner = trimmed + `\n${INSERT_INDENT}${field}: ${literal},\n  `;
     }
   }
 ```

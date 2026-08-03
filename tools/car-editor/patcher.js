@@ -107,9 +107,14 @@ export function patchDrivingProfile(sourceText, profileName, changes) {
     } else {
       // Not overridden yet — append a new line just before the closing
       // brace instead of touching whatever line happens to be last, so the
-      // diff reads as a pure addition.
+      // diff reads as a pure addition. Single-line profiles like
+      // `profile({ nerve: 12 })` have no trailing comma on their last field
+      // (multi-line ones always do), so one has to be added here or the
+      // insertion produces invalid JS.
       const literal = isString ? `"${value}"` : `${value}`;
-      inner = inner.replace(/\s+$/, "") + `\n${INSERT_INDENT}${field}: ${literal},\n  `;
+      let trimmed = inner.replace(/\s+$/, "");
+      if (trimmed.length > 0 && !trimmed.endsWith(",")) trimmed += ",";
+      inner = trimmed + `\n${INSERT_INDENT}${field}: ${literal},\n  `;
     }
   }
 
