@@ -70,9 +70,16 @@ function validateChanges(changes) {
     if (!fields || typeof fields !== "object" || Object.keys(fields).length === 0) {
       throw new Error(`changes for "${carId}" must be a non-empty object`);
     }
-    for (const field of Object.keys(fields)) {
+    for (const [field, value] of Object.entries(fields)) {
       if (!HULL_SPEED_FIELDS.includes(field) && !BEHAVIOR_FIELDS.includes(field)) {
         throw new Error(`unknown field "${field}" for "${carId}"`);
+      }
+      if (field === "laneHome") {
+        if (!["any", "inner", "outer"].includes(value)) {
+          throw new Error(`invalid laneHome value for "${carId}": ${JSON.stringify(value)}`);
+        }
+      } else if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new Error(`field "${field}" for "${carId}" must be a finite number, got ${JSON.stringify(value)}`);
       }
     }
   }
