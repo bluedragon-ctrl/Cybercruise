@@ -34,8 +34,8 @@ const STEER_SPEED = 260; // horizontal px/sec at full lock
 const STEER_ACCEL = 900; // px/sec² while a steering key is held
 const STEER_RELEASE = 2600; // px/sec² while returning to centre (or reversing)
 
-const MAX_HEALTH = 100;
-const WALL_DAMAGE = 6; // health lost per wall-scrape tick
+const MAX_HEALTH = 200;
+const WALL_DAMAGE = 3; // health lost per wall-scrape tick
 const WALL_DAMAGE_INTERVAL = 0.25; // seconds between scrape ticks (rate-limits damage)
 const WALL_SPEED_SCRUB = 0.985; // per-tick speed multiplier while grinding a barrier
 
