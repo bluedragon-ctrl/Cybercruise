@@ -31,6 +31,10 @@ export function compareUrl(httpsRemote, base, branch) {
   return `${httpsRemote}/compare/${encodeURIComponent(base)}...${encodeURIComponent(branch)}?expand=1`;
 }
 
+// cwd trails args here, matching execFile's own (cmd, args, options) shape;
+// the wrappers below lead with cwd since it's their routing parameter. Callers
+// are expected to catch/handle rejections (e.g. git missing, not a repo, a
+// failed subcommand) — nothing here wraps or swallows them.
 export async function run(args, cwd) {
   const { stdout } = await execFileAsync("git", args, { cwd });
   return stdout.trim();
