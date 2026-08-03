@@ -38,7 +38,7 @@ import {
 // twice this wide. Deliberately kept well under the 600px canvas width so the
 // road never fills the screen — turns leave wide roadside space on both sides
 // for Phase 2 buildings/scenery.
-export const ROAD_HALF_WIDTH = 130;
+export const ROAD_HALF_WIDTH = 143; // 130 * 1.1 — 10% wider than the original road
 
 // World units per unit of the DIST readout. The simulation counts raw world
 // units — roughly a pixel each — which reaches five figures inside a minute and
@@ -110,8 +110,8 @@ function wanderSlope(worldY) {
 
 // How far the road centre sits left/right of the canvas centre, in px, at a
 // given world distance. Range ±ROAD_AMPLITUDE (60), which on a 600px canvas puts
-// the centre in [240, 360] and the barriers (ROAD_HALF_WIDTH = 130) in [110, 490]
-// — at least 110px of roadside on the tight side, and ~170px when centred.
+// the centre in [240, 360] and the barriers (ROAD_HALF_WIDTH = 143) in [97, 503]
+// — at least 97px of roadside on the tight side, and ~157px when centred.
 export function centerOffset(worldY) {
   const driven = ROAD_STRAIGHTNESS * wander(worldY);
   const clipped = driven < -1 ? -1 : driven > 1 ? 1 : driven;
