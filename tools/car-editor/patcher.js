@@ -25,8 +25,13 @@ export function findMatchingBrace(text, openBraceIndex) {
   );
 }
 
+// Matches either a numeric literal or a bare identifier as the field's
+// current value — several CAR_TYPES entries (e.g. interceptor's
+// `minDistance: ENEMY_MIN_DISTANCE`) share a constant instead of spelling out
+// a literal, and patching one entry should decouple just that entry into its
+// own literal rather than failing to find a "numeric" value to replace.
 function replaceNumericField(block, field, value) {
-  const re = new RegExp(`(\\b${field}:\\s*)-?[0-9.]+`);
+  const re = new RegExp(`(\\b${field}:\\s*)(?:-?[0-9.]+|[A-Za-z_$][A-Za-z0-9_$]*)`);
   if (!re.test(block)) return null;
   return block.replace(re, `$1${value}`);
 }
