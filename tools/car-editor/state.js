@@ -9,6 +9,7 @@
 
 import { CAR_TYPES, carTypeById } from "../../src/game/cartypes.js";
 import { DRIVING_PROFILES, drivingFor } from "../../src/game/driving.js";
+import { OBSTACLE_TYPES, obstacleTypeById } from "../../src/game/obstacletypes.js";
 
 // Derived from the catalogue itself, civilian and hostile alike, so a type
 // added to cartypes.js shows up here without a second list to remember to
@@ -72,4 +73,30 @@ export function buildCarState(carId) {
 
 export function buildAllCarState() {
   return CAR_IDS.map(buildCarState);
+}
+
+// Obstacles (obstacletypes.js) have no driving-profile split — there's no
+// behaviours.js/driving.js pair for a static hazard — so their state is just
+// the two fields the catalogue's header calls out as spawn tuning: how often
+// a type is picked (`weight`, relative to the others available) and how far
+// the player must drive before it's in the draw at all (`minDistance`, same
+// gate cartypes.js documents for cars).
+export const OBSTACLE_IDS = OBSTACLE_TYPES.map((t) => t.id);
+
+export const OBSTACLE_FIELDS = ["weight", "minDistance"];
+
+export function buildObstacleState(obstacleId) {
+  if (!OBSTACLE_IDS.includes(obstacleId)) {
+    throw new Error(`buildObstacleState: unknown obstacle id "${obstacleId}"`);
+  }
+  const type = obstacleTypeById(obstacleId);
+  return {
+    id: type.id,
+    label: type.label,
+    spawn: { weight: type.weight, minDistance: type.minDistance ?? 0 },
+  };
+}
+
+export function buildAllObstacleState() {
+  return OBSTACLE_IDS.map(buildObstacleState);
 }

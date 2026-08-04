@@ -8,11 +8,11 @@
 <body>
   <header>
     <h1>Car Editor</h1>
-    <p class="subtitle">Tune hull, speed, spawn distance and driving behavior for the whole roster — hostile and civilian — then open a pull request.</p>
+    <p class="subtitle">Tune hull, speed, spawn distance and driving behavior for the whole roster — hostile and civilian — plus spawn chance and distance for obstacles, then open a pull request.</p>
   </header>
 
   <main>
-    <nav id="car-list" aria-label="Cars"></nav>
+    <nav id="car-list" aria-label="Cars and obstacles"></nav>
 
     <div>
       <section id="car-form" hidden>
@@ -39,13 +39,22 @@
         </fieldset>
       </section>
 
+      <section id="obstacle-form" hidden>
+        <h2 id="obstacle-form-title"></h2>
+
+        <fieldset>
+          <legend>Spawn</legend>
+          <div id="obstacle-spawn-fields"></div>
+        </fieldset>
+      </section>
+
       <button id="review-button">Review changes</button>
 
       <section id="review" hidden>
         <h2>Review changes</h2>
         <table id="review-table">
           <thead>
-            <tr><th>Car</th><th>Field</th><th>Before</th><th>After</th><th>Note</th></tr>
+            <tr><th>Item</th><th>Field</th><th>Before</th><th>After</th><th>Note</th></tr>
           </thead>
           <tbody></tbody>
         </table>

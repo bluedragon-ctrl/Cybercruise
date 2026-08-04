@@ -5,6 +5,7 @@ import {
   findMatchingBrace,
   patchCarType,
   patchDrivingProfile,
+  patchObstacleType,
 } from "../tools/car-editor/patcher.js";
 
 test("findMatchingBrace finds the matching closing brace", () => {
@@ -213,4 +214,52 @@ test("patchDrivingProfile inserts a field into a real single-line profile with n
     result,
     /enforcer: profile\(\{ nerve: 16,\n {4}contact: 5,\n {2}\}\)/
   );
+});
+
+const SAMPLE_OBSTACLETYPES = `export const OBSTACLE_TYPES = [
+  {
+    id: "trestle",
+    health: 20,
+    weight: 3,
+    minDistance: 0,
+  },
+  {
+    id: "caltrop",
+    health: 1,
+    weight: 0.8,
+    minDistance: 0, // rare
+  },
+];
+`;
+
+test("patchObstacleType replaces weight and minDistance without touching other fields", () => {
+  const result = patchObstacleType(SAMPLE_OBSTACLETYPES, "caltrop", { weight: 0.5, minDistance: 30 });
+  assert.match(result, /id: "caltrop",\n {4}health: 1,\n {4}weight: 0.5,\n {4}minDistance: 30, \/\/ rare/);
+  assert.match(result, /id: "trestle",\n {4}health: 20,\n {4}weight: 3,/); // untouched
+});
+
+test("patchObstacleType throws for an unknown obstacle id", () => {
+  assert.throws(
+    () => patchObstacleType(SAMPLE_OBSTACLETYPES, "ghost", { weight: 1 }),
+    /no entry with id "ghost"/
+  );
+});
+
+test("patchObstacleType throws for a field not present on the entry", () => {
+  assert.throws(
+    () => patchObstacleType(SAMPLE_OBSTACLETYPES, "trestle", { blastDamage: 10 }),
+    /field "blastDamage" not found/
+  );
+});
+
+test("patchObstacleType works against the real src/game/obstacletypes.js", () => {
+  const realSource = readFileSync(
+    new URL("../src/game/obstacletypes.js", import.meta.url),
+    "utf8"
+  );
+  const result = patchObstacleType(realSource, "trestle", { minDistance: 40 });
+  assert.match(result, /id: "trestle",[\s\S]*?minDistance: 40,/);
+  // The rest of the file must be untouched — same length delta as exactly
+  // one number changing from "0" to "40".
+  assert.equal(result.length - realSource.length, "40".length - "0".length);
 });

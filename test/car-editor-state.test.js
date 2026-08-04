@@ -3,12 +3,17 @@ import assert from "node:assert/strict";
 import {
   buildCarState,
   buildAllCarState,
+  buildObstacleState,
+  buildAllObstacleState,
   CAR_IDS,
   BEHAVIOR_FIELDS,
   HULL_SPEED_FIELDS,
   SPAWN_FIELDS,
+  OBSTACLE_IDS,
+  OBSTACLE_FIELDS,
 } from "../tools/car-editor/state.js";
 import { CAR_TYPES } from "../src/game/cartypes.js";
+import { OBSTACLE_TYPES } from "../src/game/obstacletypes.js";
 
 const HOSTILE_IDS = CAR_TYPES.filter((t) => t.faction === "enemy").map((t) => t.id);
 
@@ -86,4 +91,25 @@ test("HULL_SPEED_FIELDS, SPAWN_FIELDS and BEHAVIOR_FIELDS don't overlap", () => 
     BEHAVIOR_FIELDS.includes(f)
   );
   assert.deepEqual(overlap, []);
+});
+
+test("buildAllObstacleState returns every obstacle in the catalogue", () => {
+  const all = buildAllObstacleState();
+  assert.deepEqual(
+    all.map((o) => o.id).sort(),
+    [...OBSTACLE_IDS].sort()
+  );
+  assert.deepEqual(OBSTACLE_IDS, OBSTACLE_TYPES.map((t) => t.id));
+});
+
+test("buildObstacleState returns weight and minDistance", () => {
+  const state = buildObstacleState("trestle");
+  assert.equal(state.label, "TRESTLE");
+  for (const field of OBSTACLE_FIELDS) {
+    assert.equal(typeof state.spawn[field], "number", `missing spawn field ${field}`);
+  }
+});
+
+test("buildObstacleState throws for an obstacle id outside the catalogue", () => {
+  assert.throws(() => buildObstacleState("ghost"), /unknown obstacle id "ghost"/);
 });

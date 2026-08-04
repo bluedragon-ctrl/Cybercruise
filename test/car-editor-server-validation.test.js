@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { validateChanges } from "../tools/car-editor/server.js";
+import { validateChanges, validateObstacleChanges } from "../tools/car-editor/server.js";
 
 test("validateChanges rejects a negative health value", () => {
   assert.throws(
@@ -53,4 +53,46 @@ test("validateChanges rejects a negative minDistance value", () => {
     () => validateChanges({ interceptor: { minDistance: -5 } }),
     /field "minDistance" for "interceptor" must not be negative, got -5/
   );
+});
+
+test("validateObstacleChanges accepts weight and minDistance together", () => {
+  assert.doesNotThrow(() =>
+    validateObstacleChanges({ trestle: { weight: 4, minDistance: 20 } })
+  );
+});
+
+test("validateObstacleChanges accepts a zero weight (takes the type out of the draw)", () => {
+  assert.doesNotThrow(() => validateObstacleChanges({ caltrop: { weight: 0 } }));
+});
+
+test("validateObstacleChanges rejects a negative weight", () => {
+  assert.throws(
+    () => validateObstacleChanges({ caltrop: { weight: -1 } }),
+    /field "weight" for "caltrop" must not be negative, got -1/
+  );
+});
+
+test("validateObstacleChanges rejects a negative minDistance", () => {
+  assert.throws(
+    () => validateObstacleChanges({ tetra: { minDistance: -10 } }),
+    /field "minDistance" for "tetra" must not be negative, got -10/
+  );
+});
+
+test("validateObstacleChanges rejects an unknown obstacle id", () => {
+  assert.throws(
+    () => validateObstacleChanges({ ghost: { weight: 1 } }),
+    /unknown obstacle id "ghost"/
+  );
+});
+
+test("validateObstacleChanges rejects an unknown field", () => {
+  assert.throws(
+    () => validateObstacleChanges({ trestle: { health: 100 } }),
+    /unknown field "health" for "trestle"/
+  );
+});
+
+test("validateObstacleChanges rejects an empty changes object", () => {
+  assert.throws(() => validateObstacleChanges({}), /must not be empty/);
 });
