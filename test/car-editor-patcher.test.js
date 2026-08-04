@@ -109,6 +109,24 @@ test("patchCarType throws when id is not the first key in the entry", () => {
   );
 });
 
+const SAMPLE_CARTYPES_SHARED_CONSTANT = `const ENEMY_MIN_DISTANCE = 100;
+
+export const CAR_TYPES = [
+  {
+    id: "interceptor",
+    health: 70,
+    minDistance: ENEMY_MIN_DISTANCE,
+  },
+];
+`;
+
+test("patchCarType replaces a field whose current value is a shared constant identifier", () => {
+  const result = patchCarType(SAMPLE_CARTYPES_SHARED_CONSTANT, "interceptor", {
+    minDistance: 130,
+  });
+  assert.match(result, /id: "interceptor",\n {4}health: 70,\n {4}minDistance: 130,/);
+});
+
 test("patchCarType works against the real src/game/cartypes.js", () => {
   const realSource = readFileSync(
     new URL("../src/game/cartypes.js", import.meta.url),
