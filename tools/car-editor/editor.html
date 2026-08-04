@@ -2,17 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Cybercruise — Enemy Car Editor</title>
+  <title>Cybercruise — Car Editor</title>
   <link rel="stylesheet" href="/editor.css" />
 </head>
 <body>
   <header>
-    <h1>Enemy Car Editor</h1>
-    <p class="subtitle">Tune hull, speed and driving behavior for the enemy roster, then open a pull request.</p>
+    <h1>Car Editor</h1>
+    <p class="subtitle">Tune hull, speed, spawn distance and driving behavior for the whole roster — hostile and civilian — plus spawn chance and distance for obstacles, then open a pull request.</p>
   </header>
 
   <main>
-    <nav id="car-list" aria-label="Enemy cars"></nav>
+    <nav id="car-list" aria-label="Cars and obstacles"></nav>
 
     <div>
       <section id="car-form" hidden>
@@ -29,8 +29,22 @@
         </fieldset>
 
         <fieldset>
+          <legend>Spawn</legend>
+          <div id="spawn-fields"></div>
+        </fieldset>
+
+        <fieldset>
           <legend>Behavior</legend>
           <div id="behavior-fields"></div>
+        </fieldset>
+      </section>
+
+      <section id="obstacle-form" hidden>
+        <h2 id="obstacle-form-title"></h2>
+
+        <fieldset>
+          <legend>Spawn</legend>
+          <div id="obstacle-spawn-fields"></div>
         </fieldset>
       </section>
 
@@ -40,7 +54,7 @@
         <h2>Review changes</h2>
         <table id="review-table">
           <thead>
-            <tr><th>Car</th><th>Field</th><th>Before</th><th>After</th><th>Note</th></tr>
+            <tr><th>Item</th><th>Field</th><th>Before</th><th>After</th><th>Note</th></tr>
           </thead>
           <tbody></tbody>
         </table>

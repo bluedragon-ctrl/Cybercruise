@@ -3,41 +3,62 @@ import assert from "node:assert/strict";
 import {
   buildCarState,
   buildAllCarState,
-  ENEMY_IDS,
+  buildObstacleState,
+  buildAllObstacleState,
+  CAR_IDS,
   BEHAVIOR_FIELDS,
   HULL_SPEED_FIELDS,
+  SPAWN_FIELDS,
+  OBSTACLE_IDS,
+  OBSTACLE_FIELDS,
 } from "../tools/car-editor/state.js";
+import { CAR_TYPES } from "../src/game/cartypes.js";
+import { OBSTACLE_TYPES } from "../src/game/obstacletypes.js";
 
-test("buildAllCarState returns exactly the 5 enemy types", () => {
+const HOSTILE_IDS = CAR_TYPES.filter((t) => t.faction === "enemy").map((t) => t.id);
+
+test("buildAllCarState returns every car in the catalogue, civilian and hostile", () => {
   const all = buildAllCarState();
   assert.deepEqual(
     all.map((c) => c.id).sort(),
-    [...ENEMY_IDS].sort()
+    [...CAR_IDS].sort()
   );
+  // Sanity check that the roster really does include both factions, not just
+  // whatever CAR_IDS happens to derive to.
+  assert.ok(all.some((c) => c.faction === "enemy"));
+  assert.ok(all.some((c) => c.faction === "neutral"));
 });
 
-test("buildCarState returns hull, speed and every behavior field", () => {
+test("buildCarState returns hull, speed, spawn and every behavior field", () => {
   const state = buildCarState("interceptor");
   assert.equal(typeof state.hull.health, "number");
   assert.equal(typeof state.speed.speedMin, "number");
   assert.equal(typeof state.speed.speedMax, "number");
+  assert.equal(typeof state.spawn.minDistance, "number");
   for (const field of BEHAVIOR_FIELDS) {
     assert.ok(field in state.behavior, `missing behavior field ${field}`);
     assert.equal(typeof state.behavior[field].inherited, "boolean");
   }
 });
 
+test("buildCarState works for a civilian car id", () => {
+  const state = buildCarState("sedan");
+  assert.equal(state.faction, "neutral");
+  assert.equal(typeof state.hull.health, "number");
+  assert.equal(typeof state.spawn.minDistance, "number");
+});
+
 test("laneHome is always one of the three known lane preferences", () => {
-  for (const id of ENEMY_IDS) {
+  for (const id of CAR_IDS) {
     const state = buildCarState(id);
     assert.ok(["any", "inner", "outer"].includes(state.behavior.laneHome.value));
   }
 });
 
-test("nerve is not flagged as inherited for any enemy type, except the cycle's coincidental default", () => {
-  // Every enemy profile explicitly sets its own nerve figure (see driving.js's
-  // "Hostile dispositions" section) — this is the field where the roster is
-  // least likely to accidentally read as bland defaults.
+test("nerve is not flagged as inherited for any hostile type, except the cycle's coincidental default", () => {
+  // Every hostile profile explicitly sets its own nerve figure (see
+  // driving.js's "Hostile dispositions" section) — this is the field where
+  // the roster is least likely to accidentally read as bland defaults.
   //
   // The one exception is the cycle: its "darter" profile explicitly writes
   // `nerve: 0`, which happens to be the same figure the commuter default
@@ -50,7 +71,7 @@ test("nerve is not flagged as inherited for any enemy type, except the cycle's c
   // not a bug: the cycle really does dodge every hazard, same as a bland
   // commuter, so the value is correct even if the "(overridden)" cosmetic
   // tag would be missing in the UI.
-  for (const id of ENEMY_IDS) {
+  for (const id of HOSTILE_IDS) {
     const state = buildCarState(id);
     const expected = id === "cycle" ? true : false;
     assert.equal(
@@ -61,11 +82,34 @@ test("nerve is not flagged as inherited for any enemy type, except the cycle's c
   }
 });
 
-test("buildCarState throws for a car id outside the enemy roster", () => {
-  assert.throws(() => buildCarState("sedan"), /unknown car id "sedan"/);
+test("buildCarState throws for a car id outside the catalogue", () => {
+  assert.throws(() => buildCarState("ghost"), /unknown car id "ghost"/);
 });
 
-test("HULL_SPEED_FIELDS and BEHAVIOR_FIELDS don't overlap", () => {
-  const overlap = HULL_SPEED_FIELDS.filter((f) => BEHAVIOR_FIELDS.includes(f));
+test("HULL_SPEED_FIELDS, SPAWN_FIELDS and BEHAVIOR_FIELDS don't overlap", () => {
+  const overlap = [...HULL_SPEED_FIELDS, ...SPAWN_FIELDS].filter((f) =>
+    BEHAVIOR_FIELDS.includes(f)
+  );
   assert.deepEqual(overlap, []);
+});
+
+test("buildAllObstacleState returns every obstacle in the catalogue", () => {
+  const all = buildAllObstacleState();
+  assert.deepEqual(
+    all.map((o) => o.id).sort(),
+    [...OBSTACLE_IDS].sort()
+  );
+  assert.deepEqual(OBSTACLE_IDS, OBSTACLE_TYPES.map((t) => t.id));
+});
+
+test("buildObstacleState returns weight and minDistance", () => {
+  const state = buildObstacleState("trestle");
+  assert.equal(state.label, "TRESTLE");
+  for (const field of OBSTACLE_FIELDS) {
+    assert.equal(typeof state.spawn[field], "number", `missing spawn field ${field}`);
+  }
+});
+
+test("buildObstacleState throws for an obstacle id outside the catalogue", () => {
+  assert.throws(() => buildObstacleState("ghost"), /unknown obstacle id "ghost"/);
 });

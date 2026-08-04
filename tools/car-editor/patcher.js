@@ -31,21 +31,24 @@ function replaceNumericField(block, field, value) {
   return block.replace(re, `$1${value}`);
 }
 
-// Patches health/speedMin/speedMax on the CAR_TYPES entry whose `id` matches
-// carId. Every field named in `changes` must already exist in the entry —
-// cartypes.js always sets health/speedMin/speedMax on every type, so a
-// missing field means the source has drifted from what the editor read, and
-// this throws rather than silently doing nothing.
-export function patchCarType(sourceText, carId, changes) {
-  const idMarker = `id: "${carId}"`;
+// Patches numeric fields on the entry whose `id` matches `id` inside a
+// flat catalogue array (CAR_TYPES, OBSTACLE_TYPES — anything shaped like
+// them). Every field named in `changes` must already exist in the entry —
+// both catalogues set their numeric fields on every type, so a missing
+// field means the source has drifted from what the editor read, and this
+// throws rather than silently doing nothing. `fnName` is only for error
+// messages, so callers below read as themselves rather than as this shared
+// helper.
+function patchTypeEntry(sourceText, id, changes, fnName) {
+  const idMarker = `id: "${id}"`;
   const idIndex = sourceText.indexOf(idMarker);
   if (idIndex === -1) {
-    throw new Error(`patchCarType: no entry with id "${carId}" found`);
+    throw new Error(`${fnName}: no entry with id "${id}" found`);
   }
 
   const objStart = sourceText.lastIndexOf("{", idIndex);
   if (objStart === -1) {
-    throw new Error(`patchCarType: no opening '{' found before id "${carId}"`);
+    throw new Error(`${fnName}: no opening '{' found before id "${id}"`);
   }
   // Guard against silently patching the wrong object: lastIndexOf only finds
   // the entry's real opening brace if `id` is the first key. If a `}` sits
@@ -54,7 +57,7 @@ export function patchCarType(sourceText, carId, changes) {
   // NOT the first key here and objStart points at the wrong block entirely.
   if (sourceText.slice(objStart, idIndex).includes("}")) {
     throw new Error(
-      `patchCarType: "id" is not the first key in the entry for "${carId}" — cannot safely locate its block`
+      `${fnName}: "id" is not the first key in the entry for "${id}" — cannot safely locate its block`
     );
   }
   const objEnd = findMatchingBrace(sourceText, objStart);
@@ -63,14 +66,25 @@ export function patchCarType(sourceText, carId, changes) {
   for (const [field, value] of Object.entries(changes)) {
     const patched = replaceNumericField(block, field, value);
     if (patched === null) {
-      throw new Error(
-        `patchCarType: field "${field}" not found on entry "${carId}"`
-      );
+      throw new Error(`${fnName}: field "${field}" not found on entry "${id}"`);
     }
     block = patched;
   }
 
   return sourceText.slice(0, objStart) + block + sourceText.slice(objEnd + 1);
+}
+
+// Patches health/speedMin/speedMax/minDistance on the CAR_TYPES entry whose
+// `id` matches carId.
+export function patchCarType(sourceText, carId, changes) {
+  return patchTypeEntry(sourceText, carId, changes, "patchCarType");
+}
+
+// Patches weight/minDistance on the OBSTACLE_TYPES entry whose `id` matches
+// obstacleId. Same catalogue shape as CAR_TYPES (a flat array of objects
+// with `id` as the first key), so the same text-surgery applies unchanged.
+export function patchObstacleType(sourceText, obstacleId, changes) {
+  return patchTypeEntry(sourceText, obstacleId, changes, "patchObstacleType");
 }
 
 function replaceStringField(block, field, value) {

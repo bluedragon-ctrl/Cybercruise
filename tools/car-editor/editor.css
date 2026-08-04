@@ -46,6 +46,18 @@ main {
   gap: 0.5rem;
 }
 
+#car-list h3 {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+#car-list h3:first-child {
+  margin-top: 0;
+}
+
 #car-list button {
   background: var(--panel);
   border: 1px solid var(--border);

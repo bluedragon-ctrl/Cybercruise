@@ -10,8 +10,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 
-import { buildAllCarState, ENEMY_IDS, BEHAVIOR_FIELDS, HULL_SPEED_FIELDS } from "./state.js";
-import { patchCarType, patchDrivingProfile } from "./patcher.js";
+import {
+  buildAllCarState,
+  buildAllObstacleState,
+  CAR_IDS,
+  BEHAVIOR_FIELDS,
+  HULL_SPEED_FIELDS,
+  SPAWN_FIELDS,
+  OBSTACLE_IDS,
+  OBSTACLE_FIELDS,
+} from "./state.js";
+import { patchCarType, patchDrivingProfile, patchObstacleType } from "./patcher.js";
 import * as git from "./git.js";
 import { carTypeById } from "../../src/game/cartypes.js";
 
@@ -21,8 +30,10 @@ const REPO_ROOT = path.resolve(__dirname, "../..");
 
 const CARTYPES_REL = "src/game/cartypes.js";
 const DRIVING_REL = "src/game/driving.js";
+const OBSTACLETYPES_REL = "src/game/obstacletypes.js";
 const CARTYPES_PATH = path.join(REPO_ROOT, CARTYPES_REL);
 const DRIVING_PATH = path.join(REPO_ROOT, DRIVING_REL);
+const OBSTACLETYPES_PATH = path.join(REPO_ROOT, OBSTACLETYPES_REL);
 
 // The single tuning attempt in flight, if any. This is a local, one-user
 // tool — there is never more than one browser tab driving it in practice —
@@ -49,7 +60,7 @@ function sendJson(res, status, body) {
 }
 
 async function handleState(res) {
-  sendJson(res, 200, { cars: buildAllCarState() });
+  sendJson(res, 200, { cars: buildAllCarState(), obstacles: buildAllObstacleState() });
 }
 
 async function readBody(req) {
@@ -65,6 +76,13 @@ async function readBody(req) {
 // boundary, rather than relying on downstream game-invariant tests to notice.
 const POSITIVE_FIELDS = new Set(["health", "speedMin", "speedMax"]);
 
+// minDistance is a gate, not a magnitude — 0 ("from the first metre", see
+// cartypes.js) is its most common and entirely valid value, so it only rules
+// out negative distances rather than joining POSITIVE_FIELDS above. An
+// obstacle's `weight` joins it for the same reason: 0 is how you take a
+// hazard out of the draw entirely without deleting its entry.
+const NON_NEGATIVE_FIELDS = new Set(["minDistance", "weight"]);
+
 export function validateChanges(changes) {
   if (!changes || typeof changes !== "object" || Array.isArray(changes)) {
     throw new Error("body.changes must be an object");
@@ -73,14 +91,18 @@ export function validateChanges(changes) {
     throw new Error("body.changes must not be empty");
   }
   for (const [carId, fields] of Object.entries(changes)) {
-    if (!ENEMY_IDS.includes(carId)) {
-      throw new Error(`unknown enemy car id "${carId}"`);
+    if (!CAR_IDS.includes(carId)) {
+      throw new Error(`unknown car id "${carId}"`);
     }
     if (!fields || typeof fields !== "object" || Object.keys(fields).length === 0) {
       throw new Error(`changes for "${carId}" must be a non-empty object`);
     }
     for (const [field, value] of Object.entries(fields)) {
-      if (!HULL_SPEED_FIELDS.includes(field) && !BEHAVIOR_FIELDS.includes(field)) {
+      if (
+        !HULL_SPEED_FIELDS.includes(field) &&
+        !SPAWN_FIELDS.includes(field) &&
+        !BEHAVIOR_FIELDS.includes(field)
+      ) {
         throw new Error(`unknown field "${field}" for "${carId}"`);
       }
       if (field === "laneHome") {
@@ -91,6 +113,8 @@ export function validateChanges(changes) {
         throw new Error(`field "${field}" for "${carId}" must be a finite number, got ${JSON.stringify(value)}`);
       } else if (POSITIVE_FIELDS.has(field) && value <= 0) {
         throw new Error(`field "${field}" for "${carId}" must be a positive number, got ${JSON.stringify(value)}`);
+      } else if (NON_NEGATIVE_FIELDS.has(field) && value < 0) {
+        throw new Error(`field "${field}" for "${carId}" must not be negative, got ${JSON.stringify(value)}`);
       }
     }
 
@@ -106,11 +130,47 @@ export function validateChanges(changes) {
   }
 }
 
-function commitMessage(changes) {
-  const lines = ["Tune enemy car parameters via the car editor", ""];
-  for (const [carId, fields] of Object.entries(changes)) {
+// Obstacles only ever expose weight/minDistance (see state.js's header on
+// why there's no behavior side to them), so this is the same shape as
+// validateChanges above with a much shorter field list and no laneHome/
+// speed-pair special cases.
+export function validateObstacleChanges(obstacleChanges) {
+  if (!obstacleChanges || typeof obstacleChanges !== "object" || Array.isArray(obstacleChanges)) {
+    throw new Error("body.obstacleChanges must be an object");
+  }
+  if (Object.keys(obstacleChanges).length === 0) {
+    throw new Error("body.obstacleChanges must not be empty");
+  }
+  for (const [obstacleId, fields] of Object.entries(obstacleChanges)) {
+    if (!OBSTACLE_IDS.includes(obstacleId)) {
+      throw new Error(`unknown obstacle id "${obstacleId}"`);
+    }
+    if (!fields || typeof fields !== "object" || Object.keys(fields).length === 0) {
+      throw new Error(`obstacleChanges for "${obstacleId}" must be a non-empty object`);
+    }
+    for (const [field, value] of Object.entries(fields)) {
+      if (!OBSTACLE_FIELDS.includes(field)) {
+        throw new Error(`unknown field "${field}" for "${obstacleId}"`);
+      }
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new Error(`field "${field}" for "${obstacleId}" must be a finite number, got ${JSON.stringify(value)}`);
+      } else if (NON_NEGATIVE_FIELDS.has(field) && value < 0) {
+        throw new Error(`field "${field}" for "${obstacleId}" must not be negative, got ${JSON.stringify(value)}`);
+      }
+    }
+  }
+}
+
+function commitMessage(changes, obstacleChanges) {
+  const lines = ["Tune car and obstacle parameters via the car editor", ""];
+  for (const [carId, fields] of Object.entries(changes ?? {})) {
     for (const [field, value] of Object.entries(fields)) {
       lines.push(`- ${carId}: ${field} -> ${value}`);
+    }
+  }
+  for (const [obstacleId, fields] of Object.entries(obstacleChanges ?? {})) {
+    for (const [field, value] of Object.entries(fields)) {
+      lines.push(`- ${obstacleId}: ${field} -> ${value}`);
     }
   }
   return lines.join("\n");
@@ -133,7 +193,13 @@ async function handleCommit(req, res) {
   let body;
   try {
     body = await readBody(req);
-    validateChanges(body.changes);
+    const hasCarChanges = body.changes && Object.keys(body.changes).length > 0;
+    const hasObstacleChanges = body.obstacleChanges && Object.keys(body.obstacleChanges).length > 0;
+    if (!hasCarChanges && !hasObstacleChanges) {
+      throw new Error("request must include at least one of changes or obstacleChanges");
+    }
+    if (hasCarChanges) validateChanges(body.changes);
+    if (hasObstacleChanges) validateObstacleChanges(body.obstacleChanges);
   } catch (err) {
     sendJson(res, 400, { error: err.message });
     return;
@@ -146,17 +212,22 @@ async function handleCommit(req, res) {
 
   let cartypesText = await readFile(CARTYPES_PATH, "utf8");
   let drivingText = await readFile(DRIVING_PATH, "utf8");
+  let obstaclesText = await readFile(OBSTACLETYPES_PATH, "utf8");
   let cartypesChanged = false;
   let drivingChanged = false;
+  let obstaclesChanged = false;
 
   try {
-    for (const [carId, fields] of Object.entries(body.changes)) {
+    for (const [carId, fields] of Object.entries(body.changes ?? {})) {
       const type = carTypeById(carId);
       const hullSpeedChanges = {};
       const behaviorChanges = {};
       for (const [field, value] of Object.entries(fields)) {
-        if (HULL_SPEED_FIELDS.includes(field)) hullSpeedChanges[field] = value;
-        else behaviorChanges[field] = value;
+        if (HULL_SPEED_FIELDS.includes(field) || SPAWN_FIELDS.includes(field)) {
+          hullSpeedChanges[field] = value;
+        } else {
+          behaviorChanges[field] = value;
+        }
       }
       if (Object.keys(hullSpeedChanges).length > 0) {
         cartypesText = patchCarType(cartypesText, carId, hullSpeedChanges);
@@ -167,12 +238,16 @@ async function handleCommit(req, res) {
         drivingChanged = true;
       }
     }
+    for (const [obstacleId, fields] of Object.entries(body.obstacleChanges ?? {})) {
+      obstaclesText = patchObstacleType(obstaclesText, obstacleId, fields);
+      obstaclesChanged = true;
+    }
   } catch (err) {
     sendJson(res, 400, { error: err.message });
     return;
   }
 
-  const dirty = await git.dirtyTrackedFiles(REPO_ROOT, [CARTYPES_REL, DRIVING_REL]);
+  const dirty = await git.dirtyTrackedFiles(REPO_ROOT, [CARTYPES_REL, DRIVING_REL, OBSTACLETYPES_REL]);
   if (dirty.length > 0) {
     sendJson(res, 409, { error: `uncommitted changes already present: ${dirty.join(", ")}` });
     return;
@@ -193,8 +268,12 @@ async function handleCommit(req, res) {
       await writeFile(DRIVING_PATH, drivingText, "utf8");
       changedRelPaths.push(DRIVING_REL);
     }
+    if (obstaclesChanged) {
+      await writeFile(OBSTACLETYPES_PATH, obstaclesText, "utf8");
+      changedRelPaths.push(OBSTACLETYPES_REL);
+    }
 
-    await git.commitFiles(REPO_ROOT, changedRelPaths, commitMessage(body.changes));
+    await git.commitFiles(REPO_ROOT, changedRelPaths, commitMessage(body.changes, body.obstacleChanges));
   } catch (err) {
     try {
       await git.checkoutBranch(REPO_ROOT, originalBranch);

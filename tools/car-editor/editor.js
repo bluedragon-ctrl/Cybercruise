@@ -1,14 +1,15 @@
 // tools/car-editor/editor.js
 //
-// Vanilla-JS UI: fetch the enemy roster's current values, let the user tune
-// hull/speed/behavior fields with a plain-English description of what each
-// one does, show a diff before anything is written, then drive the
-// commit/test/push flow (added in Task 14-15).
+// Vanilla-JS UI: fetch the roster's current values — cars AND obstacles —
+// let the user tune hull/speed/spawn/behavior fields with a plain-English
+// description of what each one does, show a diff before anything is
+// written, then drive the commit/test/push flow (added in Task 14-15).
 
 const FIELD_DESCRIPTIONS = {
   health: "Hull points. Spent by ramming, explosions, and weapons; the car is destroyed at zero.",
   speedMin: "Slowest cruising speed this car will roll at when it spawns, in world units/sec.",
   speedMax: "Fastest cruising speed this car will roll at when it spawns, in world units/sec.",
+  minDistance: 'How far the player must have driven before this car can spawn at all, in DIST-readout units (the same number the HUD shows). 0 means it can appear from the very first metre.',
 
   followGap: "Clear road (world units) this driver wants between its nose and the car ahead's tail, before adding closing-speed room.",
   followReaction: "Seconds of closing speed added to followGap — how early this driver starts backing off from something ahead.",
@@ -31,6 +32,7 @@ const FIELD_DESCRIPTIONS = {
 const FIELD_ORDER = {
   hull: ["health"],
   speed: ["speedMin", "speedMax"],
+  spawn: ["minDistance"],
   behavior: {
     Following: ["followGap", "followReaction"],
     "Lane discipline": ["laneDiscipline", "laneHome"],
@@ -50,24 +52,40 @@ const FIELD_ORDER = {
   },
 };
 
+// Obstacles have no driving-profile split (see state.js) — just the two
+// spawn-tuning fields the catalogue itself calls "weight" and "minDistance".
+// "weight" is described here as "chance" because that's what it decides —
+// the game code's own name for it stays in the label so it's still
+// recognisable against obstacletypes.js.
+const OBSTACLE_FIELD_DESCRIPTIONS = {
+  weight: "Relative spawn chance among the obstacle types currently unlocked — bigger means more common, not a fixed probability. 0 takes this type out of the draw entirely.",
+  minDistance: "How far the player must have driven before this obstacle can spawn at all, in DIST-readout units (the same number the HUD shows). 0 means it can appear from the very first metre.",
+};
+
+const OBSTACLE_FIELD_ORDER = ["weight", "minDistance"];
+
 let cars = [];
-let selectedCarId = null;
+let obstacles = [];
+let selection = null; // { kind: "car" | "obstacle", id }
 const pendingChanges = {}; // { carId: { field: value } }
+const pendingObstacleChanges = {}; // { obstacleId: { field: value } }
 
 async function loadState() {
   const res = await fetch("/api/state");
   const data = await res.json();
   cars = data.cars;
+  obstacles = data.obstacles;
 }
 
 function fieldValue(car, field) {
   if (field in car.hull) return car.hull[field];
   if (field in car.speed) return car.speed[field];
+  if (field in car.spawn) return car.spawn[field];
   return car.behavior[field].value;
 }
 
 function isOverridden(car, field) {
-  if (field in car.hull || field in car.speed) return true;
+  if (field in car.hull || field in car.speed || field in car.spawn) return true;
   return !car.behavior[field].inherited;
 }
 
@@ -102,19 +120,57 @@ function setChange(carId, field, value) {
   pendingChanges[carId][field] = value;
 }
 
-function renderCarList() {
+function currentObstacleValue(obstacleId, field) {
+  if (pendingObstacleChanges[obstacleId] && field in pendingObstacleChanges[obstacleId]) {
+    return pendingObstacleChanges[obstacleId][field];
+  }
+  const obstacle = obstacles.find((o) => o.id === obstacleId);
+  return obstacle.spawn[field];
+}
+
+function setObstacleChange(obstacleId, field, value) {
+  pendingObstacleChanges[obstacleId] ??= {};
+  pendingObstacleChanges[obstacleId][field] = value;
+}
+
+const FACTION_GROUPS = [
+  { faction: "enemy", heading: "Hostile" },
+  { faction: "neutral", heading: "Civilian" },
+];
+
+function renderNav() {
   const nav = document.getElementById("car-list");
   nav.innerHTML = "";
-  for (const car of cars) {
+
+  function addButton(label, kind, id) {
     const button = document.createElement("button");
-    button.textContent = car.label;
-    button.className = car.id === selectedCarId ? "selected" : "";
+    button.textContent = label;
+    button.className = selection && selection.kind === kind && selection.id === id ? "selected" : "";
     button.addEventListener("click", () => {
-      selectedCarId = car.id;
-      renderCarList();
+      selection = { kind, id };
+      renderNav();
       renderForm();
     });
     nav.appendChild(button);
+  }
+
+  for (const { faction, heading } of FACTION_GROUPS) {
+    const group = cars.filter((car) => car.faction === faction);
+    if (group.length === 0) continue;
+
+    const headingEl = document.createElement("h3");
+    headingEl.textContent = heading;
+    nav.appendChild(headingEl);
+
+    for (const car of group) addButton(car.label, "car", car.id);
+  }
+
+  if (obstacles.length > 0) {
+    const headingEl = document.createElement("h3");
+    headingEl.textContent = "Obstacles";
+    nav.appendChild(headingEl);
+
+    for (const obstacle of obstacles) addButton(obstacle.label, "obstacle", obstacle.id);
   }
 }
 
@@ -163,15 +219,58 @@ function makeField(carId, field) {
   return wrapper;
 }
 
+function makeObstacleField(obstacleId, field) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "field";
+
+  const label = document.createElement("label");
+  label.textContent = field;
+  wrapper.appendChild(label);
+
+  const input = document.createElement("input");
+  input.type = "number";
+  input.step = "any";
+  input.value = currentObstacleValue(obstacleId, field);
+  input.addEventListener("change", () => {
+    setObstacleChange(obstacleId, field, Number(input.value));
+  });
+  wrapper.appendChild(input);
+
+  const description = document.createElement("div");
+  description.className = "description";
+  description.textContent = OBSTACLE_FIELD_DESCRIPTIONS[field];
+  wrapper.appendChild(description);
+
+  return wrapper;
+}
+
 function renderForm() {
-  const section = document.getElementById("car-form");
-  if (!selectedCarId) {
-    section.hidden = true;
+  const carSection = document.getElementById("car-form");
+  const obstacleSection = document.getElementById("obstacle-form");
+
+  if (!selection) {
+    carSection.hidden = true;
+    obstacleSection.hidden = true;
     return;
   }
-  section.hidden = false;
 
-  const car = cars.find((c) => c.id === selectedCarId);
+  if (selection.kind === "obstacle") {
+    carSection.hidden = true;
+    obstacleSection.hidden = false;
+
+    const obstacle = obstacles.find((o) => o.id === selection.id);
+    document.getElementById("obstacle-form-title").textContent = obstacle.label;
+
+    const spawnDiv = document.getElementById("obstacle-spawn-fields");
+    spawnDiv.innerHTML = "";
+    for (const field of OBSTACLE_FIELD_ORDER) spawnDiv.appendChild(makeObstacleField(obstacle.id, field));
+    return;
+  }
+
+  obstacleSection.hidden = true;
+  carSection.hidden = false;
+
+  const car = cars.find((c) => c.id === selection.id);
   document.getElementById("car-form-title").textContent = car.label;
 
   const hullDiv = document.getElementById("hull-fields");
@@ -181,6 +280,10 @@ function renderForm() {
   const speedDiv = document.getElementById("speed-fields");
   speedDiv.innerHTML = "";
   for (const field of FIELD_ORDER.speed) speedDiv.appendChild(makeField(car.id, field));
+
+  const spawnDiv = document.getElementById("spawn-fields");
+  spawnDiv.innerHTML = "";
+  for (const field of FIELD_ORDER.spawn) spawnDiv.appendChild(makeField(car.id, field));
 
   const behaviorDiv = document.getElementById("behavior-fields");
   behaviorDiv.innerHTML = "";
@@ -194,18 +297,19 @@ function renderForm() {
 
 // Behavior fields flag whether this edit ADDS a new override to the car's
 // profile (it currently inherits the commuter default) or CHANGES an
-// override that was already there. Hull/speed fields are always plain
+// override that was already there. Hull/speed/spawn fields are always plain
 // changes — cartypes.js sets them on every entry, so there's no "inherited"
 // state for the note to describe.
 function noteFor(car, field) {
-  if (field in car.hull || field in car.speed) return "";
+  if (field in car.hull || field in car.speed || field in car.spawn) return "";
   return car.behavior[field].inherited ? "new override" : "changed";
 }
 
-// pendingChanges can accumulate no-op entries — a field the user changed and
-// then changed back to its original value. renderReview() already filters
-// these out of the diff table; this does the same filtering for what
-// actually gets sent to the server, using the identical comparison.
+// pendingChanges/pendingObstacleChanges can accumulate no-op entries — a
+// field the user changed and then changed back to its original value.
+// renderReview() already filters these out of the diff table; these do the
+// same filtering for what actually gets sent to the server, using the
+// identical comparison.
 function realChanges() {
   const result = {};
   for (const [carId, fields] of Object.entries(pendingChanges)) {
@@ -219,26 +323,49 @@ function realChanges() {
   return result;
 }
 
+function realObstacleChanges() {
+  const result = {};
+  for (const [obstacleId, fields] of Object.entries(pendingObstacleChanges)) {
+    const obstacle = obstacles.find((o) => o.id === obstacleId);
+    for (const [field, value] of Object.entries(fields)) {
+      if (obstacle.spawn[field] === value) continue;
+      result[obstacleId] ??= {};
+      result[obstacleId][field] = value;
+    }
+  }
+  return result;
+}
+
 function renderReview() {
   const section = document.getElementById("review");
   const tbody = document.querySelector("#review-table tbody");
   tbody.innerHTML = "";
 
   let hasChanges = false;
+
+  function addRow(label, field, before, after, note) {
+    if (before === after) return;
+    hasChanges = true;
+    const row = document.createElement("tr");
+    for (const text of [label, field, String(before), String(after), note]) {
+      const td = document.createElement("td");
+      td.textContent = text;
+      row.appendChild(td);
+    }
+    tbody.appendChild(row);
+  }
+
   for (const [carId, fields] of Object.entries(pendingChanges)) {
     const car = cars.find((c) => c.id === carId);
     for (const [field, value] of Object.entries(fields)) {
-      const before = fieldValue(car, field);
-      if (before === value) continue;
-      hasChanges = true;
-      const row = document.createElement("tr");
-      const cells = [car.label, field, String(before), String(value), noteFor(car, field)];
-      for (const text of cells) {
-        const td = document.createElement("td");
-        td.textContent = text;
-        row.appendChild(td);
-      }
-      tbody.appendChild(row);
+      addRow(car.label, field, fieldValue(car, field), value, noteFor(car, field));
+    }
+  }
+
+  for (const [obstacleId, fields] of Object.entries(pendingObstacleChanges)) {
+    const obstacle = obstacles.find((o) => o.id === obstacleId);
+    for (const [field, value] of Object.entries(fields)) {
+      addRow(obstacle.label, field, obstacle.spawn[field], value, "");
     }
   }
 
@@ -280,6 +407,7 @@ async function pushAttempt() {
   );
   window.open(data.url, "_blank", "noopener");
   for (const key of Object.keys(pendingChanges)) delete pendingChanges[key];
+  for (const key of Object.keys(pendingObstacleChanges)) delete pendingObstacleChanges[key];
 }
 
 async function cancelAttempt() {
@@ -301,7 +429,7 @@ async function createPullRequest() {
   const commitRes = await fetch("/api/commit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ changes: realChanges() }),
+    body: JSON.stringify({ changes: realChanges(), obstacleChanges: realObstacleChanges() }),
   });
   const commitData = await commitRes.json();
 
@@ -329,4 +457,4 @@ document.getElementById("review-button").addEventListener("click", renderReview)
 document.getElementById("create-pr").addEventListener("click", createPullRequest);
 
 await loadState();
-renderCarList();
+renderNav();

@@ -50,16 +50,18 @@ a sprite in `src/game/sprites.js`, then register a cell in `src/demo/gallery.js`
 Car types are the exception: the gallery walks the catalogue, so a new entry in
 `src/game/cartypes.js` shows up there on its own.
 
-### Enemy car editor
+### Car editor
 
-A local tool for tuning the 5 enemy types' hull, speed, and driving-behavior
-knobs (`tools/car-editor/`) without hand-editing `cartypes.js`/`driving.js`.
-Double-click `tools/car-editor/edit.bat` (or run
-`node tools/car-editor/server.js`) and open the URL it prints. Every field
-shows its current value and a description of what it does; "Create Pull
-Request" patches the two source files on a fresh branch, runs the test suite
-before pushing, and opens GitHub's compare page so you finish the PR from
-there. Requires Git; does not require the GitHub CLI.
+A local tool for tuning the whole roster's — civilian and hostile alike —
+hull, speed, spawn-distance, and driving-behavior knobs, plus obstacles'
+spawn chance and spawn distance (`tools/car-editor/`), without hand-editing
+`cartypes.js`/`driving.js`/`obstacletypes.js`. Double-click
+`tools/car-editor/edit.bat` (or run `node tools/car-editor/server.js`) and
+open the URL it prints. Every field shows its current value and a
+description of what it does; "Create Pull Request" patches the changed
+source files on a fresh branch, runs the test suite before pushing, and
+opens GitHub's compare page so you finish the PR from there. Requires Git;
+does not require the GitHub CLI.
 
 ### Controls
 
