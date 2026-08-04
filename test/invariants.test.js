@@ -703,10 +703,15 @@ test("the mine carries the minimum health in the catalogue, as obstacletypes.js 
 });
 
 // A minimal world: a stationary player at the origin, no traffic. Obstacles
-// only need `player`, `distance`, `W`, `H` and (optionally) `cars`.
+// only need `player`, `distance`, `W`, `H` and (optionally) `cars`. The
+// catalogue is free to gate every type behind a minDistance (see "obstacle
+// gating uses the same units as the car catalogue" above), so `distance: 0`
+// is not guaranteed to have anything available — this sits past every type's
+// gate instead, mirroring the CAR_TYPES "far" idiom used for the same reason.
+const OBSTACLE_GATE_CLEAR = Math.max(...OBSTACLE_TYPES.map((t) => t.minDistance ?? 0)) * DIST_UNITS;
 function obstacleWorld() {
   const player = new Player(300, 496);
-  return { player, distance: 0, W: 600, H: 800, cars: [] };
+  return { player, distance: OBSTACLE_GATE_CLEAR, W: 600, H: 800, cars: [] };
 }
 
 test("a ram destroys an obstacle outright, even at full health", () => {
