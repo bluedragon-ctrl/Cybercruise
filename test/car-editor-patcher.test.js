@@ -7,6 +7,8 @@ import {
   patchDrivingProfile,
   patchObstacleType,
 } from "../tools/car-editor/patcher.js";
+import { CAR_TYPES } from "../src/game/cartypes.js";
+import { OBSTACLE_TYPES } from "../src/game/obstacletypes.js";
 
 test("findMatchingBrace finds the matching closing brace", () => {
   const text = "before { inner } after";
@@ -135,8 +137,9 @@ test("patchCarType works against the real src/game/cartypes.js", () => {
   const result = patchCarType(realSource, "interceptor", { health: 999 });
   assert.match(result, /id: "interceptor",[\s\S]*?health: 999,/);
   // The rest of the file must be untouched — same length delta as exactly
-  // one number changing from "70" to "999".
-  assert.equal(result.length - realSource.length, "999".length - "70".length);
+  // one number changing, whatever health happens to be tuned to right now.
+  const currentHealth = CAR_TYPES.find((t) => t.id === "interceptor").health;
+  assert.equal(result.length - realSource.length, "999".length - String(currentHealth).length);
 });
 
 const SAMPLE_DRIVING = `export const DRIVING_PROFILES = {
@@ -278,6 +281,7 @@ test("patchObstacleType works against the real src/game/obstacletypes.js", () =>
   const result = patchObstacleType(realSource, "trestle", { minDistance: 40 });
   assert.match(result, /id: "trestle",[\s\S]*?minDistance: 40,/);
   // The rest of the file must be untouched — same length delta as exactly
-  // one number changing from "0" to "40".
-  assert.equal(result.length - realSource.length, "40".length - "0".length);
+  // one number changing, whatever minDistance happens to be tuned to right now.
+  const currentMinDistance = OBSTACLE_TYPES.find((t) => t.id === "trestle").minDistance;
+  assert.equal(result.length - realSource.length, "40".length - String(currentMinDistance).length);
 });
