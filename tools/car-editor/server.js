@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 
-import { buildAllCarState, ENEMY_IDS, BEHAVIOR_FIELDS, HULL_SPEED_FIELDS } from "./state.js";
+import { buildAllCarState, CAR_IDS, BEHAVIOR_FIELDS, HULL_SPEED_FIELDS, SPAWN_FIELDS } from "./state.js";
 import { patchCarType, patchDrivingProfile } from "./patcher.js";
 import * as git from "./git.js";
 import { carTypeById } from "../../src/game/cartypes.js";
@@ -65,6 +65,11 @@ async function readBody(req) {
 // boundary, rather than relying on downstream game-invariant tests to notice.
 const POSITIVE_FIELDS = new Set(["health", "speedMin", "speedMax"]);
 
+// minDistance is a gate, not a magnitude — 0 ("from the first metre", see
+// cartypes.js) is its most common and entirely valid value, so it only rules
+// out negative distances rather than joining POSITIVE_FIELDS above.
+const NON_NEGATIVE_FIELDS = new Set(["minDistance"]);
+
 export function validateChanges(changes) {
   if (!changes || typeof changes !== "object" || Array.isArray(changes)) {
     throw new Error("body.changes must be an object");
@@ -73,14 +78,18 @@ export function validateChanges(changes) {
     throw new Error("body.changes must not be empty");
   }
   for (const [carId, fields] of Object.entries(changes)) {
-    if (!ENEMY_IDS.includes(carId)) {
-      throw new Error(`unknown enemy car id "${carId}"`);
+    if (!CAR_IDS.includes(carId)) {
+      throw new Error(`unknown car id "${carId}"`);
     }
     if (!fields || typeof fields !== "object" || Object.keys(fields).length === 0) {
       throw new Error(`changes for "${carId}" must be a non-empty object`);
     }
     for (const [field, value] of Object.entries(fields)) {
-      if (!HULL_SPEED_FIELDS.includes(field) && !BEHAVIOR_FIELDS.includes(field)) {
+      if (
+        !HULL_SPEED_FIELDS.includes(field) &&
+        !SPAWN_FIELDS.includes(field) &&
+        !BEHAVIOR_FIELDS.includes(field)
+      ) {
         throw new Error(`unknown field "${field}" for "${carId}"`);
       }
       if (field === "laneHome") {
@@ -91,6 +100,8 @@ export function validateChanges(changes) {
         throw new Error(`field "${field}" for "${carId}" must be a finite number, got ${JSON.stringify(value)}`);
       } else if (POSITIVE_FIELDS.has(field) && value <= 0) {
         throw new Error(`field "${field}" for "${carId}" must be a positive number, got ${JSON.stringify(value)}`);
+      } else if (NON_NEGATIVE_FIELDS.has(field) && value < 0) {
+        throw new Error(`field "${field}" for "${carId}" must not be negative, got ${JSON.stringify(value)}`);
       }
     }
 
@@ -155,8 +166,11 @@ async function handleCommit(req, res) {
       const hullSpeedChanges = {};
       const behaviorChanges = {};
       for (const [field, value] of Object.entries(fields)) {
-        if (HULL_SPEED_FIELDS.includes(field)) hullSpeedChanges[field] = value;
-        else behaviorChanges[field] = value;
+        if (HULL_SPEED_FIELDS.includes(field) || SPAWN_FIELDS.includes(field)) {
+          hullSpeedChanges[field] = value;
+        } else {
+          behaviorChanges[field] = value;
+        }
       }
       if (Object.keys(hullSpeedChanges).length > 0) {
         cartypesText = patchCarType(cartypesText, carId, hullSpeedChanges);

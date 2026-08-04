@@ -9,6 +9,7 @@ const FIELD_DESCRIPTIONS = {
   health: "Hull points. Spent by ramming, explosions, and weapons; the car is destroyed at zero.",
   speedMin: "Slowest cruising speed this car will roll at when it spawns, in world units/sec.",
   speedMax: "Fastest cruising speed this car will roll at when it spawns, in world units/sec.",
+  minDistance: 'How far the player must have driven before this car can spawn at all, in DIST-readout units (the same number the HUD shows). 0 means it can appear from the very first metre.',
 
   followGap: "Clear road (world units) this driver wants between its nose and the car ahead's tail, before adding closing-speed room.",
   followReaction: "Seconds of closing speed added to followGap — how early this driver starts backing off from something ahead.",
@@ -31,6 +32,7 @@ const FIELD_DESCRIPTIONS = {
 const FIELD_ORDER = {
   hull: ["health"],
   speed: ["speedMin", "speedMax"],
+  spawn: ["minDistance"],
   behavior: {
     Following: ["followGap", "followReaction"],
     "Lane discipline": ["laneDiscipline", "laneHome"],
@@ -63,11 +65,12 @@ async function loadState() {
 function fieldValue(car, field) {
   if (field in car.hull) return car.hull[field];
   if (field in car.speed) return car.speed[field];
+  if (field in car.spawn) return car.spawn[field];
   return car.behavior[field].value;
 }
 
 function isOverridden(car, field) {
-  if (field in car.hull || field in car.speed) return true;
+  if (field in car.hull || field in car.speed || field in car.spawn) return true;
   return !car.behavior[field].inherited;
 }
 
@@ -102,19 +105,33 @@ function setChange(carId, field, value) {
   pendingChanges[carId][field] = value;
 }
 
+const FACTION_GROUPS = [
+  { faction: "enemy", heading: "Hostile" },
+  { faction: "neutral", heading: "Civilian" },
+];
+
 function renderCarList() {
   const nav = document.getElementById("car-list");
   nav.innerHTML = "";
-  for (const car of cars) {
-    const button = document.createElement("button");
-    button.textContent = car.label;
-    button.className = car.id === selectedCarId ? "selected" : "";
-    button.addEventListener("click", () => {
-      selectedCarId = car.id;
-      renderCarList();
-      renderForm();
-    });
-    nav.appendChild(button);
+  for (const { faction, heading } of FACTION_GROUPS) {
+    const group = cars.filter((car) => car.faction === faction);
+    if (group.length === 0) continue;
+
+    const headingEl = document.createElement("h3");
+    headingEl.textContent = heading;
+    nav.appendChild(headingEl);
+
+    for (const car of group) {
+      const button = document.createElement("button");
+      button.textContent = car.label;
+      button.className = car.id === selectedCarId ? "selected" : "";
+      button.addEventListener("click", () => {
+        selectedCarId = car.id;
+        renderCarList();
+        renderForm();
+      });
+      nav.appendChild(button);
+    }
   }
 }
 
@@ -182,6 +199,10 @@ function renderForm() {
   speedDiv.innerHTML = "";
   for (const field of FIELD_ORDER.speed) speedDiv.appendChild(makeField(car.id, field));
 
+  const spawnDiv = document.getElementById("spawn-fields");
+  spawnDiv.innerHTML = "";
+  for (const field of FIELD_ORDER.spawn) spawnDiv.appendChild(makeField(car.id, field));
+
   const behaviorDiv = document.getElementById("behavior-fields");
   behaviorDiv.innerHTML = "";
   for (const [group, fields] of Object.entries(FIELD_ORDER.behavior)) {
@@ -194,11 +215,11 @@ function renderForm() {
 
 // Behavior fields flag whether this edit ADDS a new override to the car's
 // profile (it currently inherits the commuter default) or CHANGES an
-// override that was already there. Hull/speed fields are always plain
+// override that was already there. Hull/speed/spawn fields are always plain
 // changes — cartypes.js sets them on every entry, so there's no "inherited"
 // state for the note to describe.
 function noteFor(car, field) {
-  if (field in car.hull || field in car.speed) return "";
+  if (field in car.hull || field in car.speed || field in car.spawn) return "";
   return car.behavior[field].inherited ? "new override" : "changed";
 }
 

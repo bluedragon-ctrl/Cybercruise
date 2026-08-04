@@ -32,3 +32,25 @@ test("validateChanges rejects speedMax < speedMin when both are given", () => {
 test("validateChanges accepts speedMax alone without speedMin in the request", () => {
   assert.doesNotThrow(() => validateChanges({ rival: { speedMax: 500 } }));
 });
+
+test("validateChanges accepts a civilian car id", () => {
+  assert.doesNotThrow(() => validateChanges({ sedan: { health: 70 } }));
+});
+
+test("validateChanges rejects an unknown car id", () => {
+  assert.throws(
+    () => validateChanges({ ghost: { health: 70 } }),
+    /unknown car id "ghost"/
+  );
+});
+
+test("validateChanges accepts a zero minDistance value", () => {
+  assert.doesNotThrow(() => validateChanges({ sedan: { minDistance: 0 } }));
+});
+
+test("validateChanges rejects a negative minDistance value", () => {
+  assert.throws(
+    () => validateChanges({ interceptor: { minDistance: -5 } }),
+    /field "minDistance" for "interceptor" must not be negative, got -5/
+  );
+});

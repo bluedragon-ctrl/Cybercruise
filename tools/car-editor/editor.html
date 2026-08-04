@@ -2,17 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Cybercruise — Enemy Car Editor</title>
+  <title>Cybercruise — Car Editor</title>
   <link rel="stylesheet" href="/editor.css" />
 </head>
 <body>
   <header>
-    <h1>Enemy Car Editor</h1>
-    <p class="subtitle">Tune hull, speed and driving behavior for the enemy roster, then open a pull request.</p>
+    <h1>Car Editor</h1>
+    <p class="subtitle">Tune hull, speed, spawn distance and driving behavior for the whole roster — hostile and civilian — then open a pull request.</p>
   </header>
 
   <main>
-    <nav id="car-list" aria-label="Enemy cars"></nav>
+    <nav id="car-list" aria-label="Cars"></nav>
 
     <div>
       <section id="car-form" hidden>
@@ -26,6 +26,11 @@
         <fieldset>
           <legend>Speed</legend>
           <div id="speed-fields"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Spawn</legend>
+          <div id="spawn-fields"></div>
         </fieldset>
 
         <fieldset>
