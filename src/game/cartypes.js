@@ -537,6 +537,12 @@ export const CAR_TYPES = [
     blastDamage: 32,
     value: ENEMY_VALUE,
     minDistance: ENEMY_MIN_DISTANCE,
+    // REAL: closes on the player from behind or alongside to hit them, or
+    // sits in their lane going deliberately slower once it's past — see
+    // behaviours.js's `ram`. Its whole job is making contact, not shooting,
+    // so `arms: false` on the tactic's own row means it never fires the
+    // default hostile kit `armFor` still hands it below — carrying a gun it
+    // never uses is correct here (see armament.js's header), not a leftover.
     behaviour: "ram",
     driving: "batterer", // nerve 20: three times in five, the type least
                          // interested in going round

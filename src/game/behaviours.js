@@ -831,20 +831,97 @@ function trail(car, dt, world) {
   car.targetSpeed = followSpeed(car, lead, Math.max(0, Math.min(TRAIL_CHASE_SPEED, held)));
 }
 
+// --- Ramming -----------------------------------------------------------------
+//
+// The bruiser. No gun, no mines — the ARMS half of `useArms` never runs for
+// this tactic at all (see the table below, `arms: false`), so the only thing
+// this car spends on the player is its own mass. It has exactly one idea,
+// applied from whichever side of the player it currently is: CLOSE THE GAP.
+// TWO MODES, chosen only by which side of the player that leaves it on —
+// there is no phase to commit to and nothing to hold, unlike raid or trail.
+//
+// BEHIND OR ALONGSIDE: this is the attack. The lane tracking is the same
+// mechanism raid and trail already use — steer onto the player's own offset,
+// deferring to `blocked` so it won't cut across traffic it doesn't tolerate
+// to do it — but the speed half is deliberately NOT `followSpeed` against the
+// player: braking to avoid the very thing this car exists to hit would be
+// exactly backwards. It simply asks for RAM_CHASE_SPEED, a ceiling well above
+// its own type.speedMax (330, cartypes.js) for the same two-tier reason the
+// stocker's TRAIL_CHASE_SPEED is — a number spent purely on closing the last
+// stretch onto a player who may be running near their own ceiling, not one it
+// cruises at for its own sake. `resolveCollisions` (collisions.js) does the
+// rest: at 2.2 mass, the heaviest thing on the road bar the rig, a rear-end
+// or a side-swipe costs the player real hull and real speed, and costs this
+// car almost none of either.
+//
+// AHEAD IS THE OTHER HALF OF THE SAME JOB, not a separate one. A car that
+// keeps closing on a slower target does not stop closing at zero gap — it
+// eventually passes, and once it has, still tracking the player's lane while
+// asking for LESS speed than they are running IS the block: the player either
+// brakes to match a wall heavier than they are or rear-ends it. RAM_BRAKE is
+// a fraction of the PLAYER's own current speed rather than a fixed figure, so
+// the block still bites right down at walking pace rather than going slack
+// the moment the player lifts off the throttle themselves.
+//
+// THIS IS THE STOCKER'S OTHER HALF, and neither tactic knows the other
+// exists. A player slowed here is a player held in the stocker's own gun
+// window for longer (behaviours.js's `trail`, TRAIL_HOLD/TRAIL_ENGAGE) — the
+// road producing that on its own, out of two cars each running one simple
+// job, is the point of splitting the enemy into types at all rather than
+// giving every hostile the same one tactic.
+const RAM_CHASE_SPEED = 560; // ceiling while closing from behind or alongside
+                             // — see the stocker's TRAIL_CHASE_SPEED for the
+                             // same two-tier reasoning
+const RAM_BRAKE = 0.5;      // fraction of the PLAYER's own speed held once
+                             // ahead of them — halves their speed, and slows
+                             // further still the harder they brake themselves
+const RAM_BLOCK_FLOOR = 80; // never brakes to a dead stop — a stalled wall
+                             // reads as broken, not as a blocker
+
+function ram(car, _dt, world) {
+  const target = world.playerBody;
+  if (!target) {
+    keepLane(car, world);
+    car.targetSpeed = followSpeed(car, leadCar(car, world, car.offset, null));
+    return;
+  }
+
+  // Track the player's own lane unconditionally: from behind or alongside
+  // this is what lines the hit up, and ahead it's what keeps the block IN
+  // their path rather than a car merely driving near them.
+  const limit = ROAD_HALF_WIDTH - car.w / 2;
+  const want = Math.max(-limit, Math.min(limit, target.offset));
+  if (!blocked(car, target, want, world, car.drive.passLookAhead)) car.targetOffset = want;
+
+  // Still brake for REAL traffic in the way — the target itself is excluded
+  // (see `ignore` below), because the one thing this tactic must never do is
+  // brake for the player.
+  const lead = leadCar(car, world, car.offset, target);
+  const ahead = car.worldY - target.worldY; // positive once past the player
+
+  if (ahead > 0) {
+    const held = Math.max(RAM_BLOCK_FLOOR, target.speed * RAM_BRAKE);
+    car.targetSpeed = followSpeed(car, lead, held);
+    return;
+  }
+
+  car.targetSpeed = followSpeed(car, lead, RAM_CHASE_SPEED);
+}
+
 // --- The tactics table ----------------------------------------------------------
 //
 // Every car type names one of these. A row is `{ drive, arms }`: the manoeuvre
 // that sets its intent, and whether it uses what it is carrying.
 //
-// THE REMAINING PHASE 4 TACTICS ARE STILL BORROWED. `pursue`, `ram`, `block`
-// and `convoy` each point at whichever shipped tactic is the closest
+// THE REMAINING PHASE 4 TACTICS ARE STILL BORROWED. `pursue`, `block` and
+// `convoy` each point at whichever shipped tactic is the closest
 // approximation, so the road already drives sensibly — the hunters flow
 // through traffic, the heavies hold their lane. They are rows rather than
 // one-line functions that call another function, because a table shows at a
 // glance which tactics are real and which are placeholders, and filling one
 // in is then a function plus a changed reference with no edit to
-// cartypes.js. `raid` and `trail`, below, are filled in; `pursue` — still
-// borrowed, and still what the interceptor and rival name — is next.
+// cartypes.js. `raid`, `trail` and `ram`, below, are filled in; `pursue` —
+// still borrowed, and still what the interceptor and rival name — is next.
 //
 // `arms` is per tactic, not per faction, and that is the right way round: being
 // ARMED follows from what a car carries (armament.js keys off faction), but
@@ -861,9 +938,12 @@ const BEHAVIOURS = {
   pursue: { drive: overtake, arms: true },  // will steer onto the player's offset
                                             // and close, rather than treating them
                                             // as one more car to be passed
-  ram: { drive: cruise, arms: true },       // will line up behind and spend its
-                                            // speed on the impact — the one tactic
-                                            // that deliberately keeps no gap
+  ram: { drive: ram, arms: false },         // real: no gun, no mines — closes
+                                            // the gap from behind or alongside
+                                            // to hit the player, or sits ahead
+                                            // of them going deliberately slower
+                                            // to force the same contact from
+                                            // the other side
   block: { drive: overtake, arms: true },   // will match the player's lane from IN
                                             // FRONT and slow, to bottle them up.
                                             // UNCLAIMED since the muscle car
