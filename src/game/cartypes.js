@@ -281,7 +281,7 @@ export const CAR_TYPES = [
     blastRadius: 30,
     blastDamage: 9,
     value: CIVILIAN_VALUE,
-    minDistance: 0, // the city's own traffic: on the road from the first metre
+    minDistance: 200, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     // The road's impatient civilian, and the reason driving.js exists: the same
     // tactic as the sedan, so every difference between the two of them on the
@@ -349,7 +349,7 @@ export const CAR_TYPES = [
     blastRadius: 32,
     blastDamage: 10,
     value: CIVILIAN_VALUE,
-    minDistance: 0, // the city's own traffic: on the road from the first metre
+    minDistance: 700, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     // The other pale civilian, and the deliberate opposite of the roadster: same
     // shade, same tactic, similar pace, and it holds a perfect line and sweeps
@@ -400,7 +400,7 @@ export const CAR_TYPES = [
     blastRadius: 44,
     blastDamage: 24,
     value: CIVILIAN_VALUE, // killing one is a fine, like any other civilian
-    minDistance: 0,        // the city's own traffic: on the road from the first metre
+    minDistance: 500,        // the city's own traffic: on the road from the first metre
     behaviour: "overtake", // it does not block for anyone; it just goes past
     driving: "brawler",    // heavy, impatient, and it will lean on you
     // Kept at exactly what it was as a hostile, which MOVES THE FACTION MIX and
@@ -430,7 +430,7 @@ export const CAR_TYPES = [
     blastRadius: 38,
     blastDamage: 16,
     value: ENEMY_VALUE,
-    minDistance: ENEMY_MIN_DISTANCE,
+    minDistance: 300,
     behaviour: "pursue",
     driving: "pursuer", // nerve 12: through a trestle a third of the time
     weight: 2, // the standard hostile: whatever else is out, one of these is too
@@ -555,7 +555,7 @@ export const CAR_TYPES = [
     blastRadius: 40,
     blastDamage: 20,
     value: ENEMY_VALUE,
-    minDistance: ENEMY_MIN_DISTANCE,
+    minDistance: 1000,
     behaviour: "pursue",
     driving: "duelist", // nerve 10: a driver, not a battering ram — it would
                         // rather keep the line clean
