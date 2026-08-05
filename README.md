@@ -164,12 +164,15 @@ traffic doesn't mean touching the simulation:
   and the physics stay in one place. One entry point, `driveCar`, runs three
   stages for every car: **tactic** (the manoeuvre), **reflex** (hazard
   avoidance, which may override the tactic laterally), then **arms**. Most of
-  Most of Phase 4's tactics (`pursue`, `ram`, `block`, `convoy`) are still rows
-  in that table borrowing their driving from the two civilian ones. `raid`
-  (the cycle) forces its way past whatever's ahead, then holds station just
-  long enough to drop one mine in the player's path. `trail` (the stocker)
-  hangs off the player's back bumper and fires forward for one timed
-  engagement, then gives up and drives off for good.
+  Phase 4's tactics (`pursue`, `block`, `convoy`) are still rows in that table
+  borrowing their driving from the two civilian ones. `raid` (the cycle)
+  forces its way past whatever's ahead, then holds station just long enough
+  to drop one mine in the player's path. `trail` (the stocker) hangs off the
+  player's back bumper and fires forward for one timed engagement, then gives
+  up and drives off for good. `ram` (the bruiser) carries no gun and no mines
+  at all — it just closes the gap, from behind or alongside to hit the player
+  outright, or from in front by holding a speed under theirs to make the same
+  contact happen the other way round.
 - `src/game/driving.js` — the **driving profiles**: the numbers behind a tactic.
   Following distances, patience, lane discipline, and how much hull a driver
   will accept hitting. See below.
@@ -321,6 +324,19 @@ junk in the road costs it paint rather than a wheel. That leaves the `block`
 tactic and the `enforcer` profile the muscle left behind still unclaimed — and
 still the right pair for a second heavy that leans on the player.
 
+The **bruiser** is the road's other real hostile tactic, and the plainest one:
+`ram` carries no gun and lays no mines — `arms: false` on the tactic's own row
+means it never fires the default hostile kit `armFor` still hands it, and the
+whole of its threat is its own 2.2 mass. It tracks the player's lane exactly
+as raid and trail do, but the speed half never brakes for them: from behind
+or alongside it simply asks for a ceiling above its own 330 top speed, so it
+closes and hits rather than settling into a follow. Once it's past, tracking
+the same lane while asking for less than the player's own speed *is* the
+block — they either brake to match a wall heavier than they are or rear-end
+it. Nothing coordinates the two hostiles that actually ship real tactics, and
+nothing has to: a player ground down by a bruiser is a player held in a
+stocker's gun window for longer, purely because the road runs both at once.
+
 The preferences also add up to a **lane gradient**. The two slow haulers want the
 lanes by the barrier and the two fast machines want the lanes by the centre-line,
 so the road sorts itself by speed and choosing a lane becomes a choice about what
@@ -385,7 +401,7 @@ behind if faster, so they always cross the screen — and retired once well past
 | rig | 180–215 | the floor — half again the player's minimum |
 | van | 205–265 | |
 | sedan | 215–290 | the widest range: civilians are a spread of ordinary drivers |
-| bruiser | 280–330 | |
+| bruiser | 280–330 | no gun, no mines: closes to ram, or blocks ahead and brakes |
 | muscle | 310–360 | the heavy civilian that leans on people |
 | stocker | 355–415 | the quick heavy: being ahead of one is not an escape |
 | interceptor | 400–470 | |
