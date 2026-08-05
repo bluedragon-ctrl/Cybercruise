@@ -21,6 +21,17 @@
 //               against, and it is what a mine's "minimum" is measured in: a
 //               mine takes exactly ONE hit, gunfire or contact, same as a car
 //               at zero hull
+//   mass        how much a ram costs a car's SPEED, relative units on the same
+//               scale as cartypes.js's `mass` (a sedan is 1, a rig — the
+//               catalogue's heaviest — is 4). An obstacle never moves —
+//               collisions.js's `ramSpeed` treats it as a body pinned in
+//               place, so this only ever costs the car something, never the
+//               hazard. Follows the same WEIGHT-CLASS LADDER as `health` and
+//               `blastDamage` below (light -> heavy: TRESTLE, BARRELS, TETRA):
+//               a folding trestle barely notices a bumper, a tank trap is
+//               close to a rig. The mine is the one exception, kept lowest of
+//               all — it is a small charge, not a wall, so what it does to a
+//               car is entirely in its blastDamage, not in the road it holds
 //   blastRadius how far the destruction hurts, in px from the obstacle's BOX
 //               EDGE outward — the same measure Traffic uses for a car's death
 //               blast (see collisions the formula is shared with, in
@@ -95,6 +106,8 @@ export const OBSTACLE_TYPES = [
     label: "TRESTLE",
     shape: obstacleShapeIndex("TRESTLE"),
     health: 20, // one cannon round (34 dmg) puts it down
+    mass: 0.25, // lightest in the catalogue: a folding barrier, not a wall —
+                // barely worth lifting off the throttle for
     blastRadius: 26,
     blastDamage: 8,
     // A lane closure, which is what a folding trestle IS, and the type the
@@ -112,6 +125,8 @@ export const OBSTACLE_TYPES = [
     shape: obstacleShapeIndex("BARRELS"),
     health: 45, // two cannon rounds — sturdier than it looks, but barging it is
     // still free: see blastDamage below
+    mass: 0.5, // a real bump, not a shrug, but still under any car in the
+               // catalogue — bargeable, as the header promises
     blastRadius: 30,
     blastDamage: 5, // the deliberate exception — see the header
     // Against a barrier. Barrels are the softest hit in the catalogue and
@@ -129,6 +144,8 @@ export const OBSTACLE_TYPES = [
     shape: obstacleShapeIndex("TETRA"),
     health: 80, // three cannon rounds — the one roadblock worth just steering
     // around rather than shooting out
+    mass: 3.5, // near the rig's own 4 (cartypes.js) — a tank trap earns its
+               // "immovable" billing at the wheel, not just at the gun
     blastRadius: 30,
     blastDamage: 24, // heaviest hit among the blocks, matching its "immovable" billing
     // Straddling the centre-line, splitting the road in two. The tank trap is
@@ -147,6 +164,8 @@ export const OBSTACLE_TYPES = [
     // thing that touches it, gunfire included — there is no such thing as a
     // mine that "mostly" survives a hit.
     health: 1,
+    mass: 0.15, // lowest in the catalogue on purpose — see the header. What a
+                // mine does to a car is all in blastDamage below, not this
     // A real explosive, not a debris field: wide enough to reach past the car
     // that found it, unlike the blocks' contact-only radii above.
     blastRadius: 66,

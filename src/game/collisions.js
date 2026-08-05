@@ -189,6 +189,26 @@ function applyDamage(a, b, closing, scale) {
   b.damage(impactCost(b, a, closing, scale));
 }
 
+// The speed a body keeps after ramming something that never moves — a static
+// obstacle, not another body in the solver above. Same physics as rearEnd's
+// impulse (closing speed split by inverse mass, damped by RESTITUTION), with
+// the blocker's own speed fixed at zero, so a trestle and a rig cost a car
+// exactly what the same mass would cost it as a parked car: `blockerMass /
+// (moverMass + blockerMass)` of the mover's own closing speed. A light hazard
+// (low blockerMass) is barely felt; a heavy one costs most of it.
+//
+// Exported so obstacles.js prices a ram with the identical formula rather
+// than inventing a second one — see impactCost's header for why that
+// single-source-of-truth matters here too.
+export function ramSpeed(speed, moverMass, blockerMass) {
+  if (speed <= 0) return speed;
+  const invMover = 1 / moverMass;
+  const invBlocker = 1 / blockerMass;
+  const share = invMover / (invMover + invBlocker);
+  const impulse = speed * (1 + RESTITUTION);
+  return Math.max(0, speed - impulse * share);
+}
+
 // --- The player as a body ---------------------------------------------------
 // The player lives in screen x and is pinned to the row where worldY ===
 // distance; traffic lives in road-relative offsets. This adapter is the

@@ -32,7 +32,7 @@ import {
 } from "../src/game/traffic.js";
 import { driveCar, dodgeDistance } from "../src/game/behaviours.js";
 import { DRIVING_PROFILES, drivingFor, typesDriving } from "../src/game/driving.js";
-import { MIN_SPEED, MAX_SPEED, ACCEL as PLAYER_ACCEL, Player } from "../src/game/player.js";
+import { MIN_SPEED, MAX_SPEED, ACCEL as PLAYER_ACCEL, PLAYER_MASS, Player } from "../src/game/player.js";
 import { WHEEL_FRAMES } from "../src/game/sprites.js";
 import {
   LANE_COUNT, LANE_WIDTH, ROAD_HALF_WIDTH, laneAt, laneOffset, centerXAt,
@@ -43,7 +43,7 @@ import {
 import { gridPhase } from "../src/game/scenery.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import { CELL, plotAt, plotColumns, plotRows, BUILDING, EMPTY } from "../src/game/citygrid.js";
-import { resolveCollisions, impactCost, SIDE_DAMAGE } from "../src/game/collisions.js";
+import { resolveCollisions, impactCost, ramSpeed, SIDE_DAMAGE } from "../src/game/collisions.js";
 import { Score, DISTANCE_POINTS } from "../src/game/score.js";
 import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES } from "../src/game/weapons.js";
 import {
@@ -431,6 +431,30 @@ test("a heavier car shrugs off a lighter one", () => {
   assert.ok(light.taken > heavy.taken, "the lighter car must take the greater share");
 });
 
+test("a side-swipe pushes the target into a slide, not just apart", () => {
+  // collisions.js's PUSH_GAIN turns standing pressure into a vLateral slide
+  // that outlives the contact — this is what lets ramming a car sideways
+  // carry it into whatever is next to it (another car, a mine) rather than
+  // just nudging it apart for one frame.
+  const pusher = body({ worldY: 0, offset: 0, speed: 200 });
+  const target = body({ worldY: 0, offset: 30, speed: 200 }); // deep lateral overlap
+  resolveCollisions([pusher, target], 1 / 60);
+  assert.notEqual(target.vLateral, 0, "the target should have been shoved sideways");
+  assert.ok(target.offset > 30, "separation alone should have moved it further from the pusher");
+});
+
+test("ramSpeed costs a body more speed against a heavier blocker", () => {
+  // The same idea sideSwipe/rearEnd give two moving bodies, generalised to a
+  // blocker that never moves — see obstacles.js, which prices a static hazard
+  // with this exact function.
+  const speed = 300;
+  const light = ramSpeed(speed, PLAYER_MASS, 0.25);
+  const heavy = ramSpeed(speed, PLAYER_MASS, 3.5);
+  assert.ok(light < speed, "even a light blocker should cost some speed");
+  assert.ok(heavy < light, "a heavier blocker must cost far more speed");
+  assert.ok(heavy >= 0, "speed must never go negative");
+});
+
 // --- Tick ordering: a dead car stops existing immediately --------------------
 //
 // main.js resolves bullets BEFORE traffic, so that a car killed this tick
@@ -731,6 +755,61 @@ test("a ram destroys an obstacle outright, even at full health", () => {
   obstacles.update(1 / 60, world);
 
   assert.ok(!obstacles.list.includes(o), "a full-health obstacle must still be destroyed by contact");
+});
+
+test("hitting a heavier obstacle costs far more speed than a light one", () => {
+  // obstacletypes.js's `mass`: a trestle is barely felt, a tetra costs nearly
+  // as much as parking a rig in the way. Uses obstacles.drop() to place a
+  // specific type deterministically rather than relying on spawn()'s random
+  // pick.
+  const trestle = obstacleTypeById("trestle");
+  const tetra = obstacleTypeById("tetra");
+  const startSpeed = 300;
+
+  function speedAfterHit(type) {
+    const obstacles = new Obstacles(new Explosions());
+    const world = obstacleWorld();
+    world.player.speed = startSpeed;
+    obstacles.drop(type, { worldY: world.distance, offset: 0, h: 0 });
+    const o = obstacles.list[0];
+    world.distance = o.worldY;
+    world.player.x = centerXAt(o.worldY, world.W) + o.offset;
+    obstacles.update(1 / 60, world);
+    return world.player.speed;
+  }
+
+  const afterTrestle = speedAfterHit(trestle);
+  const afterTetra = speedAfterHit(tetra);
+
+  assert.ok(afterTrestle < startSpeed, "even a light hazard should cost some speed");
+  assert.ok(afterTetra < afterTrestle, "the tetra must cost far more speed than the trestle");
+  assert.equal(afterTrestle, ramSpeed(startSpeed, PLAYER_MASS, trestle.mass));
+  assert.equal(afterTetra, ramSpeed(startSpeed, PLAYER_MASS, tetra.mass));
+});
+
+test("hitting an obstacle also costs a traffic car speed, not just the player", () => {
+  // The contact loop in game/obstacles.js treats any live car the same as the
+  // player — which is what lets a car SHOVED into a hazard (collisions.js's
+  // sideSwipe) pay for it exactly as if it had driven there itself.
+  const trestle = obstacleTypeById("trestle");
+  const obstacles = new Obstacles(new Explosions());
+  const traffic = new Traffic();
+  const world = obstacleWorld();
+  traffic.spawn(world);
+  const car = traffic.cars[0];
+  assert.ok(car, "expected spawn to place a car");
+
+  const startSpeed = 300;
+  car.speed = startSpeed;
+  obstacles.drop(trestle, { worldY: world.distance, offset: 0, h: 0 });
+  const o = obstacles.list[0];
+  car.worldY = o.worldY;
+  car.offset = o.offset;
+  world.cars = traffic.cars;
+
+  obstacles.update(1 / 60, world);
+
+  assert.equal(car.speed, ramSpeed(startSpeed, car.mass, trestle.mass));
 });
 
 test("gunfire spends an obstacle's health instead of destroying it outright", () => {
