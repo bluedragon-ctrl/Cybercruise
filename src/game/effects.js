@@ -623,6 +623,53 @@ export function drawObstacleWreck(ctx, cx, cy, t, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// PICKUP COLLECTED — "GOOD NEWS" BURST
+//
+// The buff crates (game/pickupshapes.js, game/pickups.js) need their own
+// event for the same reason drawWaterBurst gets one apart from drawHeavyImpact
+// — obstacleshapes.js's own MINE/BLOCK split, restated here across a wider
+// gap: everything above this line is something going WRONG (a car dying, a
+// mine going off, a roadblock breaking), and a collected buff is the one
+// event on the road that is unambiguously good. So it borrows none of that
+// vocabulary — no shockwave, no white lance flash, no debris that implies
+// something broke. A clean ring expands and a few sparks kick outward along
+// the reticle's own bracket directions, then it is gone.
+//
+// COLOUR IS THE ONE THING THAT VARIES, and it is the point of the parameter:
+// `color` is passed in from whichever buff was just collected (the same
+// accent the crate's own glyph used — pickupshapes.js), so the burst still
+// answers "which one did I just get" for the instant it is on screen, the way
+// drawWreck reuses a dying car's own colour rather than one fixed hue.
+export const COLLECT_DURATION = 0.4;
+
+function buildCollectSparks(c, cx, cy, r) {
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const inner = r * 0.5;
+    const outer = inner + 7;
+    c.moveTo(cx + Math.cos(a) * inner, cy + Math.sin(a) * inner);
+    c.lineTo(cx + Math.cos(a) * outer, cy + Math.sin(a) * outer);
+  }
+}
+
+// Draw a collect burst centred at (cx, cy), `t` of the way through
+// COLLECT_DURATION. opts: { color }.
+export function drawCollectBurst(ctx, cx, cy, t, opts = {}) {
+  if (t < 0 || t >= 1) return;
+  const { color = GREEN_BRIGHT } = opts;
+  const r = 4 + t * 26;
+  const a = 1 - t;
+
+  ctx.save();
+  neonStroke(ctx, (c) => {
+    c.moveTo(cx + r, cy);
+    c.arc(cx, cy, r, 0, Math.PI * 2);
+  }, color, 2, 4, 0.15, a * 0.9);
+  neonStroke(ctx, (c) => buildCollectSparks(c, cx, cy, r), color, 1.5, 4, 0.13, a);
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
 // THE POOL
 //
 // Explosions are spawned mid-collision, at the exact moment the frame is already
@@ -638,15 +685,18 @@ export function drawObstacleWreck(ctx, cx, cy, t, opts = {}) {
 
 const MAX_WRECKS = 8;
 
-// Slot kinds. Cars, mines, roadblocks and rocket impacts share ONE pool rather
-// than getting one each: they are the same four numbers with a different
-// drawer, they compete for the same frame budget, and a road that is
-// simultaneously full of wrecks, mine blasts, shattered barriers and fireballs
-// is exactly the moment we want a hard ceiling on all four.
+// Slot kinds. Cars, mines, roadblocks, rocket impacts and collected pickups
+// share ONE pool rather than getting one each: they are the same four numbers
+// with a different drawer, they compete for the same frame budget, and a road
+// that is simultaneously full of wrecks, mine blasts, shattered barriers and
+// fireballs is exactly the moment we want a hard ceiling on all five —
+// COLLECT included, so a run of buff crates picked up in quick succession
+// cannot itself become the thing that starves the pool.
 const WRECK = "wreck";
 const BLAST = "blast";
 const RUBBLE = "rubble";
 const BURST = "burst";
+const COLLECT = "collect";
 
 // How long a slot lives. Not a plain map, because a roadblock's lifetime depends
 // on its debris STYLE (a trestle is gone before a tetra has finished settling).
@@ -654,6 +704,7 @@ function slotDuration(s) {
   if (s.kind === BLAST) return MINE_BLAST_DURATION;
   if (s.kind === RUBBLE) return OBSTACLE_WRECK_DURATION[s.style];
   if (s.kind === BURST) return FIREBALL_DURATION;
+  if (s.kind === COLLECT) return COLLECT_DURATION;
   return WRECK_DURATION;
 }
 
@@ -734,6 +785,15 @@ export class Explosions {
     return this.take(worldY, offset, BURST);
   }
 
+  // A buff crate collected (game/pickups.js). `color` is the crate's own
+  // glyph accent (pickupshapes.js) so the burst still says which buff it was
+  // for the instant it is on screen — see drawCollectBurst's header.
+  spawnCollect(worldY, offset, color) {
+    const slot = this.take(worldY, offset, COLLECT);
+    slot.color = color;
+    return slot;
+  }
+
   update(dt) {
     for (const s of this.slots) {
       if (!s.alive) continue;
@@ -756,6 +816,7 @@ export class Explosions {
       if (s.kind === BLAST) drawMineBlast(ctx, sx, sy, t, s);
       else if (s.kind === RUBBLE) drawObstacleWreck(ctx, sx, sy, t, s);
       else if (s.kind === BURST) drawFireballBurst(ctx, sx, sy, t, s);
+      else if (s.kind === COLLECT) drawCollectBurst(ctx, sx, sy, t, s);
       else drawWreck(ctx, sx, sy, t, s);
     }
   }

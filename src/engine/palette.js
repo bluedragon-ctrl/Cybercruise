@@ -77,3 +77,11 @@ export const NEUTRAL = "#ffb020";        // neutral/civilian car (amber)
 export const NEUTRAL_DEEP = "#c8801a";   // heavy neutral / truck (deep amber)
 export const NEUTRAL_PALE = "#ffe08a";   // light, fast neutral (pale amber)
 export const NEUTRAL_THRUST = "#ffd76a"; // neutral exhaust (warm amber)
+
+// The shield pickup (game/player.js) and the reticle it rides in on
+// (game/pickupshapes.js) — the player's own cyan, so the buff reads as an
+// extension of the car rather than a foreign effect. SHIELD_FLICKER is the
+// near-white it flashes toward in its last second, the same "about to lose
+// it" tell CRITICAL_FLASH already gives a dying car, moved into the player's
+// own family instead of the traffic one.
+export const SHIELD_FLICKER = "#eafff5";

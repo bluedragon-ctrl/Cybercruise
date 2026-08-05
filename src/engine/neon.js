@@ -84,6 +84,23 @@ export function neonStroke(ctx, build, color, width = 2, spread = 4, halo = 0.13
   ctx.restore();
 }
 
+// A glowing ring made of dashes, genuinely rotating via an animated dash
+// offset rather than a squashed ellipse faking it — the shield buff
+// (game/player.js) draws two of these, spinning opposite ways, around the car.
+export function glowDashedRing(ctx, cx, cy, r, color, dashOffset, width = 2, blur = 11, dash = [8, 10]) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = blur;
+  ctx.setLineDash(dash);
+  ctx.lineDashOffset = dashOffset;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 // Glowing text.
 export function glowText(ctx, text, x, y, color, size = 16, align = "left", blur = 10) {
   ctx.save();
