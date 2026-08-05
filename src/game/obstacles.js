@@ -56,6 +56,8 @@ import {
 } from "./obstacletypes.js";
 import { OBSTACLE_SHAPES, MINE } from "./obstacleshapes.js";
 import { CAR_TYPES } from "./cartypes.js";
+import { ramSpeed } from "./collisions.js";
+import { PLAYER_MASS } from "./player.js";
 import { centerXAt, headingAt, laneOffset, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 
 
@@ -295,11 +297,19 @@ export class Obstacles {
     };
 
     // Contact: the player or any live car driving into a hazard breaks it —
-    // see the header for why this ignores `health` entirely.
+    // see the header for why this ignores `health` entirely. It also costs
+    // whoever hit it some SPEED, same physics as ramming a car head-on
+    // (collisions.js's ramSpeed) with the hazard standing in for a body that
+    // never moves — a trestle is barely felt, a tetra costs nearly as much as
+    // parking a rig in the way. See obstacletypes.js's `mass`.
     for (const o of this.list) {
       if (!o.alive) continue;
       o.pulseTime += dt;
-      if (overlaps(o, playerBox) || cars.some((c) => c.alive && overlaps(o, c))) {
+      const hitPlayer = overlaps(o, playerBox);
+      const hitCars = cars.filter((c) => c.alive && overlaps(o, c));
+      if (hitPlayer || hitCars.length) {
+        if (hitPlayer) player.speed = ramSpeed(player.speed, PLAYER_MASS, o.type.mass);
+        for (const c of hitCars) c.speed = ramSpeed(c.speed, c.mass, o.type.mass);
         o.health = 0;
         o.alive = false;
       }
