@@ -11,6 +11,7 @@ import { Projectiles } from "./game/projectiles.js";
 import { Score } from "./game/score.js";
 import { Traffic } from "./game/traffic.js";
 import { Obstacles } from "./game/obstacles.js";
+import { obstacleTypeById } from "./game/obstacletypes.js";
 import { Explosions } from "./game/effects.js";
 import { Loadout } from "./game/weapons.js";
 import * as road from "./game/road.js";
@@ -119,12 +120,25 @@ function update(dt) {
 
   loadout.update(dt);
   const weapon = loadout.current;
-  if (isDown("fire") && weapon.tryFire()) {
+  if (isDown("fire") && weapon.ready) {
     // The muzzle is the car's nose, in road coordinates — the player's screen x
-    // re-based on the centre-line, exactly as collisions.js does it. What the
-    // bullet does with that from here is the weapon's flight mode's business.
+    // re-based on the centre-line, exactly as collisions.js does it.
     const centerX = road.centerXAt(distance, W);
-    shots.spawn(distance + player.h / 2, player.x - centerX, player.speed, weapon.type, W);
+    if (weapon.type.payload) {
+      // A mine layer, not a gun (weapons.js's "mine" entry) — dropped behind
+      // the player instead of fired ahead. Mirrors armament.js's own layMine:
+      // the drop is attempted BEFORE the round is spent, so a mine the road
+      // had no room for (obstacles.js's MAX_LAID) costs the player nothing.
+      // The player, expressed as a body in road coordinates, is exactly what
+      // obstacles.js's drop() wants — worldY/offset/h, the same shape a car
+      // satisfies without an adapter.
+      const body = { worldY: distance, offset: player.x - centerX, h: player.h };
+      if (obstacles.drop(obstacleTypeById(weapon.type.payload), body)) weapon.tryFire();
+    } else if (weapon.tryFire()) {
+      // What the bullet does with the muzzle position from here is the
+      // weapon's flight mode's business.
+      shots.spawn(distance + player.h / 2, player.x - centerX, player.speed, weapon.type, W);
+    }
   }
   // Traffic cars and road obstacles are both fair game for the PLAYER'S gunfire
   // — one flat list, built fresh each tick into the reused scratch array, so a
