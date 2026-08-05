@@ -391,9 +391,11 @@ export const CAR_TYPES = [
     // that blocked the player's lane from in front; the shape and the weight
     // class were already right for a civilian brawler, and a car that is
     // aggressive WITHOUT being out to get you is a different thing from an enemy
-    // — it is traffic that will not yield. The hostile role it vacated is a fresh
-    // enemy type's to fill (behaviours.js still holds the `block` tactic and
-    // driving.js the `enforcer` profile, both unclaimed and waiting).
+    // — it is traffic that will not yield. The hostile role it vacated went to
+    // the stocker below, but with `trail` rather than a block-and-bottle-up
+    // tactic — driving.js's `enforcer` profile is still unclaimed and waiting
+    // for a hostile that actually wants it; the matching `block` tactic row in
+    // behaviours.js was deleted once it became clear nothing was going to.
     faction: NEUTRAL_FACTION,
     // Base chassis matches every other civilian's now — the road's civilian
     // traffic reads as ONE base colour, with only small per-type accents (an
@@ -451,7 +453,17 @@ export const CAR_TYPES = [
     blastDamage: 16,
     value: ENEMY_VALUE,
     minDistance: 300,
-    behaviour: "pursue",
+    behaviour: "pursue", // real: chases the player down and never gives up —
+                         // see behaviours.js's `pursue`
+    // A ROCKET INSTEAD OF THE SHARED BLASTER, AND NO MINE LAYER — see
+    // armament.js's `rocketeer` profile and weapons.js's `missile`. One
+    // heavy, slow-reloading hit rather than a steady drip, which is what
+    // makes a hostile that never disengages read as a building threat
+    // instead of chip damage. Gun only: `pursue` holds station behind the
+    // player for its whole engagement, so a mine layer would never be in a
+    // position to fire — mining is the cycle's job today, and the rival's
+    // once it gets one.
+    arms: "rocketeer",
     driving: "pursuer", // nerve 12: through a trestle a third of the time
     weight: 2, // the standard hostile: whatever else is out, one of these is too
   },
@@ -462,9 +474,12 @@ export const CAR_TYPES = [
     // side it took the enemy's mid-field heavy with it, and this is the car that
     // fills the hole — deliberately not a copy of it. The muscle was a street
     // heavy that got in front of you and sat there; the STOCKER came off a
-    // circuit, and it CHASES. The `block` tactic and the `enforcer` profile the
-    // muscle left behind are still unclaimed, and still the right pair for a
-    // second heavy that leans on the player rather than racing them.
+    // circuit, and it CHASES. `enforcer` (driving.js) is still the right
+    // profile for a heavy that leans on the player rather than racing them,
+    // and is still unclaimed — but the `block` tactic it would have paired
+    // with was dropped from behaviours.js's table rather than kept as a row
+    // nothing pointed at. Recreate both together if a future hostile wants
+    // that pairing.
     shape: carShapeIndex("STOCKER"),
     faction: ENEMY_FACTION,
     // The hostile fleet's base chassis colour — see the header. Every other
@@ -487,14 +502,17 @@ export const CAR_TYPES = [
     value: ENEMY_VALUE,
     minDistance: ENEMY_MIN_DISTANCE,
     behaviour: "trail",    // hangs off your back bumper and fires forward — see
-                           // behaviours.js's `trail`. It never tries to get past,
-                           // unlike the placeholder `pursue` still borrowed by
-                           // the interceptor and rival
-    // THE SMG, NOT THE STANDARD BLASTER — a burst-fire spray rather than one
-    // well-aimed round, which is what a trailing car sustaining fire on one
-    // target for several seconds should sound and look like. See armament.js's
-    // `gunner` profile and weapons.js's `smg` type. Overrides the faction's
-    // default hostile kit, same mechanism as the cycle's `raider`.
+                           // behaviours.js's `trail`. It never tries to get
+                           // past, unlike the interceptor and rival's `pursue`
+    // THE SMG, NOT THE STANDARD BLASTER, AND NO MINE LAYER — a burst-fire
+    // spray rather than one well-aimed round, which is what a trailing car
+    // sustaining fire on one target for several seconds should sound and
+    // look like. See armament.js's `gunner` profile and weapons.js's `smg`
+    // type. No mine layer for the same reason the interceptor's own kit
+    // drops one: `trail` camps behind the player for its whole engagement,
+    // so a layer would never be ahead of anything to drop one on. Overrides
+    // the faction's default hostile kit, same mechanism as the cycle's
+    // `raider`.
     arms: "gunner",
     driving: "roadracer", // nerve 14: a racer's nerve, between pursuer and enforcer
     // Exactly the weight the muscle took with it, which RESTORES THE FACTION MIX
@@ -590,7 +608,16 @@ export const CAR_TYPES = [
     blastDamage: 20,
     value: ENEMY_VALUE,
     minDistance: 1000,
-    behaviour: "pursue",
+    // REAL, and the one hostile that fights like both the cycle and the
+    // interceptor in the same encounter — see behaviours.js's `duel`. It
+    // forces its way past exactly like the cycle's `raid` for one deliberate
+    // mine drop, then falls back to the interceptor's own `pursue` for good:
+    // holding a firing gap behind the player, off the plain HOSTILE blaster
+    // it carries by naming no `arms` override. No numeric change to how
+    // cautious it drives beyond that — `duelist`'s own nerve 10, below, is
+    // already low enough to read as "a driver, not a battering ram" without
+    // any special-casing for this tactic.
+    behaviour: "duel",
     driving: "duelist", // nerve 10: a driver, not a battering ram — it would
                         // rather keep the line clean
     weight: 0.3, // rare enough that meeting one is an event

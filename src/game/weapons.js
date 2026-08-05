@@ -315,6 +315,54 @@ export const ENEMY_WEAPON_TYPES = [
     length: 10,
     width: 3,
   },
+  {
+    id: "missile",
+    label: "MISSILE",
+    // The interceptor's gun (armament.js's `rocketeer` profile) — one heavy,
+    // well-aimed round on a long reload, in place of the blaster's steady
+    // drip. It is the standard hostile's own answer to the player's ROCKET
+    // pickup above: same dart body, same fireball, but in the enemy's own
+    // colours and without the splash — see the next note for why.
+    //
+    // NO blastRadius/blastDamage, and that is not an oversight: main.js
+    // resolves every hostile round against the PLAYER ALONE (`enemyTargets`),
+    // and projectiles.js's detonate() excludes whatever the round directly
+    // struck from its own splash sweep — so a splash radius here would have
+    // nothing left in range to hit. The weight of this weapon is the raw
+    // `damage` below and the long `interval`, not a wider blast.
+    //
+    // TUNED AGAINST THE SAME FLOOR the blaster's own comment names: one of
+    // these must not empty the player's 100 hull in under ~15s on its own
+    // (100 / 24 * 4 = 16.7s). A FIRST PASS, same caveat as the blaster's —
+    // retune once behaviours.js's `pursue` has been measured over real road
+    // time, not by dividing hull totals by this figure.
+    damage: 24,
+    interval: 4, // the slowest reload of anything on the road, player's own
+                 // rocket included (0.35) — this is fired by an AI that never
+                 // stops chasing, not by a held trigger
+    // Comfortably under the blaster's 760, so a launch reads as visibly
+    // slower and heavier — but still well clear of GUN_CLOSING(200) against
+    // the road's own speed band in either direction, so it never fires a
+    // round that can't catch anything (see armament.js's shoot()).
+    muzzleSpeed: 680,
+    // TRACKING, like the blaster — an enemy round that drifted into the
+    // barrier through every bend would make curves a free ride, and this is
+    // the one enemy weapon meant to feel unmissable if you hold your line.
+    flight: FLIGHT_TRACKING,
+    // INFINITE, like the blaster — an enemy weapon running dry would read as
+    // the AI losing interest, not as a threat spent. Rationing this one is
+    // the long `interval` above, not the magazine.
+    ammo: Infinity,
+    color: ENEMY,
+    glow: ENEMY_THRUST,
+    // Between the blaster's 12/4 and the player's rocket's 16/6 — a heavier
+    // round than the standard gun, without the visual noise of it being
+    // physically identical to the player's own.
+    length: 15,
+    width: 5,
+    render: "dart",
+    impact: "fireball",
+  },
 ];
 
 // One weapon, as carried by one car.

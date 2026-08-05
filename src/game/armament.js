@@ -47,6 +47,7 @@ import { obstacleTypeById } from "./obstacletypes.js";
 
 const ENEMY_GUN = ENEMY_WEAPON_TYPES[0];
 const ENEMY_SMG = ENEMY_WEAPON_TYPES[1];
+const ENEMY_MISSILE = ENEMY_WEAPON_TYPES[2];
 
 // The mine layer, expressed as a WEAPON — because from the carrier's point of
 // view that is exactly what it is: a rate of fire and a magazine. `Weapon`
@@ -69,7 +70,8 @@ const MINE_LAYER = {
   payload: "caltrop",
 };
 
-// The one hostile profile. See UNIFORM FOR NOW above.
+// The one hostile profile. See UNIFORM FOR NOW above. Still the rival's own
+// kit today, since it names no `arms` override — see cartypes.js.
 const HOSTILE = { gun: ENEMY_GUN, layer: MINE_LAYER };
 
 // No gun at all — a car that fights entirely by what it lays in the road.
@@ -79,14 +81,32 @@ const HOSTILE = { gun: ENEMY_GUN, layer: MINE_LAYER };
 // and it's one field cheaper than a stub weapon type nobody fires.
 const RAIDER = { gun: null, layer: MINE_LAYER };
 
+// THE MINE LAYER IS NOT UNIFORM EITHER, and for the same reason the gun
+// isn't: only two tactics ever get far enough AHEAD of the player to use one
+// at all — `raid` (the cycle) and, once it's filled in, the rival's own. A
+// tactic that only ever trails or holds station behind the player (`trail`,
+// `pursue`) never satisfies layMine's own lead window, so a mine layer on
+// those types is not merely unused flavour, it is dead weight: a magazine
+// that never empties and a payload nobody ever resolves. `layer: null` says
+// so plainly, the same way `gun: null` already does above — checked
+// everywhere a Weapon would be (see the Armament class below).
+
 // The stocker's kit: the SMG (weapons.js) rather than the standard blaster —
-// a burst-fire spray instead of one well-aimed round, to read differently
-// from the interceptor/rival even once those carry the plain HOSTILE profile.
-const GUNNER = { gun: ENEMY_SMG, layer: MINE_LAYER };
+// a burst-fire spray instead of one well-aimed round. Gun only: `trail`
+// (behaviours.js) camps behind the player for its whole engagement, so it is
+// never in a position to lay one.
+const GUNNER = { gun: ENEMY_SMG, layer: null };
+
+// The interceptor's kit: a rocket (weapons.js's `missile`) instead of the
+// standard blaster — one heavy, slow-reloading hit rather than a steady drip,
+// so `pursue` (behaviours.js) never giving up on the player reads as a threat
+// that keeps building rather than chip damage. Gun only, for the same reason
+// as the stocker's: `pursue` holds station behind the player too.
+const ROCKETEER = { gun: ENEMY_MISSILE, layer: null };
 
 // Keyed BY NAME, exactly like behaviours.js's BEHAVIOURS table, so a car type
 // can name its kit in the catalogue the same way it already names its tactics.
-const ARMAMENTS = { hostile: HOSTILE, raider: RAIDER, gunner: GUNNER };
+const ARMAMENTS = { hostile: HOSTILE, raider: RAIDER, gunner: GUNNER, rocketeer: ROCKETEER };
 
 // The profile a car type carries, or null if it carries nothing.
 export function armamentFor(type) {
@@ -103,16 +123,18 @@ export function armamentFor(type) {
 // One car's kit. Constructed once per car, at spawn.
 export class Armament {
   constructor(profile) {
-    // null for a profile that carries no gun at all (RAIDER above) — checked
-    // everywhere else a Weapon would be, rather than handed a stub type that
-    // exists only to sit there unfired.
+    // BOTH null-able now, symmetrically — a profile may carry no gun at all
+    // (RAIDER) or no mine layer at all (GUNNER, ROCKETEER), and each is
+    // checked everywhere else a Weapon would be, rather than handed a stub
+    // that exists only to sit there unused.
     this.gun = profile.gun ? new Weapon(profile.gun) : null;
-    this.layer = new Weapon(profile.layer);
+    this.layer = profile.layer ? new Weapon(profile.layer) : null;
     // Resolved ONCE, here, rather than looked up per drop: the payload is a
     // catalogue entry that never changes, and doing it at construction is what
     // makes a typo in `payload` show up when the car spawns rather than six
-    // seconds later when it tries to use it.
-    this.payload = obstacleTypeById(profile.layer.payload);
+    // seconds later when it tries to use it. Null along with the layer itself
+    // when there is no layer to resolve one for.
+    this.payload = profile.layer ? obstacleTypeById(profile.layer.payload) : null;
   }
 
   // Cooldowns run whether or not the car is in a position to use anything, for
@@ -121,7 +143,7 @@ export class Armament {
   // every time one appeared.
   update(dt) {
     if (this.gun) this.gun.update(dt);
-    this.layer.update(dt);
+    if (this.layer) this.layer.update(dt);
   }
 }
 
@@ -277,7 +299,10 @@ function visibleRoad(world, dir) {
 // Lay a mine behind this car if the player is the one who will find it. Returns
 // whether one was laid.
 function layMine(car, arms, target, world) {
-  if (!world.dropMine || !arms.layer.ready || !arms.payload) return false;
+  // No layer at all (the stocker's `gunner`, the interceptor's `rocketeer` —
+  // see the ARMAMENTS table above) is the common case now, not the exception,
+  // so it's checked first rather than assumed.
+  if (!arms.layer || !world.dropMine || !arms.layer.ready || !arms.payload) return false;
 
   const lead = car.worldY - target.worldY; // positive while the target trails us
   if (lead < MINE_MIN_LEAD || lead > MINE_RANGE) return false;
