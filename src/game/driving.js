@@ -422,7 +422,14 @@ export const DRIVING_PROFILES = {
   // reached it. Zero is what it always meant. It is also what it should say —
   // any contact at all costs this type at least a third of its 25 hull, so the
   // one car on the road that goes round everything goes round cars too.
-  darter: profile({ nerve: 0, contact: 0 }),
+  //
+  // PATIENCE DROPPED TO NEXT TO NOTHING. It carries no gun — its one attack is
+  // a single mine dropped once it has fought its way past whatever is holding
+  // it up (behaviours.js's `raid`) — so sitting behind traffic waiting out the
+  // commuter's 1.2s is time spent not attacking rather than time spent being
+  // careful. It still won't overtake into anything it doesn't tolerate; it
+  // just stops pretending to be patient about it.
+  darter: profile({ nerve: 0, contact: 0, patience: 0.1 }),
 };
 
 // The profile a car type drives by. A named profile always wins, so the

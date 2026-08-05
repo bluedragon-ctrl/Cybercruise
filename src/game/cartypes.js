@@ -178,11 +178,16 @@ export const FOCUS = [];
 //               — they pull out and pass whatever is holding them up, the player
 //               included; the heavy ones `cruise`, so sitting in front of a rig
 //               means it stays there. That split is what stops every car on the
-//               road weaving at once. The enemy tactics still borrow their
-//               driving from those two
+//               road weaving at once. Most of the enemy tactics still borrow
+//               their driving from those two; a few (`raid`) are real
 //   driving     key into driving.js — the PROFILE: following distances, patience,
 //               lane discipline, and how much hull this driver will accept
 //               hitting. Omitted means `commuter`
+//   arms        key into armament.js's ARMAMENTS — the KIT. Omitted means every
+//               enemy-faction type gets the shared `hostile` loadout (gun +
+//               mine layer) and every neutral-faction type carries nothing;
+//               name a profile to override that default, e.g. a car that
+//               fights without a gun at all
 //   weight      relative spawn frequency
 //   minDistance how far the player must have driven before this type may spawn
 //               at all, in DIST-READOUT units (road.js's DIST_UNITS) — the same
@@ -493,7 +498,12 @@ export const CAR_TYPES = [
     blastDamage: 7,
     value: ENEMY_VALUE,
     minDistance: ENEMY_MIN_DISTANCE,
-    behaviour: "weave",
+    behaviour: "raid",
+    // NO GUN. It fights entirely by forcing its way past and dropping one
+    // mine ahead of the player — see armament.js's `raider` profile and
+    // behaviours.js's `raid` tactic. Overrides the faction's default hostile
+    // kit, which is what `arms` naming a profile is for.
+    arms: "raider",
     // The one hostile that dodges everything, and the clearest use of the dial:
     // 25 hull means a trestle costs a cycle a third of its life, and it is the
     // nimblest thing on the road. It goes round because going round is what it
