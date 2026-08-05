@@ -50,7 +50,10 @@ const shotTargets = [];
 // (projectiles.js). Every armed enemy car holds an Armament of the same Weapon
 // class (game/armament.js).
 const loadout = new Loadout();
-const shots = new Projectiles();
+// Shares the explosion pool above, so a rocket's fireball (weapons.js's
+// ROCKET, effects.js's drawFireballBurst) competes for the same slot budget
+// as every other detonation on the road — see projectiles.js's `impact`.
+const shots = new Projectiles(explosions);
 
 // HOSTILE FIRE GETS ITS OWN POOL, and the reason is targeting rather than
 // bookkeeping. projectiles.js resolves one pool against one list of targets —
@@ -63,7 +66,7 @@ const shots = new Projectiles();
 // enemy would fine the player for a kill they had no part in, exactly the
 // oddity cartypes.js's NERVE section already had to design mines around. The
 // same goes for a hostile round setting off a mine.
-const enemyShots = new Projectiles();
+const enemyShots = new Projectiles(explosions);
 // Reused every tick rather than rebuilt. Traffic's PlayerBody is already the
 // player expressed as something with { worldY, offset, w, h, alive, damage } —
 // the exact target interface projectiles.js documents — so it needs no adapter

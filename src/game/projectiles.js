@@ -68,8 +68,90 @@ const MAX_SPARKS = 12; // impact flashes alive at once
 const SPARK_DURATION = 0.12; // seconds
 const SPARK_SIZE = 9;        // px the impact flash reaches at its widest
 
+// --- The "dart" render mode (weapons.js's ROCKET) -----------------------------
+//
+// Every weapon before the rocket draws as a TRACER: one line stretched between
+// where the round is now and where it was `length` ago, which reads fine for
+// something fired several times a second but is wrong for a rocket — several
+// can be in the air at once (see weapons.js), and a tracer per rocket would
+// mean a stretched line for each one rather than a small thing that flew past.
+//
+// So a dart is a fixed small BODY drawn at the round's own position every
+// frame instead: a pointed nose, tapered shoulders, and flared tail fins with
+// a notch between them, plus a couple of short flicker ticks for the burner.
+// It costs the same per-shot as a tracer line (a handful of moveTo/lineTo
+// pairs) and batches the same way — see render() below, three neonStroke
+// passes total no matter how many rockets are in flight.
+//
+// Points are in a fixed LOCAL unit space (x: -4..4, y: -9..9, nose at -9,
+// pointing "up" exactly as a straight tracer does) and get scaled by the
+// shot's own width/length before being rotated into place.
+const DART_BODY = [
+  [0, -9], [1.3, -2.5], [4, 8], [1, 5], [0, 7], [-1, 5], [-4, 8], [-1.3, -2.5],
+];
+// Each entry is [from, to] in the same local space, starting just behind the
+// tail notch. `to` is the tick's full length; render() shortens it toward
+// `from` for the flicker.
+const DART_BURNER = [
+  [[-2.2, 8.5], [-3.6, 14]],
+  [[2.2, 8.5], [3.6, 14]],
+  [[0, 7], [0, 13.5]],
+];
+
+// Scale a local dart-space point by the shot's own size and rotate it by `a`
+// (the same heading angle a tracking tracer uses — 0 for a straight shot).
+function dartPoint([ux, uy], cx, cy, a, sxScale, syScale) {
+  const x = ux * sxScale;
+  const y = uy * syScale;
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  return [cx + x * cos - y * sin, cy + x * sin + y * cos];
+}
+
+// Draw one dart in isolation — the asset gallery's entry point (demo.html);
+// the live game never calls this, since Projectiles.render() batches every
+// rocket on screen into three shared passes instead of one call per rocket.
+// `angle` is in radians, 0 = nose up. `flicker` (0..1) shortens the burner
+// ticks toward their base, same as render()'s per-shot flicker below.
+export function drawDart(ctx, cx, cy, angle, opts = {}) {
+  const { color = "#ffe08a", glow = "#ff8a3b", length = 16, width = 6, flicker = 1 } = opts;
+  const sxScale = width / 8;
+  const syScale = length / 18;
+
+  neonStroke(ctx, (c) => {
+    for (let i = 0; i < DART_BODY.length; i++) {
+      const [x1, y1] = dartPoint(DART_BODY[i], cx, cy, angle, sxScale, syScale);
+      const [x2, y2] = dartPoint(DART_BODY[(i + 1) % DART_BODY.length], cx, cy, angle, sxScale, syScale);
+      c.moveTo(x1, y1);
+      c.lineTo(x2, y2);
+    }
+  }, color, 1.6, 4.5, 0.15, 1);
+
+  neonStroke(ctx, (c) => {
+    for (const [from, to] of DART_BURNER) {
+      const [x1, y1] = dartPoint(from, cx, cy, angle, sxScale, syScale);
+      const tip = [from[0] + (to[0] - from[0]) * flicker, from[1] + (to[1] - from[1]) * flicker];
+      const [x2, y2] = dartPoint(tip, cx, cy, angle, sxScale, syScale);
+      c.moveTo(x1, y1);
+      c.lineTo(x2, y2);
+    }
+  }, glow, 1.3, 4, 0.14, 1);
+
+  const [nx, ny] = dartPoint([0, -9], cx, cy, angle, sxScale, syScale);
+  neonStroke(ctx, (c) => {
+    const r = Math.max(1, sxScale * 1.1);
+    c.moveTo(nx + r, ny);
+    c.arc(nx, ny, r, 0, Math.PI * 2);
+  }, "#ffffff", 1.2, 4, 0.15, 1);
+}
+
 export class Projectiles {
-  constructor() {
+  // `explosions` is the shared Explosions pool (effects.js), optional so this
+  // class still works stand-alone (see test/invariants.test.js). A weapon whose
+  // `impact` is "fireball" routes through it instead of the ordinary spark —
+  // see `detonate()` below.
+  constructor(explosions = null) {
+    this.explosions = explosions;
     this.shots = Array.from({ length: MAX_SHOTS }, () => ({
       alive: false,
       worldY: 0,
@@ -84,6 +166,10 @@ export class Projectiles {
       width: 4,
       color: "#ffffff",
       glow: "#ffffff",
+      render: "tracer", // "tracer" (batched line) | "dart" (weapons.js's ROCKET)
+      impact: "spark",  // "spark" | "fireball" — see detonate() below
+      blastRadius: 0,   // splash — see detonate() below. 0 = direct hit only
+      blastDamage: 0,
     }));
     this.sparks = Array.from({ length: MAX_SPARKS }, () => ({
       alive: false,
@@ -123,6 +209,10 @@ export class Projectiles {
     s.width = type.width;
     s.color = type.color;
     s.glow = type.glow;
+    s.render = type.render ?? "tracer";
+    s.impact = type.impact ?? "spark";
+    s.blastRadius = type.blastRadius ?? 0;
+    s.blastDamage = type.blastDamage ?? 0;
     return s;
   }
 
@@ -150,7 +240,7 @@ export class Projectiles {
         // This is the whole cost of a straight weapon through a bend, and it is
         // why the tracker is worth carrying.
         if (Math.abs(s.offset) > ROAD_HALF_WIDTH - s.width / 2) {
-          this.spark(s.worldY, Math.sign(s.offset) * (ROAD_HALF_WIDTH - s.width / 2), s.glow);
+          this.detonate(s.worldY, Math.sign(s.offset) * (ROAD_HALF_WIDTH - s.width / 2), s, targets, null);
           s.alive = false;
           continue;
         }
@@ -161,7 +251,9 @@ export class Projectiles {
         hit.damage(s.damage);
         // The flash goes where the BULLET stopped, not at the car's centre, so
         // a long rig shows hits along its flank rather than one spot amidships.
-        this.spark(s.worldY, s.offset, s.glow);
+        // `hit` is passed through so a splash weapon (below) doesn't double-hit
+        // the thing it struck directly — that already took the full s.damage.
+        this.detonate(s.worldY, s.offset, s, targets, hit);
         s.alive = false;
         continue;
       }
@@ -201,6 +293,44 @@ export class Projectiles {
     return best;
   }
 
+  // Everything that happens where a shot stops: the visual effect, and — for a
+  // weapon whose blast reaches past what it directly struck — the splash.
+  //
+  // VISUAL. Every weapon before the rocket gets the small spark cross; a
+  // weapon can instead name a bigger effect through the shared Explosions pool
+  // via its `impact` field (weapons.js) — the rocket names "fireball". Falls
+  // back to a spark if no pool was handed to the constructor, so Projectiles
+  // keeps working stand-alone.
+  //
+  // SPLASH. `s.blastRadius`/`s.blastDamage` (weapons.js) is the EXACT falloff
+  // formula Traffic.blast() and Obstacles.blast() already use for a dying car
+  // or a mine — peak at the target's box edge, nothing at the radius — so a
+  // rocket's splash is that same curve at a third setting, not a fourth
+  // mechanic to keep in sync. The one difference: the source here is a POINT
+  // (where the round stopped), not another box, so only the TARGET's own
+  // half-extent is subtracted, not a sum of two.
+  //
+  // `exclude` is whatever the round struck directly (or null, off the
+  // barrier) — it already took the full `s.damage` in the caller, and this
+  // sweep must not hit it a second time.
+  detonate(worldY, offset, s, targets, exclude) {
+    if (s.impact === "fireball" && this.explosions) {
+      this.explosions.spawnFireball(worldY, offset);
+    } else {
+      this.spark(worldY, offset, s.glow);
+    }
+
+    if (!s.blastRadius || !s.blastDamage) return;
+    for (const t of targets) {
+      if (t === exclude || !t.alive) continue;
+      const dx = Math.max(0, Math.abs(t.offset - offset) - t.w / 2);
+      const dy = Math.max(0, Math.abs(t.worldY - worldY) - t.h / 2);
+      const dist = Math.hypot(dx, dy);
+      if (dist >= s.blastRadius) continue;
+      t.damage(s.blastDamage * (1 - dist / s.blastRadius));
+    }
+  }
+
   spark(worldY, offset, color) {
     let p = this.sparks.find((q) => !q.alive);
     if (!p) {
@@ -226,16 +356,16 @@ export class Projectiles {
     const colors = this.batchColors;
     colors.length = 0;
     for (const s of this.shots) {
-      if (s.alive && !colors.includes(s.color)) colors.push(s.color);
+      if (s.alive && s.render !== "dart" && !colors.includes(s.color)) colors.push(s.color);
     }
 
     for (const color of colors) {
-      const sample = this.shots.find((s) => s.alive && s.color === color);
+      const sample = this.shots.find((s) => s.alive && s.render !== "dart" && s.color === color);
       neonStroke(
         ctx,
         (c) => {
           for (const s of this.shots) {
-            if (!s.alive || s.color !== color) continue;
+            if (!s.alive || s.render === "dart" || s.color !== color) continue;
             const sy = playerY - (s.worldY - distance);
             if (sy < -s.length || sy > H + s.length) continue;
             const sx = centerXAt(s.worldY, W) + s.offset;
@@ -264,6 +394,106 @@ export class Projectiles {
         sample.width,
         3.5,
         0.16,
+        1,
+      );
+    }
+
+    // Rockets (weapons.js's ROCKET, DART_BODY above): small discrete bodies,
+    // not tracer lines, so they get their own batching — one pass per body
+    // colour, one per burner colour, and one shared pass for every nose
+    // highlight. Three neonStroke calls total, same as the tracer loop above,
+    // no matter how many rockets are in flight at once.
+    const dartColors = [];
+    const dartGlows = [];
+    for (const s of this.shots) {
+      if (!s.alive || s.render !== "dart") continue;
+      if (!dartColors.includes(s.color)) dartColors.push(s.color);
+      if (!dartGlows.includes(s.glow)) dartGlows.push(s.glow);
+    }
+
+    for (const color of dartColors) {
+      neonStroke(
+        ctx,
+        (c) => {
+          for (const s of this.shots) {
+            if (!s.alive || s.render !== "dart" || s.color !== color) continue;
+            const sy = playerY - (s.worldY - distance);
+            if (sy < -s.length * 2 || sy > H + s.length * 2) continue;
+            const sx = centerXAt(s.worldY, W) + s.offset;
+            const a = s.tracking ? headingAt(s.worldY) : 0;
+            const sxScale = s.width / 8;
+            const syScale = s.length / 18;
+            for (let i = 0; i < DART_BODY.length; i++) {
+              const [x1, y1] = dartPoint(DART_BODY[i], sx, sy, a, sxScale, syScale);
+              const [x2, y2] = dartPoint(DART_BODY[(i + 1) % DART_BODY.length], sx, sy, a, sxScale, syScale);
+              c.moveTo(x1, y1);
+              c.lineTo(x2, y2);
+            }
+          }
+        },
+        color,
+        1.6,
+        4.5,
+        0.15,
+        1,
+      );
+    }
+
+    for (const glow of dartGlows) {
+      neonStroke(
+        ctx,
+        (c) => {
+          for (const s of this.shots) {
+            if (!s.alive || s.render !== "dart" || s.glow !== glow) continue;
+            const sy = playerY - (s.worldY - distance);
+            if (sy < -s.length * 2 || sy > H + s.length * 2) continue;
+            const sx = centerXAt(s.worldY, W) + s.offset;
+            const a = s.tracking ? headingAt(s.worldY) : 0;
+            const sxScale = s.width / 8;
+            const syScale = s.length / 18;
+            // A cheap flicker with no clock of its own: driven by worldY, which
+            // changes every tick as the rocket flies, so the burner crawls
+            // instead of sitting as a static glyph.
+            const flick = 0.75 + 0.25 * Math.sin(s.worldY * 0.35);
+            for (const [from, to] of DART_BURNER) {
+              const [x1, y1] = dartPoint(from, sx, sy, a, sxScale, syScale);
+              const tip = [from[0] + (to[0] - from[0]) * flick, from[1] + (to[1] - from[1]) * flick];
+              const [x2, y2] = dartPoint(tip, sx, sy, a, sxScale, syScale);
+              c.moveTo(x1, y1);
+              c.lineTo(x2, y2);
+            }
+          }
+        },
+        glow,
+        1.3,
+        4,
+        0.14,
+        1,
+      );
+    }
+
+    if (dartColors.length) {
+      neonStroke(
+        ctx,
+        (c) => {
+          for (const s of this.shots) {
+            if (!s.alive || s.render !== "dart") continue;
+            const sy = playerY - (s.worldY - distance);
+            if (sy < -s.length * 2 || sy > H + s.length * 2) continue;
+            const sx = centerXAt(s.worldY, W) + s.offset;
+            const a = s.tracking ? headingAt(s.worldY) : 0;
+            const sxScale = s.width / 8;
+            const syScale = s.length / 18;
+            const [nx, ny] = dartPoint([0, -9], sx, sy, a, sxScale, syScale);
+            const r = Math.max(1, sxScale * 1.1);
+            c.moveTo(nx + r, ny);
+            c.arc(nx, ny, r, 0, Math.PI * 2);
+          }
+        },
+        "#ffffff",
+        1.2,
+        4,
+        0.15,
         1,
       );
     }

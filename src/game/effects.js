@@ -34,6 +34,8 @@ import {
   NEUTRAL_DEEP,
   NEUTRAL_PALE,
   PLAYER,
+  ROCKET,
+  ROCKET_HOT,
 } from "../engine/palette.js";
 import { OBSTACLE_SHAPES, SPLINTER, WATER, IMPACT } from "./obstacleshapes.js";
 
@@ -256,6 +258,125 @@ export function drawMineBlast(ctx, cx, cy, t, opts = {}) {
       c.moveTo(cx + r, cy);
       c.arc(cx, cy, r, 0, Math.PI * 2);
     }, "#ffffff", 4, 5, 0.2, k);
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// ROCKET IMPACT — "FIREBALL BURST"
+//
+// The one true FIRE-coloured explosion in the game, deliberately: drawWreck
+// stays in the dying car's own colours and drawMineBlast goes cold cyan
+// specifically so THIS is the only thing on the road that reads as flame. A
+// rocket is meant to look and feel unlike anything else that goes off — a
+// ragged ball of fire that throws its embers on a falling ARC rather than
+// flinging them in a straight line, which is the one place gravity appears in
+// this file at all.
+//
+// COLOUR. Reuses the rocket's OWN colours (ROCKET/ROCKET_HOT, engine/palette.js)
+// for the ring and the glow, the same way drawWreck reuses a dying car's
+// colour/thrust — the burst is visibly the same ordnance that just flew in, and
+// it is why this function takes no colour opts of its own (compare
+// drawMineBlast, which hardcodes its colours for the same reason: there is only
+// one look for this event).
+//
+// Pure function of `t` like every other drawer above, and for the same reason:
+// the ragged edge and the ember scatter are re-rolled from the seed every
+// frame rather than stored, so a live burst is still just four numbers in the
+// Explosions pool.
+export const FIREBALL_DURATION = 0.5;
+
+// The ragged outer edge: a circle whose radius is perturbed per vertex and
+// re-rolled from the seed each frame, so it crawls instead of sitting as a
+// clean ring — rounder and warmer than the mine's jittering hexagon cage.
+function buildFireballOutline(c, cx, cy, r, rand) {
+  const N = 16;
+  for (let i = 0; i <= N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    const rr = r * (0.82 + rand() * 0.36);
+    const x = cx + Math.cos(a) * rr;
+    const y = cy + Math.sin(a) * rr;
+    if (i === 0) c.moveTo(x, y);
+    else c.lineTo(x, y);
+  }
+}
+
+// Embers thrown mostly upward and outward, then pulled down by a flat
+// acceleration term — unlike every drag-only effect above, this is the one
+// place "down" means something, which is part of what tells a fireball apart
+// from a wreck's flung shell or a mine's radial arcs.
+function buildFireballEmbers(c, cx, cy, tt, rand, radius) {
+  const G = radius * 5.5; // tuned for the burst's short life, not real units
+  for (let i = 0; i < 8; i++) {
+    const a = -Math.PI / 2 + (rand() - 0.5) * Math.PI * 1.3; // upward-ish, wide spread
+    const speed = radius * (1.4 + rand() * 2.2);
+    const vx = Math.cos(a) * speed;
+    const vy = Math.sin(a) * speed;
+    const px = cx + vx * tt;
+    const py = cy + vy * tt + 0.5 * G * tt * tt;
+    c.moveTo(px, py);
+    c.lineTo(px - vx * 0.06, py - (vy + G * tt) * 0.06);
+  }
+}
+
+// A few smoke wisps that curl straight up regardless of where they started,
+// so the burst reads as something that is still burning after the flash.
+function buildFireballSmoke(c, cx, cy, tt, rand, radius) {
+  for (let i = 0; i < 3; i++) {
+    const a = -Math.PI / 2 + (rand() - 0.5) * 1.6;
+    const rise = radius * (0.9 + rand() * 0.5);
+    const x0 = cx + Math.cos(a) * radius * 0.35;
+    const y0 = cy + Math.sin(a) * radius * 0.35;
+    const x1 = x0 + Math.cos(a) * rise * tt * 1.4;
+    const y1 = y0 + Math.sin(a) * rise * tt * 1.4 - rise * tt;
+    c.moveTo(x0, y0);
+    c.lineTo(x1, y1);
+  }
+}
+
+// Draw a fireball centred at (cx, cy), `t` of the way through FIREBALL_DURATION.
+// opts: { seed, radius }. `radius` defaults smaller than the mine's — this is a
+// direct hit, not an area charge.
+export function drawFireballBurst(ctx, cx, cy, t, opts = {}) {
+  if (t < 0 || t >= 1) return;
+  const { seed = 1, radius = 42 } = opts;
+  const rand = rng(seed);
+  const tt = t * FIREBALL_DURATION;
+  // Grows fast then coasts, like the mine's cage.
+  const R = radius * Math.sqrt(Math.min(1, t * 1.3));
+
+  ctx.save();
+
+  // Smoke first, so it reads as rising behind the fire rather than in front.
+  neonStroke(ctx, (c) => buildFireballSmoke(c, cx, cy, tt, rand, radius),
+    GREEN_DIM, 2, 4, 0.1, Math.max(0, t - 0.15) * 0.6);
+
+  // The ragged outer ring.
+  neonStroke(ctx, (c) => buildFireballOutline(c, cx, cy, R, rand),
+    ROCKET, 2.5, 4, 0.15, Math.max(0, 1 - Math.pow(t, 1.6)));
+
+  // Inner glow, fading a little ahead of the outer ring.
+  if (t < 0.7) {
+    const k = 1 - t / 0.7;
+    neonStroke(ctx, (c) => {
+      c.moveTo(cx + R * 0.45, cy);
+      c.arc(cx, cy, R * 0.45, 0, Math.PI * 2);
+    }, ROCKET_HOT, 3, 4, 0.16, k);
+  }
+
+  // Falling embers.
+  neonStroke(ctx, (c) => buildFireballEmbers(c, cx, cy, tt, rand, radius),
+    ROCKET, 2, 4, 0.13, Math.max(0, 1 - Math.pow(t, 1.3)));
+
+  // The white core flash — same device drawWreck and drawMineBlast use, so an
+  // impact still reads as one even before the eye has parsed the fire.
+  if (t < 0.22) {
+    const k = 1 - t / 0.22;
+    const r = radius * 0.24 * k;
+    neonStroke(ctx, (c) => {
+      c.moveTo(cx + r, cy);
+      c.arc(cx, cy, r, 0, Math.PI * 2);
+    }, "#ffffff", 3, 5, 0.18, k);
   }
   ctx.restore();
 }
@@ -517,20 +638,22 @@ export function drawObstacleWreck(ctx, cx, cy, t, opts = {}) {
 
 const MAX_WRECKS = 8;
 
-// Slot kinds. Cars, mines and roadblocks share ONE pool rather than getting one
-// each: they are the same four numbers with a different drawer, they compete for
-// the same frame budget, and a road that is simultaneously full of wrecks, mine
-// blasts and shattered barriers is exactly the moment we want a hard ceiling on
-// all three.
+// Slot kinds. Cars, mines, roadblocks and rocket impacts share ONE pool rather
+// than getting one each: they are the same four numbers with a different
+// drawer, they compete for the same frame budget, and a road that is
+// simultaneously full of wrecks, mine blasts, shattered barriers and fireballs
+// is exactly the moment we want a hard ceiling on all four.
 const WRECK = "wreck";
 const BLAST = "blast";
 const RUBBLE = "rubble";
+const BURST = "burst";
 
 // How long a slot lives. Not a plain map, because a roadblock's lifetime depends
 // on its debris STYLE (a trestle is gone before a tetra has finished settling).
 function slotDuration(s) {
   if (s.kind === BLAST) return MINE_BLAST_DURATION;
   if (s.kind === RUBBLE) return OBSTACLE_WRECK_DURATION[s.style];
+  if (s.kind === BURST) return FIREBALL_DURATION;
   return WRECK_DURATION;
 }
 
@@ -603,6 +726,14 @@ export class Explosions {
     return slot;
   }
 
+  // A rocket's hit (weapons.js's ROCKET, routed through projectiles.js's
+  // `impact` dispatch). Like the mine blast, it carries no target's silhouette
+  // or colours — every rocket detonates the same way wherever it lands — so
+  // position and seed are the whole record.
+  spawnFireball(worldY, offset) {
+    return this.take(worldY, offset, BURST);
+  }
+
   update(dt) {
     for (const s of this.slots) {
       if (!s.alive) continue;
@@ -624,6 +755,7 @@ export class Explosions {
       const t = s.elapsed / slotDuration(s);
       if (s.kind === BLAST) drawMineBlast(ctx, sx, sy, t, s);
       else if (s.kind === RUBBLE) drawObstacleWreck(ctx, sx, sy, t, s);
+      else if (s.kind === BURST) drawFireballBurst(ctx, sx, sy, t, s);
       else drawWreck(ctx, sx, sy, t, s);
     }
   }
