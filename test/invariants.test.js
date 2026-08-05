@@ -704,6 +704,27 @@ test("the loadout cycles through every weapon and returns", () => {
   assert.equal(loadout.current.type.id, WEAPON_TYPES[0].id, "the cycle does not return to the start");
 });
 
+test("the player's mine layer is a Weapon like any other, and its payload resolves", () => {
+  // weapons.js's "mine" entry mirrors armament.js's own MINE_LAYER — a rate of
+  // fire and a magazine, plus a payload naming a real OBSTACLE_TYPES entry.
+  const mineType = WEAPON_TYPES.find((t) => t.payload);
+  assert.ok(mineType, "expected a mine-layer entry in the player's own catalogue");
+  assert.ok(obstacleTypeById(mineType.payload), "the payload must name a real obstacle type");
+
+  const w = new Weapon(mineType);
+  assert.ok(w.tryFire(), "the first drop should be free, like any other weapon");
+  assert.ok(!w.tryFire(), "a second drop in the same instant must be refused");
+});
+
+test("the player's mine is the same hazard the enemy's own mine layer lays", () => {
+  // obstacleshapes.js: an obstacle's colour is fixed by its ROLE, not by who
+  // owns it — "an amber mine or a red pylon would break the two-family read."
+  // The player's mine reuses the enemy's own catalogue entry rather than
+  // growing a second, cosmetically distinct one.
+  const mineType = WEAPON_TYPES.find((t) => t.payload);
+  assert.equal(mineType.payload, "caltrop");
+});
+
 // --- Road obstacles -----------------------------------------------------------
 
 test("every obstacle type carries coherent, positive gameplay numbers", () => {

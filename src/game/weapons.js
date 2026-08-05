@@ -199,6 +199,41 @@ export const WEAPON_TYPES = [
     blastRadius: 44,
     blastDamage: 20,
   },
+  {
+    id: "mine",
+    label: "MINE",
+    // A LAYER, not a gun — see game/armament.js's own MINE_LAYER, which this
+    // mirrors field for field: a rate of fire and a magazine is all a mine
+    // layer needs from the Weapon runtime above, and `payload` (an
+    // OBSTACLE_TYPES id, not a bullet) is the one field this catalogue
+    // otherwise never uses. main.js reads it to tell a mine drop apart from a
+    // shot: `tryFire` only spends the round, what comes out the far end
+    // (projectiles.js's spawn vs. obstacles.js's drop) is the caller's
+    // business, exactly as the header above says.
+    //
+    // payload is the SAME hazard the enemy's own mine layer lays, not a second,
+    // cosmetically distinct one — obstacleshapes.js is explicit that an
+    // obstacle's colour is fixed by its role rather than who owns it ("an amber
+    // mine or a red pylon would break the two-family read"). A mine reads as a
+    // mine, whoever laid it.
+    payload: "caltrop",
+    // SIX SECONDS, THREE ROUNDS is the enemy's own layer (armament.js). The
+    // player gets a shorter rest and two more rounds: a held trigger there is
+    // an AI's rare tactical choice, but here it is a deliberate press every
+    // time, so the tighter enemy rationing would read as broken rather than
+    // scarce. Same order of magnitude on purpose — a mine stays the rarest,
+    // heaviest-hitting thing either side can put on the road. FIRST PASS, like
+    // the rocket's own numbers above — retune once there is real road time to
+    // measure it against.
+    interval: 3,
+    ammo: 5,
+    // HUD-only below this line — a mine never flies, so length/width/flight/
+    // muzzleSpeed/render/impact mean nothing here and main.js never reads them
+    // for this weapon. color/glow still matter: the HUD readout (main.js's
+    // drawHud) reads weapon.type.color for every weapon alike, mine included.
+    color: PLAYER_THRUST,
+    glow: PLAYER,
+  },
 ];
 
 // The default loadout: what the player starts every run holding.
