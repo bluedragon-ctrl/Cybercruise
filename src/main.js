@@ -17,6 +17,7 @@ import { pickupTypeById } from "./game/pickuptypes.js";
 import { ENEMY_FACTION } from "./game/cartypes.js";
 import { Explosions } from "./game/effects.js";
 import { Loadout } from "./game/weapons.js";
+import { createMenu } from "./game/menu.js";
 import * as road from "./game/road.js";
 import * as scenery from "./game/scenery.js";
 
@@ -24,8 +25,21 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const W = canvas.width;
 const H = canvas.height;
+const hint = document.getElementById("hint");
+
+const MENU_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm";
+const PAUSE_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm &middot; ESC resume";
+const PLAY_HINT = "&larr;/&rarr; or A/D steer &middot; &uarr;/&darr; speed &middot; SPACE fire &middot; TAB weapon &middot; ESC pause";
 
 initInput();
+
+// Top-level game state: the menu owns the screen until START GAME/CONTINUE is
+// picked, then main's own update/render (unchanged below) take over. "menu"
+// only ever happens once, before the very first game; ESC toggles "playing"
+// to "paused" and back for the rest of the session — same menu.js screen
+// both times, see its header for how it tells the two apart.
+const menu = createMenu();
+let state = "menu"; // "menu" | "playing" | "paused"
 
 // Player sits around mid-screen (Spy Hunter framing) so traffic catching up
 // from behind is visible below before it draws level.
@@ -119,6 +133,39 @@ function dropMine(car, type) {
 let distance = 0;
 
 function update(dt) {
+  if (state === "menu") {
+    if (menu.update()) {
+      state = "playing";
+      hint.innerHTML = PLAY_HINT;
+    }
+    return;
+  }
+
+  if (state === "paused") {
+    // ESC again resumes directly, without going through CONTINUE — the same
+    // key that opened the pause screen closes it. A fresh consumePress each
+    // time, so this never fires on the very keypress that just opened pause.
+    if (consumePress("pause")) {
+      state = "playing";
+      hint.innerHTML = PLAY_HINT;
+      return;
+    }
+    if (menu.update()) {
+      state = "playing";
+      hint.innerHTML = PLAY_HINT;
+    }
+    return;
+  }
+
+  // state === "playing" from here down — the whole rest of this function is
+  // the real game tick, untouched by any of the above.
+  if (consumePress("pause")) {
+    state = "paused";
+    menu.open("pause");
+    hint.innerHTML = PAUSE_HINT;
+    return; // frozen the instant ESC is pressed — no world update this tick
+  }
+
   // Road edges at the player's own row (worldY === distance there), used to keep
   // the car on the tarmac and to trigger barrier-scrape damage.
   const edges = road.edgesAt(distance, W);
@@ -293,6 +340,11 @@ function drawHud() {
 
 function render(alpha) {
   clear(ctx);
+
+  if (state === "menu" || state === "paused") {
+    menu.render(ctx, W, H);
+    return;
+  }
 
   // THE CAMERA IS QUANTISED TO WHOLE PIXELS, once, here, and the rounded value
   // is what every layer below is drawn against.

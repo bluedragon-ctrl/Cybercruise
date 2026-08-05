@@ -19,9 +19,14 @@ const CODE_ALIASES = {
   KeyS: "down",
   ArrowDown: "down",
   Space: "fire",
+  // Enter doubles as "fire" so the start screen's confirm key (game/menu.js)
+  // is the same key that shoots in play — one action, two contexts, rather
+  // than a separate "confirm" action nothing else would ever use.
+  Enter: "fire",
   Tab: "swap",
   ShiftLeft: "swap",
   KeyQ: "swap",
+  Escape: "pause",
 };
 
 export function initInput(target = window) {
