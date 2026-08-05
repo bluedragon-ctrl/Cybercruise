@@ -467,8 +467,16 @@ export const CAR_TYPES = [
     blastDamage: 26,
     value: ENEMY_VALUE,
     minDistance: ENEMY_MIN_DISTANCE,
-    behaviour: "pursue",  // it comes after you, where the muscle used to sit in
-                          // front of you
+    behaviour: "trail",    // hangs off your back bumper and fires forward — see
+                           // behaviours.js's `trail`. It never tries to get past,
+                           // unlike the placeholder `pursue` still borrowed by
+                           // the interceptor and rival
+    // THE SMG, NOT THE STANDARD BLASTER — a burst-fire spray rather than one
+    // well-aimed round, which is what a trailing car sustaining fire on one
+    // target for several seconds should sound and look like. See armament.js's
+    // `gunner` profile and weapons.js's `smg` type. Overrides the faction's
+    // default hostile kit, same mechanism as the cycle's `raider`.
+    arms: "gunner",
     driving: "roadracer", // nerve 14: a racer's nerve, between pursuer and enforcer
     // Exactly the weight the muscle took with it, which RESTORES THE FACTION MIX
     // the muscle's move disturbed: hostile weight goes 4.1 -> 5.3 and civilian

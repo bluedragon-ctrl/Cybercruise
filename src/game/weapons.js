@@ -55,12 +55,33 @@ export const FLIGHT_TRACKING = "tracking";
 //   damage      hull removed by one hit. For scale, the catalogue in cartypes.js
 //               runs from the cycle's 25 hull to the rig's 220, and the player
 //               has 100
-//   interval    seconds between shots — the reciprocal of the fire rate
+//   interval    seconds between shots — the reciprocal of the fire rate.
+//               Doubles as the REST between bursts for a weapon that names
+//               burstCount below, rather than the gap between every round
+//   burstCount  OPTIONAL. Rounds fired back to back before `interval`'s rest
+//               applies — omitted (or 0) means a plain single-shot weapon,
+//               every round `interval` apart, exactly as before this field
+//               existed
+//   burstInterval  seconds between rounds WITHIN a burst. Only read when
+//               burstCount is set; a fast number here against a slower
+//               `interval` is what makes a burst read as a spray followed by
+//               a pause rather than just a faster steady stream
 //   muzzleSpeed how fast the shot leaves the car, world units/sec RELATIVE TO
 //               THE SHOOTER. A bullet's absolute speed is the shooter's speed
 //               plus this, so firing while flat out doesn't leave your own
 //               rounds hanging in front of you
 //   flight      FLIGHT_STRAIGHT | FLIGHT_TRACKING — see above
+//   forwardOnly OPTIONAL, hostile guns only (armament.js's shoot()). When
+//               true, the gun never takes the rearward shot at a target
+//               behind the shooter — there is no dir -1 for it, only "no
+//               shot". Omitted means either direction is fair game, exactly
+//               as before this field existed
+//   aimSlack    OPTIONAL, hostile guns only (armament.js's shoot(), which
+//               calls this the default GUN_AIM_SLACK when omitted). How far
+//               off the target's own line this gun will still fire — a
+//               bigger number is a more reckless gun, willing to spray at a
+//               target it isn't cleanly lined up on rather than only firing
+//               on a sure hit
 //   ammo        rounds carried. Infinity for the default gun
 //   color/glow  bullet body and its trail
 //   length/width  the bullet's drawn size AND its hit box, world units
@@ -232,6 +253,53 @@ export const ENEMY_WEAPON_TYPES = [
     length: 12,
     width: 4,
   },
+  {
+    id: "smg",
+    label: "SMG",
+    // The stocker's own gun (armament.js's `gunner` profile) — a spray
+    // rather than a single well-aimed round. Lower per-hit damage than the
+    // blaster, made up for by rounds landing five at a time: the burst
+    // fields below (burstCount/burstInterval) are what turn this into a
+    // 0.36s spray followed by a 1.3s rest instead of a steady drip.
+    //
+    // SAME ORDER OF MAGNITUDE as the blaster over a full burst-plus-rest
+    // cycle (20 hull a cycle here against ~5 there per interval), not tuned
+    // finer than that — see the blaster's own note above on why this is
+    // measured against the road, not against the player's hull directly.
+    damage: 4,
+    interval: 1.3,       // rest between bursts
+    burstCount: 5,        // rounds per burst
+    burstInterval: 0.09,  // seconds between rounds within a burst
+    // SAME CEILING AS THE BLASTER, for the same reason — see its own note:
+    // has to clear the fastest cruise on the road (the cycle's 730) or the
+    // quickest hostiles lose the ability to fire behind them.
+    muzzleSpeed: 760,
+    // STRAIGHT, not tracking, like the player's own default gun — the
+    // stocker aims exactly where it's pointed rather than curving its rounds
+    // to follow the lane. Reads as a rawer, more mechanical spray than the
+    // blaster's homing tracer, and it's the flight the `forwardOnly` note
+    // just below is describing: what you're pointed at is what you hit.
+    flight: FLIGHT_STRAIGHT,
+    // NEVER FIRED BACKWARD. See armament.js's shoot() — a gun with this set
+    // simply does not take the rearward shot, whatever the relative position
+    // happens to read as for one tick. The stocker's whole tactic (`trail`,
+    // behaviours.js) already keeps it behind its target, so this is a
+    // guarantee rather than something the driving is trusted to maintain on
+    // its own.
+    forwardOnly: true,
+    // RECKLESS, well beyond the blaster's tight 8: a spray that only fired on
+    // a clean lineup wouldn't read as one. Matches MINE_AIM (armament.js) —
+    // "about two thirds of a lane" — the same figure the mine layer already
+    // uses for "close enough to be a real threat, not a warning shot".
+    aimSlack: 45,
+    ammo: Infinity,
+    color: ENEMY,
+    glow: ENEMY_THRUST,
+    // Smaller than the blaster's round, so a spray of them reads as
+    // lighter fire rather than the same bullet coming out faster.
+    length: 10,
+    width: 3,
+  },
 ];
 
 // One weapon, as carried by one car.
@@ -240,6 +308,10 @@ export class Weapon {
     this.type = type;
     this.cooldown = 0;   // seconds until the next shot is allowed
     this.ammo = type.ammo;
+    // Rounds left in the burst IN PROGRESS. 0 means "none" — either this
+    // weapon doesn't burst at all (type.burstCount unset) or the last one
+    // just finished and the next tryFire starts a fresh one. See tryFire.
+    this.burstLeft = 0;
   }
 
   get empty() {
@@ -260,7 +332,17 @@ export class Weapon {
   // or cooling weapon costs nothing and makes no noise.
   tryFire() {
     if (!this.ready) return false;
-    this.cooldown = this.type.interval;
+    // BURST WEAPONS COOL DOWN DIFFERENTLY MID-BURST. Every other round uses
+    // burstInterval (fast) rather than interval (the rest AFTER a burst) —
+    // `burstLeft` hitting 0 is what decides which one applies next, whether
+    // that's because this shot started a fresh burst or finished one.
+    if (this.type.burstCount) {
+      if (this.burstLeft <= 0) this.burstLeft = this.type.burstCount;
+      this.burstLeft -= 1;
+      this.cooldown = this.burstLeft > 0 ? this.type.burstInterval : this.type.interval;
+    } else {
+      this.cooldown = this.type.interval;
+    }
     this.ammo -= 1; // Infinity stays Infinity
     return true;
   }

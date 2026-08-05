@@ -701,6 +701,136 @@ function raid(car, dt, world) {
   car.targetSpeed = Math.max(0, Math.min(car.type.speedMax, target.speed - error * RAID_GAIN));
 }
 
+// --- Trailing --------------------------------------------------------------
+//
+// The stocker. Where raid's whole point is getting AHEAD, this one never
+// wants to be there at all — it hangs off the player's back bumper and
+// fires forward, so the fight itself is what forces the strafing: a fired
+// round holds the line it left on rather than homing on the player, so
+// whoever is already moving when the muzzle flashes is the one who dodges
+// it. "Shoots only forward" is enforced twice over, deliberately — this
+// function never asks for a lane the player is IN FRONT of, so it never
+// ends up aiming backward on its own account, AND the gun itself
+// (weapons.js's `smg`, its `forwardOnly` field) refuses a rearward shot
+// outright, so the guarantee doesn't rest on the driving alone getting
+// every tick right.
+//
+// THREE DRIVING MODES, not two — plus one piece of bookkeeping (`lostTime`,
+// below) that runs independently of which of them is active. A car this far
+// from the player (beyond
+// TRAIL_PURSUE) just drives — `cruise`, at its own ordinary cruise speed —
+// so a stocker the player hasn't caught up to yet reads as traffic, and the
+// USUAL first contact is the player closing in on it from behind, same as
+// any other car on the road. Only once it's close enough to be worth
+// chasing does it switch into actively holding station, and ONLY THERE does
+// TRAIL_CHASE_SPEED apply — a ceiling above its own type.speedMax (415,
+// cartypes.js) that it spends purely to keep pace with a quick player for
+// the length of one engagement, not a number it cruises at for its own sake.
+//
+// GIVES UP ON LOST CONTACT, NOT ON A CLOCK. The first version of this timed
+// out after a flat six seconds regardless of what was actually happening —
+// which meant a stocker that had stayed glued to the player's tail the
+// whole time gave up anyway, for no reason the player could see. What it
+// tracks instead is `car.lostTime`: seconds since it was LAST inside firing
+// range. Every tick back in range resets it to zero, so a car the player
+// can't shake keeps fighting indefinitely — there is no cap on that at all.
+// Only once it's been out of range continuously for TRAIL_GRACE does it
+// give the player up FOR GOOD — `car.disengaged` is a one-way switch,
+// checked first, that hands driving over to plain `overtake` forever. It
+// becomes fast background traffic rather than circling back for another
+// pass, and it goes unarmed once it does: `car.arms` is set to null right
+// there, not just left un-fired, so there is no window in the retreat where
+// an incidental lane change during `overtake` lines up a stray shot, or —
+// worse — a moment ahead of the player where armament.js's own layMine
+// would happily read as "ahead of my target" and drop one. Retiring the
+// whole kit is what a car that has genuinely ridden away actually is.
+const TRAIL_HOLD = 200;    // world units held behind the player. Comfortably
+                            // inside the gun's own reach (see below), with
+                            // slack either side for the proportional control
+                            // to correct in without clipping the firing window
+// THE GAP THAT COUNTS AS "IN CONTACT", and it is a contract with
+// armament.js rather than a free number: a shot is only possible within
+// ~304 units of the player (H - player.y, armament.js's visibleRoad, with
+// the player framed at 62% down an 800px canvas) before GUN_RANGE's own 520
+// even comes into it. Kept under that with margin, so contact only counts
+// once a shot is genuinely on the table, not the instant the gap could
+// theoretically close in time.
+const TRAIL_ENGAGE = 260;
+// THE GAP THAT'S WORTH ACTIVELY CHASING AT ALL. Well outside TRAIL_ENGAGE on
+// purpose — this is what lets the car spend a couple of seconds actually
+// closing the last stretch, using the chase ceiling below, before it needs
+// to be in firing range. Inside this, it's an active threat; outside it,
+// it's traffic (though see TRAIL_GRACE — it isn't necessarily done yet).
+const TRAIL_PURSUE = 500;
+// THE CHASE CEILING — deliberately ABOVE the stocker's own type.speedMax.
+// That figure (415, cartypes.js) is what governs its ordinary cruise roll and
+// stays the number that makes a stray stocker read as "a heavy, not
+// especially fast" the rest of the time; this is what it's willing to spend
+// once the player is actually worth chasing, so it can keep pace with a
+// player running near their own ceiling (620, player.js) for the length of
+// an engagement rather than falling straight off the back the moment they
+// floor it.
+const TRAIL_CHASE_SPEED = 600;
+// Proportional speed correction holding the gap at TRAIL_HOLD — mirrors
+// raid's RAID_GAIN, mirrored in sign since this car trails instead of leads.
+const TRAIL_GAIN = 1.2;
+// SECONDS OF LOST CONTACT BEFORE IT GIVES UP — not seconds of fight. A car
+// still cycling in and out of TRAIL_ENGAGE (traffic in the way, a player
+// juking the last few units of gap) never lets this run out, because every
+// return to range zeroes it; it only ever fires while the player has
+// genuinely put clear road between them, which is the point.
+const TRAIL_GRACE = 3;
+
+function trail(car, dt, world) {
+  const target = world.playerBody;
+  if (!target) {
+    keepLane(car, world);
+    car.targetSpeed = followSpeed(car, leadCar(car, world, car.offset, null));
+    return;
+  }
+  if (car.disengaged) {
+    overtake(car, dt, world);
+    return;
+  }
+
+  const gap = target.worldY - car.worldY; // positive while it trails them
+  if (gap <= TRAIL_ENGAGE) {
+    car.lostTime = 0;
+  } else {
+    car.lostTime = (car.lostTime ?? 0) + dt;
+    if (car.lostTime >= TRAIL_GRACE) {
+      car.disengaged = true;
+      car.arms = null; // rides off unarmed — see the header note above
+      overtake(car, dt, world);
+      return;
+    }
+  }
+
+  if (gap > TRAIL_PURSUE) {
+    // Not close enough to be worth actively chasing right now, but not
+    // given up either (see TRAIL_GRACE above) — drive at ordinary cruise
+    // speed and let the player either close the gap again or run the clock
+    // out.
+    cruise(car, dt, world);
+    return;
+  }
+
+  // Track the player's own lane directly — this is the whole of what makes
+  // the gun a threat worth strafing away from — deferring to `blocked` so it
+  // won't steer into traffic it doesn't tolerate to do it.
+  const limit = ROAD_HALF_WIDTH - car.w / 2;
+  const want = Math.max(-limit, Math.min(limit, target.offset));
+  if (!blocked(car, target, want, world, car.drive.passLookAhead)) car.targetOffset = want;
+
+  // Hold the gap at TRAIL_HOLD, but still brake for real traffic in the way
+  // (the player itself is excluded — the proportional term above is what
+  // governs distance to THEM). Capped at TRAIL_CHASE_SPEED, not the type's
+  // own speedMax — see the header note on why those are different numbers.
+  const lead = leadCar(car, world, car.offset, target);
+  const held = target.speed + (gap - TRAIL_HOLD) * TRAIL_GAIN;
+  car.targetSpeed = followSpeed(car, lead, Math.max(0, Math.min(TRAIL_CHASE_SPEED, held)));
+}
+
 // --- The tactics table ----------------------------------------------------------
 //
 // Every car type names one of these. A row is `{ drive, arms }`: the manoeuvre
@@ -713,7 +843,8 @@ function raid(car, dt, world) {
 // one-line functions that call another function, because a table shows at a
 // glance which tactics are real and which are placeholders, and filling one
 // in is then a function plus a changed reference with no edit to
-// cartypes.js. `raid`, below, is the first one filled in.
+// cartypes.js. `raid` and `trail`, below, are filled in; `pursue` — still
+// borrowed, and still what the interceptor and rival name — is next.
 //
 // `arms` is per tactic, not per faction, and that is the right way round: being
 // ARMED follows from what a car carries (armament.js keys off faction), but
@@ -744,6 +875,10 @@ const BEHAVIOURS = {
                                             // ahead, then holds station in front
                                             // of the player just long enough to
                                             // drop one mine in their path
+  trail: { drive: trail, arms: true },      // real: hangs off the player's back
+                                            // bumper and fires forward for one
+                                            // timed engagement, then gives up
+                                            // and drives off for good
   convoy: { drive: cruise, arms: false },   // will pair rigs nose-to-tail across
                                             // lanes into a rolling roadblock
 };
