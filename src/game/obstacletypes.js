@@ -117,7 +117,7 @@ export const OBSTACLE_TYPES = [
     // placement, so narrowing this shape leaves it untouched.
     placement: PLACE_LANE,
     weight: 3, // the backbone of the roadblock spread — see cartypes.js's sedan
-    minDistance: 0,
+    minDistance: 200,
   },
   {
     id: "barrels",
@@ -135,8 +135,8 @@ export const OBSTACLE_TYPES = [
     // the road's edge is what makes that a decision. Mid-lane they would just be
     // free points collected on the racing line.
     placement: PLACE_SIDE,
-    weight: 2.5,
-    minDistance: 0,
+    weight: 1,
+    minDistance: 600,
   },
   {
     id: "tetra",
@@ -153,8 +153,8 @@ export const OBSTACLE_TYPES = [
     // it in the middle is what turns that into a CHOICE OF SIDE made early —
     // which is the most interesting thing a static object can ask of a driver.
     placement: PLACE_CENTRE,
-    weight: 1.2,
-    minDistance: 0,
+    weight: 1,
+    minDistance: 1000,
   },
   {
     id: "caltrop",
@@ -177,8 +177,8 @@ export const OBSTACLE_TYPES = [
     // than as a very small roadblock. It is also the narrowest thing in the
     // catalogue (26px), so it can afford to be anywhere without closing the road.
     placement: PLACE_ANY,
-    weight: 0.8, // rare — see cartypes.js's rival for the same reasoning
-    minDistance: 0,
+    weight: 0.5, // rare — see cartypes.js's rival for the same reasoning
+    minDistance: 1200,
   },
 ];
 
