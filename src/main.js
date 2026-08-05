@@ -18,6 +18,7 @@ import { ENEMY_FACTION } from "./game/cartypes.js";
 import { Explosions } from "./game/effects.js";
 import { Loadout } from "./game/weapons.js";
 import { createMenu } from "./game/menu.js";
+import { createMusic } from "./audio/synth.js";
 import * as road from "./game/road.js";
 import * as scenery from "./game/scenery.js";
 
@@ -40,6 +41,15 @@ initInput();
 // both times, see its header for how it tells the two apart.
 const menu = createMenu();
 let state = "menu"; // "menu" | "playing" | "paused"
+
+// Phase 8's first slice: procedural synthwave music (src/audio/synth.js).
+// `music.start()` is only ever called below, from inside the "fire" press
+// that confirms START GAME — see synth.js's header for why it must follow a
+// real user gesture. `musicFlag` mirrors menu.js's MUSIC toggle so
+// setEnabled() only fires on an actual change rather than every frame the
+// menu is open (that would retrigger its volume ramp 60x/sec — see setEnabled).
+const music = createMusic();
+let musicFlag = menu.musicOn();
 
 // Player sits around mid-screen (Spy Hunter framing) so traffic catching up
 // from behind is visible below before it draws level.
@@ -137,6 +147,15 @@ function update(dt) {
     if (menu.update()) {
       state = "playing";
       hint.innerHTML = PLAY_HINT;
+      // The keypress that just confirmed START GAME is the user gesture
+      // AudioContext creation needs — see synth.js's header.
+      music.start();
+    }
+    // Only pushed to the engine on an actual change (see musicFlag above) —
+    // the MUSIC row can only have moved on the update() call just above.
+    if (menu.musicOn() !== musicFlag) {
+      musicFlag = menu.musicOn();
+      music.setEnabled(musicFlag);
     }
     return;
   }
@@ -153,6 +172,10 @@ function update(dt) {
     if (menu.update()) {
       state = "playing";
       hint.innerHTML = PLAY_HINT;
+    }
+    if (menu.musicOn() !== musicFlag) {
+      musicFlag = menu.musicOn();
+      music.setEnabled(musicFlag);
     }
     return;
   }

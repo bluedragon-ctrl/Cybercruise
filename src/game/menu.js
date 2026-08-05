@@ -12,9 +12,10 @@
 // to it, so re-entering the pause screen always lands back on the row that
 // resumes play rather than wherever the cursor was left last time.
 //
-// SOUND/MUSIC don't drive anything yet — there is no audio engine until
-// Phase 8 — but the flags are real and persisted now, so that engine will
-// just READ localStorage on startup instead of needing its own UI later.
+// SOUND doesn't drive anything yet (no SFX engine); MUSIC does, via
+// musicOn() below — main.js reads it to gate src/audio/synth.js. Both flags
+// are persisted regardless, so a future SFX engine will just read localStorage
+// on startup instead of needing its own UI.
 
 import { consumePress } from "../engine/input.js";
 import { glowText, glowLine } from "../engine/neon.js";
@@ -99,5 +100,12 @@ export function createMenu() {
     glowText(ctx, "MORE OPTIONS COMING SOON", W / 2, H - 40, GREEN_DIM, 12, "center", 6);
   }
 
-  return { open, update, render };
+  // Read-only peek at the MUSIC flag for main.js to hand to the audio engine
+  // (src/audio/synth.js) — this module still never touches audio itself, see
+  // the header; it only exposes the flag whoever else needs it.
+  function musicOn() {
+    return music;
+  }
+
+  return { open, update, render, musicOn };
 }
