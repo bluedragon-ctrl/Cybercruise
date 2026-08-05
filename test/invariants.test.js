@@ -877,14 +877,14 @@ test("no driver has the nerve to run onto a mine", () => {
 });
 
 test("the amber civilians always dodge, and at least one hostile gambles", () => {
-  // The shape of the dial, not its exact settings. AMBER civilians (palette
-  // NEUTRAL / NEUTRAL_DEEP — sedan, van, rig) steering around everything is what
-  // makes an amber car swerving mean "something is in that lane". The PALE
-  // civilians are a visibly different shade, which is what buys the roadster the
-  // room to shoulder through a stack of barrels without muddying that signal —
-  // see driving.js's NERVE section.
+  // The shape of the dial, not its exact settings. Every civilian shares ONE
+  // base chassis colour now (cartypes.js), so the dodge/gamble tell has moved
+  // to `accent` instead: a civilian with no accent is "amber" and must always
+  // dodge, and the roadster's PALE accent is what buys it the room to shoulder
+  // through a stack of barrels without muddying that signal for the rest of the
+  // traffic — see driving.js's NERVE section.
   const civilians = CAR_TYPES.filter((t) => t.value < 0);
-  const amber = civilians.filter((t) => t.color !== NEUTRAL_PALE);
+  const amber = civilians.filter((t) => (t.accent ?? t.color) !== NEUTRAL_PALE);
   assert.ok(amber.length > 0, "the signal needs someone to carry it");
   for (const t of amber) {
     assert.equal(drivingFor(t).nerve, 0, `${t.id}: amber civilians must always dodge`);

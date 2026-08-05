@@ -509,6 +509,7 @@ export class Traffic {
         shape: car.type.shape,
         color: blink ? CRITICAL_FLASH : car.type.color,
         thrust: car.type.thrust,
+        accent: blink ? CRITICAL_FLASH : car.type.accent,
         w: car.type.w,
         h: car.type.h,
         wheelPhase: car.wheelPhase,
