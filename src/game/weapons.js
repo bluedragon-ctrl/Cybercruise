@@ -132,16 +132,31 @@ export const WEAPON_TYPES = [
     // cannon. Numbers here are a FIRST PASS, same caveat as the blaster's:
     // retune once the upcoming attack content gives it real targets to be
     // measured against, not by dividing hull totals by this figure.
-    damage: 60,
-    interval: 0.8, // ~1.25 shots/sec
+    //
+    // One CONCRETE floor for that first pass: a direct hit must one-shot the
+    // sedan (60 hull, cartypes.js) with room to spare, not just tie it exactly
+    // — a bare tie is one falling-off-by-a-fraction bug away from the rocket
+    // quietly stopping being a one-shot weapon against the lightest thing on
+    // the road.
+    damage: 65,
+    // ~2.86 shots/sec — still the slowest-firing of the three (cannon ~6.25,
+    // tracker ~4.17), but faster than the round's OWN flight time across the
+    // screen (~0.7s at this muzzleSpeed from the player's muzzle). That
+    // relationship is what actually matters here, not the raw number: at the
+    // original 0.8s a rocket had already crossed off-screen by the time the
+    // next one fired, so however long you held the trigger only one was ever
+    // visible at once — which defeats the point of projectiles.js's dart
+    // render mode existing at all (see DART_BODY there: "several can be in
+    // the air at once"). This keeps two or more comfortably overlapping.
+    interval: 0.35,
     // Slower off the rail than the cannon or tracker — it is a heavier round,
     // not a faster one, and STRAIGHT flight (below) means the player is
     // already choosing to aim rather than to curve round a bend with it.
     muzzleSpeed: 700,
     flight: FLIGHT_STRAIGHT,
-    // FINITE, same order as the tracker's 60 — still not one to hold the
-    // trigger down on at ~1.25 shots/sec and 60 damage a round, but not so
-    // scarce it never gets picked up off the cannon either.
+    // FINITE — at ~2.86 shots/sec this empties in under 20s of held trigger,
+    // same "use it, don't lean on it" intent as before, just retimed to match
+    // the faster reload above.
     ammo: 50,
     color: ROCKET,
     glow: ROCKET_HOT,
