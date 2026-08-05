@@ -908,20 +908,134 @@ function ram(car, _dt, world) {
   car.targetSpeed = followSpeed(car, lead, RAM_CHASE_SPEED);
 }
 
+// --- Pursuing ------------------------------------------------------------------
+//
+// The interceptor. It is the standard hostile's whole idea: close in, hold a
+// firing gap, and never let go. Where the stocker's `trail` gives up for good
+// once contact is lost for TRAIL_GRACE seconds, this tactic has no such
+// clock — a car the player has shaken simply keeps coming, which is what
+// makes it read as the road's baseline pressure rather than a timed
+// encounter like `raid` or `trail` are.
+//
+// THE SAME SHAPE AS `trail`, MINUS THE THIRD MODE. `trail` needs three:
+// camp in range, cruise while it closes the gap, and — once contact is
+// truly lost — disengage for good. This tactic only ever needs the first
+// two; there is no disengage to fall into, so there is no `lostTime` to
+// track either. Everything else — the proportional hold on the gap, the
+// chase-speed ceiling above the type's own cruise, falling back to plain
+// cruising outside pursuit range — is the same problem trail already solved,
+// so it is solved the same way.
+//
+// WHAT EACH TYPE ACTUALLY FIRES IS NOT THIS FUNCTION'S BUSINESS. The
+// interceptor carries a rocket (armament.js's `rocketeer` profile) —
+// `useArms` reads whatever `car.arms` says, and this tactic only ever
+// decides where the car is and how fast it's going. Also the back half of
+// the rival's own `duel`, below, once its one mine is spent.
+const PURSUE_HOLD = 200;        // world units held behind the player — see
+                                 // TRAIL_HOLD for why this figure in particular
+const PURSUE_RANGE = 500;       // gap inside which this car actively chases —
+                                 // see TRAIL_PURSUE
+const PURSUE_CHASE_SPEED = 600; // ceiling while closing, above either type's
+                                 // own speedMax — see TRAIL_CHASE_SPEED
+const PURSUE_GAIN = 1.2;        // proportional gain holding the gap at
+                                 // PURSUE_HOLD — mirrors TRAIL_GAIN
+
+function pursue(car, dt, world) {
+  const target = world.playerBody;
+  if (!target) {
+    keepLane(car, world);
+    car.targetSpeed = followSpeed(car, leadCar(car, world, car.offset, null));
+    return;
+  }
+
+  const gap = target.worldY - car.worldY; // positive while it trails them
+  if (gap > PURSUE_RANGE) {
+    // Not close enough to be worth actively chasing right now. Unlike
+    // `trail`, there is no clock running here either way — this car simply
+    // waits for the gap to close again, however long that takes.
+    cruise(car, dt, world);
+    return;
+  }
+
+  // Track the player's own lane directly, deferring to `blocked` so it won't
+  // steer into traffic it doesn't tolerate to do it — identical to `trail`.
+  const limit = ROAD_HALF_WIDTH - car.w / 2;
+  const want = Math.max(-limit, Math.min(limit, target.offset));
+  if (!blocked(car, target, want, world, car.drive.passLookAhead)) car.targetOffset = want;
+
+  // Hold the gap at PURSUE_HOLD, but still brake for real traffic in the way
+  // (the player itself is excluded from the lead search — the proportional
+  // term is what governs distance to THEM). Capped at PURSUE_CHASE_SPEED, not
+  // either type's own speedMax — see the header note on why those differ.
+  const lead = leadCar(car, world, car.offset, target);
+  const held = target.speed + (gap - PURSUE_HOLD) * PURSUE_GAIN;
+  car.targetSpeed = followSpeed(car, lead, Math.max(0, Math.min(PURSUE_CHASE_SPEED, held)));
+}
+
+// --- Duelling --------------------------------------------------------------
+//
+// The rival. Its whole identity is that it is the one hostile that can do
+// what the cycle does AND what the interceptor does, in the same encounter —
+// so rather than write a third driving model, this is the two of them
+// composed: `raid`'s force-past-and-drop, then `pursue` for the rest of its
+// life once that mine is gone. Both functions are already tuned and tested
+// against MINE_RANGE and PURSUE_HOLD respectively; a rival that reimplemented
+// either would just be a second copy to keep in step with the first.
+//
+// ONE DELIBERATE MINE, NOT THREE, matching the cycle's own convention
+// exactly (see raid's header) — a rival that kept diving back through
+// traffic to repeat the trick would read as gimmicky rather than dangerous.
+// The gate is the same one raid uses internally to retire itself:
+// `arms.layer.ammo === arms.layer.type.ammo` is only true before the first
+// round has ever left the tube, so the instant that first mine is laid this
+// permanently falls through to `pursue` instead — no state of its own to
+// track, no `car.disengaged`-style flag, just reading the magazine raid
+// already keeps.
+//
+// THE OTHER TWO ROUNDS ARE NOT WASTED, they are just never CHASED. Once this
+// is running `pursue`, the tactic itself never asks to get ahead of the
+// player again — but `arms: true` on this row (below) means `useArms` still
+// runs every tick regardless of which of the two functions is driving, and
+// armament.js's own `layMine` still fires opportunistically if the player
+// ever ends up trailing this car anyway (a hard brake, a lane fight with
+// traffic). That is the whole of "in case it gets ahead, it can drop
+// another" — the existing gating already does it, so there is nothing here
+// to add for it.
+function duel(car, dt, world) {
+  const arms = car.arms;
+  if (arms?.layer && arms.layer.ammo === arms.layer.type.ammo) {
+    raid(car, dt, world);
+    return;
+  }
+  pursue(car, dt, world);
+}
+
 // --- The tactics table ----------------------------------------------------------
 //
 // Every car type names one of these. A row is `{ drive, arms }`: the manoeuvre
 // that sets its intent, and whether it uses what it is carrying.
 //
-// THE REMAINING PHASE 4 TACTICS ARE STILL BORROWED. `pursue`, `block` and
-// `convoy` each point at whichever shipped tactic is the closest
-// approximation, so the road already drives sensibly — the hunters flow
-// through traffic, the heavies hold their lane. They are rows rather than
-// one-line functions that call another function, because a table shows at a
-// glance which tactics are real and which are placeholders, and filling one
-// in is then a function plus a changed reference with no edit to
-// cartypes.js. `raid`, `trail` and `ram`, below, are filled in; `pursue` —
-// still borrowed, and still what the interceptor and rival name — is next.
+// EVERY PHASE 4 HOSTILE TACTIC IS NOW REAL: `raid`, `trail`, `ram`, `pursue`
+// and `duel` are each their own function, below. `convoy` is the one row
+// still borrowed (it points at plain `cruise`) — that's civilian work (the
+// rig's rolling roadblock), not a hostile left over from this phase.
+//
+// NO ROW FOR `block`. It was reserved for the hostile that would replace the
+// muscle car once that moved to the civilian side (see cartypes.js's muscle
+// and stocker entries) — but the stocker claimed that hole with `trail`
+// instead, and nothing else ever named it. A row that no car type points at
+// is not a placeholder earning its keep, it's dead weight sitting in the
+// table looking like unfinished work; deleted rather than kept "just in
+// case". If a future hostile genuinely wants "match the player's lane from
+// in front and slow, to bottle them up", write it fresh then — the pair this
+// used to sit next to (driving.js's `enforcer` profile) is still there
+// waiting, since a driving profile costs nothing to leave unclaimed the way
+// a tactic row does.
+//
+// Rows are still the shape for whatever DOES ship, rather than one-line
+// functions calling another function, because a table shows at a glance
+// which tactics are real and which are placeholders, and filling one in is
+// then a function plus a changed reference with no edit to cartypes.js.
 //
 // `arms` is per tactic, not per faction, and that is the right way round: being
 // ARMED follows from what a car carries (armament.js keys off faction), but
@@ -935,22 +1049,16 @@ const BEHAVIOURS = {
   overtake: { drive: overtake, arms: false },
 
   // Hostile tactics. Driving still borrowed; the shooting is real.
-  pursue: { drive: overtake, arms: true },  // will steer onto the player's offset
-                                            // and close, rather than treating them
-                                            // as one more car to be passed
+  pursue: { drive: pursue, arms: true },    // real: closes in and holds a firing
+                                            // gap, and never gives up on the
+                                            // player once it has them — see
+                                            // behaviours.js's `pursue`
   ram: { drive: ram, arms: false },         // real: no gun, no mines — closes
                                             // the gap from behind or alongside
                                             // to hit the player, or sits ahead
                                             // of them going deliberately slower
                                             // to force the same contact from
                                             // the other side
-  block: { drive: overtake, arms: true },   // will match the player's lane from IN
-                                            // FRONT and slow, to bottle them up.
-                                            // UNCLAIMED since the muscle car
-                                            // became a civilian — no type names
-                                            // it today, and it is held for the
-                                            // hostile that replaces it. See
-                                            // cartypes.js's muscle entry
   raid: { drive: raid, arms: true },        // real: forces its way past whatever's
                                             // ahead, then holds station in front
                                             // of the player just long enough to
@@ -959,6 +1067,10 @@ const BEHAVIOURS = {
                                             // bumper and fires forward for one
                                             // timed engagement, then gives up
                                             // and drives off for good
+  duel: { drive: duel, arms: true },        // real: the rival's own — one
+                                            // deliberate mine run exactly like
+                                            // `raid`, then `pursue` for good —
+                                            // see behaviours.js's `duel`
   convoy: { drive: cruise, arms: false },   // will pair rigs nose-to-tail across
                                             // lanes into a rolling roadblock
 };

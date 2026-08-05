@@ -1350,10 +1350,14 @@ function hostileScenario(over = {}, worldOver = {}) {
 }
 
 test("a hostile shoots at a player in front of it, up the road", () => {
-  const { fired } = hostileScenario();
+  const { car, fired } = hostileScenario();
   assert.equal(fired.length, 1, "expected exactly one round");
   assert.equal(fired[0].dir, 1, "a player ahead must be shot at up the road");
-  assert.equal(fired[0].type, ENEMY_GUN);
+  // Whichever gun this type actually carries — the interceptor's own
+  // fixture, `hostileScenario`, is armed with its rocket (armament.js's
+  // `rocketeer`), not the shared blaster, so this checks the round matches
+  // the car's own kit rather than assuming which kit that is.
+  assert.equal(fired[0].type, car.arms.gun.type);
 });
 
 test("a hostile ahead of the player shoots back down the road", () => {
@@ -1399,8 +1403,22 @@ test("a civilian carries nothing and never fires", () => {
   assert.equal(laid.length, 0);
 });
 
+// The mine tests below need a hostile that actually carries a layer.
+// `hostileScenario`'s own default (the interceptor) no longer does — see
+// armament.js's `rocketeer` — so these override `arms` explicitly with a
+// type that still does. The rival is the shipped stand-in for "a hostile
+// that mines", alongside the cycle's own dedicated `raid` tactic.
+//
+// A FRESH INSTANCE PER CALL, not a shared constant: `Armament` carries real
+// cooldown and ammo state, so firing it in one test would leave the next
+// test's copy already part-spent or still cooling down.
+const mineCapableArms = () => armFor(CAR_TYPES.find((t) => t.id === "rival"));
+
 test("a hostile lays the catalogue's mine at a player on its tail", () => {
-  const { laid } = hostileScenario({}, { playerBody: { worldY: -200 } });
+  const { laid } = hostileScenario(
+    { arms: mineCapableArms() },
+    { playerBody: { worldY: -200 } },
+  );
   assert.equal(laid.length, 1, "expected one mine");
   assert.equal(laid[0].type, obstacleTypeById("caltrop"), "the payload must be the mine");
 });
@@ -1413,10 +1431,10 @@ test("a hostile does not mine somebody else's traffic", () => {
     worldY: -100, offset: 0, w: 34, h: 60, speed: 300, alive: true,
     type: CAR_TYPES.find((t) => t.id === "sedan"),
   };
-  const clear = hostileScenario({}, { playerBody: { worldY: -200 } });
+  const clear = hostileScenario({ arms: mineCapableArms() }, { playerBody: { worldY: -200 } });
   assert.equal(clear.laid.length, 1, "the test is meaningless if this case does not lay one");
 
-  const blockedByTraffic = hostileScenario({}, {
+  const blockedByTraffic = hostileScenario({ arms: mineCapableArms() }, {
     playerBody: { worldY: -200 },
     cars: [between],
   });
@@ -1426,7 +1444,10 @@ test("a hostile does not mine somebody else's traffic", () => {
 test("a hostile will not drop a mine into the player's face", () => {
   // MINE_MIN_LEAD: a mine that appears with no road left to steer around it is
   // not a threat the player can answer, it is just damage.
-  const { laid } = hostileScenario({}, { playerBody: { worldY: -40 } });
+  const { laid } = hostileScenario(
+    { arms: mineCapableArms() },
+    { playerBody: { worldY: -40 } },
+  );
   assert.equal(laid.length, 0);
 });
 
@@ -1434,7 +1455,7 @@ test("a mine layer runs dry, and its magazine is what rations mines", () => {
   // weapons.js's blaster is deliberately infinite and the layer deliberately is
   // not — see game/armament.js. This pins the pair: a car cannot mine the road
   // indefinitely.
-  const arms = armFor(CAR_TYPES.find((t) => t.id === "interceptor"));
+  const arms = mineCapableArms();
   assert.equal(arms.gun.ammo, Infinity, "the enemy gun must never run out");
   assert.ok(Number.isFinite(arms.layer.ammo) && arms.layer.ammo > 0);
   for (let i = 0; i < arms.layer.type.ammo; i++) {
