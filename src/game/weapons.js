@@ -29,7 +29,7 @@
 // fire and a magazine is all a mine layer is, and what comes out at the far end
 // is the caller's business.
 
-import { PLAYER, PLAYER_THRUST, ENEMY, ENEMY_THRUST } from "../engine/palette.js";
+import { PLAYER, PLAYER_THRUST, ENEMY, ENEMY_THRUST, ROCKET, ROCKET_HOT } from "../engine/palette.js";
 
 // HOW A BULLET FLIES. The road curves, so "straight ahead" and "up the lane" are
 // two genuinely different shots, and which one a weapon takes is its defining
@@ -64,6 +64,24 @@ export const FLIGHT_TRACKING = "tracking";
 //   ammo        rounds carried. Infinity for the default gun
 //   color/glow  bullet body and its trail
 //   length/width  the bullet's drawn size AND its hit box, world units
+//   render      how projectiles.js draws it. Omitted = "tracer", the batched
+//               straight line every weapon above used until now. "dart" is the
+//               rocket's own small discrete body — see ROCKET below and
+//               projectiles.js's DART_BODY note for why it isn't a tracer.
+//   impact      what happens where the round stops. Omitted = "spark", the
+//               small cross every weapon above used until now. "fireball"
+//               routes the hit through the shared Explosions pool instead — see
+//               ROCKET below and effects.js's drawFireballBurst.
+//   blastRadius/blastDamage  optional splash: everything else alive within
+//               blastRadius of where the round stopped also takes damage,
+//               falling off linearly to nothing at the rim — peak at the box
+//               edge, not the centre, and NOT applied to whatever the round
+//               directly struck (that already took the full `damage` above).
+//               The exact formula Traffic.blast() and Obstacles.blast() use
+//               for a dying car or a mine, at a third setting rather than a
+//               fourth mechanic — see projectiles.js's detonate(). Omitted (or
+//               zero) means a hit only ever costs the one thing it struck,
+//               which is every weapon here except ROCKET.
 export const WEAPON_TYPES = [
   {
     id: "cannon",
@@ -105,6 +123,45 @@ export const WEAPON_TYPES = [
     glow: PLAYER,
     length: 16,
     width: 4.5,
+  },
+  {
+    id: "rocket",
+    label: "ROCKET",
+    // The heaviest hit in the catalogue and the slowest to reload — a rocket is
+    // meant to feel like the one round that actually matters, not a faster
+    // cannon. Numbers here are a FIRST PASS, same caveat as the blaster's:
+    // retune once the upcoming attack content gives it real targets to be
+    // measured against, not by dividing hull totals by this figure.
+    damage: 60,
+    interval: 0.8, // ~1.25 shots/sec
+    // Slower off the rail than the cannon or tracker — it is a heavier round,
+    // not a faster one, and STRAIGHT flight (below) means the player is
+    // already choosing to aim rather than to curve round a bend with it.
+    muzzleSpeed: 700,
+    flight: FLIGHT_STRAIGHT,
+    // FINITE, same order as the tracker's 60 — still not one to hold the
+    // trigger down on at ~1.25 shots/sec and 60 damage a round, but not so
+    // scarce it never gets picked up off the cannon either.
+    ammo: 50,
+    color: ROCKET,
+    glow: ROCKET_HOT,
+    length: 16,
+    width: 6,
+    // A small discrete dart, not a tracer line — see projectiles.js's DART_BODY.
+    // Several can be in the air at once, so it stays a cheap fixed-size glyph
+    // rather than a line stretched back to the muzzle.
+    render: "dart",
+    // Detonates into a fireball (effects.js's drawFireballBurst) instead of the
+    // ordinary spark — the one true fire-coloured explosion in the game.
+    impact: "fireball",
+    // Splash: whatever else is standing near the impact takes damage too, not
+    // just whatever the round directly struck. Radius sits mid-table against
+    // the obstacle catalogue's (26-66) and stays DELIBERATELY under the mine's
+    // 30 — obstacletypes.js calls that "the single hardest hit anything on the
+    // road can deal", and a hand-fired weapon topping it would quietly make
+    // that claim false.
+    blastRadius: 44,
+    blastDamage: 20,
   },
 ];
 

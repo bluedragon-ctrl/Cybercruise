@@ -16,8 +16,12 @@ import {
   MINE_BLAST_DURATION,
   drawObstacleWreck,
   OBSTACLE_WRECK_DURATION,
+  drawFireballBurst,
+  FIREBALL_DURATION,
 } from "../game/effects.js";
+import { drawDart } from "../game/projectiles.js";
 import { CAR_TYPES, ENEMY_FACTION } from "../game/cartypes.js";
+import { WEAPON_TYPES } from "../game/weapons.js";
 import * as pal from "../engine/palette.js";
 
 const gallery = document.getElementById("gallery");
@@ -194,6 +198,48 @@ cell("FX · MINE BLAST", (ctx, size, phase) => {
   } else {
     drawMineBlast(ctx, size / 2, size / 2, (time - FX_PAUSE) / MINE_BLAST_DURATION, {
       seed: Math.floor(seconds / MINE_CYCLE) + 1,
+    });
+  }
+}, { animate: true });
+
+// The rocket itself (weapons.js's ROCKET) — a static dart, flickering, at
+// several times its true in-game size (16x6 world units) so the shape reads at
+// a glance. The gallery otherwise draws things at exactly the size the game
+// uses them (see the CAR_TYPES cells above); this is the one exception,
+// because at true size a dart this small would be a handful of pixels.
+const ROCKET_TYPE = WEAPON_TYPES.find((t) => t.id === "rocket");
+const ROCKET_GALLERY_SCALE = 3;
+cell("WPN · ROCKET", (ctx, size, phase) => {
+  const flicker = 0.75 + 0.25 * Math.sin(phase * 0.035); // matches projectiles.js's own flicker
+  drawDart(ctx, size / 2, size / 2, 0, {
+    color: ROCKET_TYPE.color,
+    glow: ROCKET_TYPE.glow,
+    length: ROCKET_TYPE.length * ROCKET_GALLERY_SCALE,
+    width: ROCKET_TYPE.width * ROCKET_GALLERY_SCALE,
+    flicker,
+  });
+}, { animate: true });
+
+// The fireball it detonates into, on the same armed-then-blown loop as the
+// wreck and mine-blast cells above — the point of the loop is to see the FX
+// against the thing it replaces.
+const FIREBALL_PAUSE = 0.5;
+const FIREBALL_CYCLE = FIREBALL_PAUSE + FIREBALL_DURATION;
+cell("FX · FIREBALL", (ctx, size, phase) => {
+  const seconds = phase / 260;
+  const time = seconds % FIREBALL_CYCLE;
+  if (time < FIREBALL_PAUSE) {
+    const flicker = 0.75 + 0.25 * Math.sin(phase * 0.035);
+    drawDart(ctx, size / 2, size * 0.72, 0, {
+      color: ROCKET_TYPE.color,
+      glow: ROCKET_TYPE.glow,
+      length: ROCKET_TYPE.length * ROCKET_GALLERY_SCALE,
+      width: ROCKET_TYPE.width * ROCKET_GALLERY_SCALE,
+      flicker,
+    });
+  } else {
+    drawFireballBurst(ctx, size / 2, size / 2, (time - FIREBALL_PAUSE) / FIREBALL_DURATION, {
+      seed: Math.floor(seconds / FIREBALL_CYCLE) + 1,
     });
   }
 }, { animate: true });

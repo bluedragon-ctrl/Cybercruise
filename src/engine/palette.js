@@ -48,6 +48,16 @@ export const HAZARD = "#ff4d4d";        // damage / collision flash (red)
 // the alternation, and this is the frame you can't miss.
 export const CRITICAL_FLASH = "#ffd6d6"; // white-hot, red cast
 
+// The rocket (game/weapons.js) and its own detonation (game/effects.js's
+// drawFireballBurst) share this pair, the same way a wreck reuses a dying car's
+// colour/thrust — the burst is visibly the same ordnance that just flew in.
+// Deliberately its own hue rather than borrowed from ENEMY_THRUST or NEUTRAL:
+// both of those already mean something else (enemy exhaust, civilian traffic),
+// and this is the game's first FIRE-coloured effect — see drawFireballBurst's
+// header for why every other explosion avoids this palette on purpose.
+export const ROCKET = "#ff7a1a";     // rocket body / fireball outer ring
+export const ROCKET_HOT = "#ffde6b"; // rocket burner flicker / fireball inner glow
+
 // Traffic (see game/cartypes.js) reads as two families at a glance: everything
 // hostile is in the RED family, everything neutral in the AMBER family. New car
 // types should stay inside their family's shades rather than introduce a new hue

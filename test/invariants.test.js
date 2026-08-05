@@ -664,8 +664,7 @@ test("swapping cannot be used to dodge a cooldown", () => {
   const loadout = new Loadout();
   const first = loadout.current;
   assert.ok(first.tryFire());
-  loadout.next();
-  loadout.next(); // all the way back round to `first`
+  for (let i = 0; i < WEAPON_TYPES.length; i++) loadout.next(); // all the way back round to `first`
   assert.equal(loadout.current, first);
   assert.ok(!loadout.current.tryFire(), "the cooldown should have survived the swap");
 });
