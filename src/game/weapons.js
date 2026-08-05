@@ -218,14 +218,15 @@ export const WEAPON_TYPES = [
     // mine, whoever laid it.
     payload: "caltrop",
     // SIX SECONDS, THREE ROUNDS is the enemy's own layer (armament.js). The
-    // player gets a shorter rest and two more rounds: a held trigger there is
-    // an AI's rare tactical choice, but here it is a deliberate press every
-    // time, so the tighter enemy rationing would read as broken rather than
-    // scarce. Same order of magnitude on purpose — a mine stays the rarest,
-    // heaviest-hitting thing either side can put on the road. FIRST PASS, like
-    // the rocket's own numbers above — retune once there is real road time to
-    // measure it against.
-    interval: 3,
+    // player gets a much shorter rest and two more rounds: a held trigger
+    // there is an AI's rare tactical choice, but here it is a deliberate
+    // press every time, so the tighter enemy rationing would read as broken
+    // rather than scarce. CUT FROM AN INITIAL 3s, THEN 1.5s — the magazine
+    // (5 rounds) was already the thing rationing how often a player lays
+    // mines in a chase; the reload no longer needed to do that job too. FIRST
+    // PASS, like the rocket's own numbers above — retune once there is real
+    // road time to measure it against.
+    interval: 1,
     ammo: 5,
     // HUD-only below this line — a mine never flies, so length/width/flight/
     // muzzleSpeed/render/impact mean nothing here and main.js never reads them
@@ -445,6 +446,15 @@ export class Weapon {
     return true;
   }
 
+  // Add rounds, capped at the catalogue's OWN starting figure — there is no
+  // separate "max ammo" field, so `type.ammo` doubles as both the weapon's
+  // starting magazine and the ceiling an ammo pickup (game/pickuptypes.js) can
+  // top it back up to. A no-op on the default gun (Infinity stays Infinity).
+  refill(amount) {
+    if (amount <= 0) return;
+    this.ammo = Math.min(this.type.ammo, this.ammo + amount);
+  }
+
   // HUD caption. The infinite gun reads as a symbol rather than as a number,
   // because "999" invites the player to watch it.
   get ammoText() {
@@ -470,6 +480,13 @@ export class Loadout {
 
   get current() {
     return this.weapons[this.index];
+  }
+
+  // Look up a carried weapon by its catalogue id, not its position — used by
+  // an ammo pickup (game/pickuptypes.js), which names what it refills rather
+  // than an index that would break the day the catalogue is reordered.
+  get(id) {
+    return this.weapons.find((w) => w.type.id === id) ?? null;
   }
 
   next() {

@@ -5,13 +5,16 @@
 import { createLoop } from "./engine/loop.js";
 import { initInput, isDown, consumePress } from "./engine/input.js";
 import { clear, glowText } from "./engine/neon.js";
-import { GREEN, GREEN_BRIGHT, GREEN_PALE, HAZARD } from "./engine/palette.js";
+import { GREEN, GREEN_BRIGHT, GREEN_PALE, HAZARD, PLAYER, SHIELD_FLICKER } from "./engine/palette.js";
 import { Player } from "./game/player.js";
 import { Projectiles } from "./game/projectiles.js";
 import { Score } from "./game/score.js";
 import { Traffic } from "./game/traffic.js";
 import { Obstacles } from "./game/obstacles.js";
 import { obstacleTypeById } from "./game/obstacletypes.js";
+import { Pickups } from "./game/pickups.js";
+import { pickupTypeById } from "./game/pickuptypes.js";
+import { ENEMY_FACTION } from "./game/cartypes.js";
 import { Explosions } from "./game/effects.js";
 import { Loadout } from "./game/weapons.js";
 import * as road from "./game/road.js";
@@ -37,8 +40,25 @@ const score = new Score();
 // (mine blasts, roadblock rubble) — see effects.js's Explosions header and
 // game/obstacles.js for why they must not each get their own.
 const explosions = new Explosions();
-const traffic = new Traffic((car) => score.destroyed(car.type), explosions);
 const obstacles = new Obstacles(explosions);
+// Buff crates — shares the same explosion pool for their own "collected"
+// burst (effects.js's drawCollectBurst), same reasoning as obstacles above.
+// Constructed BEFORE traffic so onCarDestroyed below can close over it.
+const pickups = new Pickups(explosions);
+
+// Chance a destroyed HOSTILE car leaves a FIX crate where it died. CIVILIANS
+// NEVER DO — a buff dropped by killing an innocent bystander would reward
+// the exact kill score.js already fines the player for (see cartypes.js's
+// NERVE section and score.js's own civilian penalty). This is a straight
+// coin-weighted roll, not gated by anything else on the road.
+const ENEMY_FIX_DROP_CHANCE = 0.2;
+function onCarDestroyed(car) {
+  score.destroyed(car.type);
+  if (car.type.faction === ENEMY_FACTION && Math.random() < ENEMY_FIX_DROP_CHANCE) {
+    pickups.drop(pickupTypeById("fix"), car.worldY, car.offset);
+  }
+}
+const traffic = new Traffic(onCarDestroyed, explosions);
 
 // Scratch target list for bullets: cars AND obstacles in one flat array, so a
 // shot resolves against whichever it actually crosses first regardless of
@@ -182,6 +202,12 @@ function update(dt) {
   // PlayerBody they are tested against has just been synced to where the player
   // actually is now rather than to where it was at the top of the frame.
   enemyShots.update(dt, enemyTargets, { distance, playerY: player.y, W, H });
+
+  // Buff crates. Independent of everything above — a pickup never fights,
+  // shoves or blocks anything — so it needs none of the tick-order care
+  // bullets and obstacles do; it only has to see where the player ended up
+  // this tick, which is already final by this point.
+  pickups.update(dt, { player, distance, W, H, loadout });
 }
 
 function drawHud() {
@@ -235,6 +261,18 @@ function drawHud() {
   );
 
   glowText(ctx, "HULL", bx, by - 16, GREEN_PALE, 12, "left", 6);
+
+  // SHIELD, only while active — same "about to lose it" flicker the rings
+  // around the car give in their last second (player.js's renderShield),
+  // read off the same clock so the HUD and the car agree on when that is.
+  if (player.shieldTime > 0) {
+    const expiring = player.shieldTime < 1 && Math.sin(player.shieldSpin * 26) > 0;
+    glowText(
+      ctx, `SHIELD ${player.shieldTime.toFixed(1)}s`, bx + bw, by - 16,
+      expiring ? SHIELD_FLICKER : PLAYER, 12, "right", 8,
+    );
+  }
+
   // Empty track.
   ctx.save();
   ctx.strokeStyle = "rgba(120,255,180,0.4)";
@@ -286,6 +324,9 @@ function render(alpha) {
   // wrecks, mine blasts and roadblock rubble alike), so a blast is never drawn
   // under something still driving through it — see traffic.js's render.
   obstacles.render(ctx, camY, player.y, W, H);
+  // Pickups alongside obstacles, before traffic — so a car driving over one
+  // is never hidden underneath it, same reasoning obstacles.render gets above.
+  pickups.render(ctx, camY, player.y, W, H);
   traffic.render(ctx, camY, player.y, W, H, alpha);
   // Bullets over the traffic they're flying at, under the player's own car.
   // Hostile rounds draw with them and in the enemy's own red (weapons.js), so

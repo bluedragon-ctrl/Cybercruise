@@ -54,6 +54,9 @@ import { Explosions } from "../src/game/effects.js";
 import { Projectiles } from "../src/game/projectiles.js";
 import { armFor, armamentFor } from "../src/game/armament.js";
 import { NEUTRAL_PALE } from "../src/engine/palette.js";
+import { PICKUP_SHAPES } from "../src/game/pickupshapes.js";
+import { PICKUP_TYPES, AMMO, HEAL, SHIELD, applyPickup, pickupTypeById } from "../src/game/pickuptypes.js";
+import { Pickups } from "../src/game/pickups.js";
 
 // A fixture car. Traffic cars are built by traffic.js, which hands them the two
 // things behaviours.js reads that a plain object literal would not have: the
@@ -1731,4 +1734,129 @@ test("the passage rule is sized against the widest car in the catalogue", () => 
   }
   // ...and it has to accept something, or the rule reduces to "never spawn".
   assert.ok(leaves(2 * ROAD_HALF_WIDTH), "an empty road must be placeable");
+});
+
+// --- Pickups -------------------------------------------------------------
+
+test("every ammo pickup names a weapon the player's own Loadout actually carries", () => {
+  const loadout = new Loadout();
+  for (const type of PICKUP_TYPES) {
+    if (type.kind !== AMMO) continue;
+    assert.ok(
+      loadout.get(type.weaponId),
+      `${type.id} names weaponId "${type.weaponId}", which is not in the player's Loadout`,
+    );
+  }
+});
+
+test("an ammo pickup never offers more than the weapon's own magazine holds", () => {
+  const loadout = new Loadout();
+  for (const type of PICKUP_TYPES) {
+    if (type.kind !== AMMO) continue;
+    const weapon = loadout.get(type.weaponId);
+    assert.ok(
+      type.amount <= weapon.type.ammo,
+      `${type.id} refills ${type.amount}, more than the ${weapon.type.ammo}-round magazine it tops up`,
+    );
+  }
+});
+
+test("every pickup type resolves to a real shape", () => {
+  for (const type of PICKUP_TYPES) {
+    assert.ok(PICKUP_SHAPES[type.shape], `${type.id} names a shape index that doesn't exist`);
+  }
+});
+
+test("Weapon.refill tops up ammo without ever exceeding the catalogue's own starting figure", () => {
+  const rocket = WEAPON_TYPES.find((t) => t.id === "rocket");
+  const w = new Weapon(rocket);
+  w.ammo = 10;
+  w.refill(1000);
+  assert.equal(w.ammo, rocket.ammo, "refill must cap at the weapon's own starting ammo");
+});
+
+test("Player.heal restores hull without ever exceeding maxHealth", () => {
+  const player = new Player(0, 0);
+  player.damage(50);
+  player.heal(1000);
+  assert.equal(player.health, player.maxHealth);
+});
+
+test("a shielded player takes no damage from any source", () => {
+  // player.js: every damage source in the game (bullets, blast, ramming,
+  // wall-scrape) funnels through Player.damage, so guarding it there is the
+  // shield's whole implementation — this is the test that proves it.
+  const player = new Player(0, 0);
+  player.activateShield(2);
+  player.damage(9999);
+  assert.equal(player.health, player.maxHealth, "a shielded player must take zero damage");
+});
+
+test("a second shield extends the timer rather than stacking on top of it", () => {
+  const player = new Player(0, 0);
+  player.activateShield(2);
+  player.activateShield(1); // shorter — must not shrink the running shield
+  assert.equal(player.shieldTime, 2);
+  player.activateShield(5); // longer — must extend it
+  assert.equal(player.shieldTime, 5);
+});
+
+test("applyPickup dispatches every kind in the catalogue correctly", () => {
+  const player = new Player(0, 0);
+  const loadout = new Loadout();
+
+  const ammoType = PICKUP_TYPES.find((t) => t.kind === AMMO);
+  const weapon = loadout.get(ammoType.weaponId);
+  weapon.ammo = 0;
+  applyPickup(ammoType, player, loadout);
+  assert.equal(weapon.ammo, ammoType.amount);
+
+  const healType = PICKUP_TYPES.find((t) => t.kind === HEAL);
+  player.damage(50);
+  applyPickup(healType, player, loadout);
+  assert.equal(player.health, player.maxHealth);
+
+  const shieldType = PICKUP_TYPES.find((t) => t.kind === SHIELD);
+  applyPickup(shieldType, player, loadout);
+  assert.equal(player.shieldTime, shieldType.duration);
+});
+
+test("driving onto a pickup applies its effect, removes the crate and bursts once", () => {
+  const explosions = new Explosions();
+  const pickups = new Pickups(explosions);
+  const player = new Player(300, 496);
+  const loadout = new Loadout();
+
+  const type = pickupTypeById("fix");
+  const [w, h] = PICKUP_SHAPES[type.shape].size;
+  const worldY = 500;
+  pickups.list.push({ type, worldY, offset: 0, alive: true, age: 0, pulsePhase: 0, w, h });
+
+  player.damage(50);
+  const world = { player, distance: worldY, W: 600, H: 800, loadout };
+  player.x = centerXAt(worldY, world.W);
+
+  pickups.update(1 / 60, world);
+
+  assert.equal(player.health, player.maxHealth, "the FIX crate should have healed the player");
+  assert.equal(pickups.list.length, 0, "a collected crate must not remain on the road");
+
+  const alive = explosions.slots.filter((s) => s.alive);
+  assert.equal(alive.length, 1, "collecting a crate should spawn exactly one burst");
+});
+
+test("Pickups.drop places a crate at an exact spot, bypassing the random spawner", () => {
+  // main.js's own use of this: a destroyed hostile's chance to leave a FIX
+  // crate exactly where it died, not somewhere the random road spawner
+  // would have put one — see Pickups.drop's header for why it needs no
+  // separate budget the way obstacles.js's own drop() does.
+  const pickups = new Pickups(new Explosions());
+  const type = pickupTypeById("fix");
+  pickups.drop(type, 1234, -40);
+
+  assert.equal(pickups.list.length, 1);
+  const dropped = pickups.list[0];
+  assert.equal(dropped.type, type);
+  assert.equal(dropped.worldY, 1234);
+  assert.equal(dropped.offset, -40);
 });

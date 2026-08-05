@@ -4,8 +4,9 @@
 // (screen x).
 
 import { drawCarCached } from "./sprites.js";
+import { glowDashedRing } from "../engine/neon.js";
 import { steerAxis, throttleAxis } from "../engine/input.js";
-import { PLAYER, PLAYER_THRUST, HAZARD } from "../engine/palette.js";
+import { PLAYER, PLAYER_THRUST, HAZARD, SHIELD_FLICKER } from "../engine/palette.js";
 
 // Exported: the traffic catalogue is pinned to both ends of the player's speed
 // band (see cartypes.js), and that relation is asserted in test/invariants.test.js.
@@ -51,6 +52,22 @@ const SHOVE_DAMP = 5; // per second
 
 const HIT_FLASH = 0.18; // seconds the car flashes after taking a hit
 
+// The shield buff (game/pickuptypes.js's SHIELD entry activates this). Two
+// dashed rings, spun in opposite directions by an animated dash offset (see
+// engine/neon.js's glowDashedRing) — a genuine rotation, not a squashed
+// ellipse standing in for one. Sized in px/sec of dash travel rather than
+// rad/sec, since setLineDash works in the stroke's own units.
+const SHIELD_RING_A_SPEED = 46; // outer ring
+const SHIELD_RING_B_SPEED = -62; // inner ring, opposite direction
+const SHIELD_RING_A_R = 30;
+const SHIELD_RING_B_R = 23;
+// The last stretch of the window flickers toward SHIELD_FLICKER — the same
+// "about to lose it" tell CRITICAL_FLASH gives a dying car (traffic.js),
+// moved into the player's own family. Kept short: a flicker that ran the
+// whole duration would just read as the wrong colour, not as a countdown.
+const SHIELD_EXPIRING = 1; // seconds left when the flicker starts
+const SHIELD_FLICKER_RATE = 26; // rad/sec of the flicker's own sine
+
 export class Player {
   constructor(x, y) {
     this.x = x;
@@ -70,14 +87,40 @@ export class Player {
     this.vSteer = 0; // sideways velocity from steering, ramped toward the axis
     this.vLateral = 0; // sideways velocity from ramming (see collisions.js)
     this.flash = 0; // counts down after a hit; flashes the car red
+
+    this.shieldTime = 0; // seconds of invulnerability left (game/pickuptypes.js's SHIELD)
+    this.shieldSpin = 0; // accumulated only while shielded — drives the ring animation
   }
 
   // Take `hp` off the hull. Health floors at 0 — the wreck/game-over state is
   // Phase 6, so for now an empty hull just means the next hit is free.
+  //
+  // THE SHIELD'S ENTIRE IMPLEMENTATION IS THIS GUARD. Every damage source in
+  // the game — bullets, blast, ramming, wall-scrape — already funnels through
+  // this one method (collisions.js's PlayerBody.damage, obstacles.js's
+  // playerBox.damage, and the wall-scrape call a few lines below in update()
+  // all end up here), so making it a no-op while shieldTime > 0 covers every
+  // one of them without touching any of those call sites. No flash either —
+  // flashing on a hit that did nothing would read as damage that wasn't.
   damage(hp) {
-    if (hp <= 0) return;
+    if (hp <= 0 || this.shieldTime > 0) return;
     this.health = Math.max(0, this.health - hp);
     this.flash = HIT_FLASH;
+  }
+
+  // Restore `hp` of hull, capped at maxHealth (game/pickuptypes.js's FIX).
+  heal(hp) {
+    if (hp <= 0) return;
+    this.health = Math.min(this.maxHealth, this.health + hp);
+  }
+
+  // Grant `seconds` of invulnerability. NOT additive with time already
+  // banked — a shield picked up while one is running EXTENDS to at least
+  // `seconds` rather than stacking on top, so a cluster of shield pickups
+  // caps out at "however long the strongest one lasts" instead of chaining
+  // into effectively permanent invulnerability.
+  activateShield(seconds) {
+    this.shieldTime = Math.max(this.shieldTime, seconds);
   }
 
   // `bounds` = { left, right } road edges in screen x for the player's row.
@@ -142,6 +185,14 @@ export class Player {
     }
 
     if (this.flash > 0) this.flash -= dt;
+
+    if (this.shieldTime > 0) {
+      this.shieldTime = Math.max(0, this.shieldTime - dt);
+      this.shieldSpin += dt;
+    } else {
+      this.shieldSpin = 0; // reset so a later shield's rings start clean, not
+                            // mid-rotation from a run that ended a while ago
+    }
   }
 
   // `angle` is the road's heading at the player's row (road.headingAt(distance),
@@ -164,5 +215,19 @@ export class Player {
       wheelPhase: this.wheelPhase,
       angle,
     });
+
+    if (this.shieldTime > 0) this.renderShield(ctx, x);
+  }
+
+  // Two dashed rings, genuinely rotating (animated dash offset — see
+  // engine/neon.js's glowDashedRing) in opposite directions around the car.
+  // Drawn OVER the car (after drawCarCached above), same as the flash colour
+  // reads as a layer on top of the sprite rather than a recolour of it.
+  renderShield(ctx, x) {
+    const expiring = this.shieldTime < SHIELD_EXPIRING;
+    const flicker = expiring && Math.sin(this.shieldSpin * SHIELD_FLICKER_RATE) > 0;
+    const color = flicker ? SHIELD_FLICKER : PLAYER;
+    glowDashedRing(ctx, x, this.y, SHIELD_RING_A_R, color, this.shieldSpin * SHIELD_RING_A_SPEED);
+    glowDashedRing(ctx, x, this.y, SHIELD_RING_B_R, color, this.shieldSpin * SHIELD_RING_B_SPEED);
   }
 }

@@ -22,6 +22,9 @@ import {
 import { drawDart } from "../game/projectiles.js";
 import { CAR_TYPES, ENEMY_FACTION } from "../game/cartypes.js";
 import { WEAPON_TYPES } from "../game/weapons.js";
+import { PICKUP_SHAPES, drawPickupShape } from "../game/pickupshapes.js";
+import { PICKUP_TYPES } from "../game/pickuptypes.js";
+import { drawCollectBurst, COLLECT_DURATION } from "../game/effects.js";
 import * as pal from "../engine/palette.js";
 
 const gallery = document.getElementById("gallery");
@@ -287,6 +290,37 @@ SHAPE_NAMES.forEach((name, i) => {
       w: 58, d: 42, height: 62, color: pal.GREEN, lit: 0.55, seed: i + 2, skew: 0.26,
     }));
 });
+
+// Buff pickups, straight from their catalogue — one cell per PICKUP_TYPES
+// entry, labelled with the same figures pickuptypes.js documents so the
+// gallery doubles as a quick sanity check on the numbers. `phase` drives the
+// shared reticle's breathing pulse and the shield glyph's own spinning tick,
+// on the same clock a live crate uses (pickups.js's `age`).
+PICKUP_TYPES.forEach((t) => {
+  cell(`PICKUP · ${t.label}`, (ctx, size, phase) => {
+    const seconds = phase / 260;
+    const pulse = 0.7 + 0.3 * Math.sin(seconds * 2.2);
+    drawPickupShape(ctx, size / 2, size / 2, t.shape, pulse, seconds);
+  }, { animate: true });
+});
+
+// The "collected" burst, on the same armed-then-triggered loop as the other
+// FX cells — see effects.js's drawCollectBurst header for why this is the one
+// destruction-shaped event in the game that is unambiguously good news.
+const COLLECT_PAUSE = 0.6;
+const COLLECT_CYCLE = COLLECT_PAUSE + COLLECT_DURATION;
+cell("FX · COLLECTED", (ctx, size, phase) => {
+  const seconds = phase / 260;
+  const time = seconds % COLLECT_CYCLE;
+  if (time < COLLECT_PAUSE) {
+    const pulse = 0.7 + 0.3 * Math.sin(seconds * 2.2);
+    drawPickupShape(ctx, size / 2, size / 2, PICKUP_TYPES[3].shape, pulse, seconds); // FIX
+  } else {
+    drawCollectBurst(ctx, size / 2, size / 2, (time - COLLECT_PAUSE) / COLLECT_DURATION, {
+      color: PICKUP_TYPES[3].color,
+    });
+  }
+}, { animate: true });
 
 paletteCell();
 startAnimation();
