@@ -102,6 +102,12 @@ function makeTools(ctx, cx, cy, hw, hh) {
 const HEX = [[0, -0.34], [0.40, -0.14], [0.40, 0.18], [0, 0.34], [-0.40, 0.18], [-0.40, -0.14]];
 const BOXY = [[-0.46, -0.30], [0.46, -0.30], [0.46, 0.24], [-0.46, 0.24]];
 const SLIT = [[0, -0.26], [0.30, -0.08], [0.28, 0.14], [0, 0.24], [-0.28, 0.14], [-0.30, -0.08]];
+// A squared cabin with its corners cut rather than rounded — armour plate, not
+// glasshouse. Used by the bruiser, whose whole silhouette is built the same way.
+const CHAMFER_CAB = [
+  [-0.40, -0.30], [0.40, -0.30], [0.46, -0.20], [0.46, 0.14],
+  [0.40, 0.24], [-0.40, 0.24], [-0.46, 0.14], [-0.46, -0.20],
+];
 
 // The tractor cab shared by the heavy haulers.
 const CAB = [[0, -1.0], [0.44, -0.98], [0.62, -0.88], [0.66, -0.70], [0.64, -0.54], [0, -0.52]];
@@ -158,18 +164,26 @@ export const CAR_SHAPES = [
   {
     name: "ROADSTER",
     size: [30, 54],
+    // Flat nose rather than a spiked point — this is a civilian's sports car,
+    // not a hostile's dart — and a lip spoiler out back to match.
     profile: [
-      [0, -1.00], [0.40, -0.88], [0.72, -0.56], [0.80, -0.12], [0.92, 0.40],
+      [0.26, -1.00], [0.40, -0.88], [0.72, -0.56], [0.80, -0.12], [0.92, 0.40],
       [0.90, 0.82], [0.52, 1.00], [0, 1.00],
     ],
     wheels: [[-0.60], [0.62]],
+    wing: 0.85,
     exhaust: [0.16, 0.84, 0.98],
-    flat({ line }, c) {
-      line(-0.50, -0.62, -0.66, 0.34, c);
-      line(0.50, -0.62, 0.66, 0.34, c);
+    // The flank stripe and canopy carry this type's ACCENT rather than its base
+    // colour — see cartypes.js. It is the one civilian whose driving profile
+    // gambles through light debris instead of always dodging, and the accent is
+    // what tells the player so, without the chassis itself standing out from
+    // the rest of the traffic.
+    flat({ line }, c, thrust, headlight, accent) {
+      line(-0.50, -0.62, -0.66, 0.34, accent);
+      line(0.50, -0.62, 0.66, 0.34, accent);
     },
-    raised({ solid }, c) {
-      solid(SLIT, c);
+    raised({ solid }, c, thrust, headlight, accent) {
+      solid(SLIT, accent);
     },
   },
 
@@ -229,38 +243,64 @@ export const CAR_SHAPES = [
   {
     name: "INTERCEPTOR",
     size: [34, 62],
-    // Delta wings sweeping out past the body: the silhouette alone should say
-    // "hostile" before the colour does.
+    // A pursuit coupe, not a jet: a single smooth taper to a wide rear haunch
+    // rather than delta wings sweeping past the body, so the silhouette reads
+    // as "very fast car" before the colour does, not "aircraft".
     profile: [
-      [0, -1.04], [0.20, -0.62], [0.32, -0.16], [1.10, 0.34], [0.92, 0.56],
-      [0.42, 0.60], [0.38, 0.94], [0, 1.00],
+      [0, -1.02], [0.30, -0.86], [0.62, -0.60], [0.82, -0.20], [0.86, 0.20],
+      [0.78, 0.56], [0.40, 0.92], [0, 1.00],
     ],
     wheels: [[-0.56], [0.62]],
+    wing: 0.55, // a lip spoiler, not a fin
     exhaust: [0.18, 0.74, 0.96],
     thrustWide: true,
-    flat({ line }, c) {
-      line(-0.32, -0.16, -0.92, 0.46, c);
-      line(0.32, -0.16, 0.92, 0.46, c);
+    flat({ line }, c, thrust, headlight) {
+      line(-0.14, -0.94, -0.14, -0.70, headlight, 1.5, 8); // narrow driving lights
+      line(0.14, -0.94, 0.14, -0.70, headlight, 1.5, 8);
+      line(-0.50, 0.30, -0.68, 0.66, c); // rear haunch crease
+      line(0.50, 0.30, 0.68, 0.66, c);
     },
     raised({ solid }, c) {
-      solid(SLIT, c);
-      solid([[-0.07, -0.96], [0.07, -0.96], [0.10, -0.34], [-0.10, -0.34]], c); // dorsal fin
+      solid(SLIT, c); // low canopy
     },
   },
 
   {
     name: "BRUISER",
     size: [40, 74],
+    // A squared-off battering ram, not a swept fastback: a flat plow face up
+    // front, hard chamfered shoulders, and straight flanks the rest of the way
+    // back. Every corner on this car is CUT, never rounded — the one silhouette
+    // on the road that reads as armour plate rather than bodywork, so ramming
+    // with it never looks like an accident.
+    //
+    // THE BASE CHASSIS IS SLIM. Its bulk comes from what is bolted to it — the
+    // side bumper plates and the ram bar — rather than from a wide body, so the
+    // car reads as a lean frame armoured up for the job, not just a fat car.
     profile: [
-      [0, -0.96], [0.66, -0.94], [0.90, -0.80], [0.84, -0.50], [0.78, -0.16],
-      [0.92, 0.28], [0.94, 0.74], [0.68, 0.96], [0, 1.00],
+      [0.46, -1.00], [0.82, -0.84], [0.84, -0.46], [0.84, 0.30],
+      [0.78, 0.58], [0.84, 0.80], [0.50, 1.00],
     ],
     wheels: [[-0.58, 5], [0.60, 5]],
     exhaust: [0.30, 0.84, 0.98],
-    overhang: { x: 0.98, up: 1.10 },
+    overhang: { x: 1.28, up: 1.10 },
+    flat({ line }, c) {
+      line(-0.30, -0.98, -0.12, -0.88, c); // plow-face gussets, bolted-on look
+      line(0.30, -0.98, 0.12, -0.88, c);
+    },
     raised({ solid, line }, c) {
-      solid(BOXY, c);
+      solid(CHAMFER_CAB, c); // armour-plate cabin, corners cut not rounded
       solid([[-0.24, -0.60], [0.24, -0.60], [0.30, -0.40], [-0.30, -0.40]], c); // scoop
+      // Side bumper guards — bolted-on plates that put the width back on a slim
+      // base chassis, rather than baking it into the body itself.
+      solid([[0.84, -0.66], [0.98, -0.58], [0.98, 0.62], [0.84, 0.70]], c);
+      solid([[-0.84, -0.66], [-0.98, -0.58], [-0.98, 0.62], [-0.84, 0.70]], c);
+      // Hub spikes, one bolted to each wheel — the tell that this thing rams
+      // rather than merely rides heavy.
+      solid([[0.90, -0.66], [0.90, -0.50], [1.20, -0.58]], c, CAR_FILL_HIGH);
+      solid([[-0.90, -0.66], [-0.90, -0.50], [-1.20, -0.58]], c, CAR_FILL_HIGH);
+      solid([[0.84, 0.50], [0.84, 0.68], [1.16, 0.59]], c, CAR_FILL_HIGH);
+      solid([[-0.84, 0.50], [-0.84, 0.68], [-1.16, 0.59]], c, CAR_FILL_HIGH);
       // Ram bar — opaque and highest, so the nose behind it is hidden. It is the
       // tell that contact with this car hurts the player, so it must read clearly.
       solid([[-0.98, -1.10], [0.98, -1.10], [0.98, -1.00], [-0.98, -1.00]], c, CAR_FILL_HIGH);
@@ -354,42 +394,31 @@ export const CAR_SHAPES = [
   {
     name: "STOCKER",
     size: [40, 70],
-    // The MUSCLE gone racing: same class, but squared off and bolted about. Where
-    // the muscle's outline is a smooth box, this one STEPS — a flare stands proud
-    // over each axle, so the silhouette is widest exactly where the wheels are and
-    // the two never get confused at speed.
+    // A caged racer, recut as a MIDDLEWEIGHT rather than a heavy: one smooth
+    // taper instead of stepped flares over each axle, a raked canopy instead of
+    // a squared cab, and no ground-level air dam. It should read closer to the
+    // roadster than to the bruiser — quick, not stocky — since this is the one
+    // that catches you from behind and stays there.
     profile: [
-      [0, -1.00], [0.62, -0.98], [0.84, -0.88], [0.82, -0.70], [0.96, -0.60],
-      [0.94, -0.30], [0.80, -0.16], [0.80, 0.26], [0.98, 0.40], [0.96, 0.84],
-      [0.64, 0.98], [0, 1.00],
+      [0, -1.00], [0.50, -0.94], [0.72, -0.76], [0.80, -0.42], [0.82, 0.02],
+      [0.80, 0.42], [0.72, 0.76], [0.48, 0.96], [0, 1.00],
     ],
-    // Both axles sit inside their own flare, which is what the flares are for.
-    wheels: [[-0.46, 4, 11], [0.60, 6, 12]],
-    wing: 1.08,
+    wheels: [[-0.44, 4, 10], [0.58, 5, 11]],
+    wing: 0.92,
     exhaust: [0.34, 0.84, 0.96],
     quad: true,
-    overhang: { x: 1.02, up: 1.12 },
-    low({ solid }, c) {
-      // Air dam at ground level, so the nose is drawn over it.
-      solid([[-1.02, -1.12], [1.02, -1.12], [0.92, -0.90], [-0.92, -0.90]], c, CAR_FILL);
-    },
     flat({ line }, c, thrust, headlight) {
-      line(-0.50, -0.92, 0.50, -0.92, headlight, 1.5, 8); // lightbar across the grille
-      line(-0.96, -0.60, -0.96, -0.30, c); // flare edges, picked out in paint
-      line(0.96, -0.60, 0.96, -0.30, c);
-      line(-0.98, 0.40, -0.98, 0.84, c);
-      line(0.98, 0.40, 0.98, 0.84, c);
+      line(-0.50, -0.90, 0.50, -0.90, headlight, 1.5, 8); // lightbar across the grille
+      line(0, -0.86, 0, -0.30, c); // hood centreline
     },
-    raised({ solid, line }, c) {
-      solid([[-0.46, -0.04], [0.46, -0.04], [0.46, 0.44], [-0.46, 0.44]], c); // squared cabin
-      solid([[-0.26, -0.72], [0.26, -0.72], [0.30, -0.42], [-0.30, -0.42]], c, CAR_FILL_HIGH);
-      line(-0.26, -0.58, 0.26, -0.58, c);
+    raised({ solid }, c) {
+      solid([[-0.22, -0.66], [0.22, -0.66], [0.26, -0.38], [-0.26, -0.38]], c, CAR_FILL_HIGH); // hood scoop
+      solid(SLIT, c); // low raked canopy
     },
     top({ line }, c) {
-      // Roll cage seen through the roof, and slats over the back window.
-      line(-0.46, 0.18, 0.46, 0.18, c);
-      line(0, -0.04, 0, 0.44, c);
-      for (const y of [0.54, 0.64, 0.74]) line(-0.36, y, 0.36, y, c);
+      // Roll cage seen through the canopy, and slats over the back window.
+      line(0, -0.26, 0, 0.24, c);
+      for (const y of [0.34, 0.50]) line(-0.26, y, 0.26, y, c);
     },
   },
 ];
@@ -418,6 +447,10 @@ export function drawCarShape(ctx, cx, cy, index, opts = {}) {
     color,
     thrust,
     headlight = "#8ff",
+    // Defaults to the chassis colour, so a shape that never references it
+    // draws exactly as before. Only a type that names an `accent` (see
+    // cartypes.js) gets a detail — a stripe, a canopy tint — in a second shade.
+    accent = color,
     w = shape.size[0],
     h = shape.size[1],
     wheelPhase = 0,
@@ -428,7 +461,7 @@ export function drawCarShape(ctx, cx, cy, index, opts = {}) {
   const parts = shape.parts ?? [shape.profile];
 
   // 1. Ground-level parts, which the chassis then overlaps.
-  if (shape.low) shape.low(tools, color, thrust, headlight);
+  if (shape.low) shape.low(tools, color, thrust, headlight, accent);
 
   // 2. Wheels, UNDER the chassis: the body fill covers the inner half of each
   //    tyre, leaving only the part that genuinely pokes past the bodywork. The x
@@ -443,10 +476,10 @@ export function drawCarShape(ctx, cx, cy, index, opts = {}) {
   for (const p of parts) glowPoly(ctx, fracLoop(p, cx, cy, hw, hh), color, 2, 13, CAR_FILL);
 
   // 4. Markings painted on the chassis.
-  if (shape.flat) shape.flat(tools, color, thrust, headlight);
+  if (shape.flat) shape.flat(tools, color, thrust, headlight, accent);
 
   // 5. Raised parts, each opaque.
-  if (shape.raised) shape.raised(tools, color, thrust, headlight);
+  if (shape.raised) shape.raised(tools, color, thrust, headlight, accent);
 
   // 6. Rear wing: supports first, then an opaque bar over them.
   if (shape.wing) {
@@ -460,7 +493,7 @@ export function drawCarShape(ctx, cx, cy, index, opts = {}) {
   }
 
   // 7. Markings on raised parts.
-  if (shape.top) shape.top(tools, color, thrust, headlight);
+  if (shape.top) shape.top(tools, color, thrust, headlight, accent);
 
   // 8. Exhaust glow, always last so nothing dims it.
   if (shape.exhaust) {

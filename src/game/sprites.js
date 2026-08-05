@@ -36,11 +36,12 @@ export function drawCar(ctx, cx, cy, opts = {}) {
     shape = 0,
     color = PLAYER,
     thrust = PLAYER_THRUST,
+    accent,
     w,
     h,
     wheelPhase = 0, // scrolls the wheel tread to fake rotation (px travelled)
   } = opts;
-  drawCarShape(ctx, cx, cy, shape, { color, thrust, w, h, wheelPhase });
+  drawCarShape(ctx, cx, cy, shape, { color, thrust, accent, w, h, wheelPhase });
 }
 
 // A road obstacle — roadblock or mine — pointing "up" like everything else on
@@ -171,6 +172,7 @@ export function drawCarCached(ctx, cx, cy, opts = {}) {
     shape = 0,
     color = PLAYER,
     thrust = PLAYER_THRUST,
+    accent,
     w = CAR_SHAPES[shape].size[0],
     h = CAR_SHAPES[shape].size[1],
     wheelPhase = 0,
@@ -193,11 +195,12 @@ export function drawCarCached(ctx, cx, cy, opts = {}) {
   const sw = ext.x * 2 + GLOW_PAD * 2;
   const sh = ext.up + ext.down + GLOW_PAD * 2;
 
-  const key = `car|${shape}|${color}|${thrust}|${w}|${h}|${frame}`;
+  const key = `car|${shape}|${color}|${thrust}|${accent}|${w}|${h}|${frame}`;
   const sprite = getSprite(key, sw, sh, originX, originY, (sctx, ox, oy) =>
     drawCarShape(sctx, ox, oy, shape, {
       color,
       thrust,
+      accent,
       w,
       h,
       wheelPhase: (frame / WHEEL_FRAMES) * WHEEL_PERIOD,

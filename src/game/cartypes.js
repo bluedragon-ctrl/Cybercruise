@@ -8,12 +8,25 @@
 //
 // ONE TYPE PER SILHOUETTE. The catalogue is a 1:1 map onto game/carshapes.js:
 // every shape in that file is exactly one type here, and the shape is what tells
-// them apart on the road. Colour only carries FACTION and WEIGHT CLASS, so shades
-// repeat across types (see palette.js) — a red car is hostile, a big red car is
-// hostile and heavy, and which car it is comes from its outline. The one shape
-// shared with the player (SUPERCAR) is deliberately given to an ENEMY: your own
-// silhouette coming at you in red reads instantly as a rival, where a civilian
-// copy of the player's car would just look like a bug.
+// them apart on the road. EVERY FACTION NOW SHARES ONE BASE CHASSIS COLOUR OF
+// ITS OWN — civilians all draw in NEUTRAL (the sedan's), hostiles all draw in
+// ENEMY_DEEP (the stocker's) — full stop. Each faction reads as one fleet of one
+// colour on the road, and only the silhouette tells one type from another within
+// it.
+//
+// `accent` is the one exception, and it is a SIGNAL, not decoration: the
+// roadster names one because its driving profile is the one civilian that
+// gambles through light debris instead of always dodging (see driving.js's
+// NERVE section and the invariant test "the amber civilians always dodge").
+// The pale stripe and canopy are what tell the player that, without recolouring
+// the chassis itself — see carshapes.js's ROADSTER for where it's drawn. A type
+// with no reason to stand out simply omits `accent` and draws in one colour; no
+// hostile currently needs one, since nerve on the enemy side carries no such
+// readability rule (see driving.js's NERVE section).
+// The one shape shared with the player (SUPERCAR) is deliberately given to an
+// ENEMY: your own silhouette coming at you in the hostile shade reads instantly
+// as a rival, where a civilian copy of the player's car would just look like a
+// bug.
 //
 // THE SPEED BAND. The player runs 120..620 (player.js), and the catalogue is
 // pinned to both ends of that:
@@ -63,9 +76,7 @@
 import { carShapeIndex } from "./carshapes.js";
 import { DIST_UNITS } from "./road.js";
 import {
-  ENEMY,
   ENEMY_DEEP,
-  ENEMY_PALE,
   ENEMY_THRUST,
   NEUTRAL,
   NEUTRAL_DEEP,
@@ -261,8 +272,11 @@ export const CAR_TYPES = [
     label: "ROADSTER",
     shape: carShapeIndex("ROADSTER"),
     faction: NEUTRAL_FACTION,
-    color: NEUTRAL_PALE,
+    color: NEUTRAL, // base chassis matches every other civilian's — see the header
     thrust: NEUTRAL_THRUST,
+    // The pale stripe/canopy tell — see the header note on `accent`, and
+    // carshapes.js's ROADSTER, where it's actually drawn.
+    accent: NEUTRAL_PALE,
     w: 30,
     h: 54,
     health: 40,
@@ -294,7 +308,9 @@ export const CAR_TYPES = [
     label: "RIG",
     shape: carShapeIndex("RIG"),
     faction: NEUTRAL_FACTION,
-    color: NEUTRAL_DEEP,
+    // Base chassis matches every other civilian's — the deep exhaust glow below
+    // is the one detail that still marks this out as the heaviest of them.
+    color: NEUTRAL,
     thrust: NEUTRAL_DEEP,
     w: 42,
     h: 124, // twice any other car: it is a rolling wall, and a lane-and-a-half of
@@ -335,7 +351,9 @@ export const CAR_TYPES = [
     label: "HYPERCAR",
     shape: carShapeIndex("HYPERCAR"),
     faction: NEUTRAL_FACTION,
-    color: NEUTRAL_PALE,
+    // Base chassis matches every other civilian's — the shape alone carries
+    // this one's showpiece identity.
+    color: NEUTRAL,
     thrust: NEUTRAL_THRUST,
     w: 36,
     h: 64,
@@ -377,10 +395,12 @@ export const CAR_TYPES = [
     // enemy type's to fill (behaviours.js still holds the `block` tactic and
     // driving.js the `enforcer` profile, both unclaimed and waiting).
     faction: NEUTRAL_FACTION,
-    // Deep amber, the heavy-neutral shade it shares with the rig. Colour carries
-    // faction and weight class only, so two heavy civilians matching is correct —
-    // the MUSCLE silhouette is what tells them apart, and nothing else has to.
-    color: NEUTRAL_DEEP,
+    // Base chassis matches every other civilian's now — the road's civilian
+    // traffic reads as ONE base colour, with only small per-type accents (an
+    // exhaust glow, a headlight tint) allowed to differ. Identity comes from
+    // the silhouette, exactly as it always did; colour no longer also carries
+    // weight class on top of it.
+    color: NEUTRAL,
     thrust: NEUTRAL_THRUST,
     w: 38,
     h: 68,
@@ -418,7 +438,7 @@ export const CAR_TYPES = [
     label: "INTERCEPTOR",
     shape: carShapeIndex("INTERCEPTOR"),
     faction: ENEMY_FACTION,
-    color: ENEMY,
+    color: ENEMY_DEEP, // base chassis matches every other hostile's — see the header
     thrust: ENEMY_THRUST,
     w: 34,
     h: 62,
@@ -447,9 +467,8 @@ export const CAR_TYPES = [
     // second heavy that leans on the player rather than racing them.
     shape: carShapeIndex("STOCKER"),
     faction: ENEMY_FACTION,
-    // Deep red: the heavy hostile class, shared with the bruiser. Its own
-    // silhouette — flared over every wheel, caged, winged — is what tells the two
-    // apart, exactly as the MUSCLE outline now does on the civilian side.
+    // The hostile fleet's base chassis colour — see the header. Every other
+    // enemy type matches this exactly; the silhouette is what tells them apart.
     color: ENEMY_DEEP,
     thrust: ENEMY_THRUST,
     w: 40,
@@ -490,7 +509,7 @@ export const CAR_TYPES = [
     label: "CYCLE",
     shape: carShapeIndex("CYCLE"),
     faction: ENEMY_FACTION,
-    color: ENEMY_PALE,
+    color: ENEMY_DEEP, // base chassis matches every other hostile's — see the header
     thrust: ENEMY_THRUST,
     w: 26,
     h: 58,
@@ -545,11 +564,12 @@ export const CAR_TYPES = [
   {
     id: "rival",
     label: "RIVAL",
-    // The player's own silhouette, in enemy red — see the header. Only the cycle
-    // is quicker, and nothing else hostile can live with the player flat out.
+    // The player's own silhouette, in the hostile shade — see the header. Only
+    // the cycle is quicker, and nothing else hostile can live with the player
+    // flat out.
     shape: carShapeIndex("SUPERCAR"),
     faction: ENEMY_FACTION,
-    color: ENEMY,
+    color: ENEMY_DEEP, // base chassis matches every other hostile's — see the header
     thrust: ENEMY_THRUST,
     w: 34,
     h: 62,

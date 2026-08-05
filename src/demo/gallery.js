@@ -130,7 +130,7 @@ CAR_TYPES.forEach((t) => {
   const drives = `${t.behaviour}/${t.driving ?? "commuter"}`;
   cell(`${t.faction === ENEMY_FACTION ? "ENEMY" : "CIVIL"} · ${t.label} · ${drives}`, (ctx, size, phase) =>
     drawCar(ctx, size / 2, size / 2, {
-      shape: t.shape, color: t.color, thrust: t.thrust, w: t.w, h: t.h, wheelPhase: phase,
+      shape: t.shape, color: t.color, thrust: t.thrust, accent: t.accent, w: t.w, h: t.h, wheelPhase: phase,
     }),
     { animate: true });
 });
