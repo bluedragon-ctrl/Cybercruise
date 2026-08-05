@@ -46,6 +46,7 @@ import { ENEMY_FACTION } from "./cartypes.js";
 import { obstacleTypeById } from "./obstacletypes.js";
 
 const ENEMY_GUN = ENEMY_WEAPON_TYPES[0];
+const ENEMY_SMG = ENEMY_WEAPON_TYPES[1];
 
 // The mine layer, expressed as a WEAPON — because from the carrier's point of
 // view that is exactly what it is: a rate of fire and a magazine. `Weapon`
@@ -78,9 +79,14 @@ const HOSTILE = { gun: ENEMY_GUN, layer: MINE_LAYER };
 // and it's one field cheaper than a stub weapon type nobody fires.
 const RAIDER = { gun: null, layer: MINE_LAYER };
 
+// The stocker's kit: the SMG (weapons.js) rather than the standard blaster —
+// a burst-fire spray instead of one well-aimed round, to read differently
+// from the interceptor/rival even once those carry the plain HOSTILE profile.
+const GUNNER = { gun: ENEMY_SMG, layer: MINE_LAYER };
+
 // Keyed BY NAME, exactly like behaviours.js's BEHAVIOURS table, so a car type
 // can name its kit in the catalogue the same way it already names its tactics.
-const ARMAMENTS = { hostile: HOSTILE, raider: RAIDER };
+const ARMAMENTS = { hostile: HOSTILE, raider: RAIDER, gunner: GUNNER };
 
 // The profile a car type carries, or null if it carries nothing.
 export function armamentFor(type) {
@@ -158,7 +164,17 @@ const GUN_CLOSING = 200;    // world units/sec a round must gain on its target
 // bullet.width) / 2) plus slack, so the aim window is roughly the window in
 // which a hit is possible — a little wider, since the player may steer into it,
 // but not so wide that half the rounds are fired at empty tarmac.
+//
+// THE DEFAULT, not a fixed ceiling — a gun type may name its own `aimSlack`
+// (weapons.js) to be more reckless than this, or more precise. Read via
+// aimSlackFor below rather than inline, so "which figure won" is one place.
 const GUN_AIM_SLACK = 8;
+
+// The aim tolerance a given gun actually fires within — its own `aimSlack`
+// if it names one, GUN_AIM_SLACK otherwise.
+function aimSlackFor(type) {
+  return type.aimSlack ?? GUN_AIM_SLACK;
+}
 
 // THE MINE LAYER.
 //
@@ -216,12 +232,18 @@ function shoot(car, arms, target, world) {
 
   const along = target.worldY - car.worldY;
   const dir = along >= 0 ? 1 : -1;
+  const type = arms.gun.type;
+  // FORWARD-ONLY GUNS, like the player's own, never take the rearward shot
+  // at all — there is no dir -1 for them, only "no shot". A car built to
+  // hang off the player's tail and fire up the road (the stocker's `trail`)
+  // has no business aiming back over its own shoulder, whatever the relative
+  // position happens to read as for one tick.
+  if (type.forwardOnly && dir < 0) return false;
   const range = Math.abs(along);
   if (range < GUN_MIN_RANGE || range > GUN_RANGE) return false;
   if (range > visibleRoad(world, dir)) return false;
 
-  const type = arms.gun.type;
-  if (Math.abs(target.offset - car.offset) > (target.w + type.width) / 2 + GUN_AIM_SLACK) {
+  if (Math.abs(target.offset - car.offset) > (target.w + type.width) / 2 + aimSlackFor(type)) {
     return false;
   }
 

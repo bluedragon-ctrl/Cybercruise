@@ -164,10 +164,12 @@ traffic doesn't mean touching the simulation:
   and the physics stay in one place. One entry point, `driveCar`, runs three
   stages for every car: **tactic** (the manoeuvre), **reflex** (hazard
   avoidance, which may override the tactic laterally), then **arms**. Most of
-  Phase 4's tactics (`pursue`, `ram`, `block`, `convoy`) are still rows in that
-  table borrowing their driving from the two civilian ones; `raid` (the cycle)
-  is the first one filled in — it forces its way past whatever's ahead, then
-  holds station just long enough to drop one mine in the player's path.
+  Most of Phase 4's tactics (`pursue`, `ram`, `block`, `convoy`) are still rows
+  in that table borrowing their driving from the two civilian ones. `raid`
+  (the cycle) forces its way past whatever's ahead, then holds station just
+  long enough to drop one mine in the player's path. `trail` (the stocker)
+  hangs off the player's back bumper and fires forward for one timed
+  engagement, then gives up and drives off for good.
 - `src/game/driving.js` — the **driving profiles**: the numbers behind a tactic.
   Following distances, patience, lane discipline, and how much hull a driver
   will accept hitting. See below.
