@@ -13,18 +13,19 @@
 //   useArms     the default TACTIC: given a car, its kit and the world, decide
 //               whether to take a shot or lay a mine this tick.
 //
-// UNIFORM FOR NOW, ON PURPOSE. Every enemy-faction type gets the same profile
-// and the same tactic, so an interceptor and a bruiser shoot alike. That is what
-// this step is for: the road has to be ABLE to do these things before it is
-// worth arguing about which car does which, how often. The two seams the next
-// step needs are already cut —
+// UNIFORM WAS THE STARTING POINT, ON PURPOSE. Every enemy-faction type got the
+// same profile and the same tactic at first, so an interceptor and a bruiser
+// shot alike — the road had to be ABLE to do these things before it was worth
+// arguing about which car does which, how often. The two seams that step cut
+// are what the first divergence (the cycle's `raider` profile, gun-less) used
+// without touching this file's structure —
 //
 //   * `armamentFor` picks a profile, and a car type naming `arms: "..."`
 //     overrides the faction default. Per-type kit is then a catalogue edit.
 //   * behaviours.js calls `useArms` from each HOSTILE TACTIC separately rather
 //     than from the shared cruise/overtake path. Per-behaviour tactics are then
-//     a matter of what each of those four functions asks for — `weave` laying
-//     mines where `pursue` shoots, and so on.
+//     a matter of what each of those functions asks for — `raid` lining up a
+//     single mine drop where `pursue` shoots, and so on.
 //
 // Note the consequence of that second seam: being ARMED follows from the
 // faction, but USING the arms follows from the behaviour. An enemy type given a
@@ -70,9 +71,16 @@ const MINE_LAYER = {
 // The one hostile profile. See UNIFORM FOR NOW above.
 const HOSTILE = { gun: ENEMY_GUN, layer: MINE_LAYER };
 
+// No gun at all — a car that fights entirely by what it lays in the road.
+// `gun: null` rather than a gun with `ammo: 0`, so this is a car type that
+// carries nothing to shoot with rather than one that has already fired: the
+// two would behave identically here, but the first is what it actually is,
+// and it's one field cheaper than a stub weapon type nobody fires.
+const RAIDER = { gun: null, layer: MINE_LAYER };
+
 // Keyed BY NAME, exactly like behaviours.js's BEHAVIOURS table, so a car type
 // can name its kit in the catalogue the same way it already names its tactics.
-const ARMAMENTS = { hostile: HOSTILE };
+const ARMAMENTS = { hostile: HOSTILE, raider: RAIDER };
 
 // The profile a car type carries, or null if it carries nothing.
 export function armamentFor(type) {
@@ -89,7 +97,10 @@ export function armamentFor(type) {
 // One car's kit. Constructed once per car, at spawn.
 export class Armament {
   constructor(profile) {
-    this.gun = new Weapon(profile.gun);
+    // null for a profile that carries no gun at all (RAIDER above) — checked
+    // everywhere else a Weapon would be, rather than handed a stub type that
+    // exists only to sit there unfired.
+    this.gun = profile.gun ? new Weapon(profile.gun) : null;
     this.layer = new Weapon(profile.layer);
     // Resolved ONCE, here, rather than looked up per drop: the payload is a
     // catalogue entry that never changes, and doing it at construction is what
@@ -103,7 +114,7 @@ export class Armament {
   // a weapon that only recovered while it had a target would fire instantly
   // every time one appeared.
   update(dt) {
-    this.gun.update(dt);
+    if (this.gun) this.gun.update(dt);
     this.layer.update(dt);
   }
 }
@@ -159,12 +170,26 @@ const GUN_AIM_SLACK = 8;
 // nobody having the nerve to drive onto one; laid mines need the matching rule
 // at the other end, which is that a car does not lay one with somebody else's
 // traffic between it and its target.
-const MINE_RANGE = 300;     // world units back the target may be...
-const MINE_MIN_LEAD = 150;  // ...and no nearer, or it appears in their face with
-                            // no road left to steer around it. The player steers
-                            // at 260px/sec and needs ~30px to clear a mine, so
-                            // this is several times the reaction it demands
-const MINE_AIM = 45;        // how nearly in line the target must be — about two
+// EXPORTED, because behaviours.js's `raid` tactic needs the same window: a
+// car that lines itself up to lay a mine has to aim for a lead distance this
+// function will actually accept, not a copy of the two numbers that might
+// drift out of step with them.
+//
+// 460 REACHES INTO THE TOP OF THE VISIBLE ROAD, not just "far enough to
+// react to". World units are screen pixels along the road (road.js), and the
+// player sits at 62% down an 800px canvas (main.js) — so 460 units ahead
+// lands a shade under 10% from the top edge, comfortably inside the last
+// fifth of what the player can actually see coming, with room to spare
+// before it would scroll off-screen entirely. Raised from an earlier 300
+// (roughly the middle of the screen) once that read as too close to be a
+// real dodge rather than a near-miss.
+export const MINE_RANGE = 460;     // world units back the target may be...
+export const MINE_MIN_LEAD = 150;  // ...and no nearer, or it appears in their face
+                            // with no road left to steer around it. The player
+                            // steers at 260px/sec and needs ~30px to clear a
+                            // mine, so this is several times the reaction it
+                            // demands
+export const MINE_AIM = 45; // how nearly in line the target must be — about two
                             // thirds of a lane, so a mine is laid in the player's
                             // path rather than somewhere off to one side
 
@@ -187,7 +212,7 @@ export function useArms(car, world) {
 // Take a shot at `target` if this is a shot worth taking. Returns whether one
 // was fired.
 function shoot(car, arms, target, world) {
-  if (!world.fireShot || !arms.gun.ready) return false;
+  if (!arms.gun || !world.fireShot || !arms.gun.ready) return false;
 
   const along = target.worldY - car.worldY;
   const dir = along >= 0 ? 1 : -1;

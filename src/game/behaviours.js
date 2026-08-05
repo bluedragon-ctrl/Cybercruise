@@ -64,7 +64,7 @@
 // a chosen lane) — each car is a plain object owned by one behaviour for life.
 
 import { laneAt, laneOffset, LANE_COUNT, LANE_WIDTH, ROAD_HALF_WIDTH } from "./road.js";
-import { useArms } from "./armament.js";
+import { useArms, MINE_RANGE, MINE_AIM } from "./armament.js";
 import { impactCost, SIDE_DAMAGE } from "./collisions.js";
 
 // --- Following ---------------------------------------------------------------
@@ -603,18 +603,117 @@ function avoidHazards(car, world) {
   if (safe < car.targetSpeed) car.targetSpeed = Math.max(0, safe);
 }
 
+// --- Raiding -------------------------------------------------------------------
+//
+// The cycle. It carries no gun (armament.js's `raider` profile) — its only
+// attack is a single mine, and a mine only counts for anything laid ahead of
+// the player, in their lane, inside the window the mine layer itself accepts
+// (MINE_MIN_LEAD..MINE_RANGE). So the manoeuvre is: use the one thing this
+// type has plenty of — speed — to force its way past whatever's in front,
+// then instead of pulling away as it ordinarily would, hold station out
+// toward the FAR end of that window and tuck into the player's own lane
+// until the drop goes off. Then it's done — one mine, not three — and it
+// goes straight back to just being the fastest thing on the road.
+//
+// TWO PHASES, not one function pretending to be both. Getting past whatever
+// is in the way is exactly the overtake manoeuvre already written —
+// patience, a chosen side, brake for whatever's genuinely blocking it — so
+// phase one simply IS overtake, aimed at the player the same way it's
+// already aimed at any car holding this one up. Holding station ahead of a
+// moving target is a different problem (match its speed, don't out-pace it),
+// so it gets its own logic rather than a bent version of the first.
+//
+// THE PHASE SPLIT IS ON RAID_LEAD, NOT MINE_MIN_LEAD, and that is load-
+// bearing rather than a rounding choice. armament.js's `layMine` only checks
+// its OWN window and aim — it has no idea this tactic wants the far end of
+// it specifically, and MINE_AIM is generous enough (two thirds of a lane)
+// that simply being in the lane next to the player during an ordinary pass
+// already satisfies it. So phase one doesn't just leave the lateral line to
+// whatever `overtake` was already doing to get past real traffic — it
+// actively holds clear of MINE_AIM around the player specifically, and only
+// once it reaches RAID_LEAD does it swing onto their line, which is what
+// actually gates the drop.
+//
+// TOWARD THE FAR END of the window, not the middle of it — see armament.js's
+// MINE_RANGE for why that reaches nearly to the top of the visible road: laid
+// at the near edge the mine would appear almost on top of the player, which
+// is a hit they never saw coming rather than one they had road left to
+// dodge. Kept a little clear of MINE_RANGE's own ceiling, so ordinary speed
+// wobble around the target never pushes the drop out of range.
+const RAID_LEAD = MINE_RANGE - 40;
+// How hard the hold-station speed correction leans on the gap error — a
+// proportional term, not a limit: traffic.js's ACCEL is still what actually
+// gets `speed` there.
+const RAID_GAIN = 1.5;
+// How far clear of the player's own line phase one holds, beyond MINE_AIM
+// itself — enough slack that this is unambiguously NOT lined up, rather than
+// sitting one rounding error inside the gate it's trying to stay outside of.
+const RAID_CLEARANCE = 15;
+
+function raid(car, dt, world) {
+  const target = world.playerBody;
+  const arms = car.arms;
+  // Nothing left to do once the one mine is spent (or there's no player, or
+  // no kit at all — a test fixture, say): drive on same as any other car,
+  // rather than loitering in front of someone it has nothing left to hurt
+  // them with.
+  if (!target || !arms || arms.layer.ammo < arms.layer.type.ammo) {
+    keepLane(car, world);
+    car.targetSpeed = followSpeed(car, leadCar(car, world, car.offset, null));
+    return;
+  }
+
+  const lead = car.worldY - target.worldY; // positive once clear ahead of them
+  // Still closing on RAID_LEAD, or mid-pass: drive exactly like any
+  // overtaker, so it genuinely gets past real traffic in its way — then, if
+  // that left it within the mine layer's own aim tolerance of the PLAYER
+  // specifically, nudge clear of just that. A real pass against another car
+  // is left alone; only alignment with the player is corrected.
+  if (lead < RAID_LEAD || car.passTarget) {
+    overtake(car, dt, world);
+    if (Math.abs(car.targetOffset - target.offset) <= MINE_AIM + RAID_CLEARANCE) {
+      // Try the side already favoured first, but a player hugging a barrier
+      // can clamp that side right back into range — fall back to the other
+      // rather than silently staying aligned.
+      const limit = ROAD_HALF_WIDTH - car.w / 2;
+      const preferred = car.targetOffset >= target.offset ? 1 : -1;
+      for (const side of [preferred, -preferred]) {
+        const clear = Math.max(-limit, Math.min(limit, target.offset + side * (MINE_AIM + RAID_CLEARANCE)));
+        if (Math.abs(clear - target.offset) > MINE_AIM + RAID_CLEARANCE - 1) {
+          car.targetOffset = clear;
+          break;
+        }
+      }
+    }
+    return;
+  }
+
+  // At the target distance: hold it, rather than continuing to pull away,
+  // and NOW line up on the player's own lane so the drop actually lands in
+  // their path. A line real traffic already occupies is left alone rather
+  // than driven into — the player sitting at that same offset is NOT a
+  // reason to hold back, since lining up with them is the entire point.
+  const limit = ROAD_HALF_WIDTH - car.w / 2;
+  const want = Math.max(-limit, Math.min(limit, target.offset));
+  if (!blocked(car, target, want, world, car.drive.passLookAhead)) car.targetOffset = want;
+
+  const error = lead - RAID_LEAD;
+  car.targetSpeed = Math.max(0, Math.min(car.type.speedMax, target.speed - error * RAID_GAIN));
+}
+
 // --- The tactics table ----------------------------------------------------------
 //
 // Every car type names one of these. A row is `{ drive, arms }`: the manoeuvre
 // that sets its intent, and whether it uses what it is carrying.
 //
-// THE PHASE 4 TACTICS ARE STILL BORROWED. `pursue`, `ram`, `block`, `weave` and
-// `convoy` each point at whichever shipped tactic is the closest approximation,
-// so the road already drives sensibly — the hunters flow through traffic, the
-// heavies hold their lane. They are rows rather than one-line functions that
-// call another function, because a table shows at a glance which tactics are
-// real and which are placeholders, and filling one in is then a function plus a
-// changed reference with no edit to cartypes.js.
+// THE REMAINING PHASE 4 TACTICS ARE STILL BORROWED. `pursue`, `ram`, `block`
+// and `convoy` each point at whichever shipped tactic is the closest
+// approximation, so the road already drives sensibly — the hunters flow
+// through traffic, the heavies hold their lane. They are rows rather than
+// one-line functions that call another function, because a table shows at a
+// glance which tactics are real and which are placeholders, and filling one
+// in is then a function plus a changed reference with no edit to
+// cartypes.js. `raid`, below, is the first one filled in.
 //
 // `arms` is per tactic, not per faction, and that is the right way round: being
 // ARMED follows from what a car carries (armament.js keys off faction), but
@@ -641,8 +740,10 @@ const BEHAVIOURS = {
                                             // it today, and it is held for the
                                             // hostile that replaces it. See
                                             // cartypes.js's muscle entry
-  weave: { drive: overtake, arms: true },   // will cross the road on a timer, hard
-                                            // to shoot and hard to predict
+  raid: { drive: raid, arms: true },        // real: forces its way past whatever's
+                                            // ahead, then holds station in front
+                                            // of the player just long enough to
+                                            // drop one mine in their path
   convoy: { drive: cruise, arms: false },   // will pair rigs nose-to-tail across
                                             // lanes into a rolling roadblock
 };
