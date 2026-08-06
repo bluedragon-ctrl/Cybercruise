@@ -26,6 +26,11 @@ const CODE_ALIASES = {
   Tab: "swap",
   ShiftLeft: "swap",
   KeyQ: "swap",
+  // Mines get their own key rather than living in the TAB cycle above: laying
+  // one is a snap decision made while a gun is still selected, not a reason to
+  // tab away from it and back. See weapons.js's Loadout.next().
+  ControlLeft: "mine",
+  ControlRight: "mine",
   Escape: "pause",
 };
 

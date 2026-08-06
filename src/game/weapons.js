@@ -489,8 +489,19 @@ export class Loadout {
     return this.weapons.find((w) => w.type.id === id) ?? null;
   }
 
+  // GUNS ONLY. A layer (type.payload set — the mine, see WEAPON_TYPES above)
+  // is skipped here on purpose: it has its own key now (main.js's "mine"
+  // action) rather than a slot in this cycle, so a player laying one is never
+  // forced to tab away from whatever gun they had and back again afterwards.
   next() {
-    this.index = (this.index + 1) % this.weapons.length;
+    const n = this.weapons.length;
+    for (let i = 1; i <= n; i++) {
+      const idx = (this.index + i) % n;
+      if (!this.weapons[idx].type.payload) {
+        this.index = idx;
+        break;
+      }
+    }
     return this.current;
   }
 
