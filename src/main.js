@@ -231,6 +231,16 @@ function update(dt) {
     // every frame; it's only update() that has stopped moving them). Only the
     // death sequence itself advances.
     disconnect.update(dt);
+    // Drained every tick, not just the one the sequence ends on: "fire" is
+    // held down (isDown, see the weapon check under "playing") rather than
+    // edge-consumed while shooting, so a press mid-sequence — the player
+    // still mashing fire as the car glitches out — would otherwise sit in
+    // input.js's `fresh` set until "gameover" opens below and consumePress
+    // reads it as THAT screen's confirm, instantly firing RESTART before the
+    // player has even seen it. Input is already ignored while "dying" (see
+    // the branch's own header comment); this just makes "fire" ignored too,
+    // instead of silently queuing itself for the next screen.
+    consumePress("fire");
     if (disconnect.done) {
       state = "gameover";
       menu.open("gameover");
