@@ -85,3 +85,16 @@ export const NEUTRAL_THRUST = "#ffd76a"; // neutral exhaust (warm amber)
 // it" tell CRITICAL_FLASH already gives a dying car, moved into the player's
 // own family instead of the traffic one.
 export const SHIELD_FLICKER = "#eafff5";
+
+// Pickup reticle families (game/pickupshapes.js). The shared diamond frame
+// every crate rides in is tinted by KIND rather than always green, so the
+// three kinds of buff read apart before the player is close enough to see the
+// glyph at the centre: ammo crates -> gray, boosts (shield, etc.) -> purple,
+// healing stays the world's own green (see GREEN/GREEN_BRIGHT/GREEN_DIM
+// above).
+export const GRAY = "#8a94a0";
+export const GRAY_BRIGHT = "#c3ccd6";
+export const GRAY_DIM = "#4a525c";
+export const PURPLE = "#b866ff";
+export const PURPLE_BRIGHT = "#d9aeff";
+export const PURPLE_DIM = "#5c2e8f";

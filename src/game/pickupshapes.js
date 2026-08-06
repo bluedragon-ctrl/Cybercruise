@@ -32,6 +32,12 @@ import {
   GREEN,
   GREEN_BRIGHT,
   GREEN_DIM,
+  GRAY,
+  GRAY_BRIGHT,
+  GRAY_DIM,
+  PURPLE,
+  PURPLE_BRIGHT,
+  PURPLE_DIM,
   PLAYER,
   PLAYER_THRUST,
   ROCKET,
@@ -56,16 +62,25 @@ function ngon(cx, cy, r, n, rot = 0) {
 // alpha AS ONE PIECE, target-lock style — a mine's core pulses independently
 // of its (static) spikes; this pulses whole, closer to a HUD element
 // blinking than to a living thing breathing.
+//
+// The FRAME (diamond + corner brackets) is tinted by `scheme` so the three
+// buff KINDS read apart before the glyph at the centre does: ammo -> gray,
+// boosts -> purple, healing -> the world's own green (RETICLE_GREEN, the
+// default every glyph used before kinds had their own tint).
 const RET_R = 14; // diamond half-diagonal
 
-function drawReticle(ctx, cx, cy, pulse) {
+const RETICLE_GREEN = { edge: GREEN, dim: GREEN_DIM, bright: GREEN_BRIGHT };
+const RETICLE_GRAY = { edge: GRAY, dim: GRAY_DIM, bright: GRAY_BRIGHT };
+const RETICLE_PURPLE = { edge: PURPLE, dim: PURPLE_DIM, bright: PURPLE_BRIGHT };
+
+function drawReticle(ctx, cx, cy, pulse, scheme = RETICLE_GREEN) {
   ctx.save();
   ctx.globalAlpha = pulse;
 
   const outer = ngon(cx, cy, RET_R, 4);       // vertices at 0/90/180/270deg — a diamond
   const inner = ngon(cx, cy, RET_R * 0.58, 4);
-  glowPoly(ctx, outer, GREEN, 1.5, 9);
-  glowPoly(ctx, inner, GREEN_DIM, 1, 7, "#0b1118");
+  glowPoly(ctx, outer, scheme.edge, 1.5, 9);
+  glowPoly(ctx, inner, scheme.dim, 1, 7, "#0b1118");
 
   // Corner brackets: a short radial tick past each vertex, capped by a
   // perpendicular stroke — a camera/reticle corner mark aimed outward from
@@ -78,10 +93,10 @@ function drawReticle(ctx, cx, cy, pulse) {
     const py = dx; // perpendicular
     const r1 = RET_R + 2;
     const r2 = RET_R + 7;
-    glowLine(ctx, cx + dx * r1, cy + dy * r1, cx + dx * r2, cy + dy * r2, GREEN_BRIGHT, 1.3, 7);
+    glowLine(ctx, cx + dx * r1, cy + dy * r1, cx + dx * r2, cy + dy * r2, scheme.bright, 1.3, 7);
     glowLine(
       ctx, cx + dx * r2 - px * 3, cy + dy * r2 - py * 3,
-      cx + dx * r2 + px * 3, cy + dy * r2 + py * 3, GREEN_BRIGHT, 1.3, 7,
+      cx + dx * r2 + px * 3, cy + dy * r2 + py * 3, scheme.bright, 1.3, 7,
     );
   }
 
@@ -182,7 +197,7 @@ export const PICKUP_SHAPES = [
     size: [28, 28],
     extent: { x: RETICLE_REACH, up: RETICLE_REACH, down: RETICLE_REACH },
     draw(ctx, cx, cy, pulse) {
-      drawReticle(ctx, cx, cy, pulse);
+      drawReticle(ctx, cx, cy, pulse, RETICLE_GRAY);
       drawRocketGlyph(ctx, cx, cy);
     },
   },
@@ -191,7 +206,7 @@ export const PICKUP_SHAPES = [
     size: [28, 28],
     extent: { x: RETICLE_REACH, up: RETICLE_REACH, down: RETICLE_REACH },
     draw(ctx, cx, cy, pulse) {
-      drawReticle(ctx, cx, cy, pulse);
+      drawReticle(ctx, cx, cy, pulse, RETICLE_GRAY);
       drawTracerGlyph(ctx, cx, cy);
     },
   },
@@ -200,7 +215,7 @@ export const PICKUP_SHAPES = [
     size: [28, 28],
     extent: { x: RETICLE_REACH, up: RETICLE_REACH, down: RETICLE_REACH },
     draw(ctx, cx, cy, pulse) {
-      drawReticle(ctx, cx, cy, pulse);
+      drawReticle(ctx, cx, cy, pulse, RETICLE_GRAY);
       drawMineGlyph(ctx, cx, cy);
     },
   },
@@ -218,7 +233,7 @@ export const PICKUP_SHAPES = [
     size: [28, 28],
     extent: { x: RETICLE_REACH, up: RETICLE_REACH, down: RETICLE_REACH },
     draw(ctx, cx, cy, pulse, phase) {
-      drawReticle(ctx, cx, cy, pulse);
+      drawReticle(ctx, cx, cy, pulse, RETICLE_PURPLE);
       drawShieldGlyph(ctx, cx, cy, phase);
     },
   },
