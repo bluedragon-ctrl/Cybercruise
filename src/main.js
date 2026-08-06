@@ -4,6 +4,7 @@
 
 import { createLoop } from "./engine/loop.js";
 import { initInput, isDown, consumePress } from "./engine/input.js";
+import { initMouse } from "./engine/mouse.js";
 import { clear, glowText } from "./engine/neon.js";
 import { GREEN, GREEN_BRIGHT, GREEN_PALE, HAZARD, PLAYER, SHIELD_FLICKER } from "./engine/palette.js";
 import { Player } from "./game/player.js";
@@ -28,11 +29,12 @@ const W = canvas.width;
 const H = canvas.height;
 const hint = document.getElementById("hint");
 
-const MENU_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm";
-const PAUSE_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm &middot; ESC resume";
+const MENU_HINT = "&uarr;/&darr; select &middot; &larr;/&rarr; adjust &middot; SPACE/ENTER confirm";
+const PAUSE_HINT = "&uarr;/&darr; select &middot; &larr;/&rarr; adjust &middot; SPACE/ENTER confirm &middot; ESC resume";
 const PLAY_HINT = "&larr;/&rarr; or A/D steer &middot; &uarr;/&darr; speed &middot; SPACE fire &middot; TAB weapon &middot; ESC pause";
 
 initInput();
+initMouse(canvas);
 
 // Top-level game state: the menu owns the screen until START GAME/CONTINUE is
 // picked, then main's own update/render (unchanged below) take over. "menu"
@@ -45,11 +47,11 @@ let state = "menu"; // "menu" | "playing" | "paused"
 // Phase 8's first slice: procedural synthwave music (src/audio/synth.js).
 // `music.start()` is only ever called below, from inside the "fire" press
 // that confirms START GAME — see synth.js's header for why it must follow a
-// real user gesture. `musicFlag` mirrors menu.js's MUSIC toggle so
-// setEnabled() only fires on an actual change rather than every frame the
-// menu is open (that would retrigger its volume ramp 60x/sec — see setEnabled).
+// real user gesture. `musicVolume` mirrors menu.js's MUSIC level so
+// setVolume() only fires on an actual change rather than every frame the
+// menu is open (that would retrigger its ramp 60x/sec — see setVolume).
 const music = createMusic();
-let musicFlag = menu.musicOn();
+let musicVolume = menu.musicVolume();
 
 // Player sits around mid-screen (Spy Hunter framing) so traffic catching up
 // from behind is visible below before it draws level.
@@ -144,18 +146,18 @@ let distance = 0;
 
 function update(dt) {
   if (state === "menu") {
-    if (menu.update()) {
+    if (menu.update(W)) {
       state = "playing";
       hint.innerHTML = PLAY_HINT;
       // The keypress that just confirmed START GAME is the user gesture
       // AudioContext creation needs — see synth.js's header.
       music.start();
     }
-    // Only pushed to the engine on an actual change (see musicFlag above) —
+    // Only pushed to the engine on an actual change (see musicVolume above) —
     // the MUSIC row can only have moved on the update() call just above.
-    if (menu.musicOn() !== musicFlag) {
-      musicFlag = menu.musicOn();
-      music.setEnabled(musicFlag);
+    if (menu.musicVolume() !== musicVolume) {
+      musicVolume = menu.musicVolume();
+      music.setVolume(musicVolume);
     }
     return;
   }
@@ -169,13 +171,13 @@ function update(dt) {
       hint.innerHTML = PLAY_HINT;
       return;
     }
-    if (menu.update()) {
+    if (menu.update(W)) {
       state = "playing";
       hint.innerHTML = PLAY_HINT;
     }
-    if (menu.musicOn() !== musicFlag) {
-      musicFlag = menu.musicOn();
-      music.setEnabled(musicFlag);
+    if (menu.musicVolume() !== musicVolume) {
+      musicVolume = menu.musicVolume();
+      music.setVolume(musicVolume);
     }
     return;
   }
