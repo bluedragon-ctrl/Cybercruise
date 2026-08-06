@@ -107,12 +107,12 @@ export const WEAPON_TYPES = [
   {
     id: "cannon",
     label: "CANNON",
-    // Three hits kills the standard hostile (interceptor, 70 hull), one kills a
-    // cycle, seven are needed for a rig. Deliberately NOT a one-shot weapon
+    // Two hits kills the standard hostile (interceptor, 70 hull), one kills a
+    // cycle, six are needed for a rig. Deliberately NOT a one-shot weapon
     // against anything that matters: the default gun is supposed to make the
     // heavier enemy types feel heavy, which is what leaves Phase 5's specials
     // something to be better at.
-    damage: 34,
+    damage: 41, // +20% over the original 34
     interval: 0.16, // ~6 shots/sec — fast enough to feel automatic
     muzzleSpeed: 900,
     // The default gun shoots where the car is POINTED, which on a bend is not
@@ -132,7 +132,7 @@ export const WEAPON_TYPES = [
     // round the bend. Its value is entirely SITUATIONAL: on a straight it is a
     // worse cannon, and through a long curve it is the only thing that can
     // reach the car ahead at all.
-    damage: 45,
+    damage: 54, // +20% over the original 45
     interval: 0.24, // ~4 shots/sec
     muzzleSpeed: 820,
     flight: FLIGHT_TRACKING,
@@ -159,7 +159,7 @@ export const WEAPON_TYPES = [
     // — a bare tie is one falling-off-by-a-fraction bug away from the rocket
     // quietly stopping being a one-shot weapon against the lightest thing on
     // the road.
-    damage: 65,
+    damage: 98, // +50% over the original 65
     // ~2.86 shots/sec — still the slowest-firing of the three (cannon ~6.25,
     // tracker ~4.17), but faster than the round's OWN flight time across the
     // screen (~0.7s at this muzzleSpeed from the player's muzzle). That
