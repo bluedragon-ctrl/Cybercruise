@@ -124,9 +124,25 @@ class TrafficCar {
     this.nerve = Math.random() * this.drive.nerve;
     this.contact = Math.random() * this.drive.contact;
 
-    // Seconds spent stuck behind something it would rather be in front of.
-    // Drives `patience` (behaviours.js startPass).
-    this.heldTime = 0;
+    // --- Behaviour state ------------------------------------------------------
+    // Scratch space owned by whichever tactic drives this car (behaviours.js
+    // says a behaviour may stash fields here), seeded in one place rather than
+    // sprung into existence on first use.
+    //
+    // ALL OF IT, INCLUDING FIELDS THIS CAR'S OWN TACTIC WILL NEVER READ. Only
+    // `heldTime` used to be declared; the rest appeared the first tick a car
+    // committed to a pass or lost sight of the player, which meant a car's shape
+    // changed mid-run and `trail` needed a `?? 0` to survive reading its own
+    // timer. A car is cheap and there are seven of them: declare the lot, and
+    // the list doubles as the register of what state the tactics actually keep.
+    this.heldTime = 0;    // seconds stuck behind something it would rather be in
+                          // front of — drives `patience` (startPass)
+    this.passTarget = null; // the body being overtaken, while a pass is running
+    this.passSide = 0;      // -1/+1, the side chosen for it
+    this.passTime = 0;      // ...and its age, against `passTimeout`
+    this.lostTime = 0;    // seconds since the player was last in firing range —
+                          // drives `giveUpTime` (behaviours.js's `trail`)
+    this.disengaged = false; // one-way: this car has given the player up for good
 
     // What this car is carrying, if anything — its own cooldowns and magazines,
     // so two interceptors do not share a trigger (game/armament.js). Null for

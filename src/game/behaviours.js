@@ -56,9 +56,25 @@
 //
 // Not here. Every tuning constant below reads off `car.drive`, the DRIVING
 // PROFILE its type names (game/driving.js) — so a timid overtaker and an
-// impatient one are two rows of a data table rather than two functions. The
-// three constants this file still owns are the ones that are a contract with
-// ANOTHER FILE rather than a matter of taste; they are marked as such.
+// impatient one are two rows of a data table rather than two functions.
+//
+// THE ONLY CONSTANTS THIS FILE OWNS ARE CONTRACTS WITH ANOTHER FILE, never a
+// matter of taste, and there are five of them:
+//
+//   HAZARD_DODGE_SPAN, HAZARD_SAFETY   where obstacles.js may place a hazard
+//   RAID_LEAD, RAID_CLEARANCE          armament.js's own mine window and aim
+//   TRAIL_ENGAGE                       the gap at which a shot is possible at all
+//
+// Each is derived from a figure another module owns, so pinning it to a driving
+// profile would let a retune quietly break the other file's assumption. Every
+// one is marked where it is defined.
+//
+// THE HOSTILE TACTICS USED TO OWN SIXTEEN MORE — hold gaps, chase ceilings,
+// proportional gains, a give-up clock — which meant the five enemy profiles in
+// driving.js differed only in `nerve`, and a second, more cautious interceptor
+// needed a new FUNCTION rather than a new row. Those are profile fields now
+// (driving.js's "Chasing the player" section); what is left here is the shape
+// of the manoeuvre, which is what this file is for.
 //
 // Behaviours are also free to be STATEFUL by stashing fields on `car` (a timer,
 // a chosen lane) — each car is a plain object owned by one behaviour for life.
@@ -603,6 +619,35 @@ function avoidHazards(car, world) {
   if (safe < car.targetSpeed) car.targetSpeed = Math.max(0, safe);
 }
 
+// --- Going after the player ------------------------------------------------
+//
+// THE SHARED HALF OF EVERY HOSTILE TACTIC. `raid`, `trail`, `ram` and `pursue`
+// all want the same thing at some point in their lives — be on the player's own
+// line — and all four used to write it out by hand, which is four places to fix
+// when the clamp or the tolerance check changes.
+
+// Steer onto `target`'s own line, or hold the current one when this driver
+// won't take whatever is standing in it.
+//
+// HOLDING THE LINE WHEN BLOCKED IS NOT A NO-OP, and that is the bug folding
+// these together fixes. All four copies read `if (!blocked(...)) car.targetOffset
+// = want;` and did NOTHING on the other branch — so a car whose line was
+// momentarily occupied went on steering toward wherever the player had been
+// several ticks earlier, quite possibly into the traffic that blocked it. That
+// is the exact stale-intent failure `keepLane` was written to end (see its
+// header, which spells out why an unwritten target keeps steering); the hostile
+// tactics simply reintroduced it. Saying "hold this line" explicitly is what
+// keepLane does inside its own slack, and it is what this does here.
+//
+// The player is passed as `ignore` in every case: lining up with them is the
+// entire point, so they are never a reason to hold back.
+function trackTarget(car, target, world) {
+  const limit = ROAD_HALF_WIDTH - car.w / 2;
+  const want = Math.max(-limit, Math.min(limit, target.offset));
+  const clear = !blocked(car, target, want, world, car.drive.passLookAhead);
+  car.targetOffset = clear ? want : car.offset;
+}
+
 // --- Raiding -------------------------------------------------------------------
 //
 // The cycle. It carries no gun (armament.js's `raider` profile) — its only
@@ -640,15 +685,22 @@ function avoidHazards(car, world) {
 // is a hit they never saw coming rather than one they had road left to
 // dodge. Kept a little clear of MINE_RANGE's own ceiling, so ordinary speed
 // wobble around the target never pushes the drop out of range.
+//
+// A CONTRACT WITH armament.js, which is why it stays here rather than going on
+// a profile with the rest of the chase numbers: it is MINE_RANGE minus slack,
+// so it tracks that file's window automatically. Written as a driving-profile
+// figure it would be a bare number that silently fell out of range the next
+// time the mine layer was retuned.
 const RAID_LEAD = MINE_RANGE - 40;
-// How hard the hold-station speed correction leans on the gap error — a
-// proportional term, not a limit: traffic.js's ACCEL is still what actually
-// gets `speed` there.
-const RAID_GAIN = 1.5;
 // How far clear of the player's own line phase one holds, beyond MINE_AIM
 // itself — enough slack that this is unambiguously NOT lined up, rather than
 // sitting one rounding error inside the gate it's trying to stay outside of.
+// A contract with armament.js's aim tolerance for the same reason as above.
 const RAID_CLEARANCE = 15;
+//
+// The gain on the hold itself is NOT a contract and is not here: it is a matter
+// of how tightly a given driver holds station, so it is `raidGain` on the
+// driving profile (driving.js).
 
 function raid(car, dt, world) {
   const target = world.playerBody;
@@ -658,8 +710,7 @@ function raid(car, dt, world) {
   // rather than loitering in front of someone it has nothing left to hurt
   // them with.
   if (!target || !arms || arms.layer.ammo < arms.layer.type.ammo) {
-    keepLane(car, world);
-    car.targetSpeed = followSpeed(car, leadCar(car, world, car.offset, null));
+    cruise(car, dt, world);
     return;
   }
 
@@ -691,14 +742,14 @@ function raid(car, dt, world) {
   // At the target distance: hold it, rather than continuing to pull away,
   // and NOW line up on the player's own lane so the drop actually lands in
   // their path. A line real traffic already occupies is left alone rather
-  // than driven into — the player sitting at that same offset is NOT a
-  // reason to hold back, since lining up with them is the entire point.
-  const limit = ROAD_HALF_WIDTH - car.w / 2;
-  const want = Math.max(-limit, Math.min(limit, target.offset));
-  if (!blocked(car, target, want, world, car.drive.passLookAhead)) car.targetOffset = want;
+  // than driven into — see trackTarget.
+  trackTarget(car, target, world);
 
   const error = lead - RAID_LEAD;
-  car.targetSpeed = Math.max(0, Math.min(car.type.speedMax, target.speed - error * RAID_GAIN));
+  car.targetSpeed = Math.max(
+    0,
+    Math.min(car.type.speedMax, target.speed - error * car.drive.raidGain),
+  );
 }
 
 // --- Trailing --------------------------------------------------------------
@@ -715,17 +766,13 @@ function raid(car, dt, world) {
 // outright, so the guarantee doesn't rest on the driving alone getting
 // every tick right.
 //
-// THREE DRIVING MODES, not two — plus one piece of bookkeeping (`lostTime`,
-// below) that runs independently of which of them is active. A car this far
-// from the player (beyond
-// TRAIL_PURSUE) just drives — `cruise`, at its own ordinary cruise speed —
-// so a stocker the player hasn't caught up to yet reads as traffic, and the
-// USUAL first contact is the player closing in on it from behind, same as
-// any other car on the road. Only once it's close enough to be worth
-// chasing does it switch into actively holding station, and ONLY THERE does
-// TRAIL_CHASE_SPEED apply — a ceiling above its own type.speedMax (415,
-// cartypes.js) that it spends purely to keep pace with a quick player for
-// the length of one engagement, not a number it cruises at for its own sake.
+// THE DRIVING IS `pursue`, AND ONLY THE GIVING UP IS THIS TACTIC'S OWN.
+// Closing on the player, holding a gap once there, and dropping back to
+// ordinary cruising when they are miles off is the interceptor's whole job
+// and was written out twice, identically, down to four constants with the
+// same values under two names. What actually makes a stocker a stocker is
+// the paragraph below — it fights one engagement and then genuinely leaves —
+// so that is all this function contains, and the rest is a call.
 //
 // GIVES UP ON LOST CONTACT, NOT ON A CLOCK. The first version of this timed
 // out after a flat six seconds regardless of what was actually happening —
@@ -734,7 +781,7 @@ function raid(car, dt, world) {
 // tracks instead is `car.lostTime`: seconds since it was LAST inside firing
 // range. Every tick back in range resets it to zero, so a car the player
 // can't shake keeps fighting indefinitely — there is no cap on that at all.
-// Only once it's been out of range continuously for TRAIL_GRACE does it
+// Only once it's been out of range continuously for `giveUpTime` does it
 // give the player up FOR GOOD — `car.disengaged` is a one-way switch,
 // checked first, that hands driving over to plain `overtake` forever. It
 // becomes fast background traffic rather than circling back for another
@@ -744,91 +791,51 @@ function raid(car, dt, world) {
 // worse — a moment ahead of the player where armament.js's own layMine
 // would happily read as "ahead of my target" and drop one. Retiring the
 // whole kit is what a car that has genuinely ridden away actually is.
-const TRAIL_HOLD = 200;    // world units held behind the player. Comfortably
-                            // inside the gun's own reach (see below), with
-                            // slack either side for the proportional control
-                            // to correct in without clipping the firing window
-// THE GAP THAT COUNTS AS "IN CONTACT", and it is a contract with
-// armament.js rather than a free number: a shot is only possible within
-// ~304 units of the player (H - player.y, armament.js's visibleRoad, with
-// the player framed at 62% down an 800px canvas) before GUN_RANGE's own 520
-// even comes into it. Kept under that with margin, so contact only counts
-// once a shot is genuinely on the table, not the instant the gap could
-// theoretically close in time.
-const TRAIL_ENGAGE = 260;
-// THE GAP THAT'S WORTH ACTIVELY CHASING AT ALL. Well outside TRAIL_ENGAGE on
-// purpose — this is what lets the car spend a couple of seconds actually
-// closing the last stretch, using the chase ceiling below, before it needs
-// to be in firing range. Inside this, it's an active threat; outside it,
-// it's traffic (though see TRAIL_GRACE — it isn't necessarily done yet).
-const TRAIL_PURSUE = 500;
-// THE CHASE CEILING — deliberately ABOVE the stocker's own type.speedMax.
-// That figure (415, cartypes.js) is what governs its ordinary cruise roll and
-// stays the number that makes a stray stocker read as "a heavy, not
-// especially fast" the rest of the time; this is what it's willing to spend
-// once the player is actually worth chasing, so it can keep pace with a
-// player running near their own ceiling (620, player.js) for the length of
-// an engagement rather than falling straight off the back the moment they
-// floor it.
-const TRAIL_CHASE_SPEED = 600;
-// Proportional speed correction holding the gap at TRAIL_HOLD — mirrors
-// raid's RAID_GAIN, mirrored in sign since this car trails instead of leads.
-const TRAIL_GAIN = 1.2;
-// SECONDS OF LOST CONTACT BEFORE IT GIVES UP — not seconds of fight. A car
-// still cycling in and out of TRAIL_ENGAGE (traffic in the way, a player
-// juking the last few units of gap) never lets this run out, because every
-// return to range zeroes it; it only ever fires while the player has
-// genuinely put clear road between them, which is the point.
-const TRAIL_GRACE = 3;
+//
+// HOW LONG THAT TAKES IS `giveUpTime` ON THE PROFILE (driving.js), where 0
+// means "never" and is the enemy baseline. The stocker is the only row that
+// sets it, which is the correct shape for a trait exactly one type has.
+
+// THE GAP THAT COUNTS AS "IN CONTACT", and it is a contract with armament.js
+// rather than a free number, which is why it stays here while the rest of the
+// chase figures moved onto the profile: a shot is only possible within ~304
+// units of the player (H - player.y, armament.js's visibleRoad, with the player
+// framed at 62% down an 800px canvas) before GUN_RANGE's own 520 even comes
+// into it. Kept under that with margin, so contact only counts once a shot is
+// genuinely on the table, not the instant the gap could theoretically close in
+// time.
+//
+// Exported for test/invariants.test.js, which asserts the relation this figure
+// has to the profile's `pursueHold`: a stocker parked at its hold gap must
+// count as in contact, or the give-up clock would run while the car was doing
+// its job perfectly and the stocker would ride off mid-engagement.
+export const TRAIL_ENGAGE = 260;
 
 function trail(car, dt, world) {
   const target = world.playerBody;
-  if (!target) {
-    keepLane(car, world);
-    car.targetSpeed = followSpeed(car, leadCar(car, world, car.offset, null));
-    return;
-  }
-  if (car.disengaged) {
-    overtake(car, dt, world);
-    return;
-  }
+  if (!target) return cruise(car, dt, world);
+  if (car.disengaged) return overtake(car, dt, world);
 
+  // The bookkeeping, which runs whichever of `pursue`'s two modes is active —
+  // that is why it sits here rather than inside the chase. `lostTime` is
+  // seconds since this car was last inside firing range, so every tick back
+  // in range zeroes it and a player who cannot shake the stocker is fought
+  // indefinitely; only clear road between them ever starts the clock.
   const gap = target.worldY - car.worldY; // positive while it trails them
-  if (gap <= TRAIL_ENGAGE) {
-    car.lostTime = 0;
-  } else {
-    car.lostTime = (car.lostTime ?? 0) + dt;
-    if (car.lostTime >= TRAIL_GRACE) {
-      car.disengaged = true;
-      car.arms = null; // rides off unarmed — see the header note above
-      overtake(car, dt, world);
-      return;
-    }
+  if (gap <= TRAIL_ENGAGE) car.lostTime = 0;
+  else car.lostTime += dt;
+
+  // `> 0` is what makes the profile's own "0 means never" true here rather
+  // than only in its comment: without it a profile that left giveUpTime at
+  // the baseline would disengage on its very first tick out of range.
+  const grace = car.drive.giveUpTime;
+  if (grace > 0 && car.lostTime >= grace) {
+    car.disengaged = true;
+    car.arms = null; // rides off unarmed — see the header note above
+    return overtake(car, dt, world);
   }
 
-  if (gap > TRAIL_PURSUE) {
-    // Not close enough to be worth actively chasing right now, but not
-    // given up either (see TRAIL_GRACE above) — drive at ordinary cruise
-    // speed and let the player either close the gap again or run the clock
-    // out.
-    cruise(car, dt, world);
-    return;
-  }
-
-  // Track the player's own lane directly — this is the whole of what makes
-  // the gun a threat worth strafing away from — deferring to `blocked` so it
-  // won't steer into traffic it doesn't tolerate to do it.
-  const limit = ROAD_HALF_WIDTH - car.w / 2;
-  const want = Math.max(-limit, Math.min(limit, target.offset));
-  if (!blocked(car, target, want, world, car.drive.passLookAhead)) car.targetOffset = want;
-
-  // Hold the gap at TRAIL_HOLD, but still brake for real traffic in the way
-  // (the player itself is excluded — the proportional term above is what
-  // governs distance to THEM). Capped at TRAIL_CHASE_SPEED, not the type's
-  // own speedMax — see the header note on why those are different numbers.
-  const lead = leadCar(car, world, car.offset, target);
-  const held = target.speed + (gap - TRAIL_HOLD) * TRAIL_GAIN;
-  car.targetSpeed = followSpeed(car, lead, Math.max(0, Math.min(TRAIL_CHASE_SPEED, held)));
+  pursue(car, dt, world);
 }
 
 // --- Ramming -----------------------------------------------------------------
@@ -845,11 +852,14 @@ function trail(car, dt, world) {
 // deferring to `blocked` so it won't cut across traffic it doesn't tolerate
 // to do it — but the speed half is deliberately NOT `followSpeed` against the
 // player: braking to avoid the very thing this car exists to hit would be
-// exactly backwards. It simply asks for RAM_CHASE_SPEED, a ceiling well above
-// its own type.speedMax (330, cartypes.js) for the same two-tier reason the
-// stocker's TRAIL_CHASE_SPEED is — a number spent purely on closing the last
+// exactly backwards. It simply asks for its profile's `chaseSpeed`, a ceiling
+// well above its own type.speedMax (330, cartypes.js) for the two-tier reason
+// driving.js sets out on that field — a number spent purely on closing the last
 // stretch onto a player who may be running near their own ceiling, not one it
-// cruises at for its own sake. `resolveCollisions` (collisions.js) does the
+// cruises at for its own sake. It is also the ONE profile that lowers it (560
+// against the enemy's 600): this car closes to hit rather than to hold a firing
+// gap, so it need not match a fleeing player, only catch a busy one.
+// `resolveCollisions` (collisions.js) does the
 // rest: at 2.2 mass, the heaviest thing on the road bar the rig, a rear-end
 // or a side-swipe costs the player real hull and real speed, and costs this
 // car almost none of either.
@@ -858,40 +868,29 @@ function trail(car, dt, world) {
 // keeps closing on a slower target does not stop closing at zero gap — it
 // eventually passes, and once it has, still tracking the player's lane while
 // asking for LESS speed than they are running IS the block: the player either
-// brakes to match a wall heavier than they are or rear-ends it. RAM_BRAKE is
+// brakes to match a wall heavier than they are or rear-ends it. `ramBrake` is
 // a fraction of the PLAYER's own current speed rather than a fixed figure, so
 // the block still bites right down at walking pace rather than going slack
 // the moment the player lifts off the throttle themselves.
 //
 // THIS IS THE STOCKER'S OTHER HALF, and neither tactic knows the other
 // exists. A player slowed here is a player held in the stocker's own gun
-// window for longer (behaviours.js's `trail`, TRAIL_HOLD/TRAIL_ENGAGE) — the
+// window for longer (`trail`, and `pursueHold`/TRAIL_ENGAGE behind it) — the
 // road producing that on its own, out of two cars each running one simple
 // job, is the point of splitting the enemy into types at all rather than
 // giving every hostile the same one tactic.
-const RAM_CHASE_SPEED = 560; // ceiling while closing from behind or alongside
-                             // — see the stocker's TRAIL_CHASE_SPEED for the
-                             // same two-tier reasoning
-const RAM_BRAKE = 0.5;      // fraction of the PLAYER's own speed held once
-                             // ahead of them — halves their speed, and slows
-                             // further still the harder they brake themselves
-const RAM_BLOCK_FLOOR = 80; // never brakes to a dead stop — a stalled wall
-                             // reads as broken, not as a blocker
+// All three of this tactic's numbers are profile fields (driving.js): the
+// closing ceiling is `chaseSpeed`, shared with every other hostile and set
+// lower for this one alone; the block is `ramBrake` and `ramFloor`.
 
-function ram(car, _dt, world) {
+function ram(car, dt, world) {
   const target = world.playerBody;
-  if (!target) {
-    keepLane(car, world);
-    car.targetSpeed = followSpeed(car, leadCar(car, world, car.offset, null));
-    return;
-  }
+  if (!target) return cruise(car, dt, world);
 
-  // Track the player's own lane unconditionally: from behind or alongside
-  // this is what lines the hit up, and ahead it's what keeps the block IN
-  // their path rather than a car merely driving near them.
-  const limit = ROAD_HALF_WIDTH - car.w / 2;
-  const want = Math.max(-limit, Math.min(limit, target.offset));
-  if (!blocked(car, target, want, world, car.drive.passLookAhead)) car.targetOffset = want;
+  // Track the player's own lane: from behind or alongside this is what lines
+  // the hit up, and ahead it's what keeps the block IN their path rather than
+  // a car merely driving near them.
+  trackTarget(car, target, world);
 
   // Still brake for REAL traffic in the way — the target itself is excluded
   // (see `ignore` below), because the one thing this tactic must never do is
@@ -900,76 +899,71 @@ function ram(car, _dt, world) {
   const ahead = car.worldY - target.worldY; // positive once past the player
 
   if (ahead > 0) {
-    const held = Math.max(RAM_BLOCK_FLOOR, target.speed * RAM_BRAKE);
+    const held = Math.max(car.drive.ramFloor, target.speed * car.drive.ramBrake);
     car.targetSpeed = followSpeed(car, lead, held);
     return;
   }
 
-  car.targetSpeed = followSpeed(car, lead, RAM_CHASE_SPEED);
+  car.targetSpeed = followSpeed(car, lead, car.drive.chaseSpeed);
 }
 
 // --- Pursuing ------------------------------------------------------------------
 //
 // The interceptor. It is the standard hostile's whole idea: close in, hold a
 // firing gap, and never let go. Where the stocker's `trail` gives up for good
-// once contact is lost for TRAIL_GRACE seconds, this tactic has no such
+// once contact is lost for its `giveUpTime`, this tactic has no such
 // clock — a car the player has shaken simply keeps coming, which is what
 // makes it read as the road's baseline pressure rather than a timed
 // encounter like `raid` or `trail` are.
 //
-// THE SAME SHAPE AS `trail`, MINUS THE THIRD MODE. `trail` needs three:
-// camp in range, cruise while it closes the gap, and — once contact is
-// truly lost — disengage for good. This tactic only ever needs the first
-// two; there is no disengage to fall into, so there is no `lostTime` to
-// track either. Everything else — the proportional hold on the gap, the
-// chase-speed ceiling above the type's own cruise, falling back to plain
-// cruising outside pursuit range — is the same problem trail already solved,
-// so it is solved the same way.
+// THE ROAD'S ONE CHASING FUNCTION, and `trail` is this plus a clock. Camping
+// in range, closing the gap at a ceiling above the type's own cruise, and
+// dropping back to plain cruising when the player is miles off is the whole
+// of what either tactic does with the wheel; the stocker's ONLY addition is
+// deciding to stop (see `trail`). The two were written out separately, with
+// four constants duplicated under a second set of names and the same values,
+// so a retune of the hold gap had to be made twice and nothing would have
+// caught you doing it once.
 //
 // WHAT EACH TYPE ACTUALLY FIRES IS NOT THIS FUNCTION'S BUSINESS. The
 // interceptor carries a rocket (armament.js's `rocketeer` profile) —
 // `useArms` reads whatever `car.arms` says, and this tactic only ever
 // decides where the car is and how fast it's going. Also the back half of
 // the rival's own `duel`, below, once its one mine is spent.
-const PURSUE_HOLD = 200;        // world units held behind the player — see
-                                 // TRAIL_HOLD for why this figure in particular
-const PURSUE_RANGE = 500;       // gap inside which this car actively chases —
-                                 // see TRAIL_PURSUE
-const PURSUE_CHASE_SPEED = 600; // ceiling while closing, above either type's
-                                 // own speedMax — see TRAIL_CHASE_SPEED
-const PURSUE_GAIN = 1.2;        // proportional gain holding the gap at
-                                 // PURSUE_HOLD — mirrors TRAIL_GAIN
+// ALL FOUR OF ITS NUMBERS ARE PROFILE FIELDS (driving.js's "Chasing the
+// player"): `pursueRange`, `pursueHold`, `pursueGain` and `chaseSpeed`. They
+// were module constants here, duplicated under a second set of names by
+// `trail` with the identical values — which is the shape of problem that made
+// this the road's ONE chasing function and driving.js the place it is tuned.
 
 function pursue(car, dt, world) {
   const target = world.playerBody;
-  if (!target) {
-    keepLane(car, world);
-    car.targetSpeed = followSpeed(car, leadCar(car, world, car.offset, null));
-    return;
-  }
+  if (!target) return cruise(car, dt, world);
 
   const gap = target.worldY - car.worldY; // positive while it trails them
-  if (gap > PURSUE_RANGE) {
-    // Not close enough to be worth actively chasing right now. Unlike
-    // `trail`, there is no clock running here either way — this car simply
-    // waits for the gap to close again, however long that takes.
+  if (gap > car.drive.pursueRange) {
+    // Not close enough to be worth actively chasing right now. There is no
+    // clock running here either way — this car simply waits for the gap to
+    // close again, however long that takes. `trail` is what adds one.
     cruise(car, dt, world);
     return;
   }
 
   // Track the player's own lane directly, deferring to `blocked` so it won't
-  // steer into traffic it doesn't tolerate to do it — identical to `trail`.
-  const limit = ROAD_HALF_WIDTH - car.w / 2;
-  const want = Math.max(-limit, Math.min(limit, target.offset));
-  if (!blocked(car, target, want, world, car.drive.passLookAhead)) car.targetOffset = want;
+  // steer into traffic it doesn't tolerate to do it.
+  trackTarget(car, target, world);
 
-  // Hold the gap at PURSUE_HOLD, but still brake for real traffic in the way
+  // Hold the gap at `pursueHold`, but still brake for real traffic in the way
   // (the player itself is excluded from the lead search — the proportional
-  // term is what governs distance to THEM). Capped at PURSUE_CHASE_SPEED, not
-  // either type's own speedMax — see the header note on why those differ.
+  // term is what governs distance to THEM). Capped at `chaseSpeed`, not the
+  // type's own speedMax — see driving.js on why those differ.
   const lead = leadCar(car, world, car.offset, target);
-  const held = target.speed + (gap - PURSUE_HOLD) * PURSUE_GAIN;
-  car.targetSpeed = followSpeed(car, lead, Math.max(0, Math.min(PURSUE_CHASE_SPEED, held)));
+  const held = target.speed + (gap - car.drive.pursueHold) * car.drive.pursueGain;
+  car.targetSpeed = followSpeed(
+    car,
+    lead,
+    Math.max(0, Math.min(car.drive.chaseSpeed, held)),
+  );
 }
 
 // --- Duelling --------------------------------------------------------------
@@ -979,7 +973,7 @@ function pursue(car, dt, world) {
 // so rather than write a third driving model, this is the two of them
 // composed: `raid`'s force-past-and-drop, then `pursue` for the rest of its
 // life once that mine is gone. Both functions are already tuned and tested
-// against MINE_RANGE and PURSUE_HOLD respectively; a rival that reimplemented
+// against MINE_RANGE and `pursueHold` respectively; a rival that reimplemented
 // either would just be a second copy to keep in step with the first.
 //
 // ONE DELIBERATE MINE, NOT THREE, matching the cycle's own convention
@@ -1015,12 +1009,18 @@ function duel(car, dt, world) {
 // Every car type names one of these. A row is `{ drive, arms }`: the manoeuvre
 // that sets its intent, and whether it uses what it is carrying.
 //
-// EVERY PHASE 4 HOSTILE TACTIC IS NOW REAL: `raid`, `trail`, `ram`, `pursue`
-// and `duel` are each their own function, below. `convoy` is the one row
-// still borrowed (it points at plain `cruise`) — that's civilian work (the
-// rig's rolling roadblock), not a hostile left over from this phase.
+// EVERY ROW IS REAL, and that is now the rule rather than the state of play:
+// `raid`, `trail`, `ram`, `pursue` and `duel` are each their own function
+// below, and nothing in this table points at a manoeuvre it does not describe.
 //
-// NO ROW FOR `block`. It was reserved for the hostile that would replace the
+// NO ROW FOR `convoy` ANY MORE, and it went for exactly the reason `block`
+// never got one. It claimed the rig's rolling roadblock and delivered plain
+// `cruise`, so cartypes.js read as though the rig had a tactic of its own when
+// it drove like the van — a placeholder that had stopped looking like one,
+// which is worse than an obvious hole. The rig names `cruise` directly now, so
+// the catalogue says what the rig does. Write the roadblock when it ships.
+//
+// NO ROW FOR `block` EITHER. It was reserved for the hostile that would replace the
 // muscle car once that moved to the civilian side (see cartypes.js's muscle
 // and stocker entries) — but the stocker claimed that hole with `trail`
 // instead, and nothing else ever named it. A row that no car type points at
@@ -1032,10 +1032,9 @@ function duel(car, dt, world) {
 // waiting, since a driving profile costs nothing to leave unclaimed the way
 // a tactic row does.
 //
-// Rows are still the shape for whatever DOES ship, rather than one-line
-// functions calling another function, because a table shows at a glance
-// which tactics are real and which are placeholders, and filling one in is
-// then a function plus a changed reference with no edit to cartypes.js.
+// Rows are still the shape for whatever DOES ship, because a table shows at a
+// glance what manoeuvres the road knows, and adding one is then a function
+// plus a name with no edit to traffic.js.
 //
 // `arms` is per tactic, not per faction, and that is the right way round: being
 // ARMED follows from what a car carries (armament.js keys off faction), but
@@ -1048,32 +1047,36 @@ const BEHAVIOURS = {
   cruise: { drive: cruise, arms: false },
   overtake: { drive: overtake, arms: false },
 
-  // Hostile tactics. Driving still borrowed; the shooting is real.
-  pursue: { drive: pursue, arms: true },    // real: closes in and holds a firing
+  // Hostile tactics. Every one drives itself; the numbers behind them are the
+  // enemy rows of driving.js.
+  pursue: { drive: pursue, arms: true },    // closes in and holds a firing
                                             // gap, and never gives up on the
                                             // player once it has them — see
                                             // behaviours.js's `pursue`
-  ram: { drive: ram, arms: false },         // real: no gun, no mines — closes
+  ram: { drive: ram, arms: false },         // no gun, no mines — closes
                                             // the gap from behind or alongside
                                             // to hit the player, or sits ahead
                                             // of them going deliberately slower
                                             // to force the same contact from
                                             // the other side
-  raid: { drive: raid, arms: true },        // real: forces its way past whatever's
+  raid: { drive: raid, arms: true },        // forces its way past whatever's
                                             // ahead, then holds station in front
                                             // of the player just long enough to
                                             // drop one mine in their path
-  trail: { drive: trail, arms: true },      // real: hangs off the player's back
-                                            // bumper and fires forward for one
-                                            // timed engagement, then gives up
-                                            // and drives off for good
-  duel: { drive: duel, arms: true },        // real: the rival's own — one
-                                            // deliberate mine run exactly like
-                                            // `raid`, then `pursue` for good —
-                                            // see behaviours.js's `duel`
-  convoy: { drive: cruise, arms: false },   // will pair rigs nose-to-tail across
-                                            // lanes into a rolling roadblock
+  trail: { drive: trail, arms: true },      // `pursue` with a give-up clock:
+                                            // fights one engagement off the
+                                            // player's back bumper, then rides
+                                            // off unarmed for good
+  duel: { drive: duel, arms: true },        // the rival's own — one deliberate
+                                            // mine run exactly like `raid`,
+                                            // then `pursue` for good
 };
+
+// Every manoeuvre the road knows. Exported for test/invariants.test.js, which
+// checks that every `behaviour` in the catalogue names one of these — the
+// fallback below is a safety net for a half-written type, and a shipped type
+// silently taking it is the `convoy` failure all over again.
+export const TACTIC_NAMES = Object.freeze(Object.keys(BEHAVIOURS));
 
 // Resolve a tactic. Unknown keys fall back to cruising rather than throwing: a
 // half-finished type in the catalogue should still drive.

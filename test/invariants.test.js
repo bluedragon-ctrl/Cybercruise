@@ -30,7 +30,7 @@ import {
   RETIRE_MARGIN as TRAFFIC_RETIRE_MARGIN,
   Traffic,
 } from "../src/game/traffic.js";
-import { driveCar, dodgeDistance } from "../src/game/behaviours.js";
+import { driveCar, dodgeDistance, TACTIC_NAMES, TRAIL_ENGAGE } from "../src/game/behaviours.js";
 import { DRIVING_PROFILES, drivingFor, typesDriving } from "../src/game/driving.js";
 import { MIN_SPEED, MAX_SPEED, ACCEL as PLAYER_ACCEL, PLAYER_MASS, Player } from "../src/game/player.js";
 import { WHEEL_FRAMES } from "../src/game/sprites.js";
@@ -965,6 +965,123 @@ test("a contact ceiling is either zero or bold enough to do something", () => {
         `to contact 0. Raise it, or set it to 0 and say so.`,
     );
   }
+});
+
+test("every car type names a tactic that actually exists", () => {
+  // tacticFor falls back to `cruise` for an unknown name rather than throwing,
+  // so a half-written type still drives — but a SHIPPED type taking that path
+  // is a catalogue that lies about what its car does.
+  //
+  // THIS IS THE `convoy` FAILURE, pinned. The rig named a tactic row that
+  // resolved to plain `cruise` and carried a comment promising a rolling
+  // roadblock, so cartypes.js read as though the rig had a manoeuvre of its own
+  // for as long as that row sat there. The row is gone and the rig names
+  // `cruise`; this is what stops the next placeholder outliving its author.
+  for (const t of CAR_TYPES) {
+    assert.ok(
+      TACTIC_NAMES.includes(t.behaviour),
+      `${t.id} names behaviour "${t.behaviour}", which is not a tactic — it would ` +
+        `silently fall back to cruising. Known: ${TACTIC_NAMES.join(", ")}`,
+    );
+  }
+});
+
+test("a chasing driver holds a gap it would still count as contact", () => {
+  // The stocker's give-up clock (behaviours.js's `trail`) runs on TRAIL_ENGAGE
+  // while its DRIVING holds the profile's `pursueHold`. Those are two numbers
+  // in two files, and if the hold gap ever drifted outside the contact gap the
+  // car would sit exactly where it means to sit, perfectly in range, and give
+  // the player up anyway for no reason either of them could see.
+  for (const [name, p] of Object.entries(DRIVING_PROFILES)) {
+    if (p.giveUpTime <= 0) continue; // never gives up: nothing to get wrong
+    assert.ok(
+      p.pursueHold < TRAIL_ENGAGE,
+      `profile "${name}" holds station at ${p.pursueHold} but only counts contact ` +
+        `inside ${TRAIL_ENGAGE}, so it would disengage while doing its job`,
+    );
+  }
+});
+
+test("a chase range is wider than the gap it chases down to", () => {
+  // `pursueRange` is the gap at which chasing STARTS and `pursueHold` the gap
+  // it settles at. Inverted, the car would only ever chase when it was already
+  // closer than it wanted to be, and would cruise the rest of the time — a
+  // hostile that never actually comes after anyone.
+  for (const [name, p] of Object.entries(DRIVING_PROFILES)) {
+    assert.ok(
+      p.pursueHold < p.pursueRange,
+      `profile "${name}" holds at ${p.pursueHold} but only chases inside ` +
+        `${p.pursueRange}: it would never close on the player at all`,
+    );
+  }
+});
+
+test("the ram's block is slower than the player's own minimum", () => {
+  // behaviours.js's `ram`, once ahead of the player, asks for a fraction of
+  // THEIR speed with `ramFloor` underneath it. That floor has to sit below the
+  // player's own MIN_SPEED or simply lifting off the throttle would out-slow
+  // the roadblock and the whole second half of the tactic would go slack.
+  for (const [name, p] of Object.entries(DRIVING_PROFILES)) {
+    assert.ok(
+      p.ramFloor < MIN_SPEED,
+      `profile "${name}" blocks at a floor of ${p.ramFloor}, at or above the ` +
+        `player's own minimum of ${MIN_SPEED}: they could simply coast past it`,
+    );
+  }
+});
+
+// A hostile that wants the player's line, with that line already occupied by
+// something it will not touch. `stale` is the intent left over from whatever it
+// was doing before — the thing that must not survive the tick.
+function blockedChaseScenario(stale) {
+  const type = CAR_TYPES.find((t) => t.id === "interceptor");
+  const rig = CAR_TYPES.find((t) => t.id === "rig");
+  const here = laneOffset(0);
+  const there = laneOffset(LANE_COUNT - 1);
+
+  const car = driver({
+    worldY: 0, offset: here, targetOffset: stale, speed: 430, cruiseSpeed: 430,
+    targetSpeed: 430, w: type.w, h: type.h, type, drive: drivingFor(type),
+    nerve: 0, contact: 0,
+  });
+  // Parked on the line the hostile wants. The interceptor's `contact` is 0, so
+  // it will not take a lane with this in it at any price.
+  const wall = driver({
+    worldY: 90, offset: there, speed: 195, cruiseSpeed: 195, targetSpeed: 195,
+    targetOffset: there, w: rig.w, h: rig.h, type: rig, drive: drivingFor(rig),
+  });
+  const playerBody = {
+    worldY: 300, offset: there, w: 34, h: 60, speed: 460, alive: true,
+    prevOffset: there, mass: 1.4, damage() {},
+  };
+  driveCar(car, 1 / 60, {
+    cars: [car, wall], obstacles: [], playerBody,
+    player: new Player(300, 496), H: 800,
+    fireShot: () => {}, dropMine: () => true,
+  });
+  return car;
+}
+
+test("a chasing car whose line is blocked holds its own line, not a stale one", () => {
+  // THE INTENT MUST BE WRITTEN EVERY TICK, which is the rule `keepLane` already
+  // enforces for civilians and which the hostile tactics used to break. All
+  // four of them read `if (!blocked(...)) car.targetOffset = want;` and did
+  // nothing on the other branch — so a car that could not take the player's
+  // line went on steering at wherever the player had been several ticks ago,
+  // quite possibly straight into the traffic that blocked it.
+  //
+  // Measured before the fix: a hostile sitting in the outer lane with a stale
+  // target of +40 kept asking for +40 for as long as the block lasted.
+  const stale = 40;
+  const car = blockedChaseScenario(stale);
+  assert.notEqual(
+    car.targetOffset, stale,
+    "a blocked chase must not keep steering at the line it wanted last tick",
+  );
+  assert.equal(
+    car.targetOffset, car.offset,
+    "with nowhere it will go, the car should hold the line it is actually on",
+  );
 });
 
 // A cruising car in lane 1, and a hazard somewhere ahead of it. `gap` is how

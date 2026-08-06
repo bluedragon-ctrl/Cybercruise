@@ -341,7 +341,15 @@ export const CAR_TYPES = [
     // heavy enough to be somewhere near a hazard the player wanted left standing,
     // and the AMBER cars dodging without exception is what makes one swerving
     // read as "there is something in that lane" rather than as one type's quirk.
-    behaviour: "convoy",
+    // `cruise`, same as the van: it holds its lane and makes you go round.
+    //
+    // IT USED TO NAME `convoy`, a tactic row that resolved to plain `cruise`
+    // and carried a comment promising rigs paired nose-to-tail into a rolling
+    // roadblock. Nothing was ever behind it, so the catalogue claimed a
+    // behaviour this type did not have — see behaviours.js's tactics table for
+    // why that row is gone rather than kept. What actually makes a rig a rig is
+    // the line below and its 4 mass; when the roadblock ships, it earns a name.
+    behaviour: "cruise",
     driving: "juggernaut", // dead straight, brakes from a long way out, and
                            // expects to be given room rather than to ask for it
     weight: 0.8,
