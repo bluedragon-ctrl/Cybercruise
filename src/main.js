@@ -407,45 +407,57 @@ function drawHud() {
   glowText(ctx, `DIST ${Math.floor(distance / road.DIST_UNITS)}`, W - 12, 58, GREEN_PALE, 13, "right");
   glowText(ctx, `SPD ${Math.round(player.speed)}`, W - 12, 76, GREEN_PALE, 13, "right");
 
-  // Health bar (bottom-left): green draining to red as damage mounts.
+  const weapon = loadout.current;
+
+  // Health bar (bottom-left): green draining to red as damage mounts. Lifted
+  // 16px off the very bottom edge (rather than H - 24) to leave room for the
+  // MINE readout below it — see the bottom of this function.
   const bx = 12;
-  const by = H - 24;
+  const by = H - 40;
   const bw = 140;
   const bh = 10;
   const frac = player.health / player.maxHealth;
   const hue = 120 * frac; // 120=green -> 0=red
 
-  // The gun, above the hull bar: what is loaded and how much of it is left,
-  // drawn in the WEAPON'S OWN bullet colour so the readout and the tracer in the
-  // air match. An empty weapon turns red — it is still selected, still shown,
-  // and simply won't fire (see Loadout).
-  const weapon = loadout.current;
-  glowText(
-    ctx,
-    `${weapon.type.label} ${weapon.ammoText}`,
-    bx,
-    by - 36,
-    weapon.empty ? HAZARD : weapon.type.color,
-    13,
-    "left",
-    8,
-  );
+  // Weapon list, stacked above the hull bar: every GUN still carrying a
+  // round, so the player can see what TAB's next press actually gets them
+  // before pressing it, instead of discovering an empty magazine after
+  // cycling onto it blind — plus the weapon actually in hand always, even at
+  // 0 ammo (shown HAZARD red), since "still selected, still shown, won't
+  // fire" is the one thing about it that never stops being true (see
+  // Loadout's own header). One shared spot rather than the current weapon's
+  // own line PLUS a separate switcher elsewhere, so there is exactly one
+  // place on screen that answers "what am I on and what else could I be".
+  // MINE stays out of this stack — it's not a TAB destination (Loadout.
+  // next() skips any weapon with a payload) and keeps its own line, right-
+  // aligned to the bar, same as before.
+  const weaponRows = loadout.weapons.filter((w) => !w.type.payload && (w === weapon || !w.empty));
+  let wy = by - 36 - (weaponRows.length - 1) * 18;
 
-  // MINE, on the same line, right-aligned to the bar — its own key (CTRL) and
-  // its own magazine, kept out of the TAB cycle above (weapons.js's Loadout.
-  // next()), so it gets a permanent readout of its own rather than only
-  // showing up when it happens to be the weapon in hand.
-  const mineWeapon = loadout.get("mine");
-  glowText(
-    ctx,
-    `MINE ${mineWeapon.ammoText}`,
-    bx + bw,
-    by - 36,
-    mineWeapon.empty ? HAZARD : mineWeapon.type.color,
-    13,
-    "right",
-    8,
-  );
+  // Backdrop for the whole cluster (weapon stack, HULL, MINE): the world
+  // keeps scrolling underneath, and a bright building or a car passing right
+  // behind the text can wash out even the glow. A flat translucent panel —
+  // no border, nothing else neon about it — reads as a HUD plate the text
+  // sits on rather than another glowing game element competing with it.
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(bx - 8, wy - 10, bw + 18, by + bh + 6 + 16 - (wy - 10));
+  ctx.restore();
+
+  for (const w of weaponRows) {
+    const current = w === weapon;
+    glowText(
+      ctx,
+      `${current ? "> " : "  "}${w.type.label} ${w.ammoText}`,
+      bx,
+      wy,
+      w.empty ? HAZARD : w.type.color,
+      current ? 14 : 12,
+      "left",
+      current ? 10 : 4,
+    );
+    wy += 18;
+  }
 
   glowText(ctx, "HULL", bx, by - 16, GREEN_PALE, 12, "left", 6);
 
@@ -476,6 +488,17 @@ function drawHud() {
     ctx.fillRect(bx + 1, by + 1, (bw - 2) * frac, bh - 2);
     ctx.restore();
   }
+
+  // MINE, below the hull bar rather than sharing a row with the weapon
+  // stack's cramped bottom line — its own key (CTRL) and its own magazine,
+  // kept out of the TAB cycle above (weapons.js's Loadout.next()), so it
+  // gets a permanent readout of its own rather than only showing up when it
+  // happens to be the weapon in hand. Coloured like the HULL label above it
+  // (GREEN_PALE) rather than its own bullet colour — the weapon stack is
+  // where "what colour is loaded" matters, this is just another gauge
+  // alongside the hull bar.
+  const mineWeapon = loadout.get("mine");
+  glowText(ctx, `MINE ${mineWeapon.ammoText}`, bx, by + bh + 6, GREEN_PALE, 13, "left", 8);
 }
 
 function render(alpha) {
