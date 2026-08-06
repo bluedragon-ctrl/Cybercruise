@@ -98,6 +98,74 @@ const COMMUTER = {
   // --- Hazards --------------------------------------------------------------
   hazardClearance: 6,   // px of daylight wanted when steering past one
 
+  // --- Chasing the player ---------------------------------------------------
+  //
+  // INERT FOR EVERY CIVILIAN, and written down here anyway for exactly the
+  // reason the whole pass* family is written down on a profile the van never
+  // reads it from: this object is the ONE place every field appears, and a
+  // hostile that omits one should inherit the figure the enemy was tuned at
+  // rather than a hole. The tactics that read these are behaviours.js's
+  // `pursue`, `trail`, `ram` and `raid`; nothing a civilian names touches one.
+  //
+  // THESE WERE MODULE CONSTANTS IN behaviours.js, in a file whose own header
+  // says the numbers do not live there. The cost was the cost this file exists
+  // to remove: the five hostile profiles differed only in `nerve`, so a second,
+  // more cautious interceptor needed a new FUNCTION rather than a new row.
+
+  // The gap this driver holds behind the player once it is actually chasing.
+  // Comfortably inside the reach of anything the enemy carries (armament.js's
+  // GUN_RANGE), with slack either side for the proportional term below to
+  // correct in without clipping the firing window.
+  pursueHold: 200,
+  // The gap inside which chasing is worth doing at all. Well outside
+  // pursueHold on purpose: this is the room the car has to spend a couple of
+  // seconds genuinely closing, at chaseSpeed, before it needs to be in range.
+  // Outside it the car simply cruises and lets the gap come back to it.
+  pursueRange: 500,
+  // How hard the hold-station speed correction leans on the gap error — a
+  // proportional term, not a limit: traffic.js's ACCEL is still what actually
+  // gets `speed` there.
+  pursueGain: 1.2,
+  // THE CHASE CEILING, and the one field here deliberately allowed to sit ABOVE
+  // the type's own speedMax. A type's speed band governs its ordinary cruise
+  // roll and is what makes a stray hostile read as whatever weight it is; this
+  // is what it will spend once the player is worth chasing, so it can keep pace
+  // with a player running near their own 620 (player.js) for the length of one
+  // engagement rather than falling off the back the moment they floor it.
+  //
+  // AN ABSOLUTE, NOT A MULTIPLE OF speedMax, and that is worth knowing before
+  // tuning it. A multiplier would read better and would keep the two-tier
+  // relation true by construction — but adopting one would have been a silent
+  // retune of every hostile on the road, so these are the figures behaviours.js
+  // hard-coded and nothing has moved. It does mean the relation is not
+  // GUARANTEED: the rival tops out at 650 (cartypes.js), so 600 is a ceiling
+  // below its own cruise and `pursue` never lets it chase at full pace. That
+  // was equally true before this became a field; it is merely visible now.
+  chaseSpeed: 600,
+  // SECONDS OF LOST CONTACT BEFORE THIS DRIVER GIVES THE PLAYER UP FOR GOOD, or
+  // 0 for "never" — the baseline, and what makes `pursue` the road's standing
+  // pressure rather than a timed encounter. Only behaviours.js's `trail` reads
+  // it, and see there for what giving up actually costs the car: it rides off
+  // permanently unarmed, so this is a one-way switch rather than a lull.
+  giveUpTime: 0,
+  // The proportional gain on the MINE RUN's own hold (behaviours.js's `raid`) —
+  // separate from pursueGain because holding station AHEAD of a target you must
+  // not out-pace is a tighter job than trailing one.
+  raidGain: 1.5,
+
+  // --- Ramming --------------------------------------------------------------
+  // Read only by behaviours.js's `ram`, and only once it is AHEAD of the player
+  // and the job has turned from hitting them into blocking them.
+  //
+  // A FRACTION OF THE PLAYER'S OWN CURRENT SPEED rather than a fixed figure, so
+  // the block still bites right down at walking pace instead of going slack the
+  // moment the player lifts off themselves.
+  ramBrake: 0.5,
+  // ...with a floor, because a stalled wall reads as broken rather than as a
+  // blocker. Deliberately UNDER the player's own minimum of 120 (player.js), so
+  // there is no speed at which simply lifting off escapes the block.
+  ramFloor: 80,
+
   // --- Nerve: what this driver will accept hitting --------------------------
   //
   // Moved here from cartypes.js, where it sat among the physical stats. It is a
@@ -380,9 +448,15 @@ export const DRIVING_PROFILES = {
   // One per enemy type, carrying the nerve figures that used to sit in
   // cartypes.js. They are separate profiles rather than one shared "hostile"
   // because the numbers genuinely differed per type, and flattening them here
-  // would have been a silent retune of Phase 3's traffic. Their DRIVING is still
-  // the commuter's — the enemy tactics are the next step, and this file is what
-  // they will be tuned through.
+  // would have been a silent retune of Phase 3's traffic.
+  //
+  // THEIR CHASING IS NOW TUNED HERE TOO, which it was not when this section was
+  // written: the enemy tactics landed in behaviours.js but their numbers stayed
+  // behind as module constants there, so for a while every hostile profile was
+  // a `nerve` figure and nothing else. The chase fields on COMMUTER above are
+  // where that went. Most rows still say nothing about them, and that is the
+  // system working — a hostile only states a figure where it genuinely differs
+  // from the enemy baseline.
   pursuer: profile({ nerve: 12 }),   // interceptor: through a trestle a third of
                                      // the time — the baseline gamble
   // UNCLAIMED. This was the muscle car's, and the muscle car is a civilian now
@@ -397,8 +471,18 @@ export const DRIVING_PROFILES = {
   // and left the `block` tactic here with this row. The pair is waiting for a
   // second heavy that gets in front of the player and sits there.
   enforcer: profile({ nerve: 16 }),
-  batterer: profile({ nerve: 20 }),  // bruiser: three in five, the type least
-                                     // interested in going round
+  // The bruiser: three in five through a trestle, the type least interested in
+  // going round anything.
+  batterer: profile({
+    nerve: 20,
+    // THE ONE HOSTILE THAT CHASES SLOWER THAN THE REST, and the only chase
+    // figure in this file that is not the baseline. It closes to HIT rather
+    // than to hold a firing gap, so it does not need to match a fleeing player
+    // — it needs to be quick enough to catch one who is busy with the road.
+    // Still well above its own 330 (cartypes.js), which is the point of the
+    // field; see chaseSpeed on COMMUTER for why that gap is deliberate.
+    chaseSpeed: 560,
+  }),
   duelist: profile({ nerve: 10 }),   // rival: a driver, not a battering ram — it
                                      // would rather keep the line clean
   // The stocker: a heavy that came off a circuit rather than out of a garage. It
@@ -410,6 +494,13 @@ export const DRIVING_PROFILES = {
     laneDiscipline: 0.35,
     patience: 0.5,
     nerve: 14,
+    // THE ONLY DRIVER ON THE ROAD THAT EVER GIVES THE PLAYER UP. Everything
+    // else hostile keeps coming forever (giveUpTime 0, see COMMUTER), which is
+    // what makes the interceptor the road's standing pressure; this one fights
+    // ONE engagement and then rides off for good. Counted in seconds of LOST
+    // CONTACT, not seconds of fight — a player who cannot shake it never lets
+    // the clock start, so a stocker glued to your bumper is never on a timer.
+    giveUpTime: 3,
   }),
   // The cycle, and the catalogue's clearest use of the dial: 25 hull means a
   // trestle costs it a third of its life, and it is the nimblest thing on the

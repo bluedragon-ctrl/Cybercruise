@@ -25,6 +25,16 @@ const FIELD_DESCRIPTIONS = {
   passLookAhead: "How far ahead (world units) this driver checks past the car it means to pass.",
   passEffort: "How much harder this driver pushes its speed while committed to a pass (multiplier, capped at the car's own top speed).",
   hazardClearance: "Sideways daylight (px) this driver wants when steering around a roadblock or other hazard.",
+
+  pursueHold: "How far behind the player (world units) this driver settles once it is chasing — its firing distance. Hostile cars only; civilians never chase.",
+  pursueRange: "How close the player must get (world units) before this driver starts actively chasing at all. Outside it, the car just drives like ordinary traffic.",
+  pursueGain: "How hard this driver corrects its speed to hold the chase gap. Higher snaps to the gap faster and looks more aggressive; lower drifts in and out of range.",
+  chaseSpeed: "Top speed (world units/sec) this driver will spend while chasing the player. Deliberately allowed above the car's own top speed — this is what keeps it in touch with a player running flat out.",
+  giveUpTime: "Seconds of LOST CONTACT before this driver abandons the player for good and rides off unarmed. 0 means it never gives up.",
+  raidGain: "How hard this driver corrects its speed while holding station ahead of the player for a mine drop. Only the mine-running tactics read it.",
+  ramBrake: "Once ahead of the player, the fraction of THEIR current speed this driver slows to — the block. 0.5 halves them; lower is a harder wall.",
+  ramFloor: "The slowest (world units/sec) that block will ever go. Below the player's own minimum of 120, so lifting off the throttle never escapes it.",
+
   nerve: "Hull damage this driver will risk from a ROADBLOCK before swerving. 0 means it always dodges; higher means it sometimes barges through.",
   contact: "Hull damage this driver will risk from hitting ANOTHER CAR before backing off. Free to set higher than nerve — a fender-bender reads as driving, not as a mistake.",
 };
@@ -48,6 +58,18 @@ const FIELD_ORDER = {
       "passEffort",
     ],
     Hazards: ["hazardClearance"],
+    // Hostile-only: nothing civilian reads these (see state.js). They still
+    // render for every car, showing the enemy baseline as inherited, which is
+    // the same treatment the pass* fields already get on a car that cruises.
+    "Chasing the player": [
+      "pursueHold",
+      "pursueRange",
+      "pursueGain",
+      "chaseSpeed",
+      "giveUpTime",
+      "raidGain",
+    ],
+    Ramming: ["ramBrake", "ramFloor"],
     Nerve: ["nerve", "contact"],
   },
 };

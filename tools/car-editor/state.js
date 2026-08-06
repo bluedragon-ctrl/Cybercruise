@@ -41,6 +41,18 @@ export const BEHAVIOR_FIELDS = [
   "passLookAhead",
   "passEffort",
   "hazardClearance",
+  // Chasing and ramming. Inert for every civilian — the tactics that read them
+  // are hostile-only (behaviours.js's `pursue`, `trail`, `ram`, `raid`) — but
+  // they live on the same profile object as everything above, so they surface
+  // here on the same terms and the "(inherited)" tag does the explaining.
+  "pursueHold",
+  "pursueRange",
+  "pursueGain",
+  "chaseSpeed",
+  "giveUpTime",
+  "raidGain",
+  "ramBrake",
+  "ramFloor",
   "nerve",
   "contact",
 ];

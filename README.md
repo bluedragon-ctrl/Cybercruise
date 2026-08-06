@@ -163,13 +163,14 @@ traffic doesn't mean touching the simulation:
   integrates it under the type's limits, so a rig can't corner like a roadster
   and the physics stay in one place. One entry point, `driveCar`, runs three
   stages for every car: **tactic** (the manoeuvre), **reflex** (hazard
-  avoidance, which may override the tactic laterally), then **arms**. Most of
-  Phase 4's tactics (`pursue`, `block`, `convoy`) are still rows in that table
-  borrowing their driving from the two civilian ones. `raid` (the cycle)
+  avoidance, which may override the tactic laterally), then **arms**. Every row
+  in that table is a real manoeuvre — nothing borrows its driving from the
+  civilian ones any more. `pursue` (the interceptor) is the road's one chasing
+  function: close in, hold a firing gap, never give up. `raid` (the cycle)
   forces its way past whatever's ahead, then holds station just long enough
-  to drop one mine in the player's path. `trail` (the stocker) hangs off the
-  player's back bumper and fires forward for one timed engagement, then gives
-  up and drives off for good. `ram` (the bruiser) carries no gun and no mines
+  to drop one mine in the player's path. `trail` (the stocker) is `pursue`
+  plus a give-up clock: it fights one engagement off the player's back bumper
+  and then rides off, permanently unarmed. `ram` (the bruiser) carries no gun and no mines
   at all — it just closes the gap, from behind or alongside to hit the player
   outright, or from in front by holding a speed under theirs to make the same
   contact happen the other way round.
@@ -282,6 +283,14 @@ Measured over 15 car-minutes of headless road: the sedan sits **2.1px** from its
 lane centre against the roadster's **18.1**, and commits **1.0** pass per
 car-minute against **10.7**.
 
+**The hostiles are tuned the same way.** How close a car chases to, how wide a
+net it casts before bothering, how fast it will run to stay in touch, how long
+it keeps trying, and how hard it leans on the player once ahead of them are all
+profile fields too (`pursueHold`, `pursueRange`, `chaseSpeed`, `giveUpTime`,
+`ramBrake`, `ramFloor`). They were module constants inside `behaviours.js` for a
+while, which meant the five enemy profiles differed only in `nerve` and a second,
+more cautious interceptor needed a new *function* rather than a new row.
+
 #### One profile per civilian
 
 All six civilians have their own, and the sedan keeps `commuter` precisely
@@ -320,9 +329,11 @@ not the escape it is with the rest of that class. It drives `roadracer`, the
 only hostile profile that runs a **racing line**: it lives on the lane edges and
 pulls out early, so a stocker closes from the side of the road rather than up
 the middle. Its nerve (14) sits above the interceptor's because the cage means
-junk in the road costs it paint rather than a wheel. That leaves the `block`
-tactic and the `enforcer` profile the muscle left behind still unclaimed — and
-still the right pair for a second heavy that leans on the player.
+junk in the road costs it paint rather than a wheel. It is also the only driver
+on the road that ever gives the player up: `giveUpTime` is 3 seconds of **lost
+contact** on this profile and 0 — never — on every other hostile. That leaves
+the `enforcer` profile the muscle left behind still unclaimed, and still the
+right table for a second heavy that leans on the player.
 
 The **bruiser** is the road's other real hostile tactic, and the plainest one:
 `ram` carries no gun and lays no mines — `arms: false` on the tactic's own row
