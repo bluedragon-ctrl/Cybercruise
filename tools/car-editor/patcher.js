@@ -92,6 +92,13 @@ export function patchObstacleType(sourceText, obstacleId, changes) {
   return patchTypeEntry(sourceText, obstacleId, changes, "patchObstacleType");
 }
 
+// Patches weight/minDistance on the PICKUP_TYPES entry whose `id` matches
+// pickupId. Same catalogue shape as CAR_TYPES/OBSTACLE_TYPES, so the same
+// text-surgery applies unchanged.
+export function patchPickupType(sourceText, pickupId, changes) {
+  return patchTypeEntry(sourceText, pickupId, changes, "patchPickupType");
+}
+
 function replaceStringField(block, field, value) {
   const re = new RegExp(`(\\b${field}:\\s*)"[^"]*"`);
   if (!re.test(block)) return null;

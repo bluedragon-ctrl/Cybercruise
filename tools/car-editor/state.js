@@ -10,6 +10,7 @@
 import { CAR_TYPES, carTypeById } from "../../src/game/cartypes.js";
 import { DRIVING_PROFILES, drivingFor } from "../../src/game/driving.js";
 import { OBSTACLE_TYPES, obstacleTypeById } from "../../src/game/obstacletypes.js";
+import { PICKUP_TYPES, pickupTypeById } from "../../src/game/pickuptypes.js";
 
 // Derived from the catalogue itself, civilian and hostile alike, so a type
 // added to cartypes.js shows up here without a second list to remember to
@@ -99,4 +100,42 @@ export function buildObstacleState(obstacleId) {
 
 export function buildAllObstacleState() {
   return OBSTACLE_IDS.map(buildObstacleState);
+}
+
+// Pickups (pickuptypes.js) have the same spawn-tuning shape as obstacles —
+// `weight` (relative draw odds among unlocked types) and `minDistance` (the
+// unlock gate) — see that file's own header on why both are already read at
+// runtime even though every entry ships uniform today.
+export const PICKUP_IDS = PICKUP_TYPES.map((t) => t.id);
+
+export const PICKUP_SPAWN_FIELDS = ["weight", "minDistance"];
+
+// Unlike spawn tuning, the payload each crate grants is NOT the same field
+// across every kind — see pickuptypes.js's header: AMMO and HEAL both spend
+// `amount` (rounds refilled / hull restored), while SHIELD spends `duration`
+// (seconds of invulnerability) instead. A given entry only ever has one of
+// the two, so buildPickupState reports whichever is actually present rather
+// than a fixed pair of keys.
+export const PICKUP_EFFECT_FIELDS = ["amount", "duration"];
+
+export function buildPickupState(pickupId) {
+  if (!PICKUP_IDS.includes(pickupId)) {
+    throw new Error(`buildPickupState: unknown pickup id "${pickupId}"`);
+  }
+  const type = pickupTypeById(pickupId);
+  const effect = {};
+  for (const field of PICKUP_EFFECT_FIELDS) {
+    if (field in type) effect[field] = type[field];
+  }
+  return {
+    id: type.id,
+    label: type.label,
+    kind: type.kind,
+    spawn: { weight: type.weight, minDistance: type.minDistance ?? 0 },
+    effect,
+  };
+}
+
+export function buildAllPickupState() {
+  return PICKUP_IDS.map(buildPickupState);
 }

@@ -64,17 +64,44 @@ const OBSTACLE_FIELD_DESCRIPTIONS = {
 
 const OBSTACLE_FIELD_ORDER = ["weight", "minDistance"];
 
+// Pickups (see state.js) share the exact same weight/minDistance spawn shape
+// as obstacles, just described in terms of buff crates rather than hazards.
+const PICKUP_FIELD_DESCRIPTIONS = {
+  weight: "Relative spawn chance among the pickup types currently unlocked — bigger means more common, not a fixed probability. 0 takes this type out of the draw entirely.",
+  minDistance: "How far the player must have driven before this pickup can spawn at all, in DIST-readout units (the same number the HUD shows). 0 means it can appear from the very first metre.",
+};
+
+const PICKUP_FIELD_ORDER = ["weight", "minDistance"];
+
+// The payload a crate grants isn't the same field for every kind (see
+// state.js's header on PICKUP_EFFECT_FIELDS) — this picks which single field
+// applies to a given pickup's `kind`, and what it means in that context.
+const PICKUP_EFFECT_FIELD_BY_KIND = {
+  ammo: "amount",
+  heal: "amount",
+  shield: "duration",
+};
+
+const PICKUP_EFFECT_DESCRIPTIONS = {
+  ammo: "Ammo added to the matching weapon's magazine when this crate is picked up.",
+  heal: "Hull points restored when this crate is picked up, capped at the player's max health.",
+  shield: "Seconds of invulnerability granted when this crate is picked up.",
+};
+
 let cars = [];
 let obstacles = [];
-let selection = null; // { kind: "car" | "obstacle", id }
+let pickups = [];
+let selection = null; // { kind: "car" | "obstacle" | "pickup", id }
 const pendingChanges = {}; // { carId: { field: value } }
 const pendingObstacleChanges = {}; // { obstacleId: { field: value } }
+const pendingPickupChanges = {}; // { pickupId: { field: value } }
 
 async function loadState() {
   const res = await fetch("/api/state");
   const data = await res.json();
   cars = data.cars;
   obstacles = data.obstacles;
+  pickups = data.pickups;
 }
 
 function fieldValue(car, field) {
@@ -133,6 +160,27 @@ function setObstacleChange(obstacleId, field, value) {
   pendingObstacleChanges[obstacleId][field] = value;
 }
 
+// A pickup's fields are split across two objects (spawn tuning vs. the
+// payload it grants — see state.js), but callers just want "the value of
+// this field on this pickup" without caring which side it lives on.
+function pickupFieldValue(pickup, field) {
+  if (field in pickup.spawn) return pickup.spawn[field];
+  return pickup.effect[field];
+}
+
+function currentPickupValue(pickupId, field) {
+  if (pendingPickupChanges[pickupId] && field in pendingPickupChanges[pickupId]) {
+    return pendingPickupChanges[pickupId][field];
+  }
+  const pickup = pickups.find((p) => p.id === pickupId);
+  return pickupFieldValue(pickup, field);
+}
+
+function setPickupChange(pickupId, field, value) {
+  pendingPickupChanges[pickupId] ??= {};
+  pendingPickupChanges[pickupId][field] = value;
+}
+
 const FACTION_GROUPS = [
   { faction: "enemy", heading: "Hostile" },
   { faction: "neutral", heading: "Civilian" },
@@ -171,6 +219,14 @@ function renderNav() {
     nav.appendChild(headingEl);
 
     for (const obstacle of obstacles) addButton(obstacle.label, "obstacle", obstacle.id);
+  }
+
+  if (pickups.length > 0) {
+    const headingEl = document.createElement("h3");
+    headingEl.textContent = "Pickups";
+    nav.appendChild(headingEl);
+
+    for (const pickup of pickups) addButton(pickup.label, "pickup", pickup.id);
   }
 }
 
@@ -244,18 +300,50 @@ function makeObstacleField(obstacleId, field) {
   return wrapper;
 }
 
+// `description` is passed in rather than looked up by field name because
+// "amount" means something different per pickup kind (see
+// PICKUP_EFFECT_DESCRIPTIONS) — unlike weight/minDistance, whose meaning is
+// the same for every pickup and can be looked up in PICKUP_FIELD_DESCRIPTIONS.
+function makePickupField(pickupId, field, description) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "field";
+
+  const label = document.createElement("label");
+  label.textContent = field;
+  wrapper.appendChild(label);
+
+  const input = document.createElement("input");
+  input.type = "number";
+  input.step = "any";
+  input.value = currentPickupValue(pickupId, field);
+  input.addEventListener("change", () => {
+    setPickupChange(pickupId, field, Number(input.value));
+  });
+  wrapper.appendChild(input);
+
+  const descriptionEl = document.createElement("div");
+  descriptionEl.className = "description";
+  descriptionEl.textContent = description;
+  wrapper.appendChild(descriptionEl);
+
+  return wrapper;
+}
+
 function renderForm() {
   const carSection = document.getElementById("car-form");
   const obstacleSection = document.getElementById("obstacle-form");
+  const pickupSection = document.getElementById("pickup-form");
 
   if (!selection) {
     carSection.hidden = true;
     obstacleSection.hidden = true;
+    pickupSection.hidden = true;
     return;
   }
 
   if (selection.kind === "obstacle") {
     carSection.hidden = true;
+    pickupSection.hidden = true;
     obstacleSection.hidden = false;
 
     const obstacle = obstacles.find((o) => o.id === selection.id);
@@ -267,7 +355,33 @@ function renderForm() {
     return;
   }
 
+  if (selection.kind === "pickup") {
+    carSection.hidden = true;
+    obstacleSection.hidden = true;
+    pickupSection.hidden = false;
+
+    const pickup = pickups.find((p) => p.id === selection.id);
+    document.getElementById("pickup-form-title").textContent = pickup.label;
+
+    const effectDiv = document.getElementById("pickup-effect-fields");
+    effectDiv.innerHTML = "";
+    const effectField = PICKUP_EFFECT_FIELD_BY_KIND[pickup.kind];
+    if (effectField) {
+      effectDiv.appendChild(
+        makePickupField(pickup.id, effectField, PICKUP_EFFECT_DESCRIPTIONS[pickup.kind])
+      );
+    }
+
+    const spawnDiv = document.getElementById("pickup-spawn-fields");
+    spawnDiv.innerHTML = "";
+    for (const field of PICKUP_FIELD_ORDER) {
+      spawnDiv.appendChild(makePickupField(pickup.id, field, PICKUP_FIELD_DESCRIPTIONS[field]));
+    }
+    return;
+  }
+
   obstacleSection.hidden = true;
+  pickupSection.hidden = true;
   carSection.hidden = false;
 
   const car = cars.find((c) => c.id === selection.id);
@@ -336,6 +450,19 @@ function realObstacleChanges() {
   return result;
 }
 
+function realPickupChanges() {
+  const result = {};
+  for (const [pickupId, fields] of Object.entries(pendingPickupChanges)) {
+    const pickup = pickups.find((p) => p.id === pickupId);
+    for (const [field, value] of Object.entries(fields)) {
+      if (pickupFieldValue(pickup, field) === value) continue;
+      result[pickupId] ??= {};
+      result[pickupId][field] = value;
+    }
+  }
+  return result;
+}
+
 function renderReview() {
   const section = document.getElementById("review");
   const tbody = document.querySelector("#review-table tbody");
@@ -366,6 +493,13 @@ function renderReview() {
     const obstacle = obstacles.find((o) => o.id === obstacleId);
     for (const [field, value] of Object.entries(fields)) {
       addRow(obstacle.label, field, obstacle.spawn[field], value, "");
+    }
+  }
+
+  for (const [pickupId, fields] of Object.entries(pendingPickupChanges)) {
+    const pickup = pickups.find((p) => p.id === pickupId);
+    for (const [field, value] of Object.entries(fields)) {
+      addRow(pickup.label, field, pickupFieldValue(pickup, field), value, "");
     }
   }
 
@@ -408,6 +542,7 @@ async function pushAttempt() {
   window.open(data.url, "_blank", "noopener");
   for (const key of Object.keys(pendingChanges)) delete pendingChanges[key];
   for (const key of Object.keys(pendingObstacleChanges)) delete pendingObstacleChanges[key];
+  for (const key of Object.keys(pendingPickupChanges)) delete pendingPickupChanges[key];
 }
 
 async function cancelAttempt() {
@@ -429,7 +564,11 @@ async function createPullRequest() {
   const commitRes = await fetch("/api/commit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ changes: realChanges(), obstacleChanges: realObstacleChanges() }),
+    body: JSON.stringify({
+      changes: realChanges(),
+      obstacleChanges: realObstacleChanges(),
+      pickupChanges: realPickupChanges(),
+    }),
   });
   const commitData = await commitRes.json();
 

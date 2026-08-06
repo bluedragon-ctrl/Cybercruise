@@ -13,14 +13,18 @@ import { execFile } from "node:child_process";
 import {
   buildAllCarState,
   buildAllObstacleState,
+  buildAllPickupState,
   CAR_IDS,
   BEHAVIOR_FIELDS,
   HULL_SPEED_FIELDS,
   SPAWN_FIELDS,
   OBSTACLE_IDS,
   OBSTACLE_FIELDS,
+  PICKUP_IDS,
+  PICKUP_SPAWN_FIELDS,
+  PICKUP_EFFECT_FIELDS,
 } from "./state.js";
-import { patchCarType, patchDrivingProfile, patchObstacleType } from "./patcher.js";
+import { patchCarType, patchDrivingProfile, patchObstacleType, patchPickupType } from "./patcher.js";
 import * as git from "./git.js";
 import { carTypeById } from "../../src/game/cartypes.js";
 
@@ -31,9 +35,11 @@ const REPO_ROOT = path.resolve(__dirname, "../..");
 const CARTYPES_REL = "src/game/cartypes.js";
 const DRIVING_REL = "src/game/driving.js";
 const OBSTACLETYPES_REL = "src/game/obstacletypes.js";
+const PICKUPTYPES_REL = "src/game/pickuptypes.js";
 const CARTYPES_PATH = path.join(REPO_ROOT, CARTYPES_REL);
 const DRIVING_PATH = path.join(REPO_ROOT, DRIVING_REL);
 const OBSTACLETYPES_PATH = path.join(REPO_ROOT, OBSTACLETYPES_REL);
+const PICKUPTYPES_PATH = path.join(REPO_ROOT, PICKUPTYPES_REL);
 
 // The single tuning attempt in flight, if any. This is a local, one-user
 // tool — there is never more than one browser tab driving it in practice —
@@ -60,7 +66,11 @@ function sendJson(res, status, body) {
 }
 
 async function handleState(res) {
-  sendJson(res, 200, { cars: buildAllCarState(), obstacles: buildAllObstacleState() });
+  sendJson(res, 200, {
+    cars: buildAllCarState(),
+    obstacles: buildAllObstacleState(),
+    pickups: buildAllPickupState(),
+  });
 }
 
 async function readBody(req) {
@@ -74,7 +84,7 @@ async function readBody(req) {
 // pair (speedMax >= speedMin) when a single request touches both — catching
 // nonsensical values like `health: -50` or an inverted speed range at the
 // boundary, rather than relying on downstream game-invariant tests to notice.
-const POSITIVE_FIELDS = new Set(["health", "speedMin", "speedMax"]);
+const POSITIVE_FIELDS = new Set(["health", "speedMin", "speedMax", "amount", "duration"]);
 
 // minDistance is a gate, not a magnitude — 0 ("from the first metre", see
 // cartypes.js) is its most common and entirely valid value, so it only rules
@@ -161,8 +171,43 @@ export function validateObstacleChanges(obstacleChanges) {
   }
 }
 
-function commitMessage(changes, obstacleChanges) {
-  const lines = ["Tune car and obstacle parameters via the car editor", ""];
+// Pickups expose weight/minDistance (spawn tuning, same shape as obstacles —
+// see state.js) plus amount/duration (the payload a crate grants — see
+// state.js's header on why a given entry only ever has one of the two).
+// amount/duration join POSITIVE_FIELDS above: a crate that grants zero ammo,
+// zero healing or zero seconds of shield isn't a smaller reward, it's a
+// no-op, unlike weight (0 is a valid "not in the draw" for the spawn side).
+export function validatePickupChanges(pickupChanges) {
+  if (!pickupChanges || typeof pickupChanges !== "object" || Array.isArray(pickupChanges)) {
+    throw new Error("body.pickupChanges must be an object");
+  }
+  if (Object.keys(pickupChanges).length === 0) {
+    throw new Error("body.pickupChanges must not be empty");
+  }
+  for (const [pickupId, fields] of Object.entries(pickupChanges)) {
+    if (!PICKUP_IDS.includes(pickupId)) {
+      throw new Error(`unknown pickup id "${pickupId}"`);
+    }
+    if (!fields || typeof fields !== "object" || Object.keys(fields).length === 0) {
+      throw new Error(`pickupChanges for "${pickupId}" must be a non-empty object`);
+    }
+    for (const [field, value] of Object.entries(fields)) {
+      if (!PICKUP_SPAWN_FIELDS.includes(field) && !PICKUP_EFFECT_FIELDS.includes(field)) {
+        throw new Error(`unknown field "${field}" for "${pickupId}"`);
+      }
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new Error(`field "${field}" for "${pickupId}" must be a finite number, got ${JSON.stringify(value)}`);
+      } else if (POSITIVE_FIELDS.has(field) && value <= 0) {
+        throw new Error(`field "${field}" for "${pickupId}" must be a positive number, got ${JSON.stringify(value)}`);
+      } else if (NON_NEGATIVE_FIELDS.has(field) && value < 0) {
+        throw new Error(`field "${field}" for "${pickupId}" must not be negative, got ${JSON.stringify(value)}`);
+      }
+    }
+  }
+}
+
+function commitMessage(changes, obstacleChanges, pickupChanges) {
+  const lines = ["Tune car, obstacle and pickup parameters via the car editor", ""];
   for (const [carId, fields] of Object.entries(changes ?? {})) {
     for (const [field, value] of Object.entries(fields)) {
       lines.push(`- ${carId}: ${field} -> ${value}`);
@@ -171,6 +216,11 @@ function commitMessage(changes, obstacleChanges) {
   for (const [obstacleId, fields] of Object.entries(obstacleChanges ?? {})) {
     for (const [field, value] of Object.entries(fields)) {
       lines.push(`- ${obstacleId}: ${field} -> ${value}`);
+    }
+  }
+  for (const [pickupId, fields] of Object.entries(pickupChanges ?? {})) {
+    for (const [field, value] of Object.entries(fields)) {
+      lines.push(`- ${pickupId}: ${field} -> ${value}`);
     }
   }
   return lines.join("\n");
@@ -195,11 +245,13 @@ async function handleCommit(req, res) {
     body = await readBody(req);
     const hasCarChanges = body.changes && Object.keys(body.changes).length > 0;
     const hasObstacleChanges = body.obstacleChanges && Object.keys(body.obstacleChanges).length > 0;
-    if (!hasCarChanges && !hasObstacleChanges) {
-      throw new Error("request must include at least one of changes or obstacleChanges");
+    const hasPickupChanges = body.pickupChanges && Object.keys(body.pickupChanges).length > 0;
+    if (!hasCarChanges && !hasObstacleChanges && !hasPickupChanges) {
+      throw new Error("request must include at least one of changes, obstacleChanges or pickupChanges");
     }
     if (hasCarChanges) validateChanges(body.changes);
     if (hasObstacleChanges) validateObstacleChanges(body.obstacleChanges);
+    if (hasPickupChanges) validatePickupChanges(body.pickupChanges);
   } catch (err) {
     sendJson(res, 400, { error: err.message });
     return;
@@ -213,9 +265,11 @@ async function handleCommit(req, res) {
   let cartypesText = await readFile(CARTYPES_PATH, "utf8");
   let drivingText = await readFile(DRIVING_PATH, "utf8");
   let obstaclesText = await readFile(OBSTACLETYPES_PATH, "utf8");
+  let pickupsText = await readFile(PICKUPTYPES_PATH, "utf8");
   let cartypesChanged = false;
   let drivingChanged = false;
   let obstaclesChanged = false;
+  let pickupsChanged = false;
 
   try {
     for (const [carId, fields] of Object.entries(body.changes ?? {})) {
@@ -242,12 +296,16 @@ async function handleCommit(req, res) {
       obstaclesText = patchObstacleType(obstaclesText, obstacleId, fields);
       obstaclesChanged = true;
     }
+    for (const [pickupId, fields] of Object.entries(body.pickupChanges ?? {})) {
+      pickupsText = patchPickupType(pickupsText, pickupId, fields);
+      pickupsChanged = true;
+    }
   } catch (err) {
     sendJson(res, 400, { error: err.message });
     return;
   }
 
-  const dirty = await git.dirtyTrackedFiles(REPO_ROOT, [CARTYPES_REL, DRIVING_REL, OBSTACLETYPES_REL]);
+  const dirty = await git.dirtyTrackedFiles(REPO_ROOT, [CARTYPES_REL, DRIVING_REL, OBSTACLETYPES_REL, PICKUPTYPES_REL]);
   if (dirty.length > 0) {
     sendJson(res, 409, { error: `uncommitted changes already present: ${dirty.join(", ")}` });
     return;
@@ -272,8 +330,16 @@ async function handleCommit(req, res) {
       await writeFile(OBSTACLETYPES_PATH, obstaclesText, "utf8");
       changedRelPaths.push(OBSTACLETYPES_REL);
     }
+    if (pickupsChanged) {
+      await writeFile(PICKUPTYPES_PATH, pickupsText, "utf8");
+      changedRelPaths.push(PICKUPTYPES_REL);
+    }
 
-    await git.commitFiles(REPO_ROOT, changedRelPaths, commitMessage(body.changes, body.obstacleChanges));
+    await git.commitFiles(
+      REPO_ROOT,
+      changedRelPaths,
+      commitMessage(body.changes, body.obstacleChanges, body.pickupChanges)
+    );
   } catch (err) {
     try {
       await git.checkoutBranch(REPO_ROOT, originalBranch);

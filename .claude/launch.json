@@ -6,6 +6,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["--yes", "http-server", ".", "-p", "5173", "-c-1"],
       "port": 5173
+    },
+    {
+      "name": "car-editor",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/car-editor/server.js"],
+      "port": 5174
     }
   ]
 }
