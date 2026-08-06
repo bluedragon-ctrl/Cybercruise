@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { validateChanges, validateObstacleChanges } from "../tools/car-editor/server.js";
+import { validateChanges, validateObstacleChanges, validatePickupChanges } from "../tools/car-editor/server.js";
 
 test("validateChanges rejects a negative health value", () => {
   assert.throws(
@@ -95,4 +95,68 @@ test("validateObstacleChanges rejects an unknown field", () => {
 
 test("validateObstacleChanges rejects an empty changes object", () => {
   assert.throws(() => validateObstacleChanges({}), /must not be empty/);
+});
+
+test("validatePickupChanges accepts weight and minDistance together", () => {
+  assert.doesNotThrow(() =>
+    validatePickupChanges({ fix: { weight: 2, minDistance: 20 } })
+  );
+});
+
+test("validatePickupChanges accepts a zero weight (takes the type out of the draw)", () => {
+  assert.doesNotThrow(() => validatePickupChanges({ shield: { weight: 0 } }));
+});
+
+test("validatePickupChanges rejects a negative weight", () => {
+  assert.throws(
+    () => validatePickupChanges({ shield: { weight: -1 } }),
+    /field "weight" for "shield" must not be negative, got -1/
+  );
+});
+
+test("validatePickupChanges rejects a negative minDistance", () => {
+  assert.throws(
+    () => validatePickupChanges({ fix: { minDistance: -10 } }),
+    /field "minDistance" for "fix" must not be negative, got -10/
+  );
+});
+
+test("validatePickupChanges rejects an unknown pickup id", () => {
+  assert.throws(
+    () => validatePickupChanges({ ghost: { weight: 1 } }),
+    /unknown pickup id "ghost"/
+  );
+});
+
+test("validatePickupChanges rejects an unknown field", () => {
+  assert.throws(
+    () => validatePickupChanges({ fix: { weaponId: "rocket" } }),
+    /unknown field "weaponId" for "fix"/
+  );
+});
+
+test("validatePickupChanges rejects an empty changes object", () => {
+  assert.throws(() => validatePickupChanges({}), /must not be empty/);
+});
+
+test("validatePickupChanges accepts an amount change for an AMMO/HEAL pickup", () => {
+  assert.doesNotThrow(() => validatePickupChanges({ fix: { amount: 90 } }));
+});
+
+test("validatePickupChanges accepts a duration change for the SHIELD pickup", () => {
+  assert.doesNotThrow(() => validatePickupChanges({ shield: { duration: 8 } }));
+});
+
+test("validatePickupChanges rejects a zero amount", () => {
+  assert.throws(
+    () => validatePickupChanges({ fix: { amount: 0 } }),
+    /field "amount" for "fix" must be a positive number, got 0/
+  );
+});
+
+test("validatePickupChanges rejects a negative duration", () => {
+  assert.throws(
+    () => validatePickupChanges({ shield: { duration: -5 } }),
+    /field "duration" for "shield" must be a positive number, got -5/
+  );
 });

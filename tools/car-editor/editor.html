@@ -8,11 +8,11 @@
 <body>
   <header>
     <h1>Car Editor</h1>
-    <p class="subtitle">Tune hull, speed, spawn distance and driving behavior for the whole roster — hostile and civilian — plus spawn chance and distance for obstacles, then open a pull request.</p>
+    <p class="subtitle">Tune hull, speed, spawn distance and driving behavior for the whole roster — hostile and civilian — plus spawn chance and distance for obstacles and pickups, and how much ammo, healing or shield time each pickup grants, then open a pull request.</p>
   </header>
 
   <main>
-    <nav id="car-list" aria-label="Cars and obstacles"></nav>
+    <nav id="car-list" aria-label="Cars, obstacles and pickups"></nav>
 
     <div>
       <section id="car-form" hidden>
@@ -45,6 +45,20 @@
         <fieldset>
           <legend>Spawn</legend>
           <div id="obstacle-spawn-fields"></div>
+        </fieldset>
+      </section>
+
+      <section id="pickup-form" hidden>
+        <h2 id="pickup-form-title"></h2>
+
+        <fieldset>
+          <legend>Effect</legend>
+          <div id="pickup-effect-fields"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Spawn</legend>
+          <div id="pickup-spawn-fields"></div>
         </fieldset>
       </section>
 
