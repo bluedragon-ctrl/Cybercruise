@@ -1,4 +1,5 @@
-// Start screen AND pause screen — the same menu, reused for both.
+// Start screen, pause screen AND game-over screen — the same menu, reused for
+// all three.
 //
 // This module owns UI state ONLY — it never touches the world in game/*.js
 // and knows nothing about "playing" a game. main.js just asks update() "did
@@ -7,15 +8,22 @@
 // says yes; everything else (player, traffic, score...) is main.js's
 // business, not this module's.
 //
-// `open(mode)` picks which of the two contexts row 0 reads as — "start"
-// labels it START GAME, "pause" labels it CONTINUE — and resets the cursor
-// to it, so re-entering the pause screen always lands back on the row that
-// resumes play rather than wherever the cursor was left last time.
+// `open(mode)` picks which of the three contexts row 0 reads as — "start"
+// labels it START GAME, "pause" CONTINUE, "gameover" RESTART — and resets the
+// cursor to it, so re-entering any of the three always lands back on the row
+// that acts on it rather than wherever the cursor was left last time.
 //
-// SOUND doesn't drive anything yet (no SFX engine); MUSIC does, via
-// musicOn() below — main.js reads it to gate src/audio/synth.js. Both flags
-// are persisted regardless, so a future SFX engine will just read localStorage
-// on startup instead of needing its own UI.
+// SOUND and MUSIC both drive playback now, via soundOn()/musicOn() below —
+// main.js reads them to gate src/audio/synth.js's one-shot SFX and its music
+// loop respectively. Both flags are persisted regardless of which is read
+// where.
+//
+// "gameover" is a THIRD context for this same screen, alongside "start" and
+// "pause" — main.js opens it once game/disconnect.js's sequence finishes, and
+// confirming row 0 (RESTART) is main.js's cue to reset the game, the same way
+// confirming START GAME or CONTINUE is its cue to unpause. This module still
+// never touches the world: it doesn't know the run ended in death, only that
+// it was told to show a third label.
 
 import { consumePress } from "../engine/input.js";
 import { glowText, glowLine } from "../engine/neon.js";
@@ -37,13 +45,13 @@ function saveFlag(key, value) {
 
 // Row 0 is the only one that ever ends update() with `true`; rows 1-2 toggle
 // a flag in place and the menu stays up. Its label is the only thing that
-// differs between the two modes — see the header.
-const ROW0_LABEL = { start: "START GAME", pause: "CONTINUE" };
+// differs between the three modes — see the header.
+const ROW0_LABEL = { start: "START GAME", pause: "CONTINUE", gameover: "RESTART" };
 const ROW_COUNT = 3; // row 0 (see above), SOUND, MUSIC
 
 export function createMenu() {
   let selected = 0;
-  let mode = "start"; // "start" | "pause"
+  let mode = "start"; // "start" | "pause" | "gameover"
   let sound = loadFlag(SOUND_KEY);
   let music = loadFlag(MUSIC_KEY);
 
@@ -72,9 +80,10 @@ export function createMenu() {
 
   function render(ctx, W, H) {
     glowText(ctx, "CYBERCRUISE", W / 2, 210, GREEN_BRIGHT, 46, "center", 18);
-    // Pause reuses the exact same screen, so the subtitle is the one thing
-    // that tells the two apart at a glance.
-    glowText(ctx, mode === "pause" ? "PAUSED" : "NEON HIGHWAY COMBAT", W / 2, 268, GREEN_PALE, 14, "center", 8);
+    // Pause and gameover both reuse the exact same screen, so the subtitle is
+    // the one thing that tells all three modes apart at a glance.
+    const subtitle = mode === "pause" ? "PAUSED" : mode === "gameover" ? "CONNECTION LOST" : "NEON HIGHWAY COMBAT";
+    glowText(ctx, subtitle, W / 2, 268, GREEN_PALE, 14, "center", 8);
     glowLine(ctx, W / 2 - 120, 302, W / 2 + 120, 302, GREEN_DIM, 1, 6);
 
     const rows = [ROW0_LABEL[mode], "SOUND", "MUSIC"];
@@ -107,5 +116,11 @@ export function createMenu() {
     return music;
   }
 
-  return { open, update, render, musicOn };
+  // Same read-only peek as musicOn(), for the SOUND flag — main.js checks
+  // this before playing a one-shot SFX (src/audio/synth.js's playDisconnect).
+  function soundOn() {
+    return sound;
+  }
+
+  return { open, update, render, musicOn, soundOn };
 }

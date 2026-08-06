@@ -53,8 +53,10 @@ const SHELL_SPEED = 1.25; // the shell is thrown harder than the guts, so the
                           // silhouette opens up before the spray takes over
 
 // Small deterministic PRNG. Seeding per explosion is what makes the particle
-// layout stable across frames without storing it.
-function rng(seed) {
+// layout stable across frames without storing it. Exported because
+// game/disconnect.js's glitch effect wants the same stable-per-seed jitter for
+// its own reasons — no sense inventing a second one.
+export function rng(seed) {
   let a = (seed * 1831565813) >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;

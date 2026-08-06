@@ -16,6 +16,7 @@ import { Pickups } from "./game/pickups.js";
 import { pickupTypeById } from "./game/pickuptypes.js";
 import { ENEMY_FACTION } from "./game/cartypes.js";
 import { Explosions } from "./game/effects.js";
+import { Disconnect } from "./game/disconnect.js";
 import { Loadout } from "./game/weapons.js";
 import { createMenu } from "./game/menu.js";
 import { createMusic } from "./audio/synth.js";
@@ -39,8 +40,15 @@ initInput();
 // only ever happens once, before the very first game; ESC toggles "playing"
 // to "paused" and back for the rest of the session — same menu.js screen
 // both times, see its header for how it tells the two apart.
+//
+// "dying" is the run of the game/disconnect.js death sequence (see the check
+// at the bottom of the "playing" branch below): the world is frozen — nothing
+// under "playing" runs — but still drawn, under the glitching car, for the
+// beat the sequence takes. "gameover" is menu.js's screen a third time, once
+// that beat is over; confirming its RESTART row calls newGame() and drops
+// straight back into "playing", the same way CONTINUE drops out of "paused".
 const menu = createMenu();
-let state = "menu"; // "menu" | "playing" | "paused"
+let state = "menu"; // "menu" | "playing" | "paused" | "dying" | "gameover"
 
 // Phase 8's first slice: procedural synthwave music (src/audio/synth.js).
 // `music.start()` is only ever called below, from inside the "fire" press
@@ -51,24 +59,32 @@ let state = "menu"; // "menu" | "playing" | "paused"
 const music = createMusic();
 let musicFlag = menu.musicOn();
 
-// Player sits around mid-screen (Spy Hunter framing) so traffic catching up
-// from behind is visible below before it draws level.
-const player = new Player(W / 2, H * 0.62);
+// The death sequence (game/disconnect.js). One instance, reused across
+// restarts via reset() — see newGame() below — the same way `menu` itself is
+// one instance reused for start/pause/gameover.
+const disconnect = new Disconnect();
 
-// The scoreboard, and the wiring that feeds it: traffic reports every car that
-// blows up, main.js reports the road covered (see update). Traffic itself knows
-// nothing about points — see score.js.
-const score = new Score();
-
-// One explosion pool shared by traffic (car wrecks) and the road obstacles
-// (mine blasts, roadblock rubble) — see effects.js's Explosions header and
-// game/obstacles.js for why they must not each get their own.
-const explosions = new Explosions();
-const obstacles = new Obstacles(explosions);
-// Buff crates — shares the same explosion pool for their own "collected"
-// burst (effects.js's drawCollectBurst), same reasoning as obstacles above.
-// Constructed BEFORE traffic so onCarDestroyed below can close over it.
-const pickups = new Pickups(explosions);
+// Everything below is PER-RUN state: it all gets torn down and rebuilt by
+// newGame(), so it's declared with `let` rather than `const` even though
+// nothing outside newGame() ever reassigns it directly. The functions that
+// close over these bindings (onCarDestroyed, fireShot, dropMine) are defined
+// ONCE, below, and keep working across a restart because a closure reads the
+// current value of an outer `let` at call time, not the value it had when the
+// closure was created.
+let player;
+let score;
+let explosions;
+let obstacles;
+let pickups;
+let traffic;
+let shots;
+let enemyShots;
+let loadout;
+// How far we've driven, in world units. Grows with speed and drives
+// everything that scrolls (road curve, lane dashes) — see road.js for the
+// screen<->world coordinate model. Declared up here, ahead of newGame(),
+// because newGame() zeroes it and runs once at module load below.
+let distance = 0;
 
 // Chance a destroyed HOSTILE car leaves a FIX crate where it died. CIVILIANS
 // NEVER DO — a buff dropped by killing an innocent bystander would reward
@@ -82,41 +98,72 @@ function onCarDestroyed(car) {
     pickups.drop(pickupTypeById("fix"), car.worldY, car.offset);
   }
 }
-const traffic = new Traffic(onCarDestroyed, explosions);
 
 // Scratch target list for bullets: cars AND obstacles in one flat array, so a
 // shot resolves against whichever it actually crosses first regardless of
 // which system owns it (see projectiles.js's firstHit). Reused every tick
-// rather than rebuilt, same as Traffic.bodies.
+// rather than rebuilt, same as Traffic.bodies — and reused across restarts
+// too, since it's rebuilt from scratch inside update() every "playing" tick
+// regardless of which `traffic`/`obstacles` instance is current.
 const shotTargets = [];
 
-// The guns, and the bullets they put in the air. The player holds a Loadout
-// (each weapon's cooldown and ammo — weapons.js); the world holds the shots
-// (projectiles.js). Every armed enemy car holds an Armament of the same Weapon
-// class (game/armament.js).
-const loadout = new Loadout();
-// Shares the explosion pool above, so a rocket's fireball (weapons.js's
-// ROCKET, effects.js's drawFireballBurst) competes for the same slot budget
-// as every other detonation on the road — see projectiles.js's `impact`.
-const shots = new Projectiles(explosions);
+// Reused every tick rather than rebuilt, same as shotTargets — but its ONE
+// entry (Traffic's PlayerBody, already the player expressed as something with
+// { worldY, offset, w, h, alive, damage }, the exact target interface
+// projectiles.js documents) has to be re-pointed at the new Traffic's
+// PlayerBody whenever newGame() builds one, since nothing else touches this
+// array on a "playing" tick to do that for it.
+const enemyTargets = [];
 
-// HOSTILE FIRE GETS ITS OWN POOL, and the reason is targeting rather than
-// bookkeeping. projectiles.js resolves one pool against one list of targets —
-// "WHO CAN BE HIT is the CALLER'S choice" — so two pools is how a bullet knows
-// whose side it is on, with no notion of a faction anywhere in that file.
-//
-// Enemy rounds are resolved against the PLAYER ALONE: they pass through traffic
-// and through road hazards untouched. That is deliberate and it is score.js's
-// doing — the scoreboard pays out however a car died, so a civilian shot by an
-// enemy would fine the player for a kill they had no part in, exactly the
-// oddity cartypes.js's NERVE section already had to design mines around. The
-// same goes for a hostile round setting off a mine.
-const enemyShots = new Projectiles(explosions);
-// Reused every tick rather than rebuilt. Traffic's PlayerBody is already the
-// player expressed as something with { worldY, offset, w, h, alive, damage } —
-// the exact target interface projectiles.js documents — so it needs no adapter
-// of its own.
-const enemyTargets = [traffic.playerBody];
+// (Re)builds every per-run system fresh: called once below for the initial
+// game, and again from the "gameover" screen's RESTART row. Everything it
+// touches is declared `let` above for exactly this reason.
+function newGame() {
+  distance = 0;
+  // Player sits around mid-screen (Spy Hunter framing) so traffic catching up
+  // from behind is visible below before it draws level.
+  player = new Player(W / 2, H * 0.62);
+  // The scoreboard, and the wiring that feeds it: traffic reports every car
+  // that blows up, main.js reports the road covered (see update). Traffic
+  // itself knows nothing about points — see score.js.
+  score = new Score();
+  // One explosion pool shared by traffic (car wrecks) and the road obstacles
+  // (mine blasts, roadblock rubble) — see effects.js's Explosions header and
+  // game/obstacles.js for why they must not each get their own.
+  explosions = new Explosions();
+  obstacles = new Obstacles(explosions);
+  // Buff crates — shares the same explosion pool for their own "collected"
+  // burst (effects.js's drawCollectBurst), same reasoning as obstacles above.
+  // Constructed BEFORE traffic so onCarDestroyed can close over it.
+  pickups = new Pickups(explosions);
+  traffic = new Traffic(onCarDestroyed, explosions);
+  enemyTargets[0] = traffic.playerBody;
+  // The guns, and the bullets they put in the air. The player holds a Loadout
+  // (each weapon's cooldown and ammo — weapons.js); the world holds the shots
+  // (projectiles.js). Every armed enemy car holds an Armament of the same
+  // Weapon class (game/armament.js).
+  loadout = new Loadout();
+  // Shares the explosion pool above, so a rocket's fireball (weapons.js's
+  // ROCKET, effects.js's drawFireballBurst) competes for the same slot budget
+  // as every other detonation on the road — see projectiles.js's `impact`.
+  shots = new Projectiles(explosions);
+  // HOSTILE FIRE GETS ITS OWN POOL, and the reason is targeting rather than
+  // bookkeeping. projectiles.js resolves one pool against one list of
+  // targets — "WHO CAN BE HIT is the CALLER'S choice" — so two pools is how a
+  // bullet knows whose side it is on, with no notion of a faction anywhere in
+  // that file.
+  //
+  // Enemy rounds are resolved against the PLAYER ALONE: they pass through
+  // traffic and through road hazards untouched. That is deliberate and it is
+  // score.js's doing — the scoreboard pays out however a car died, so a
+  // civilian shot by an enemy would fine the player for a kill they had no
+  // part in, exactly the oddity cartypes.js's NERVE section already had to
+  // design mines around. The same goes for a hostile round setting off a
+  // mine.
+  enemyShots = new Projectiles(explosions);
+  disconnect.reset();
+}
+newGame();
 
 // --- The two things a hostile car may do to the world ------------------------
 //
@@ -136,11 +183,6 @@ function fireShot(car, type, dir) {
 function dropMine(car, type) {
   return obstacles.drop(type, car);
 }
-
-// `distance` is how far we've driven, in world units. It grows with speed and
-// drives everything that scrolls (road curve, lane dashes). See road.js for the
-// screen<->world coordinate model.
-let distance = 0;
 
 function update(dt) {
   if (state === "menu") {
@@ -170,6 +212,37 @@ function update(dt) {
       return;
     }
     if (menu.update()) {
+      state = "playing";
+      hint.innerHTML = PLAY_HINT;
+    }
+    if (menu.musicOn() !== musicFlag) {
+      musicFlag = menu.musicOn();
+      music.setEnabled(musicFlag);
+    }
+    return;
+  }
+
+  if (state === "dying") {
+    // The world is frozen — nothing below this branch runs, so the road,
+    // traffic and the player's own last position all just sit exactly where
+    // they were the instant the hull hit zero (render() still draws them
+    // every frame; it's only update() that has stopped moving them). Only the
+    // death sequence itself advances.
+    disconnect.update(dt);
+    if (disconnect.done) {
+      state = "gameover";
+      menu.open("gameover");
+      hint.innerHTML = MENU_HINT;
+    }
+    return;
+  }
+
+  if (state === "gameover") {
+    // Same screen, same interaction as "paused" above — RESTART is row 0's
+    // label here (menu.js's ROW0_LABEL) the way CONTINUE is there — except
+    // confirming it starts a fresh run instead of resuming a frozen one.
+    if (menu.update()) {
+      newGame();
       state = "playing";
       hint.innerHTML = PLAY_HINT;
     }
@@ -278,6 +351,18 @@ function update(dt) {
   // bullets and obstacles do; it only has to see where the player ended up
   // this tick, which is already final by this point.
   pickups.update(dt, { player, distance, W, H, loadout });
+
+  // The hull check runs LAST, after every damage source above (wall-scrape in
+  // player.update, ramming and blast in traffic.update, mines and bullets)
+  // has had its shot at the player this tick — so wherever health actually
+  // hit zero, this is the one place that notices. `state` flips to "dying"
+  // and nothing under "playing" runs again until newGame() resets it.
+  if (player.health <= 0) {
+    state = "dying";
+    disconnect.trigger(player.x, player.y, player.w, player.h);
+    if (menu.soundOn()) music.playDisconnect();
+    hint.innerHTML = "";
+  }
 }
 
 function drawHud() {
@@ -364,8 +449,17 @@ function drawHud() {
 function render(alpha) {
   clear(ctx);
 
-  if (state === "menu" || state === "paused") {
+  // "gameover" reuses the exact same full-screen menu as "menu"/"paused" (see
+  // menu.js's header) — the frozen wreck behind it from "dying" is gone the
+  // instant the screen takes over, the same way "paused" already covers the
+  // world rather than showing it through the menu.
+  if (state === "menu" || state === "paused" || state === "gameover") {
     menu.render(ctx, W, H);
+    // menu.js never touches the world (see its header) — the final score is
+    // world state, so it's main.js's job to draw it, not menu.open()'s to
+    // have been handed it. Placed above the RESTART row rather than fighting
+    // menu.js's own layout for space inside it.
+    if (state === "gameover") glowText(ctx, `FINAL SCORE ${score.points}`, W / 2, 350, GREEN_BRIGHT, 18, "center", 10);
     return;
   }
 
@@ -387,6 +481,19 @@ function render(alpha) {
   // odometer and the distance term of the score run off the real float (see
   // update), and rounding that would slowly bleed travelled road away.
   const camY = Math.round(distance);
+
+  // While "dying", game/disconnect.js's shake() desyncs the WHOLE scene by a
+  // screen-space offset — a feed losing sync, not a physical jolt (see its
+  // header) — so everything from the floor grid to the glitching car itself
+  // is drawn inside this translate, and only this translate. drawHud() and
+  // disconnect's own CONNECTION LOST readout come after ctx.restore() below,
+  // deliberately outside it, so the two things reporting the desync don't
+  // themselves desync.
+  ctx.save();
+  if (state === "dying") {
+    const [sx, sy] = disconnect.shake();
+    ctx.translate(sx, sy);
+  }
 
   // Lower city floor first (parallax, behind everything), then the elevated road
   // ribbon paints an opaque surface over it, then the player on top. The floor
@@ -411,9 +518,14 @@ function render(alpha) {
   // The player sits at worldY === distance, so that is where its heading comes
   // from — it leans into a bend along with the traffic around it. Read at camY,
   // like everything else drawn this frame, so the car's lean matches the bend of
-  // the road actually on screen.
-  player.render(ctx, alpha, road.headingAt(camY));
+  // the road actually on screen. While "dying", the disconnect sequence draws
+  // in the player's place instead — see game/disconnect.js's render().
+  if (state === "dying") disconnect.render(ctx, W, H);
+  else player.render(ctx, alpha, road.headingAt(camY));
+  ctx.restore();
+
   drawHud();
+  if (state === "dying") disconnect.renderOverlay(ctx, W, H);
 }
 
 const loop = createLoop(update, render);

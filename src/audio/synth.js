@@ -268,6 +268,55 @@ function setEnabled(on) {
   masterGain.gain.linearRampToValueAtTime(enabled ? MASTER_VOLUME : 0, t + 0.15);
 }
 
+// --- One-shot SFX -------------------------------------------------------
+// The first (and so far only) sound effect: the player's own connection
+// dropping (game/disconnect.js). A noise burst under a fast downward-sweeping
+// tone — the feed cutting to static while the carrier loses lock — rather
+// than an explosion thump, because the car isn't destroyed, the LINK is (see
+// disconnect.js's header). Built the same one-shot-node way every voice above
+// is; only exists once start() has run (ctx/masterGain/noiseBuffer are all
+// module state built by buildGraph(), see the header), so main.js must only
+// call this after the player has actually started a game.
+//
+// Both envelopes below trail out to roughly disconnect.js's CAR_GLITCH_END
+// (~1.4s into its 2.6s sequence) rather than the sequence's own opening beat —
+// sized to the SEQUENCE'S pacing, not a generic short "hit" length, so the
+// sound doesn't go quiet a fifth of the way through a moment that's still
+// visibly unfolding.
+function playDisconnect() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+
+  // The dropout: band-passed noise, gated into a burst rather than the held
+  // white-noise wash a snare hit uses.
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer;
+  const band = ctx.createBiquadFilter();
+  band.type = "bandpass";
+  band.frequency.value = 2200;
+  band.Q.value = 0.6;
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.setValueAtTime(0.5, t);
+  noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
+  src.connect(band).connect(noiseGain).connect(masterGain);
+  src.start(t);
+  src.stop(t + 1.15);
+
+  // The carrier losing lock: a square wave sweeping down almost three octaves
+  // under the static — the "signal dying" tell, not a boom.
+  const osc = ctx.createOscillator();
+  osc.type = "square";
+  osc.frequency.setValueAtTime(660, t);
+  osc.frequency.exponentialRampToValueAtTime(90, t + 1.3);
+  const toneGain = ctx.createGain();
+  toneGain.gain.setValueAtTime(0.001, t);
+  toneGain.gain.exponentialRampToValueAtTime(0.3, t + 0.03);
+  toneGain.gain.exponentialRampToValueAtTime(0.001, t + 1.3);
+  osc.connect(toneGain).connect(masterGain);
+  osc.start(t);
+  osc.stop(t + 1.35);
+}
+
 export function createMusic() {
-  return { start, setEnabled };
+  return { start, setEnabled, playDisconnect };
 }

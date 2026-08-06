@@ -92,8 +92,10 @@ export class Player {
     this.shieldSpin = 0; // accumulated only while shielded — drives the ring animation
   }
 
-  // Take `hp` off the hull. Health floors at 0 — the wreck/game-over state is
-  // Phase 6, so for now an empty hull just means the next hit is free.
+  // Take `hp` off the hull. Health floors at 0 — main.js is watching this
+  // field and switches the game over to game/disconnect.js's death sequence
+  // the instant it sees zero, so this class itself does not need to know that
+  // a hull can run out; it only has to stop going negative.
   //
   // THE SHIELD'S ENTIRE IMPLEMENTATION IS THIS GUARD. Every damage source in
   // the game — bullets, blast, ramming, wall-scrape — already funnels through
