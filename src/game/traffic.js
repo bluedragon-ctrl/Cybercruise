@@ -137,8 +137,16 @@ class TrafficCar {
     this.health = type.health;
     this.maxHealth = type.health;
     this.alive = true;
+    // A SEEKING round (weapons.js's ROCKET) may lock on to this. Opt-IN, and
+    // set here rather than assumed by projectiles.js, because the player's
+    // gunfire is resolved against one flat list of cars AND road obstacles
+    // (main.js) — a rocket that turned across two lanes to chase a trestle
+    // would be both useless and a betrayal of the shot the player took.
+    this.seekable = true;
     this.exploded = false; // set when its wreck has been spawned (see Traffic.detonate),
                            // so a chain reaction can't set the same car off twice
+    this.spikeTime = 0;  // seconds of punctured-tyre crawl left (see puncture)
+    this.spikeSpeed = 0; // ...and the speed it is held down to while that runs
     this.wheelPhase = 0; // accumulated roll distance, drives the wheel tread
     this.vLateral = 0; // sideways velocity from being rammed (collisions.js)
     this.criticalTime = 0; // seconds spent on the brink; drives the blink
@@ -178,6 +186,24 @@ class TrafficCar {
     }
   }
 
+  // Cross a spike strip (obstacletypes.js's "spikes" effect): a scratch of
+  // hull, and tyres that will not hold a cruising speed for `slowTime`.
+  //
+  // ALREADY-LIMPING CARS ARE NOT BITTEN AGAIN, and that single condition is
+  // what makes this safe to call from a per-tick overlap test: a car sits on a
+  // strip for several ticks, and without it the scratch would be taken sixty
+  // times a second and the strip would be the deadliest thing in the game. It
+  // also reads correctly on its own terms — a car already on its rims cannot
+  // have its tyres punctured twice — and it still allows a SECOND strip to
+  // bite once the first one's five seconds are up.
+  puncture(type) {
+    if (this.spikeTime > 0) return;
+    this.spikeTime = type.slowTime;
+    this.spikeSpeed = type.slowTo; // carried on the car, not looked up later —
+                                   // the strip that bit it may be long gone
+    this.damage(type.contactDamage);
+  }
+
   update(dt, world) {
     // Wander first, so the behaviour decides against the speed this car actually
     // wants right now. CLAMPED to the type's own range: the catalogue documents
@@ -198,6 +224,23 @@ class TrafficCar {
     // Tactic, then the hazard reflex, then whatever it is carrying — all three
     // in one call, so the order can't drift per tactic. See behaviours.js.
     driveCar(this, dt, world);
+
+    // PUNCTURED TYRES OVERRULE THE BEHAVIOUR, and they are applied HERE — after
+    // driveCar has asked for whatever its tactic wants, and after the speed
+    // band was clamped at the top of this method — precisely because the band
+    // is documented as "a hard floor and ceiling" (cartypes.js) that the drift
+    // above is not allowed to leave. A crawl below `speedMin` is the one
+    // deliberate exception to that, and it has to sit outside the clamp or it
+    // would simply be clamped back up on the next tick and do nothing visible.
+    //
+    // It caps the REQUEST rather than the speed itself, so the car eases down
+    // to its crawl through the same ACCEL ramp as any other speed change — a
+    // car that snapped to 150 the instant it touched the strip would read as
+    // hitting a wall, which is the mine's job, not this one.
+    if (this.spikeTime > 0) {
+      this.spikeTime -= dt;
+      this.targetSpeed = Math.min(this.targetSpeed, this.spikeSpeed);
+    }
 
     // Speed: approach the requested speed at a fixed rate rather than snapping,
     // so a behaviour can ask for anything without teleporting the car.

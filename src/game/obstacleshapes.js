@@ -207,6 +207,27 @@ const CALTROP_SPIKE = 8;       // spike length at rest...
 const CALTROP_SPIKE_PULSE = 2; // ...and how much further a full pulse pushes it
 const CALTROP_REACH = CALTROP_CORE + CALTROP_SPIKE + CALTROP_SPIKE_PULSE;
 
+// THE SPIKE STRIP IS THE WIDE ONE, and that is its entire silhouette argument.
+//
+// The caltrop above is deliberately the narrowest thing in the catalogue — "a
+// mine is a POINT threat, not a wall" — so the strip has to be unmistakably the
+// opposite at a glance, or the two red hazards read as the same object at two
+// sizes. At 2.4 lanes it is by some way the widest thing on the road: it cannot
+// be threaded, only gone around, which is the whole difference between dodging
+// a mine and being HERDED by a strip.
+//
+// It does NOT close the road. 2.4 of four lanes leaves 1.6 lanes of tarmac
+// whichever side it is laid, and obstacles.js's passage rule keeps the SPAWNER
+// from adding to it (a laid hazard counts against that budget, see drop()).
+// Anything past ~3 lanes here would make a single drop unavoidable, which is a
+// different and much worse weapon.
+const SPIKES_WIDTH = LANE_WIDTH * 2.4;
+const SPIKES_SPINE_HALF = 3.5; // half the belt's own thickness, up and down road
+const SPIKES_TOOTH = 6;        // how far a tooth reaches past the spine...
+const SPIKES_TOOTH_PULSE = 1.5; // ...and how much further at the top of a pulse
+const SPIKES_TOOTH_COUNT = 13;
+const SPIKES_REACH_Y = SPIKES_SPINE_HALF + SPIKES_TOOTH + SPIKES_TOOTH_PULSE;
+
 export const OBSTACLE_SHAPES = [
   {
     // The widest and flattest block: it fills most of its lane but is shallow, so
@@ -375,6 +396,56 @@ export const OBSTACLE_SHAPES = [
       ctx.save();
       ctx.globalAlpha = 0.3 + 0.7 * pulse;
       glowPoly(ctx, ngon(cx, cy, r * 0.42, 6), CRITICAL_FLASH, 1.5, 10, HAZARD);
+      ctx.restore();
+    },
+  },
+
+  {
+    // The spike strip. A long belt of teeth laid across the lanes — the MINE
+    // family's second entry, and the reason it belongs there rather than with
+    // the amber blocks is that somebody LAID it: it is hostile action on the
+    // tarmac, not road furniture, and the red-and-pulsing family is what says
+    // so. See SPIKES_WIDTH above for the silhouette argument against the
+    // caltrop.
+    name: "SPIKES",
+    family: MINE,
+    size: [SPIKES_WIDTH, SPIKES_SPINE_HALF * 2],
+    extent: {
+      x: SPIKES_WIDTH / 2 + GLOW_BLEED,
+      up: SPIKES_REACH_Y + GLOW_BLEED,
+      down: SPIKES_REACH_Y + GLOW_BLEED,
+    },
+    pulse: true,
+    draw(ctx, cx, cy, pulse) {
+      const half = SPIKES_WIDTH / 2;
+      const tooth = SPIKES_TOOTH + pulse * SPIKES_TOOTH_PULSE; // teeth breathe,
+                                                  // the belt itself does not
+      // The belt: one opaque slab the teeth are mounted on, so the strip still
+      // reads as a single laid object at distance rather than as a scattering
+      // of small red marks.
+      glowPoly(ctx, [
+        [cx - half, cy - SPIKES_SPINE_HALF], [cx + half, cy - SPIKES_SPINE_HALF],
+        [cx + half, cy + SPIKES_SPINE_HALF], [cx - half, cy + SPIKES_SPINE_HALF],
+      ], ENEMY, 1.5, 9, CAR_FILL_RAISED);
+
+      // Teeth, alternating up-road and down-road so the strip bites whichever
+      // way it is crossed — and so the silhouette is a saw rather than a comb.
+      for (let i = 0; i < SPIKES_TOOTH_COUNT; i++) {
+        const x = cx - half + ((i + 0.5) / SPIKES_TOOTH_COUNT) * SPIKES_WIDTH;
+        const dy = i % 2 === 0 ? -1 : 1;
+        const base = cy + dy * SPIKES_SPINE_HALF;
+        glowPoly(ctx, [
+          [x, base + dy * tooth],
+          [x - 3, base],
+          [x + 3, base],
+        ], ENEMY_PALE, 1.2, 8, CAR_FILL_HIGH);
+      }
+
+      // The live tell, in ALPHA like the caltrop's core and for the same
+      // reason: a strip that visibly grew would read as already going off.
+      ctx.save();
+      ctx.globalAlpha = 0.25 + 0.75 * pulse;
+      glowLine(ctx, cx - half, cy, cx + half, cy, CRITICAL_FLASH, 1.5, 10);
       ctx.restore();
     },
   },

@@ -45,7 +45,29 @@
 //               (cartypes.js)
 //   placement   where across the road this type belongs — PLACE_LANE / _SIDE /
 //               _CENTRE / _ANY. See the block above
-//   weight      relative spawn frequency (see obstacles.js's pickObstacleType)
+//   weight      relative spawn frequency (see obstacles.js's pickObstacleType).
+//               ZERO for a laidOnly type, which the spawner never draws from
+//   laidOnly    OPTIONAL. This hazard is only ever put on the road by a car
+//               laying it (obstacles.js's drop()), never by the spawner — see
+//               obstacleAvailable below. The player's SPIKES (weapons.js) is
+//               the first of these: a strip is somebody's deliberate act, and
+//               one appearing on the road ahead by itself would read as the
+//               city having laid a trap for its own traffic
+//   threat      OPTIONAL, defaults to blastDamage. What driving into this
+//               COSTS, as the AI weighs it (behaviours.js compares it against
+//               a driver's nerve). Split out from blastDamage for the strip,
+//               which barely scratches a car and still must be feared — see
+//               its own note below, and RoadObstacle.threat in obstacles.js,
+//               which anticipated exactly this ("a later hazard that hurts by
+//               some other means than a blast")
+//   effect      OPTIONAL. What CONTACT does, beyond the shared "break, shove
+//               and blast" every hazard has done until now. Omitted means
+//               exactly that shared behaviour. "spikes" instead punctures
+//               whoever crossed it and LEAVES THE HAZARD ON THE ROAD — see
+//               obstacles.js's contact pass
+//   slowTo      seconds/units: read only by effect "spikes". The speed a
+//               punctured car is held down to...
+//   slowTime    ...and for how long
 //   minDistance how far the player must have driven before this type may spawn,
 //               in DIST-READOUT units — the same gate cartypes.js documents at
 //               length, and the same units the HUD counts in (road.js). Every
@@ -180,12 +202,72 @@ export const OBSTACLE_TYPES = [
     weight: 0.5, // rare — see cartypes.js's rival for the same reasoning
     minDistance: 1200,
   },
+  {
+    id: "spikes",
+    label: "SPIKES",
+    shape: obstacleShapeIndex("SPIKES"),
+    // NOT A WEAPON THAT KILLS. Everything else in this catalogue takes hull;
+    // this one takes SPEED, and that is the whole of its identity. A car that
+    // crosses it is punctured, not wrecked — it limps, falls behind, stops
+    // being able to bring a gun to bear, and is still there. The mine above is
+    // for killing what is chasing you; this is for shaking it off.
+    //
+    // The distinction has to stay sharp in the NUMBERS, not just in the
+    // comment: the moment a strip does enough damage to be worth laying FOR
+    // the damage, the player will simply lay whichever of the two kills faster
+    // and the pair collapses into one weapon.
+    contactDamage: 6, // a scratch. Enough to finish something already critical,
+                      // never a reason to lay one
+    effect: "spikes",
+    slowTo: 150,   // BELOW the slowest cruise in the catalogue (the rig's 180,
+                   // cartypes.js), so this is a real crawl for EVERY type
+                   // rather than a nudge for the heavy ones and a wall for the
+                   // quick ones
+    slowTime: 5,   // seconds. Timed, not permanent: a car crippled for good
+                   // trails the rest of the run holding a pool slot, and stops
+                   // being a threat with nothing on screen to say why — the
+                   // same argument weapons.js makes for infinite enemy ammo
+    // FEARED OUT OF PROPORTION TO ITS DAMAGE, and this is the field that says
+    // so. `threat` is what behaviours.js weighs against a driver's nerve, and
+    // if it read the 6 above then every car on the road would drive straight
+    // over a strip without slowing — which would make it a guaranteed hit and,
+    // oddly, a WORSE weapon: the interesting thing a strip does is make
+    // traffic swerve. Set just under the mine's 30 so most drivers avoid it
+    // and only the boldest eat it.
+    threat: 28,
+    // NO BLAST AT ALL — the first hazard here with none. A strip that went off
+    // would contradict the one thing it is for: it stays on the road after the
+    // first car finds it (obstacles.js's contact pass), and something that has
+    // exploded cannot still be lying there.
+    blastRadius: 0,
+    blastDamage: 0,
+    // Tough enough not to be an accident, but this is close to academic: the
+    // player lays these BEHIND themselves and cannot shoot backwards, so
+    // nothing in the game currently has a way to shoot one.
+    health: 24,
+    mass: 0.15, // a belt of steel teeth, not a wall — crossing one must not
+                // brake the car. What it costs is `slowTo`, not this
+    // Laid where the layer was, like any other drop, so `placement` is never
+    // consulted. Named anyway, and named PLACE_ANY, so the field doesn't read
+    // as an oversight to whoever adds a spawner path later.
+    placement: PLACE_ANY,
+    laidOnly: true,
+    weight: 0, // never spawned — see laidOnly and obstacleAvailable below
+    minDistance: 0,
+  },
 ];
 
 // Whether `type` may appear yet, given the RAW world odometer. Mirrors
 // cartypes.js's typeAvailable — the readout-unit conversion happens here so no
 // caller has to know about it.
+//
+// A `laidOnly` type is never available to the SPAWNER at any distance. Gated
+// here rather than by leaving its weight at zero, because a zero weight is a
+// silent, fragile way to say it: pickObstacleType's own roll can land on 0, and
+// a later reweighting would put the type back on the road without anyone
+// meaning to. This says the thing out loud instead.
 export function obstacleAvailable(type, distance) {
+  if (type.laidOnly) return false;
   return distance >= (type.minDistance ?? 0) * DIST_UNITS;
 }
 

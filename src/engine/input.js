@@ -26,11 +26,27 @@ const CODE_ALIASES = {
   Tab: "swap",
   ShiftLeft: "swap",
   KeyQ: "swap",
-  // Mines get their own key rather than living in the TAB cycle above: laying
-  // one is a snap decision made while a gun is still selected, not a reason to
-  // tab away from it and back. See weapons.js's Loadout.next().
+  // Numpad 0 mirrors TAB — for a player steering with the ARROW keys, whose
+  // left hand is free to rest on the numpad instead of stretching to Q or
+  // Shift. Same action, same edge-triggered cycle, nothing about swap() cares
+  // which key asked for it.
+  Numpad0: "swap",
+  // Deployables get their own key rather than living in the TAB cycle above:
+  // laying one is a snap decision made while a gun is still selected, not a
+  // reason to tab away from it and back. See weapons.js's Loadout.next().
   ControlLeft: "mine",
   ControlRight: "mine",
+  // ...and their own SELECTOR, so the deploy key above can reach a second
+  // deployable without the gun in hand ever changing. E rather than CAPS LOCK:
+  // CapsLock toggles a real OS state as a side effect (the player's keyboard
+  // LED would blink through a whole run), and Firefox on macOS only reports
+  // the keyup of the OFF toggle — so half its presses would go unseen by the
+  // consumePress channel this action uses.
+  KeyE: "deploy",
+  // Numpad . mirrors E, for the same arrow-key player Numpad0 above is for —
+  // it sits directly below the numpad's own arrow cluster, an easy reach
+  // without leaving it.
+  NumpadDecimal: "deploy",
   Escape: "pause",
 };
 
