@@ -47,7 +47,8 @@ import { resolveCollisions, impactCost, ramSpeed, SIDE_DAMAGE } from "../src/gam
 import { Score, DISTANCE_POINTS } from "../src/game/score.js";
 import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES } from "../src/game/weapons.js";
 import {
-  OBSTACLE_TYPES, obstacleTypeById, obstacleAvailable, PLACE_LANE, PLACE_SIDE,
+  OBSTACLE_TYPES, obstacleTypeById, obstacleAvailable, pickObstacleType,
+  PLACE_LANE, PLACE_SIDE,
 } from "../src/game/obstacletypes.js";
 import { Obstacles, SPAWN_MARGIN as OBSTACLE_SPAWN_MARGIN } from "../src/game/obstacles.js";
 import { Explosions } from "../src/game/effects.js";
@@ -597,6 +598,10 @@ test("obstacle gating uses the same units as the car catalogue", () => {
   // at 0 today, so this asserts the MECHANISM, not the current tuning.
   for (const type of OBSTACLE_TYPES) {
     assert.equal(typeof type.minDistance, "number", `${type.id} has no minDistance`);
+    // A laidOnly hazard (the spike strip) is never available to the SPAWNER at
+    // any distance, so the gate below says nothing about it — see
+    // obstacleAvailable, and the test just after this one that pins it.
+    if (type.laidOnly) continue;
     assert.ok(
       obstacleAvailable(type, type.minDistance * DIST_UNITS),
       `${type.id} is still gated at exactly its own minDistance`,
@@ -648,6 +653,11 @@ test("distance accumulates as a float and only floors when read", () => {
 
 // --- Weapons -----------------------------------------------------------------
 
+// What TAB actually walks (weapons.js's Loadout.next): the catalogue minus the
+// layers, which have their own key and their own cycle. Kept as a derived list
+// rather than a count so a third layer changes nothing here.
+const GUN_TYPES = WEAPON_TYPES.filter((t) => !t.payload);
+
 test("the default gun never runs out", () => {
   // weapons.js: the player must always have some way to shoot, which is what
   // makes the finite weapons a choice rather than a lifeline.
@@ -691,20 +701,23 @@ test("swapping cannot be used to dodge a cooldown", () => {
   const loadout = new Loadout();
   const first = loadout.current;
   assert.ok(first.tryFire());
-  for (let i = 0; i < WEAPON_TYPES.length; i++) loadout.next(); // all the way back round to `first`
+  // A LAP IS THE NUMBER OF GUNS, not the size of the catalogue: next() skips
+  // the layers (weapons.js), so stepping WEAPON_TYPES.length times overshoots
+  // by however many of those are carried and lands on the wrong weapon.
+  for (let i = 0; i < GUN_TYPES.length; i++) loadout.next();
   assert.equal(loadout.current, first);
   assert.ok(!loadout.current.tryFire(), "the cooldown should have survived the swap");
 });
 
-test("the loadout cycles through every weapon and returns", () => {
+test("the loadout cycles through every gun and returns", () => {
   const loadout = new Loadout();
   const seen = new Set();
-  for (let i = 0; i < WEAPON_TYPES.length; i++) {
+  for (let i = 0; i < GUN_TYPES.length; i++) {
     seen.add(loadout.current.type.id);
     loadout.next();
   }
-  assert.equal(seen.size, WEAPON_TYPES.length, "TAB does not reach every weapon");
-  assert.equal(loadout.current.type.id, WEAPON_TYPES[0].id, "the cycle does not return to the start");
+  assert.equal(seen.size, GUN_TYPES.length, "TAB does not reach every gun");
+  assert.equal(loadout.current.type.id, GUN_TYPES[0].id, "the cycle does not return to the start");
 });
 
 test("the player's mine layer is a Weapon like any other, and its payload resolves", () => {
@@ -728,14 +741,214 @@ test("the player's mine is the same hazard the enemy's own mine layer lays", () 
   assert.equal(mineType.payload, "caltrop");
 });
 
+test("the deployable cycle only ever selects a layer, never a gun", () => {
+  // weapons.js: the deploy key must not be able to reach a gun, or CTRL would
+  // fire it out of the wrong slot. Walked a full lap and then some, so a
+  // catalogue with the layers at either end is covered too.
+  const loadout = new Loadout();
+  for (let i = 0; i < WEAPON_TYPES.length * 2 + 1; i++) {
+    assert.ok(loadout.deployable, "a catalogue with a layer in it must always have one selected");
+    assert.ok(
+      loadout.deployable.type.payload,
+      `the deploy cycle selected ${loadout.deployable.type.id}, which is a gun`,
+    );
+    loadout.nextDeployable();
+  }
+});
+
+test("the two cycles never disturb each other", () => {
+  // The whole reason the mine got its own key: laying one must not change
+  // which gun is in hand, and picking a gun must not change what CTRL drops.
+  const loadout = new Loadout();
+  const gun = loadout.current;
+
+  // Five steps over however many layers are carried, so this lands somewhere
+  // other than where it started whenever there is more than one — the cursor
+  // is read AFTER, not before, since where it ends up is the cycle's own
+  // business and not what this test is about.
+  for (let i = 0; i < 5; i++) loadout.nextDeployable();
+  assert.equal(loadout.current, gun, "cycling deployables moved the gun in hand");
+  const layer = loadout.deployable;
+
+  for (let i = 0; i < 5; i++) loadout.next();
+  assert.equal(loadout.deployable, layer, "cycling guns moved the selected deployable");
+});
+
+test("a loadout carrying no layer has nothing to deploy, and says so", () => {
+  // weapons.js's `deployable` returns null rather than throwing: the enemy's
+  // own Armament builds a Loadout-shaped thing with no layer in it, and a
+  // catalogue is free not to carry one.
+  const guns = WEAPON_TYPES.filter((t) => !t.payload);
+  const loadout = new Loadout(guns);
+  assert.equal(loadout.deployable, null);
+  assert.equal(loadout.nextDeployable(), null, "cycling nothing must be a no-op, not a crash");
+  assert.equal(loadout.current.type.id, guns[0].id, "and must not have moved the gun in hand");
+});
+
 // --- Road obstacles -----------------------------------------------------------
 
 test("every obstacle type carries coherent, positive gameplay numbers", () => {
   for (const t of OBSTACLE_TYPES) {
     assert.ok(t.health > 0, `${t.id}: health must be positive`);
-    assert.ok(t.weight > 0, `${t.id}: weight must be positive`);
+    // WEIGHT IS A SPAWN FREQUENCY, so only a spawnable type needs one. A
+    // laidOnly hazard must carry NO weight rather than an unread one — a
+    // number the spawner never reads is a number that will eventually be
+    // believed by somebody.
+    if (t.laidOnly) {
+      assert.equal(t.weight, 0, `${t.id}: a laid-only hazard must carry no spawn weight`);
+    } else {
+      assert.ok(t.weight > 0, `${t.id}: weight must be positive`);
+    }
     assert.ok(t.blastRadius >= 0, `${t.id}: blastRadius must not be negative`);
     assert.ok(t.blastDamage >= 0, `${t.id}: blastDamage must not be negative`);
+  }
+});
+
+test("the spike strip takes speed, not hull — and the mine is still the killer", () => {
+  // obstacletypes.js: "the moment a strip does enough damage to be worth
+  // laying FOR the damage, the player will simply lay whichever of the two
+  // kills faster and the pair collapses into one weapon."
+  const spikes = OBSTACLE_TYPES.find((t) => t.id === "spikes");
+  const mine = OBSTACLE_TYPES.find((t) => t.id === "caltrop");
+  const lightest = Math.min(...CAR_TYPES.map((t) => t.health));
+
+  assert.ok(
+    spikes.contactDamage < lightest,
+    `a strip's ${spikes.contactDamage} can kill the lightest car outright (${lightest} hull)`,
+  );
+  assert.ok(spikes.contactDamage < mine.blastDamage, "a strip must not out-hit the mine");
+  assert.equal(spikes.blastRadius, 0, "a strip must not explode — it stays on the road");
+
+  // The crawl has to be a real one for EVERY type, not just the heavy ones.
+  const slowest = Math.min(...CAR_TYPES.map((t) => t.speedMin));
+  assert.ok(
+    spikes.slowTo < slowest,
+    `a strip's ${spikes.slowTo} is not below the slowest cruise on the road (${slowest})`,
+  );
+});
+
+test("the spike strip is wide enough to go around and narrow enough to leave a road", () => {
+  // obstacleshapes.js: it cannot be threaded, only gone around — but "anything
+  // past ~3 lanes here would make a single drop unavoidable".
+  const spikes = OBSTACLE_TYPES.find((t) => t.id === "spikes");
+  const mine = OBSTACLE_TYPES.find((t) => t.id === "caltrop");
+  const stripW = OBSTACLE_SHAPES[spikes.shape].size[0];
+  const mineW = OBSTACLE_SHAPES[mine.shape].size[0];
+  const widestCar = Math.max(...CAR_TYPES.map((t) => t.w));
+
+  assert.ok(stripW > mineW * 3, "the strip must not read as a wider mine");
+  assert.ok(
+    stripW > LANE_WIDTH * 2,
+    `a strip ${stripW} wide does not span the two lanes that make it un-threadable`,
+  );
+  // Laid hard against one barrier — the worst case — there must still be room
+  // for the widest thing on the road to pass on the other side.
+  assert.ok(
+    ROAD_HALF_WIDTH * 2 - stripW > widestCar,
+    `a strip laid at the edge leaves ${ROAD_HALF_WIDTH * 2 - stripW}, too little for a ${widestCar}-wide car`,
+  );
+});
+
+// One live car on an otherwise empty road, driven through its own update() so
+// the speed band clamp and driveCar both really run — which is the whole point
+// of the puncture tests below, since the crawl is defined as the one thing
+// allowed to sit outside that clamp.
+function lonePuncturedCar() {
+  const traffic = new Traffic();
+  const player = new Player(300, 496);
+  traffic.spawn({ distance: 0, player, H: 800 });
+  const car = traffic.cars[0];
+  assert.ok(car, "expected spawn to put a car on the road");
+  return { car, world: { cars: traffic.cars, obstacles: [], playerBody: null } };
+}
+
+test("a car crossing a strip is punctured once, not once per tick", () => {
+  // traffic.js's puncture(): a car sits on a strip for many ticks, and the
+  // scratch being taken sixty times a second would make the gentlest hazard in
+  // the game the deadliest.
+  const spikes = OBSTACLE_TYPES.find((t) => t.id === "spikes");
+  const { car } = lonePuncturedCar();
+  const before = car.health;
+
+  for (let i = 0; i < 60; i++) car.puncture(spikes);
+
+  assert.equal(before - car.health, spikes.contactDamage, "the strip bit more than once");
+  assert.equal(car.spikeTime, spikes.slowTime);
+});
+
+test("a punctured car is held below its own speed band, then recovers", () => {
+  // traffic.js: the crawl is the ONE deliberate exception to cartypes.js's
+  // "hard floor and ceiling", which is why it is applied after the clamp.
+  const spikes = OBSTACLE_TYPES.find((t) => t.id === "spikes");
+  const { car, world } = lonePuncturedCar();
+  assert.ok(
+    car.type.speedMin > spikes.slowTo,
+    "the test is meaningless unless the crawl is below this car's own floor",
+  );
+
+  car.puncture(spikes);
+  for (let i = 0; i < 60 * 4; i++) car.update(1 / 60, world);
+  assert.ok(
+    car.speed <= spikes.slowTo + 1,
+    `a punctured car settled at ${car.speed}, above its ${spikes.slowTo} crawl`,
+  );
+
+  // ...and once the puncture has run out it climbs back into its own band.
+  for (let i = 0; i < 60 * 8; i++) car.update(1 / 60, world);
+  assert.ok(
+    car.speed >= car.type.speedMin,
+    `the puncture never wore off — the car is still at ${car.speed}, below its own floor`,
+  );
+});
+
+test("the strip is feared out of proportion to what it costs", () => {
+  // obstacles.js's `threat` and obstacletypes.js's own note: if the AI weighed
+  // the strip's 6 damage it would drive straight over every one, which makes
+  // it a guaranteed hit and a worse weapon — the interesting thing a strip
+  // does is make traffic swerve.
+  const spikes = OBSTACLE_TYPES.find((t) => t.id === "spikes");
+  const mine = OBSTACLE_TYPES.find((t) => t.id === "caltrop");
+  assert.ok(
+    spikes.threat > spikes.contactDamage * 3,
+    "a strip that reads as harmless to the AI is a strip nothing ever swerves for",
+  );
+  assert.ok(
+    spikes.threat < mine.blastDamage,
+    "...but it must still be the mine that empties a lane fastest",
+  );
+});
+
+test("a laid hazard is never left hanging over a barrier", () => {
+  // obstacles.js's drop(): "wherever that car was" says which LANE, not that a
+  // hazard may be drawn through the wall. Only bites on the wide ones — a mine
+  // laid at the edge was always inside the limit, which is why this went
+  // unnoticed until the spike strip.
+  const obstacles = new Obstacles(new Explosions());
+  for (const type of OBSTACLE_TYPES) {
+    const w = OBSTACLE_SHAPES[type.shape].size[0];
+    for (const edge of [-ROAD_HALF_WIDTH, ROAD_HALF_WIDTH]) {
+      obstacles.list.length = 0;
+      // A car pinned against the barrier — the worst case a drop can be given.
+      assert.ok(obstacles.drop(type, { worldY: 0, offset: edge, h: 60 }));
+      const o = obstacles.list[0];
+      assert.ok(
+        Math.abs(o.offset) + w / 2 <= ROAD_HALF_WIDTH + 1e-9,
+        `${type.id} laid at ${edge} reaches ${Math.abs(o.offset) + w / 2}, past the road's ${ROAD_HALF_WIDTH}`,
+      );
+    }
+  }
+});
+
+test("a laid-only hazard never turns up on the road by itself", () => {
+  // obstacletypes.js: a spike strip is somebody's deliberate act, and one
+  // appearing ahead of the player would read as the city trapping its own
+  // traffic. Rolled hard rather than reasoned about, because the failure mode
+  // is a rare roll rather than a wrong branch.
+  const laidOnly = OBSTACLE_TYPES.filter((t) => t.laidOnly);
+  assert.ok(laidOnly.length, "expected at least one laid-only hazard in the catalogue");
+  for (let i = 0; i < 2000; i++) {
+    const picked = pickObstacleType(Infinity);
+    assert.ok(!picked?.laidOnly, `the spawner rolled ${picked?.id}, which is laid-only`);
   }
 });
 
@@ -1458,6 +1671,161 @@ test("a rearward round travels back down the road and still hits", () => {
   assert.equal(taken, ENEMY_GUN.damage, "the round should have run down onto the car behind it");
   assert.ok(!s.alive, "and been consumed by the hit");
   assert.ok(s.worldY < 0, "it must have ended up behind where it was fired");
+});
+
+// --- Seeking, burning and piercing rounds ------------------------------------
+//
+// The three mechanics that stop the cannon, the tracker and the rocket from
+// being one weapon at three sets of numbers (weapons.js). Each is tested at the
+// level it lives at: what the CATALOGUE promises, and what projectiles.js does
+// with it.
+
+const ROCKET_TYPE = WEAPON_TYPES.find((t) => t.id === "rocket");
+const TRACKER_TYPE = WEAPON_TYPES.find((t) => t.id === "tracker");
+const SHOT_VIEW = { distance: 0, playerY: 496, W: 600, H: 800 };
+
+// A body of the shape projectiles.js resolves against, with enough hull to
+// need `hits` rounds of `damage` to put down.
+function dummy(worldY, offset, hits, damage, extra = {}) {
+  return {
+    worldY, offset, w: 34, h: 60, alive: true,
+    health: hits * damage,
+    taken: 0,
+    seekable: true,
+    damage(hp) {
+      this.taken += hp;
+      this.health -= hp;
+      if (this.health <= 0) this.alive = false;
+    },
+    ...extra,
+  };
+}
+
+test("a seeking round crosses the lanes to reach what it locked on to", () => {
+  // weapons.js's ROCKET: "goes where the TARGET is rather than where it was
+  // aimed". Fired dead ahead at nothing, up a lane the target is not in.
+  const shots = new Projectiles();
+  shots.spawn(0, 0, 400, ROCKET_TYPE, 600);
+  const car = dummy(700, 150, 1, ROCKET_TYPE.damage);
+
+  for (let i = 0; i < 200 && car.alive; i++) shots.update(1 / 60, [car], SHOT_VIEW);
+
+  assert.ok(!car.alive, "the rocket should have steered a lane and a half across to reach it");
+});
+
+test("a seeker cannot turn faster than its own turnRate", () => {
+  // The weapon's difficulty knob (weapons.js) — a seeker that could snap onto
+  // a target instantly would make every other weapon pointless.
+  const shots = new Projectiles();
+  const s = shots.spawn(0, 0, 400, ROCKET_TYPE, 600);
+  const car = dummy(900, 250, 1, ROCKET_TYPE.damage);
+
+  const dt = 1 / 60;
+  const before = s.offset;
+  shots.update(dt, [car], SHOT_VIEW);
+  assert.ok(s.offset > before, "it should have begun to turn toward the target");
+  assert.ok(
+    s.offset - before <= ROCKET_TYPE.turnRate * dt + 1e-9,
+    `a seeker turned ${s.offset - before} in one tick, past its own ${ROCKET_TYPE.turnRate}/sec`,
+  );
+});
+
+test("a seeker locks on to cars only, never to road furniture", () => {
+  // projectiles.js's seek(): `seekable` is opt-IN, and traffic.js's Car is the
+  // only thing that sets it. The player's gunfire is resolved against ONE flat
+  // list of cars and obstacles (main.js), so without this a rocket would turn
+  // across two lanes to chase a trestle.
+  const shots = new Projectiles();
+  const s = shots.spawn(0, 0, 400, ROCKET_TYPE, 600);
+  const trestle = dummy(700, 150, 1, ROCKET_TYPE.damage, { seekable: undefined });
+
+  for (let i = 0; i < 30; i++) shots.update(1 / 60, [trestle], SHOT_VIEW);
+
+  assert.equal(s.offset, 0, "the rocket must have held its line rather than chasing the obstacle");
+  assert.ok(trestle.alive, "and left it alone");
+});
+
+test("a rocket leaves the rail slowly and burns up to its top speed, and no further", () => {
+  // weapons.js's ROCKET: "A LAUNCH, NOT A SHOT" — worst weapon in the
+  // catalogue at point-blank, fastest at the far end of the road.
+  const shots = new Projectiles();
+  const shooter = 400;
+  const s = shots.spawn(0, 0, shooter, ROCKET_TYPE, 600);
+  assert.equal(s.speed, shooter + ROCKET_TYPE.muzzleSpeed, "it must launch at its muzzle speed");
+
+  const cannon = WEAPON_TYPES.find((t) => t.id === "cannon");
+  assert.ok(
+    ROCKET_TYPE.muzzleSpeed < cannon.muzzleSpeed && ROCKET_TYPE.topSpeed > cannon.muzzleSpeed,
+    "the burn must start below the cannon's round and finish above it, or it is just a slow bullet",
+  );
+
+  for (let i = 0; i < 300; i++) shots.update(1 / 60, [], SHOT_VIEW);
+  assert.equal(s.speed, shooter + ROCKET_TYPE.topSpeed, "the burn must reach the cap");
+  for (let i = 0; i < 60; i++) shots.update(1 / 60, [], SHOT_VIEW);
+  assert.equal(s.speed, shooter + ROCKET_TYPE.topSpeed, "and must not run past it");
+});
+
+test("a piercing round punches through what it kills and stops at what survives", () => {
+  // weapons.js's TRACKER: killing is the condition, so the heavy types still
+  // stop it dead and the rocket stays the answer to armour.
+  const shots = new Projectiles();
+  shots.spawn(0, 0, 400, TRACKER_TYPE, 600);
+  const first = dummy(300, 0, 1, TRACKER_TYPE.damage);   // dies to one round
+  const second = dummy(500, 0, 1, TRACKER_TYPE.damage);  // dies to one round
+  const rig = dummy(700, 0, 10, TRACKER_TYPE.damage);    // shrugs it off
+
+  for (let i = 0; i < 200; i++) shots.update(1 / 60, [first, second, rig], SHOT_VIEW);
+
+  assert.ok(!first.alive && !second.alive, "one round should have taken both light cars");
+  assert.ok(rig.alive, "and stopped at the heavy one");
+  assert.equal(rig.taken, TRACKER_TYPE.damage, "which must have been hit exactly once");
+});
+
+test("a piercing round's budget is for its whole life, not for each tick", () => {
+  // The bodies a round punches through may fall either side of a tick
+  // boundary, so a per-tick allowance would make `pierce` unbounded — see
+  // projectiles.js's update().
+  const shots = new Projectiles();
+  shots.spawn(0, 0, 400, TRACKER_TYPE, 600);
+  // One more body in the line than the round is allowed to kill, spread far
+  // enough apart that each falls in a different tick.
+  const line = [];
+  for (let i = 0; i <= TRACKER_TYPE.pierce + 1; i++) {
+    line.push(dummy(300 + i * 400, 0, 1, TRACKER_TYPE.damage));
+  }
+
+  for (let i = 0; i < 400; i++) shots.update(1 / 60, line, SHOT_VIEW);
+
+  const killed = line.filter((t) => !t.alive).length;
+  assert.equal(
+    killed, TRACKER_TYPE.pierce + 1,
+    `one round killed ${killed} cars, past its pierce budget of ${TRACKER_TYPE.pierce} + the first`,
+  );
+});
+
+test("the rocket's blast is the widest on the road, but never the hardest hit", () => {
+  // weapons.js: a hand-aimed warhead should out-REACH road furniture, but
+  // obstacletypes.js calls the mine's blastDamage "the single hardest hit
+  // anything on the road can deal" — and that claim has to stay true.
+  const mine = OBSTACLE_TYPES.find((t) => t.id === "caltrop");
+  const widest = Math.max(...OBSTACLE_TYPES.map((t) => t.blastRadius));
+  assert.ok(
+    ROCKET_TYPE.blastRadius > widest,
+    `the rocket's ${ROCKET_TYPE.blastRadius} no longer out-reaches the road's own ${widest}`,
+  );
+  for (const t of WEAPON_TYPES) {
+    assert.ok(
+      (t.blastDamage ?? 0) < mine.blastDamage,
+      `${t.id}'s blast now hits for ${t.blastDamage}, matching or beating the mine's ${mine.blastDamage}`,
+    );
+  }
+  // And the reach has to actually clear a car, which is what the old 44 never
+  // did — the shortest body in the catalogue is longer than that.
+  const shortest = Math.min(...CAR_TYPES.map((t) => t.h));
+  assert.ok(
+    ROCKET_TYPE.blastRadius > shortest,
+    `a blast of ${ROCKET_TYPE.blastRadius} cannot reach past the shortest car (${shortest})`,
+  );
 });
 
 // An armed hostile at the origin, with the player somewhere near it, driven

@@ -161,6 +161,30 @@ function drawMineGlyph(ctx, cx, cy) {
   glowPoly(ctx, ngon(cx, cy, r, 6), ENEMY_PALE, 1, 8, "#2a0a0a");
 }
 
+// Spikes: a short saw-toothed belt, the strip's own silhouette in miniature
+// (obstacleshapes.js's SPIKES). WIDE AND FLAT against the mine glyph's round
+// cluster just above — the two crates carry the same red family and the same
+// reticle, so the shape of the glyph is the only thing telling a strip refill
+// from a mine refill at speed. That is exactly the distinction the two hazards
+// have on the road, which is what makes it the right one to draw.
+function drawSpikesGlyph(ctx, cx, cy) {
+  const half = 8.5;
+  const spine = 1.6;
+  glowPoly(ctx, [
+    [cx - half, cy - spine], [cx + half, cy - spine],
+    [cx + half, cy + spine], [cx - half, cy + spine],
+  ], ENEMY, 1.2, 7, "#2a0a0a");
+  for (let i = 0; i < 5; i++) {
+    const x = cx - half + ((i + 0.5) / 5) * half * 2;
+    const dy = i % 2 === 0 ? -1 : 1;
+    glowPoly(ctx, [
+      [x, cy + dy * (spine + 4)],
+      [x - 2.2, cy + dy * spine],
+      [x + 2.2, cy + dy * spine],
+    ], ENEMY_PALE, 1, 8);
+  }
+}
+
 // Fix: a bright cross, a step brighter than world green so it reads as a
 // signal rather than as scenery.
 function drawFixGlyph(ctx, cx, cy) {
@@ -217,6 +241,15 @@ export const PICKUP_SHAPES = [
     draw(ctx, cx, cy, pulse) {
       drawReticle(ctx, cx, cy, pulse, RETICLE_GRAY);
       drawMineGlyph(ctx, cx, cy);
+    },
+  },
+  {
+    name: "SPIKES_AMMO",
+    size: [28, 28],
+    extent: { x: RETICLE_REACH, up: RETICLE_REACH, down: RETICLE_REACH },
+    draw(ctx, cx, cy, pulse) {
+      drawReticle(ctx, cx, cy, pulse, RETICLE_GRAY);
+      drawSpikesGlyph(ctx, cx, cy);
     },
   },
   {

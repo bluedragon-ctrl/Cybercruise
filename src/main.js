@@ -32,7 +32,7 @@ const hint = document.getElementById("hint");
 
 const MENU_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm";
 const PAUSE_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm &middot; ESC resume";
-const PLAY_HINT = "&larr;/&rarr; or A/D steer &middot; &uarr;/&darr; speed &middot; SPACE fire &middot; TAB weapon &middot; CTRL mine &middot; ESC pause";
+const PLAY_HINT = "&larr;/&rarr; or A/D steer &middot; &uarr;/&darr; speed &middot; SPACE fire &middot; TAB weapon &middot; CTRL deploy &middot; E select &middot; ESC pause";
 
 initInput();
 initMouse(canvas);
@@ -320,19 +320,25 @@ function update(dt) {
     shots.spawn(distance + player.h / 2, player.x - centerX, player.speed, weapon.type, W);
   }
 
-  // CTRL lays a mine from its own slot, independent of whichever gun is
-  // currently selected — no more tabbing onto the mine layer to drop one and
-  // back to a gun afterwards. Mirrors armament.js's own layMine: the drop is
-  // attempted BEFORE the round is spent, so a mine the road had no room for
+  // E cycles the DEPLOYABLES — the layers, on their own cursor, so picking a
+  // different thing to drop never disturbs which gun is in hand (weapons.js's
+  // Loadout). Edge-triggered like TAB, and a no-op while the mine is the only
+  // layer carried.
+  if (consumePress("deploy")) loadout.nextDeployable();
+
+  // CTRL lays whichever deployable is selected, independent of whichever gun
+  // is currently selected — no more tabbing onto the mine layer to drop one
+  // and back to a gun afterwards. Mirrors armament.js's own layMine: the drop
+  // is attempted BEFORE the round is spent, so a mine the road had no room for
   // (obstacles.js's MAX_LAID) costs the player nothing.
-  const mine = loadout.get("mine");
-  if (isDown("mine") && mine.ready) {
+  const deployable = loadout.deployable;
+  if (deployable && isDown("mine") && deployable.ready) {
     const centerX = road.centerXAt(distance, W);
     // The player, expressed as a body in road coordinates, is exactly what
     // obstacles.js's drop() wants — worldY/offset/h, the same shape a car
     // satisfies without an adapter.
     const body = { worldY: distance, offset: player.x - centerX, h: player.h };
-    if (obstacles.drop(obstacleTypeById(mine.type.payload), body)) mine.tryFire();
+    if (obstacles.drop(obstacleTypeById(deployable.type.payload), body)) deployable.tryFire();
   }
   // Traffic cars and road obstacles are both fair game for the PLAYER'S gunfire
   // — one flat list, built fresh each tick into the reused scratch array, so a
@@ -504,16 +510,22 @@ function drawHud() {
     ctx.restore();
   }
 
-  // MINE, below the hull bar rather than sharing a row with the weapon
-  // stack's cramped bottom line — its own key (CTRL) and its own magazine,
-  // kept out of the TAB cycle above (weapons.js's Loadout.next()), so it
-  // gets a permanent readout of its own rather than only showing up when it
-  // happens to be the weapon in hand. Coloured like the HULL label above it
-  // (GREEN_PALE) rather than its own bullet colour — the weapon stack is
-  // where "what colour is loaded" matters, this is just another gauge
-  // alongside the hull bar.
-  const mineWeapon = loadout.get("mine");
-  glowText(ctx, `MINE ${mineWeapon.ammoText}`, bx, by + bh + 6, GREEN_PALE, 13, "left", 8);
+  // THE SELECTED DEPLOYABLE, below the hull bar rather than sharing a row with
+  // the weapon stack's cramped bottom line — its own keys (CTRL to lay, E to
+  // cycle) and its own magazine, kept out of the TAB cycle above (weapons.js's
+  // Loadout.next()), so it gets a permanent readout of its own rather than
+  // only showing up when it happens to be the weapon in hand. Reads its LABEL
+  // off the weapon rather than printing "MINE", so a second deployable needs
+  // no change here. Coloured like the HULL label above it (GREEN_PALE) rather
+  // than its own bullet colour — the weapon stack is where "what colour is
+  // loaded" matters, this is just another gauge alongside the hull bar.
+  const deployable = loadout.deployable;
+  if (deployable) {
+    glowText(
+      ctx, `${deployable.type.label} ${deployable.ammoText}`,
+      bx, by + bh + 6, GREEN_PALE, 13, "left", 8,
+    );
+  }
 }
 
 function render(alpha) {

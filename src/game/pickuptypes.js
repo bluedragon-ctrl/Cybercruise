@@ -55,7 +55,8 @@ export const PICKUP_TYPES = [
     shape: pickupShapeIndex("TRACER_AMMO"),
     kind: AMMO,
     weaponId: "tracker",
-    amount: 24, // 40% of the tracker's 60-round magazine
+    amount: 48, // 40% of the tracker's 120-round magazine — six of its
+                // eight-round bursts (weapons.js)
     weight: 1,
     minDistance: 0,
     color: PLAYER_THRUST, // the tracker weapon's own bullet colour
@@ -77,6 +78,24 @@ export const PICKUP_TYPES = [
     // what the crate's own glyph is drawn in instead — the mine hazard's
     // established red (obstacleshapes.js) — so the burst echoes what the
     // player just saw on the crate, not the HUD text they didn't look at.
+    color: ENEMY,
+  },
+  {
+    id: "spikes_ammo",
+    label: "SPIKES+",
+    shape: pickupShapeIndex("SPIKES_AMMO"),
+    kind: AMMO,
+    weaponId: "spikes",
+    // ONE STRIP, against the mine crate's two. The strip's whole balance is
+    // its three-round magazine (weapons.js) — a road the player can keep
+    // permanently belted is a road nothing can chase them down — so its refill
+    // has to be the stingiest in the catalogue, not proportional to a magazine
+    // that is deliberately tiny. 33% here against the others' 36-40%.
+    amount: 1,
+    weight: 1,
+    minDistance: 0,
+    // ENEMY, matching the crate's own glyph and the hazard's red on the road,
+    // for exactly the reason the mine crate below gives.
     color: ENEMY,
   },
   {

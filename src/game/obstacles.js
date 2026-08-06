@@ -193,8 +193,13 @@ class RoadObstacle {
   // reach into `type.blastDamage` — a later hazard that hurts by some other
   // means than a blast can then answer the same question without behaviours.js
   // learning anything new about obstacles.
+  // `threat` may be stated OUTRIGHT by a type that hurts by some other means
+  // than a blast — which is the case this comment already anticipated, now
+  // real: the spike strip barely scratches a car and must still be given a
+  // wide berth, so it names its own figure rather than being read as harmless
+  // (obstacletypes.js).
   get threat() {
-    return this.type.blastDamage;
+    return this.type.threat ?? this.type.blastDamage;
   }
 
   // Take `amount` hull damage — the interface projectiles.js's targets need.
@@ -307,6 +312,24 @@ export class Obstacles {
       o.pulseTime += dt;
       const hitPlayer = overlaps(o, playerBox);
       const hitCars = cars.filter((c) => c.alive && overlaps(o, c));
+
+      // A STRIP IS NOT CONSUMED BY THE CAR THAT FINDS IT (obstacletypes.js's
+      // `effect`). Everything else here breaks on first contact — that is what
+      // makes a mine a one-shot event — but a belt of teeth lying across two
+      // lanes is a hazard the whole road has to deal with, and one that
+      // vanished under the first car would be a mine that took five seconds to
+      // pay out. So this branch takes no `health`, sets no `alive`, and never
+      // reaches detonate() below.
+      if (o.type.effect === "spikes") {
+        for (const c of hitCars) c.puncture(o.type);
+        // NO PLAYER CASE, and it is unreachable rather than unwritten: a strip
+        // is `laidOnly` (obstacletypes.js), the player is the only thing that
+        // lays one, drop() puts it BEHIND the layer, and the player cannot
+        // reverse. If a hostile layer ever carries these, this is the one line
+        // that has to grow a Player.puncture to match.
+        continue;
+      }
+
       if (hitPlayer || hitCars.length) {
         if (hitPlayer) player.speed = ramSpeed(player.speed, PLAYER_MASS, o.type.mass);
         for (const c of hitCars) c.speed = ramSpeed(c.speed, c.mass, o.type.mass);
@@ -352,12 +375,26 @@ export class Obstacles {
   // A laid mine still COUNTS against the passage rule for later spawns, so the
   // road can be narrowed by enemy action but never sealed by the spawner adding
   // to it.
+  // ...but it is still put ON THE ROAD. "Wherever that car was" is a statement
+  // about which lane, not a licence to hang half a hazard over a barrier: a
+  // laid obstacle is a physical object, and one drawn through the wall reads as
+  // a rendering fault rather than as a bold drop. The narrow hazards never
+  // noticed — a mine is 26 wide and a car near the edge is already inside the
+  // limit — but the spike strip is 2.4 lanes across, so laying one while
+  // hugging a barrier put a third of it off the tarmac.
+  //
+  // Clamped to the box's own half-width, the SAME limit placementOffsets uses
+  // for a spawned hazard. It never refuses the drop: sliding a wide strip back
+  // onto the road is the right answer, where rejecting it would make the
+  // weapon silently fail exactly where a player most wants to use it.
   drop(type, body) {
     if (!type || this.count(true) >= MAX_LAID) return false;
-    const [, h] = OBSTACLE_SHAPES[type.shape].size;
+    const [w, h] = OBSTACLE_SHAPES[type.shape].size;
     const worldY = body.worldY - (body.h + h) / 2 - DROP_CLEARANCE;
+    const limit = Math.max(0, ROAD_HALF_WIDTH - w / 2);
+    const offset = Math.max(-limit, Math.min(limit, body.offset));
 
-    const o = new RoadObstacle(type, worldY, body.offset);
+    const o = new RoadObstacle(type, worldY, offset);
     o.laid = true;
     this.list.push(o);
     return true;

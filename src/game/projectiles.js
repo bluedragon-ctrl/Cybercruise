@@ -5,7 +5,7 @@
 // keeps a shot welded to the tarmac it was fired over. Cars are compared against
 // with plain arithmetic because everything is in the same two numbers.
 //
-// TWO WAYS TO FLY, and the difference is entirely in what is held CONSTANT as
+// THREE WAYS TO FLY, and the difference is entirely in what is held CONSTANT as
 // the bullet runs up the road (see weapons.js for which weapon takes which):
 //
 //   FLIGHT_TRACKING  `offset` is constant. The bullet keeps its distance from
@@ -17,10 +17,22 @@
 //                    the line it was fired along and the road slides out from
 //                    under it — which means that into a bend it crosses the
 //                    lanes and eventually hits the barrier, where it dies.
+//   FLIGHT_SEEKING   NOTHING is held. `offset` is steered, at a capped lateral
+//                    rate, toward whatever the round has locked on to — so the
+//                    round leaves its own lane and crosses to the target's.
+//                    Like tracking it is road-relative and can never meet a
+//                    barrier; unlike tracking it does not stay where it was
+//                    aimed. See `seek()` below for what it will lock on to.
 //
 // Deriving offset for the straight case rather than tracking a screen position
-// separately is what keeps ONE hit test and ONE render path for both: by the
-// time anything reads `offset`, it is correct for this tick either way.
+// separately is what keeps ONE hit test and ONE render path for all three: by
+// the time anything reads `offset`, it is correct for this tick either way.
+//
+// SPEED IS NOT NECESSARILY CONSTANT. A weapon may name an `accel` (weapons.js's
+// ROCKET), in which case the round leaves the rail slowly and builds to its own
+// `topSpeed` over the flight. Every consumer below reads `s.speed` per tick
+// anyway, so this costs one line in update() and nothing else — but it is what
+// makes a launch read as a launch rather than as a slower bullet.
 //
 // SPEED IS ABSOLUTE. A bullet stores the speed it actually travels at — the
 // shooter's speed plus the weapon's muzzle speed — rather than a speed relative
@@ -46,8 +58,12 @@
 // segment crosses several cars the NEAREST one is what stops it. Nothing here
 // depends on the tick rate.
 //
-// ONE BULLET, ONE CAR. A hit is consumed: the bullet dies where it struck. Shots
-// that punch through (a railgun) would be a weapon-type flag, not a change here.
+// ONE BULLET, ONE CAR — unless the weapon says otherwise. A hit is ordinarily
+// consumed: the bullet dies where it struck. A weapon carrying `pierce`
+// (weapons.js's TRACKER) instead punches through anything its round KILLS and
+// carries on down the same segment, up to `pierce` extra bodies. Killing is the
+// condition on purpose: a round that shrugged off a rig it barely scratched
+// would make the heavy types stop reading as heavy.
 //
 // WHO CAN BE HIT is the CALLER'S choice — update() takes the list of targets.
 // This file has no idea what a faction is, which is what lets enemy bullets
@@ -59,11 +75,28 @@
 
 import { neonStroke } from "../engine/neon.js";
 import { centerXAt, headingAt, ROAD_HALF_WIDTH } from "./road.js";
-import { FLIGHT_TRACKING } from "./weapons.js";
+import { FLIGHT_TRACKING, FLIGHT_SEEKING } from "./weapons.js";
 
 const MAX_SHOTS = 32;  // in flight at once. The cannon fires ~6/sec and a shot
                        // lives well under a second, so this is roomy
 const MAX_SPARKS = 12; // impact flashes alive at once
+
+// --- Seeking (FLIGHT_SEEKING, see the header) ---------------------------------
+//
+// How far up the road a seeking round will look for something to lock on to,
+// and how far off its own line that something may be. The range is generous —
+// a rocket fired at nothing in particular should still find the car that
+// appears ahead of it.
+//
+// The CONE is the full width of the road, DERIVED rather than picked, so
+// anything actually on the tarmac can be locked on to from anywhere else on
+// it. What rations a lock is the weapon's own `turnRate` (weapons.js), not
+// this: a rocket may lock on to a car three lanes over and still fail to reach
+// it before both are past each other, and that is the interesting outcome. A
+// tighter cone here would instead refuse the lock outright, which reads to the
+// player as the rocket simply not working.
+const SEEK_RANGE = 1100; // world units ahead of the round
+const SEEK_CONE = ROAD_HALF_WIDTH * 2; // lateral units either side of its own offset
 
 const SPARK_DURATION = 0.12; // seconds
 const SPARK_SIZE = 9;        // px the impact flash reaches at its widest
@@ -158,9 +191,19 @@ export class Projectiles {
       prevWorldY: 0, // where it was last tick — the near end of the swept test
       offset: 0,     // lateral px from the centre-line. AUTHORITATIVE for hits
                      // and drawing; derived per tick when the flight is straight
-      tracking: false, // FLIGHT_TRACKING — hold `offset` instead of `screenX`
+      tracking: false, // road-relative flight (TRACKING or SEEKING) — hold
+                       // `offset` rather than `screenX`
+      seeking: false,  // FLIGHT_SEEKING — steer `offset` toward `target`
+      target: null,    // what a seeking round has locked on to, or null
+      turnRate: 0,     // lateral units/sec a seeking round may steer
       screenX: 0,    // the fired line, for a straight shot. Unused when tracking
-      speed: 0,      // absolute, world units/sec
+      speed: 0,      // absolute, world units/sec — CHANGES over the flight when
+                     // `accel` is set, so nothing may cache it
+      dir: 1,        // +1 fired up the road, -1 back down it. Only `accel` reads
+                     // it; the speed itself already carries its own sign
+      accel: 0,      // world units/sec², along `dir`. 0 = a constant-speed round
+      speedCap: 0,   // absolute speed `accel` builds to. Unused when accel is 0
+      pierce: 0,     // extra bodies this round may punch through after a KILL
       damage: 0,
       length: 14,
       width: 4,
@@ -201,9 +244,20 @@ export class Projectiles {
     s.worldY = worldY;
     s.prevWorldY = worldY;
     s.offset = offset;
-    s.tracking = type.flight === FLIGHT_TRACKING;
+    // A SEEKING round is road-relative exactly as a tracking one is — it holds
+    // an offset rather than a screen line, and steers that offset. Everything
+    // downstream (the hit test, the barrier check, the drawn heading) reads
+    // `tracking`, so seeking gets all of it for free and only adds the steer.
+    s.tracking = type.flight === FLIGHT_TRACKING || type.flight === FLIGHT_SEEKING;
+    s.seeking = type.flight === FLIGHT_SEEKING;
+    s.target = null; // acquired on the first update tick, where the targets are
+    s.turnRate = type.turnRate ?? 0;
     s.screenX = centerXAt(worldY, W) + offset;
     s.speed = shooterSpeed + dir * type.muzzleSpeed;
+    s.dir = dir;
+    s.accel = type.accel ?? 0;
+    s.speedCap = shooterSpeed + dir * (type.topSpeed ?? type.muzzleSpeed);
+    s.pierce = type.pierce ?? 0;
     s.damage = type.damage;
     s.length = type.length;
     s.width = type.width;
@@ -228,8 +282,32 @@ export class Projectiles {
 
     for (const s of this.shots) {
       if (!s.alive) continue;
+
+      // The burn, BEFORE the step it pays for — a round that names an `accel`
+      // builds toward its own top speed along the direction it was fired. The
+      // cap is signed with `dir`, so a rearward round accelerates DOWN the
+      // number line to its cap rather than up to it.
+      if (s.accel) {
+        s.speed += s.dir * s.accel * dt;
+        s.speed = s.dir > 0 ? Math.min(s.speed, s.speedCap) : Math.max(s.speed, s.speedCap);
+      }
+
       s.prevWorldY = s.worldY;
       s.worldY += s.speed * dt;
+
+      // The steer, AFTER the step — so a seeking round corrects against where
+      // it now is rather than where it was, and the hit test below sees the
+      // offset it actually flew to this tick.
+      if (s.seeking) {
+        if (!s.target || !s.target.alive || (s.target.worldY - s.worldY) * s.dir <= 0) {
+          s.target = this.seek(s, targets);
+        }
+        if (s.target) {
+          const step = s.turnRate * dt;
+          const want = s.target.offset - s.offset;
+          s.offset += Math.max(-step, Math.min(step, want));
+        }
+      }
 
       // A straight shot holds its screen line, so its offset has to be re-derived
       // against the road that has just curved under it. Done BEFORE the hit test,
@@ -246,17 +324,35 @@ export class Projectiles {
         }
       }
 
-      const hit = this.firstHit(s, targets);
-      if (hit) {
+      // A PIERCING round resolves every body on its segment in turn, not just
+      // the first — it only stops at one it failed to kill. An ordinary round
+      // has pierce 0 and leaves this loop on its first hit, exactly as before
+      // the field existed.
+      // `s.pierce` is SPENT DOWN, not read against a per-tick counter: the
+      // budget is for the round's whole LIFE, not for one tick of it. A tick
+      // is an implementation detail of the simulation and the two cars a round
+      // punches through may well fall either side of one, so a per-tick
+      // allowance would quietly make pierce unbounded.
+      while (s.alive) {
+        const hit = this.firstHit(s, targets);
+        if (!hit) break;
         hit.damage(s.damage);
+        if (s.pierce > 0 && !hit.alive) {
+          // Through it and onward. The flash sits on the body it passed
+          // through rather than at the round's own position, so a burst that
+          // punches a line of cars marks each one.
+          s.pierce -= 1;
+          this.spark(hit.worldY, s.offset, s.glow);
+          continue;
+        }
         // The flash goes where the BULLET stopped, not at the car's centre, so
         // a long rig shows hits along its flank rather than one spot amidships.
         // `hit` is passed through so a splash weapon (below) doesn't double-hit
         // the thing it struck directly — that already took the full s.damage.
         this.detonate(s.worldY, s.offset, s, targets, hit);
         s.alive = false;
-        continue;
       }
+      if (!s.alive) continue;
 
       if (s.worldY > ahead || s.worldY < behind) s.alive = false;
     }
@@ -268,9 +364,39 @@ export class Projectiles {
     }
   }
 
+  // What a SEEKING round (see the header) will lock on to: the nearest body
+  // ahead of it, inside SEEK_RANGE and SEEK_CONE, that is worth chasing.
+  //
+  // ONLY CARS, never road furniture. `seekable` is set by traffic.js's Car and
+  // by nothing else, so a rocket cannot be talked into turning across two lanes
+  // to chase a trestle — which would be both useless and, since the player
+  // aimed at a car, a betrayal of the shot they took. The flag is opt-IN rather
+  // than a list of exclusions here, so anything added to the target list later
+  // (drones, the helicopter) has to say for itself whether it can be locked on.
+  seek(s, targets) {
+    let best = null;
+    let bestDist = Infinity;
+    for (const t of targets) {
+      if (!t.alive || !t.seekable) continue;
+      const ahead = (t.worldY - s.worldY) * s.dir;
+      if (ahead <= 0 || ahead > SEEK_RANGE) continue;
+      if (Math.abs(t.offset - s.offset) > SEEK_CONE) continue;
+      if (ahead < bestDist) {
+        bestDist = ahead;
+        best = t;
+      }
+    }
+    return best;
+  }
+
   // The nearest target the bullet's path crossed this tick, or null. "Nearest"
   // is measured from where the bullet CAME FROM, so a shot that would reach two
   // cars in one tick stops at the first one.
+  //
+  // SAFE TO CALL REPEATEDLY for the same shot in the same tick, which is what a
+  // piercing round does (see update): a round only pierces something it KILLED,
+  // and a dead body fails the `alive` test on the next call — so the "already
+  // punched through" list that would otherwise be needed here doesn't exist.
   firstHit(s, targets) {
     let best = null;
     let bestEntry = Infinity;

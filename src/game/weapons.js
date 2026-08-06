@@ -43,11 +43,18 @@ import { PLAYER, PLAYER_THRUST, ENEMY, ENEMY_THRUST, ROCKET, ROCKET_HOT } from "
 //             follows every curve the road takes and stays in the lane it was
 //             fired up. It can shoot round a bend, which no straight shot can,
 //             and it can never hit a barrier.
+//   SEEKING   the round holds NOTHING. It locks on to the nearest car ahead and
+//             steers its offset across the lanes to meet it, at the capped rate
+//             its `turnRate` names. Where a tracking round goes where you AIMED
+//             it, a seeking round goes where the TARGET is — which is the whole
+//             difference between the tracker and the rocket, and the reason the
+//             two stopped being the same weapon at different numbers.
 //
-// projectiles.js implements both; this constant is the whole difference between
-// them at the catalogue level.
+// projectiles.js implements all three; this constant is the whole difference
+// between them at the catalogue level.
 export const FLIGHT_STRAIGHT = "straight";
 export const FLIGHT_TRACKING = "tracking";
+export const FLIGHT_SEEKING = "seeking";
 
 // Fields:
 //   id          stable key (save data, pickup tables, debugging)
@@ -70,7 +77,21 @@ export const FLIGHT_TRACKING = "tracking";
 //               THE SHOOTER. A bullet's absolute speed is the shooter's speed
 //               plus this, so firing while flat out doesn't leave your own
 //               rounds hanging in front of you
-//   flight      FLIGHT_STRAIGHT | FLIGHT_TRACKING — see above
+//   accel       OPTIONAL. World units/sec² the round gains along the line it
+//               was fired, up to `topSpeed`. Omitted (or 0) means a
+//               constant-speed round, exactly as every weapon was before this
+//               field existed. A LOW muzzleSpeed against a HIGH accel is what
+//               makes a launch read as a launch — see ROCKET
+//   topSpeed    OPTIONAL, only read when accel is set (defaults to muzzleSpeed,
+//               i.e. no burn). The relative speed the burn builds to
+//   turnRate    OPTIONAL, only read for FLIGHT_SEEKING. Lateral units/sec the
+//               round may steer toward what it has locked on to. This is the
+//               weapon's whole difficulty knob: a big number is unmissable, a
+//               small one can be out-driven by a car changing lanes
+//   pierce      OPTIONAL. Extra bodies the round may punch through AFTER it
+//               kills one — see projectiles.js's update(). Omitted (or 0) is
+//               "one bullet, one car", which is every weapon here but TRACKER
+//   flight      FLIGHT_STRAIGHT | FLIGHT_TRACKING | FLIGHT_SEEKING — see above
 //   forwardOnly OPTIONAL, hostile guns only (armament.js's shoot()). When
 //               true, the gun never takes the rearward shot at a target
 //               behind the shooter — there is no dir -1 for it, only "no
@@ -128,18 +149,37 @@ export const WEAPON_TYPES = [
   {
     id: "tracker",
     label: "TRACKER",
-    // Hits harder and slower than the cannon, and every round follows the road
-    // round the bend. Its value is entirely SITUATIONAL: on a straight it is a
-    // worse cannon, and through a long curve it is the only thing that can
-    // reach the car ahead at all.
-    damage: 54, // +20% over the original 45
-    interval: 0.24, // ~4 shots/sec
+    // SUSTAINED LANE FIRE — a hose you walk up a curve, not a heavier cannon.
+    // It used to be exactly that: one round every 0.24s for 54 damage, which
+    // read as "the cannon, harder and slower", and the only thing telling it
+    // apart from the cannon was a flight mode that is invisible on a straight
+    // road. The two fields below (burst) and `pierce` are what give it a verb
+    // of its own. Its value stays SITUATIONAL — on a straight the cannon is
+    // still the better tap-fire weapon — but through a long curve this is the
+    // only thing that can rake a whole lane.
+    damage: 22,
+    // A 0.35s SPRAY, THEN A 0.6s REST. Eight rounds at 22 is 176 damage a
+    // cycle against the cannon's ~256 over the same second — LOWER sustained
+    // damage, deliberately, because the burst lands it all in one place at one
+    // moment and pierce can multiply it across a line of cars. The machinery is
+    // the SMG's (ENEMY_WEAPON_TYPES below), not a second burst implementation.
+    interval: 0.6,       // rest between bursts
+    burstCount: 8,       // rounds per burst
+    burstInterval: 0.05, // seconds between rounds within a burst
     muzzleSpeed: 820,
     flight: FLIGHT_TRACKING,
-    // FINITE, and there is nowhere to refill it until the Phase 5 pickups land:
-    // 60 rounds is roughly fifteen seconds of held trigger. Running dry and
-    // dropping back to the cannon is the intended arc for now, not a bug.
-    ammo: 60,
+    // PUNCHES THROUGH what it kills, up to two more bodies (projectiles.js's
+    // update). This is the pay-off for the low per-round damage: fired up a
+    // lane with three civilians nose to tail, one burst can take the lot,
+    // which nothing else in the catalogue can do. It is NOT a way through the
+    // heavy types — the round only continues if it actually killed, so a rig
+    // (220 hull) stops it dead, and the rocket stays the answer to armour.
+    pierce: 2,
+    // FINITE. DOUBLED from 60 with the retune above: rounds are now worth a
+    // third of what they were each, so the old magazine would have emptied in
+    // seven bursts. 120 is fifteen bursts — the same "running dry and dropping
+    // back to the cannon" arc the old figure was chosen for, at the new rate.
+    ammo: 120,
     color: PLAYER_THRUST,
     glow: PLAYER,
     length: 16,
@@ -160,9 +200,10 @@ export const WEAPON_TYPES = [
     // quietly stopping being a one-shot weapon against the lightest thing on
     // the road.
     damage: 98, // +50% over the original 65
-    // ~2.86 shots/sec — still the slowest-firing of the three (cannon ~6.25,
-    // tracker ~4.17), but faster than the round's OWN flight time across the
-    // screen (~0.7s at this muzzleSpeed from the player's muzzle). That
+    // ~2.86 shots/sec — still the slowest-firing of the three, but faster than
+    // the round's OWN flight time across the screen (still comfortably so
+    // after the burn retune below: the rocket spends its first ~0.3s barely
+    // clearing the player's nose). That
     // relationship is what actually matters here, not the raw number: at the
     // original 0.8s a rocket had already crossed off-screen by the time the
     // next one fired, so however long you held the trigger only one was ever
@@ -170,11 +211,36 @@ export const WEAPON_TYPES = [
     // render mode existing at all (see DART_BODY there: "several can be in
     // the air at once"). This keeps two or more comfortably overlapping.
     interval: 0.35,
-    // Slower off the rail than the cannon or tracker — it is a heavier round,
-    // not a faster one, and STRAIGHT flight (below) means the player is
-    // already choosing to aim rather than to curve round a bend with it.
-    muzzleSpeed: 700,
-    flight: FLIGHT_STRAIGHT,
+    // A LAUNCH, NOT A SHOT. It leaves the rail at less than half the cannon's
+    // speed and then burns to well past it — so at point-blank range the rocket
+    // is genuinely the WORST weapon in the catalogue (the cannon's round is
+    // already there while this one is still lighting up), and at the far end of
+    // the road it is the fastest thing the player owns. That trade is the
+    // rocket's own, and it costs nothing to draw: projectiles.js's dart body
+    // already has a burner on it.
+    muzzleSpeed: 320,
+    accel: 1500,
+    topSpeed: 1200, // ~0.6s of burn to reach it, ~290 units of road spent doing so
+    // SEEKING — the one weapon that goes where the TARGET is rather than where
+    // it was aimed. This is what finally separates the rocket from the tracker:
+    // the tracker holds the lane you fired it up, this crosses the lanes to
+    // meet a car that is trying to leave. Fire-and-forget, and the reason the
+    // heavy round is worth its magazine even though it is slow off the rail.
+    //
+    // It is ALSO why this weapon will still make sense against the air content
+    // to come (helicopter, drones): a target that changes lanes faster than
+    // anything on the tarmac is precisely what a straight or lane-locked round
+    // cannot answer, and what a seeker can. The lock is opt-in per body
+    // (projectiles.js's `seekable`), so those types choose for themselves
+    // whether they can be locked on — no change here when they land.
+    flight: FLIGHT_SEEKING,
+    // OUT-DRIVEABLE ON PURPOSE, and this is the weapon's difficulty knob. 260
+    // lateral units/sec against the road's own lane width means the rocket
+    // takes roughly a third of a second to cross one lane — enough to catch a
+    // car holding its line or drifting, not enough to catch one that commits to
+    // a hard change the moment it sees the launch. A seeker that could not be
+    // dodged would make the rocket the only weapon worth carrying.
+    turnRate: 260,
     // FINITE — at ~2.86 shots/sec this empties in under 20s of held trigger,
     // same "use it, don't lean on it" intent as before, just retimed to match
     // the faster reload above.
@@ -190,14 +256,21 @@ export const WEAPON_TYPES = [
     // Detonates into a fireball (effects.js's drawFireballBurst) instead of the
     // ordinary spark — the one true fire-coloured explosion in the game.
     impact: "fireball",
-    // Splash: whatever else is standing near the impact takes damage too, not
-    // just whatever the round directly struck. Radius sits mid-table against
-    // the obstacle catalogue's (26-66) and stays DELIBERATELY under the mine's
-    // 30 — obstacletypes.js calls that "the single hardest hit anything on the
-    // road can deal", and a hand-fired weapon topping it would quietly make
-    // that claim false.
-    blastRadius: 44,
-    blastDamage: 20,
+    // Splash, and the ONLY splash the player can aim. At the old 44 this
+    // quietly did nothing: the shortest car in the catalogue is 54 long, so a
+    // radius under half that almost never reached a second body, and the
+    // rocket's "clears a pack" billing was a comment rather than a mechanic.
+    // 90 reaches past the car it struck to the one alongside or behind it, and
+    // that is the whole point of carrying it into traffic.
+    //
+    // WIDEST ON THE ROAD, HARDEST STILL NOT. This now tops the obstacle
+    // catalogue's radii (26-66, obstacletypes.js) — deliberately, because a
+    // hand-aimed warhead should out-reach road furniture. What it must NOT do
+    // is out-HIT the mine: obstacletypes.js calls the mine's 30 "the single
+    // hardest hit anything on the road can deal", so blastDamage stays under
+    // it. The rocket is the widest blast in the game; the mine is the meanest.
+    blastRadius: 90,
+    blastDamage: 26,
   },
   {
     id: "mine",
@@ -232,6 +305,37 @@ export const WEAPON_TYPES = [
     // muzzleSpeed/render/impact mean nothing here and main.js never reads them
     // for this weapon. color/glow still matter: the HUD readout (main.js's
     // drawHud) reads weapon.type.color for every weapon alike, mine included.
+    color: PLAYER_THRUST,
+    glow: PLAYER,
+  },
+  {
+    id: "spikes",
+    label: "SPIKES",
+    // THE SECOND LAYER, and the first weapon in the game that is not trying to
+    // destroy anything. Where the mine above kills what is chasing you, this
+    // takes its SPEED: a car that crosses the belt limps at 150 for five
+    // seconds (obstacletypes.js), drops out of gun range, and is simply no
+    // longer part of the fight. It is also 2.4 lanes wide against the mine's
+    // 26px — the mine is a point you dodge, this is a wall you go around.
+    //
+    // Its existence is why the deploy cycle (Loadout.nextDeployable, E) exists
+    // rather than the mine owning the CTRL key outright.
+    payload: "spikes",
+    // THE MAGAZINE IS THE WHOLE BALANCE OF THIS WEAPON. A strip is not dodged
+    // so much as routed around, and a player who could keep one on the road at
+    // all times would make the road behind them permanently impassable — so
+    // what stops it being oppressive is that there are THREE, not that any one
+    // of them is weak. Two fewer than the mine's five for that reason, despite
+    // being the gentler hazard of the pair.
+    ammo: 3,
+    // Slower than the mine's 1s. A strip is a lane-wide commitment laid at a
+    // moment you chose, not something to sprinkle — and at three rounds the
+    // magazine would otherwise be gone inside three seconds of a held key.
+    interval: 2.5,
+    // HUD-only, as with the mine above: a strip never flies. Deliberately the
+    // same pair the mine uses — both are read by main.js's weapon list for the
+    // deployable readout, and a second colour there would imply a difference
+    // in how they are USED rather than in what they do.
     color: PLAYER_THRUST,
     glow: PLAYER,
   },
@@ -472,14 +576,37 @@ export class Weapon {
 // Cooldowns run for the WHOLE loadout, not just the weapon in hand (see
 // update), so swapping cannot be used to dodge a slow weapon's fire rate by
 // flicking away and back.
+// TWO CYCLES, NOT ONE, and the split is by what a weapon PUTS INTO THE WORLD
+// rather than by any flag naming the cycle itself. Anything with a `payload` is
+// a LAYER (the mine, and the deployables to come) and lives on its own cycle
+// under its own key; everything else is a GUN and lives on TAB's. `next()` and
+// `nextDeployable()` are the same walk over the same array, filtered opposite
+// ways — so adding a second layer to WEAPON_TYPES puts it on the deployable
+// cycle automatically, with nothing here to update.
+//
+// The two cycles keep INDEPENDENT cursors: laying a mine must never disturb
+// which gun is in hand, which was the whole reason the mine got its own key in
+// the first place.
 export class Loadout {
   constructor(types = WEAPON_TYPES) {
     this.weapons = types.map((t) => new Weapon(t));
     this.index = 0;
+    // First layer in the catalogue, or -1 if there are none. Not 0: index 0 is
+    // a gun, and a `deployable` that silently returned the cannon would let the
+    // deploy key fire it.
+    this.deployIndex = this.weapons.findIndex((w) => w.type.payload);
   }
 
   get current() {
     return this.weapons[this.index];
+  }
+
+  // The layer selected right now, or null if the loadout carries none. Null
+  // rather than a throw: a catalogue with no layer in it is a legitimate
+  // loadout (the enemy's Armament builds one), and every caller already has to
+  // handle "nothing to deploy" for the frame before one is picked up.
+  get deployable() {
+    return this.deployIndex >= 0 ? this.weapons[this.deployIndex] : null;
   }
 
   // Look up a carried weapon by its catalogue id, not its position — used by
@@ -503,6 +630,24 @@ export class Loadout {
       }
     }
     return this.current;
+  }
+
+  // LAYERS ONLY — the same walk as next(), filtered the other way. A no-op
+  // while the mine is the only layer carried, which is deliberate: the key
+  // works from the day it is bound rather than appearing along with the second
+  // deployable, so nothing about the controls changes under the player when
+  // one is added.
+  nextDeployable() {
+    if (this.deployIndex < 0) return null;
+    const n = this.weapons.length;
+    for (let i = 1; i <= n; i++) {
+      const idx = (this.deployIndex + i) % n;
+      if (this.weapons[idx].type.payload) {
+        this.deployIndex = idx;
+        break;
+      }
+    }
+    return this.deployable;
   }
 
   update(dt) {
