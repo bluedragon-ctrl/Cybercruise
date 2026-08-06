@@ -4,6 +4,7 @@
 
 import { createLoop } from "./engine/loop.js";
 import { initInput, isDown, consumePress } from "./engine/input.js";
+import { initMouse } from "./engine/mouse.js";
 import { clear, glowText } from "./engine/neon.js";
 import { GREEN, GREEN_BRIGHT, GREEN_PALE, HAZARD, PLAYER, SHIELD_FLICKER } from "./engine/palette.js";
 import { Player } from "./game/player.js";
@@ -31,9 +32,10 @@ const hint = document.getElementById("hint");
 
 const MENU_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm";
 const PAUSE_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm &middot; ESC resume";
-const PLAY_HINT = "&larr;/&rarr; or A/D steer &middot; &uarr;/&darr; speed &middot; SPACE fire &middot; TAB weapon &middot; ESC pause";
+const PLAY_HINT = "&larr;/&rarr; or A/D steer &middot; &uarr;/&darr; speed &middot; SPACE fire &middot; TAB weapon &middot; CTRL mine &middot; ESC pause";
 
 initInput();
+initMouse(canvas);
 
 // Top-level game state: the menu owns the screen until START GAME/CONTINUE is
 // picked, then main's own update/render (unchanged below) take over. "menu"
@@ -53,11 +55,11 @@ let state = "menu"; // "menu" | "playing" | "paused" | "dying" | "gameover"
 // Phase 8's first slice: procedural synthwave music (src/audio/synth.js).
 // `music.start()` is only ever called below, from inside the "fire" press
 // that confirms START GAME — see synth.js's header for why it must follow a
-// real user gesture. `musicFlag` mirrors menu.js's MUSIC toggle so
-// setEnabled() only fires on an actual change rather than every frame the
-// menu is open (that would retrigger its volume ramp 60x/sec — see setEnabled).
+// real user gesture. `musicVolume` mirrors menu.js's MUSIC level so
+// setVolume() only fires on an actual change rather than every frame the
+// menu is open (that would retrigger its ramp 60x/sec — see setVolume).
 const music = createMusic();
-let musicFlag = menu.musicOn();
+let musicVolume = menu.musicVolume();
 
 // The death sequence (game/disconnect.js). One instance, reused across
 // restarts via reset() — see newGame() below — the same way `menu` itself is
@@ -186,18 +188,18 @@ function dropMine(car, type) {
 
 function update(dt) {
   if (state === "menu") {
-    if (menu.update()) {
+    if (menu.update(W)) {
       state = "playing";
       hint.innerHTML = PLAY_HINT;
       // The keypress that just confirmed START GAME is the user gesture
       // AudioContext creation needs — see synth.js's header.
       music.start();
     }
-    // Only pushed to the engine on an actual change (see musicFlag above) —
+    // Only pushed to the engine on an actual change (see musicVolume above) —
     // the MUSIC row can only have moved on the update() call just above.
-    if (menu.musicOn() !== musicFlag) {
-      musicFlag = menu.musicOn();
-      music.setEnabled(musicFlag);
+    if (menu.musicVolume() !== musicVolume) {
+      musicVolume = menu.musicVolume();
+      music.setVolume(musicVolume);
     }
     return;
   }
@@ -211,13 +213,13 @@ function update(dt) {
       hint.innerHTML = PLAY_HINT;
       return;
     }
-    if (menu.update()) {
+    if (menu.update(W)) {
       state = "playing";
       hint.innerHTML = PLAY_HINT;
     }
-    if (menu.musicOn() !== musicFlag) {
-      musicFlag = menu.musicOn();
-      music.setEnabled(musicFlag);
+    if (menu.musicVolume() !== musicVolume) {
+      musicVolume = menu.musicVolume();
+      music.setVolume(musicVolume);
     }
     return;
   }
@@ -241,14 +243,14 @@ function update(dt) {
     // Same screen, same interaction as "paused" above — RESTART is row 0's
     // label here (menu.js's ROW0_LABEL) the way CONTINUE is there — except
     // confirming it starts a fresh run instead of resuming a frozen one.
-    if (menu.update()) {
+    if (menu.update(W)) {
       newGame();
       state = "playing";
       hint.innerHTML = PLAY_HINT;
     }
-    if (menu.musicOn() !== musicFlag) {
-      musicFlag = menu.musicOn();
-      music.setEnabled(musicFlag);
+    if (menu.musicVolume() !== musicVolume) {
+      musicVolume = menu.musicVolume();
+      music.setVolume(musicVolume);
     }
     return;
   }
@@ -277,31 +279,35 @@ function update(dt) {
   // Shooting, BEFORE traffic: a bullet that kills a car this tick leaves that
   // car dead when traffic.update runs, so it detonates and scores in the same
   // frame it was hit rather than a frame later.
-  // TAB cycles the loadout. Edge-triggered (consumePress, not isDown) so holding
-  // the key selects one weapon rather than riffling through them every frame.
+  // TAB cycles the loadout — GUNS ONLY (Loadout.next() skips the mine layer on
+  // purpose, see weapons.js). Edge-triggered (consumePress, not isDown) so
+  // holding the key selects one weapon rather than riffling through them
+  // every frame.
   if (consumePress("swap")) loadout.next();
 
   loadout.update(dt);
   const weapon = loadout.current;
-  if (isDown("fire") && weapon.ready) {
+  if (isDown("fire") && weapon.ready && weapon.tryFire()) {
     // The muzzle is the car's nose, in road coordinates — the player's screen x
-    // re-based on the centre-line, exactly as collisions.js does it.
+    // re-based on the centre-line, exactly as collisions.js does it. What the
+    // bullet does with it from here is the weapon's flight mode's business.
     const centerX = road.centerXAt(distance, W);
-    if (weapon.type.payload) {
-      // A mine layer, not a gun (weapons.js's "mine" entry) — dropped behind
-      // the player instead of fired ahead. Mirrors armament.js's own layMine:
-      // the drop is attempted BEFORE the round is spent, so a mine the road
-      // had no room for (obstacles.js's MAX_LAID) costs the player nothing.
-      // The player, expressed as a body in road coordinates, is exactly what
-      // obstacles.js's drop() wants — worldY/offset/h, the same shape a car
-      // satisfies without an adapter.
-      const body = { worldY: distance, offset: player.x - centerX, h: player.h };
-      if (obstacles.drop(obstacleTypeById(weapon.type.payload), body)) weapon.tryFire();
-    } else if (weapon.tryFire()) {
-      // What the bullet does with the muzzle position from here is the
-      // weapon's flight mode's business.
-      shots.spawn(distance + player.h / 2, player.x - centerX, player.speed, weapon.type, W);
-    }
+    shots.spawn(distance + player.h / 2, player.x - centerX, player.speed, weapon.type, W);
+  }
+
+  // CTRL lays a mine from its own slot, independent of whichever gun is
+  // currently selected — no more tabbing onto the mine layer to drop one and
+  // back to a gun afterwards. Mirrors armament.js's own layMine: the drop is
+  // attempted BEFORE the round is spent, so a mine the road had no room for
+  // (obstacles.js's MAX_LAID) costs the player nothing.
+  const mine = loadout.get("mine");
+  if (isDown("mine") && mine.ready) {
+    const centerX = road.centerXAt(distance, W);
+    // The player, expressed as a body in road coordinates, is exactly what
+    // obstacles.js's drop() wants — worldY/offset/h, the same shape a car
+    // satisfies without an adapter.
+    const body = { worldY: distance, offset: player.x - centerX, h: player.h };
+    if (obstacles.drop(obstacleTypeById(mine.type.payload), body)) mine.tryFire();
   }
   // Traffic cars and road obstacles are both fair game for the PLAYER'S gunfire
   // — one flat list, built fresh each tick into the reused scratch array, so a
@@ -412,6 +418,22 @@ function drawHud() {
     weapon.empty ? HAZARD : weapon.type.color,
     13,
     "left",
+    8,
+  );
+
+  // MINE, on the same line, right-aligned to the bar — its own key (CTRL) and
+  // its own magazine, kept out of the TAB cycle above (weapons.js's Loadout.
+  // next()), so it gets a permanent readout of its own rather than only
+  // showing up when it happens to be the weapon in hand.
+  const mineWeapon = loadout.get("mine");
+  glowText(
+    ctx,
+    `MINE ${mineWeapon.ammoText}`,
+    bx + bw,
+    by - 36,
+    mineWeapon.empty ? HAZARD : mineWeapon.type.color,
+    13,
+    "right",
     8,
   );
 

@@ -4,8 +4,8 @@
 // and never repeats identically because nothing is a recording.
 //
 // main.js owns WHEN this plays: it calls start() the instant the player first
-// confirms START GAME (menu.js's "fire" press), and calls setEnabled() to
-// mirror menu.js's MUSIC toggle. This module never reads menu.js or
+// confirms START GAME (menu.js's "fire" press), and calls setVolume() to
+// mirror menu.js's MUSIC volume. This module never reads menu.js or
 // localStorage itself — same wiring pattern as fireShot/dropMine in main.js,
 // where the owning module (menu.js) stays ignorant of the system it's wired
 // into.
@@ -71,7 +71,7 @@ let timerId = null;
 let nextStepTime = 0;
 let currentStep = 0;
 let started = false;
-let enabled = true; // mirrors menu.js's MUSIC flag; settable before start() too, see setEnabled()
+let volume = 1; // mirrors menu.js's MUSIC level (0..1); settable before start() too, see setVolume()
 
 // One second of white noise, sliced by a short gain envelope per hit rather
 // than regenerated — snare/hat are both just this buffer through a different
@@ -89,7 +89,7 @@ function buildNoiseBuffer(audioCtx) {
 // without it.
 function buildGraph() {
   masterGain = ctx.createGain();
-  masterGain.gain.value = enabled ? MASTER_VOLUME : 0;
+  masterGain.gain.value = MASTER_VOLUME * volume;
 
   const compressor = ctx.createDynamicsCompressor();
   masterGain.connect(compressor).connect(ctx.destination);
@@ -244,7 +244,7 @@ function scheduler() {
 
 // Call once, from inside a user-gesture-driven state change (see header). A
 // second call is a no-op — the loop this starts runs for the rest of the page
-// life; setEnabled() is how it goes quiet, not a stop/restart.
+// life; setVolume() is how it goes quiet, not a stop/restart.
 function start() {
   if (started) return;
   started = true;
@@ -256,16 +256,17 @@ function start() {
   timerId = setInterval(scheduler, LOOKAHEAD_MS);
 }
 
-// Mirrors menu.js's MUSIC toggle. Safe to call before start() (just updates
-// `enabled` for buildGraph() to pick up); after start(), ramps masterGain
-// rather than snapping it, so toggling mid-note doesn't click.
-function setEnabled(on) {
-  enabled = on;
+// Mirrors menu.js's MUSIC volume (0..1). Safe to call before start() (just
+// updates `volume` for buildGraph() to pick up); after start(), ramps
+// masterGain rather than snapping it, so a drag on the menu's volume bar
+// doesn't click on every step.
+function setVolume(level) {
+  volume = level;
   if (!ctx) return;
   const t = ctx.currentTime;
   masterGain.gain.cancelScheduledValues(t);
   masterGain.gain.setValueAtTime(masterGain.gain.value, t);
-  masterGain.gain.linearRampToValueAtTime(enabled ? MASTER_VOLUME : 0, t + 0.15);
+  masterGain.gain.linearRampToValueAtTime(MASTER_VOLUME * volume, t + 0.15);
 }
 
 // --- One-shot SFX -------------------------------------------------------
@@ -318,5 +319,5 @@ function playDisconnect() {
 }
 
 export function createMusic() {
-  return { start, setEnabled, playDisconnect };
+  return { start, setVolume, playDisconnect };
 }
