@@ -5,15 +5,21 @@ import {
   buildAllCarState,
   buildObstacleState,
   buildAllObstacleState,
+  buildPickupState,
+  buildAllPickupState,
   CAR_IDS,
   BEHAVIOR_FIELDS,
   HULL_SPEED_FIELDS,
   SPAWN_FIELDS,
   OBSTACLE_IDS,
   OBSTACLE_FIELDS,
+  PICKUP_IDS,
+  PICKUP_SPAWN_FIELDS,
+  PICKUP_EFFECT_FIELDS,
 } from "../tools/car-editor/state.js";
 import { CAR_TYPES } from "../src/game/cartypes.js";
 import { OBSTACLE_TYPES } from "../src/game/obstacletypes.js";
+import { PICKUP_TYPES } from "../src/game/pickuptypes.js";
 
 const HOSTILE_IDS = CAR_TYPES.filter((t) => t.faction === "enemy").map((t) => t.id);
 
@@ -112,4 +118,54 @@ test("buildObstacleState returns weight and minDistance", () => {
 
 test("buildObstacleState throws for an obstacle id outside the catalogue", () => {
   assert.throws(() => buildObstacleState("ghost"), /unknown obstacle id "ghost"/);
+});
+
+test("buildAllPickupState returns every pickup in the catalogue", () => {
+  const all = buildAllPickupState();
+  assert.deepEqual(
+    all.map((p) => p.id).sort(),
+    [...PICKUP_IDS].sort()
+  );
+  assert.deepEqual(PICKUP_IDS, PICKUP_TYPES.map((t) => t.id));
+});
+
+test("buildPickupState returns weight and minDistance", () => {
+  const state = buildPickupState("fix");
+  assert.equal(state.label, "FIX");
+  for (const field of PICKUP_SPAWN_FIELDS) {
+    assert.equal(typeof state.spawn[field], "number", `missing spawn field ${field}`);
+  }
+});
+
+test("buildPickupState reports amount for an AMMO pickup, not duration", () => {
+  const state = buildPickupState("rocket_ammo");
+  assert.equal(state.kind, "ammo");
+  assert.equal(typeof state.effect.amount, "number");
+  assert.ok(!("duration" in state.effect));
+});
+
+test("buildPickupState reports amount for the HEAL pickup", () => {
+  const state = buildPickupState("fix");
+  assert.equal(state.kind, "heal");
+  assert.equal(typeof state.effect.amount, "number");
+  assert.ok(!("duration" in state.effect));
+});
+
+test("buildPickupState reports duration for the SHIELD pickup, not amount", () => {
+  const state = buildPickupState("shield");
+  assert.equal(state.kind, "shield");
+  assert.equal(typeof state.effect.duration, "number");
+  assert.ok(!("amount" in state.effect));
+});
+
+test("buildAllPickupState covers every kind with the effect fields PICKUP_EFFECT_FIELDS declares", () => {
+  for (const state of buildAllPickupState()) {
+    const effectKeys = Object.keys(state.effect);
+    assert.equal(effectKeys.length, 1, `${state.id} should report exactly one effect field`);
+    assert.ok(PICKUP_EFFECT_FIELDS.includes(effectKeys[0]));
+  }
+});
+
+test("buildPickupState throws for a pickup id outside the catalogue", () => {
+  assert.throws(() => buildPickupState("ghost"), /unknown pickup id "ghost"/);
 });

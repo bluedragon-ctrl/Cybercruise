@@ -6,9 +6,11 @@ import {
   patchCarType,
   patchDrivingProfile,
   patchObstacleType,
+  patchPickupType,
 } from "../tools/car-editor/patcher.js";
 import { CAR_TYPES } from "../src/game/cartypes.js";
 import { OBSTACLE_TYPES } from "../src/game/obstacletypes.js";
+import { PICKUP_TYPES } from "../src/game/pickuptypes.js";
 
 test("findMatchingBrace finds the matching closing brace", () => {
   const text = "before { inner } after";
@@ -284,4 +286,84 @@ test("patchObstacleType works against the real src/game/obstacletypes.js", () =>
   // one number changing, whatever minDistance happens to be tuned to right now.
   const currentMinDistance = OBSTACLE_TYPES.find((t) => t.id === "trestle").minDistance;
   assert.equal(result.length - realSource.length, "40".length - String(currentMinDistance).length);
+});
+
+const SAMPLE_PICKUPTYPES = `export const PICKUP_TYPES = [
+  {
+    id: "fix",
+    kind: HEAL,
+    amount: 70,
+    weight: 1,
+    minDistance: 0,
+  },
+  {
+    id: "shield",
+    kind: SHIELD,
+    duration: 5,
+    weight: 1,
+    minDistance: 0, // rare
+  },
+];
+`;
+
+test("patchPickupType replaces weight and minDistance without touching other fields", () => {
+  const result = patchPickupType(SAMPLE_PICKUPTYPES, "shield", { weight: 0.5, minDistance: 30 });
+  assert.match(result, /id: "shield",\n {4}kind: SHIELD,\n {4}duration: 5,\n {4}weight: 0.5,\n {4}minDistance: 30, \/\/ rare/);
+  assert.match(result, /id: "fix",\n {4}kind: HEAL,\n {4}amount: 70,\n {4}weight: 1,/); // untouched
+});
+
+test("patchPickupType throws for an unknown pickup id", () => {
+  assert.throws(
+    () => patchPickupType(SAMPLE_PICKUPTYPES, "ghost", { weight: 1 }),
+    /no entry with id "ghost"/
+  );
+});
+
+test("patchPickupType throws for a field not present on the entry", () => {
+  assert.throws(
+    () => patchPickupType(SAMPLE_PICKUPTYPES, "fix", { blastDamage: 10 }),
+    /field "blastDamage" not found/
+  );
+});
+
+test("patchPickupType works against the real src/game/pickuptypes.js", () => {
+  const realSource = readFileSync(
+    new URL("../src/game/pickuptypes.js", import.meta.url),
+    "utf8"
+  );
+  const result = patchPickupType(realSource, "fix", { minDistance: 40 });
+  assert.match(result, /id: "fix",[\s\S]*?minDistance: 40,/);
+  // The rest of the file must be untouched — same length delta as exactly
+  // one number changing, whatever minDistance happens to be tuned to right now.
+  const currentMinDistance = PICKUP_TYPES.find((t) => t.id === "fix").minDistance;
+  assert.equal(result.length - realSource.length, "40".length - String(currentMinDistance).length);
+});
+
+test("patchPickupType replaces amount on an AMMO/HEAL pickup", () => {
+  const result = patchPickupType(SAMPLE_PICKUPTYPES, "fix", { amount: 90 });
+  assert.match(result, /id: "fix",\n {4}kind: HEAL,\n {4}amount: 90,/);
+});
+
+test("patchPickupType replaces duration on the SHIELD pickup", () => {
+  const result = patchPickupType(SAMPLE_PICKUPTYPES, "shield", { duration: 8 });
+  assert.match(result, /id: "shield",\n {4}kind: SHIELD,\n {4}duration: 8,/);
+});
+
+test("patchPickupType throws when asked to patch duration on an entry that only has amount", () => {
+  assert.throws(
+    () => patchPickupType(SAMPLE_PICKUPTYPES, "fix", { duration: 3 }),
+    /field "duration" not found/
+  );
+});
+
+test("patchPickupType works against the real src/game/pickuptypes.js for amount and duration", () => {
+  const realSource = readFileSync(
+    new URL("../src/game/pickuptypes.js", import.meta.url),
+    "utf8"
+  );
+  const amountResult = patchPickupType(realSource, "fix", { amount: 90 });
+  assert.match(amountResult, /id: "fix",[\s\S]*?amount: 90,/);
+
+  const durationResult = patchPickupType(realSource, "shield", { duration: 8 });
+  assert.match(durationResult, /id: "shield",[\s\S]*?duration: 8,/);
 });
