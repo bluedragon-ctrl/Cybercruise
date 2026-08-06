@@ -234,8 +234,11 @@ export class PlayerBody {
   get w() { return this.player.w; }
   get h() { return this.player.h; }
 
-  // Never false: running out of hull is Phase 6's problem, and a removed player
-  // would simply stop colliding.
+  // Never false. A hull running out doesn't remove the player from this
+  // solver at all — it ends the "playing" state one level up in main.js,
+  // which stops calling traffic.update() (and so this solver) entirely for
+  // the rest of the run. The one tick where health actually reaches zero has
+  // already had its collisions resolved by the time anything checks for it.
   get alive() { return true; }
 
   get offset() { return this.player.x - this.centerX; }
