@@ -55,11 +55,13 @@ let state = "menu"; // "menu" | "playing" | "paused" | "dying" | "gameover"
 // Phase 8's first slice: procedural synthwave music (src/audio/synth.js).
 // `music.start()` is only ever called below, from inside the "fire" press
 // that confirms START GAME — see synth.js's header for why it must follow a
-// real user gesture. `musicVolume` mirrors menu.js's MUSIC level so
-// setVolume() only fires on an actual change rather than every frame the
-// menu is open (that would retrigger its ramp 60x/sec — see setVolume).
+// real user gesture. `musicVolume`/`soundVolume` mirror menu.js's MUSIC and
+// SOUND levels so setVolume()/setSfxVolume() only fire on an actual change
+// rather than every frame the menu is open (that would retrigger their ramps
+// 60x/sec — see setVolume).
 const music = createMusic();
 let musicVolume = menu.musicVolume();
+let soundVolume = menu.soundVolume();
 
 // The death sequence (game/disconnect.js). One instance, reused across
 // restarts via reset() — see newGame() below — the same way `menu` itself is
@@ -195,11 +197,16 @@ function update(dt) {
       // AudioContext creation needs — see synth.js's header.
       music.start();
     }
-    // Only pushed to the engine on an actual change (see musicVolume above) —
-    // the MUSIC row can only have moved on the update() call just above.
+    // Only pushed to the engine on an actual change (see musicVolume/
+    // soundVolume above) — the MUSIC/SOUND rows can only have moved on the
+    // update() call just above.
     if (menu.musicVolume() !== musicVolume) {
       musicVolume = menu.musicVolume();
       music.setVolume(musicVolume);
+    }
+    if (menu.soundVolume() !== soundVolume) {
+      soundVolume = menu.soundVolume();
+      music.setSfxVolume(soundVolume);
     }
     return;
   }
@@ -220,6 +227,10 @@ function update(dt) {
     if (menu.musicVolume() !== musicVolume) {
       musicVolume = menu.musicVolume();
       music.setVolume(musicVolume);
+    }
+    if (menu.soundVolume() !== soundVolume) {
+      soundVolume = menu.soundVolume();
+      music.setSfxVolume(soundVolume);
     }
     return;
   }
@@ -261,6 +272,10 @@ function update(dt) {
     if (menu.musicVolume() !== musicVolume) {
       musicVolume = menu.musicVolume();
       music.setVolume(musicVolume);
+    }
+    if (menu.soundVolume() !== soundVolume) {
+      soundVolume = menu.soundVolume();
+      music.setSfxVolume(soundVolume);
     }
     return;
   }
@@ -376,7 +391,7 @@ function update(dt) {
   if (player.health <= 0) {
     state = "dying";
     disconnect.trigger(player.x, player.y, player.w, player.h);
-    if (menu.soundOn()) music.playDisconnect();
+    if (soundVolume > 0) music.playDisconnect();
     hint.innerHTML = "";
   }
 }

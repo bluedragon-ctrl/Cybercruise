@@ -4,11 +4,11 @@
 // and never repeats identically because nothing is a recording.
 //
 // main.js owns WHEN this plays: it calls start() the instant the player first
-// confirms START GAME (menu.js's "fire" press), and calls setVolume() to
-// mirror menu.js's MUSIC volume. This module never reads menu.js or
-// localStorage itself — same wiring pattern as fireShot/dropMine in main.js,
-// where the owning module (menu.js) stays ignorant of the system it's wired
-// into.
+// confirms START GAME (menu.js's "fire" press), and calls setVolume() /
+// setSfxVolume() to mirror menu.js's MUSIC and SOUND levels respectively.
+// This module never reads menu.js or localStorage itself — same wiring
+// pattern as fireShot/dropMine in main.js, where the owning module (menu.js)
+// stays ignorant of the system it's wired into.
 //
 // IMPORTANT BROWSER CONTRACT: an AudioContext is born (or stays) "suspended"
 // unless created/resumed inside the aftermath of a real user gesture — see
@@ -64,6 +64,7 @@ function noteFreq(midi) {
 // start() has run — nothing schedules a note before then.
 let ctx = null;
 let masterGain = null;
+let sfxGain = null;
 let noiseBuffer = null;
 let delay = null;
 
@@ -72,6 +73,7 @@ let nextStepTime = 0;
 let currentStep = 0;
 let started = false;
 let volume = 1; // mirrors menu.js's MUSIC level (0..1); settable before start() too, see setVolume()
+let sfxVolume = 1; // mirrors menu.js's SOUND level (0..1); settable before start() too, see setSfxVolume()
 
 // One second of white noise, sliced by a short gain envelope per hit rather
 // than regenerated — snare/hat are both just this buffer through a different
@@ -84,15 +86,22 @@ function buildNoiseBuffer(audioCtx) {
 }
 
 // Master bus + the shared delay ("slapback echo") every lead note is sent
-// into. A DynamicsCompressor sits after masterGain purely as a safety net —
-// kick/snare/bass/lead can all land on the same instant and sum past 0dB
+// into, plus a SEPARATE sfxGain bus for one-shot SFX (playDisconnect) so the
+// SOUND slider scales them independently of the MUSIC slider — both feed the
+// same DynamicsCompressor, which sits after them purely as a safety net:
+// kick/snare/bass/lead/SFX can all land on the same instant and sum past 0dB
 // without it.
 function buildGraph() {
   masterGain = ctx.createGain();
   masterGain.gain.value = MASTER_VOLUME * volume;
 
+  sfxGain = ctx.createGain();
+  sfxGain.gain.value = MASTER_VOLUME * sfxVolume;
+
   const compressor = ctx.createDynamicsCompressor();
-  masterGain.connect(compressor).connect(ctx.destination);
+  masterGain.connect(compressor);
+  sfxGain.connect(compressor);
+  compressor.connect(ctx.destination);
 
   // Feedback delay tuned to a dotted-8th-ish tap (3 steps) with the repeats
   // darkened on each pass, the classic gated-synth "trailing echo" rather than
@@ -269,15 +278,29 @@ function setVolume(level) {
   masterGain.gain.linearRampToValueAtTime(MASTER_VOLUME * volume, t + 0.15);
 }
 
+// Mirrors menu.js's SOUND level (0..1) — same contract as setVolume() above,
+// just for the sfxGain bus one-shot SFX (playDisconnect) route through
+// instead of masterGain, so SOUND and MUSIC scale independently.
+function setSfxVolume(level) {
+  sfxVolume = level;
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  sfxGain.gain.cancelScheduledValues(t);
+  sfxGain.gain.setValueAtTime(sfxGain.gain.value, t);
+  sfxGain.gain.linearRampToValueAtTime(MASTER_VOLUME * sfxVolume, t + 0.15);
+}
+
 // --- One-shot SFX -------------------------------------------------------
 // The first (and so far only) sound effect: the player's own connection
 // dropping (game/disconnect.js). A noise burst under a fast downward-sweeping
 // tone — the feed cutting to static while the carrier loses lock — rather
 // than an explosion thump, because the car isn't destroyed, the LINK is (see
 // disconnect.js's header). Built the same one-shot-node way every voice above
-// is; only exists once start() has run (ctx/masterGain/noiseBuffer are all
+// is; only exists once start() has run (ctx/sfxGain/noiseBuffer are all
 // module state built by buildGraph(), see the header), so main.js must only
-// call this after the player has actually started a game.
+// call this after the player has actually started a game. Routes through
+// sfxGain, not masterGain — see setSfxVolume — so it scales with menu.js's
+// SOUND level rather than MUSIC.
 //
 // Both envelopes below trail out to roughly disconnect.js's CAR_GLITCH_END
 // (~1.4s into its 2.6s sequence) rather than the sequence's own opening beat —
@@ -299,7 +322,7 @@ function playDisconnect() {
   const noiseGain = ctx.createGain();
   noiseGain.gain.setValueAtTime(0.5, t);
   noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
-  src.connect(band).connect(noiseGain).connect(masterGain);
+  src.connect(band).connect(noiseGain).connect(sfxGain);
   src.start(t);
   src.stop(t + 1.15);
 
@@ -313,11 +336,11 @@ function playDisconnect() {
   toneGain.gain.setValueAtTime(0.001, t);
   toneGain.gain.exponentialRampToValueAtTime(0.3, t + 0.03);
   toneGain.gain.exponentialRampToValueAtTime(0.001, t + 1.3);
-  osc.connect(toneGain).connect(masterGain);
+  osc.connect(toneGain).connect(sfxGain);
   osc.start(t);
   osc.stop(t + 1.35);
 }
 
 export function createMusic() {
-  return { start, setVolume, playDisconnect };
+  return { start, setVolume, setSfxVolume, playDisconnect };
 }
