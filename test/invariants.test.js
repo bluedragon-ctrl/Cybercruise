@@ -44,7 +44,9 @@ import {
   gridPhase, GRID_SPACING, STREET_WIDTH, STREET_INSET,
   trafficDots, crossStreetBands, avenueCenters, visibleBuildings,
   DOT_SPACING, DOT_SPEED_A, DOT_SPEED_B, DOT_LANE_PHASE,
+  FLOOR_PARALLAX,
 } from "../src/game/scenery.js";
+import { droneField, DRONE_PARALLAX } from "../src/game/drones.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import {
   CELL, PLOT, LOT, LOT_SUBDIV, ARTERIAL_PERIOD, lotAt, lotColumns, lotRows, lotX, lotY, plotColumns,
@@ -710,6 +712,88 @@ test("the floor's traffic-dot count stays bounded", () => {
       }
     }
   }
+});
+
+// --- Air traffic / drones (Phase 7c) ------------------------------------------
+//
+// Same split as the traffic-dot tests above: everything here runs against
+// droneField, the pure function (see drones.js's own header), never against
+// its drawing side.
+
+test("air traffic stratifies between the floor and the road", () => {
+  // The whole point of this layer (see the design doc's 7c section): floor at
+  // FLOOR_PARALLAX, road/entities at 1, drones strictly between the two.
+  assert.ok(DRONE_PARALLAX > FLOOR_PARALLAX, "drones must scroll faster than the floor");
+  assert.ok(DRONE_PARALLAX < 1, "drones must scroll slower than the road");
+});
+
+test("the drone layer's count stays bounded", () => {
+  // Mirrors the floor traffic-dot count test above: pinned with slack above
+  // the observed range (5-30 across a wide distance/playerY/clock sweep — see
+  // this file's own probe), so a future retune of the row/group spacing can't
+  // quietly let this grow toward the "not a hundred" the design doc warns
+  // against.
+  for (const playerY of [0, 250, 496, 803]) {
+    for (let distance = 0; distance < 20000; distance += 733) {
+      for (const clock of [0, 3.3, 17.9, 123.4, 987.6]) {
+        const count = droneField(clock, distance, playerY, 600, 800).length;
+        assert.ok(count <= 50, `air traffic grew to ${count} drones per frame`);
+      }
+    }
+  }
+});
+
+test("a drone's ground shadow gap stays bounded however far the run has gone", () => {
+  // The naive "one world point, two parallax rates" mechanism this shadow
+  // uses is NOT bounded in raw distance (see drones.js's own comment on
+  // DRONE_ALTITUDE_MAX for the failure this guards: 1000+px within a couple
+  // thousand world units without the cap). Every drone's shadowY must stay
+  // within DRONE_ALTITUDE_MAX of its own y, at distances the game plausibly
+  // reaches in one run.
+  const DRONE_ALTITUDE_MAX = 14; // mirrors the private constant in drones.js —
+                                  // duplicated here deliberately so the test
+                                  // pins the CONTRACT (a bounded gap) rather
+                                  // than importing the implementation detail
+                                  // it's meant to be checking independently of
+  for (const distance of [0, 500, 5000, 50000, 500000]) {
+    const drones = droneField(12.3, distance, 400, 600, 800);
+    for (const d of drones) {
+      const gap = Math.abs(d.shadowY - d.y);
+      assert.ok(gap <= DRONE_ALTITUDE_MAX + 1e-9, `shadow gap ${gap} exceeded the cap at distance=${distance}`);
+    }
+  }
+});
+
+test("every visible drone sits on or off screen consistently with its own bound", () => {
+  // droneField's own on-screen filter is the actual correctness gate (see its
+  // header) — this just asserts every drone it DOES emit is within the margin
+  // it claims to bound itself to, across a wide sweep, rather than trusting
+  // the row-walk heuristic above it to never leak an off-screen candidate.
+  const MARGIN = 10; // mirrors drones.js's own DRONE_MARGIN
+  const W = 600, H = 800;
+  for (const playerY of [0, 496, 803]) {
+    for (let distance = 0; distance < 8000; distance += 517) {
+      for (const d of droneField(distance * 0.01, distance, playerY, W, H)) {
+        assert.ok(d.x >= -MARGIN - 1e-6 && d.x <= W + MARGIN + 1e-6, `drone x=${d.x} outside the visible span`);
+        assert.ok(d.y >= -MARGIN - 1e-6 && d.y <= H + MARGIN + 1e-6, `drone y=${d.y} outside the visible span`);
+      }
+    }
+  }
+});
+
+test("a formation's nav lights blink rather than staying on or off forever", () => {
+  // Sampling the SAME scene across a clock sweep, both lit and unlit drones
+  // must show up — a blink that never toggled (a phase bug, or BLINK_ON
+  // pinned to the whole period) would be invisible to eye-only testing.
+  let sawLit = false, sawUnlit = false;
+  for (let clock = 0; clock < 30; clock += 0.037) {
+    for (const d of droneField(clock, 3000, 450, 600, 800)) {
+      if (d.lit) sawLit = true; else sawUnlit = true;
+    }
+    if (sawLit && sawUnlit) break;
+  }
+  assert.ok(sawLit, "no drone was ever lit across the clock sweep");
+  assert.ok(sawUnlit, "no drone was ever unlit across the clock sweep — the blink never toggles");
 });
 
 // --- Ramming physics ---------------------------------------------------------

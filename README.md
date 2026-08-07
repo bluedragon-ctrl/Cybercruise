@@ -543,7 +543,10 @@ history interleaves phase features with side-steps into earlier phases' code.
   - [x] **7a** — Street network: `reserve()` claims avenues and cross-streets, all
         baked into the one floor tile. Unlocks everything below
   - [x] **7b** — Traffic dots: cars as a pure function of time, batched, unglowed
-  - [ ] **7c** — Far field: a third, slower parallax layer — one more tile
+  - [x] **7c** — Drone air traffic: small flying drones between the floor and
+        the road, own diagonal headings, batched, unglowed. (Originally a
+        static "far field" tile — built, rejected: see the design doc's 7c
+        section for why a static layer doesn't sell depth here.)
   - [ ] **7d** — Nodes and markers: a reserved plot type, sprite-cached
   - [ ] **7e** — Links and pings: conduits with packet dots, expanding signal rings
   - [ ] **7f** — Zone highlights and sector labels (baked, never live `fillText`)

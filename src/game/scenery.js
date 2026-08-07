@@ -408,7 +408,12 @@ function drawFloorBuildings(ctx, fDist, playerY, W, H) {
 // against the screen in place of it — see laneDotPositions' `carry`) — each
 // lane slides along its OWN street, never across it.
 
-let clock = 0;
+// Exported as a live binding (not a getter) so game/drones.js can read "now"
+// off the SAME clock these dots run on, rather than keeping a second one —
+// the two layers freeze together on pause/death for the same reason the dots
+// freeze with the rest of "playing" (see update() below). Read-only to an
+// importer; only update() is allowed to advance it.
+export let clock = 0;
 
 // Advances the floor's traffic clock. Called from main.js's update() alongside
 // every other per-run system — NOT from render(), which must stay a pure
@@ -477,7 +482,12 @@ const DOT_WID = 2; // short axis, across it
 // speed was measured against the SCREEN, not the WORLD, which is wrong the
 // moment the floor itself is also moving along that same axis — see
 // trafficDots' avenue loop for the failure that shipped without this term.
-function laneDotPositions(spacing, speed, clockValue, lo, hi, phase = 0, carry = 0) {
+// Exported so game/drones.js can place its own formations along a diagonal
+// flight line with the exact same "positions along a lane, bounded to the
+// visible span" arithmetic, rather than a second copy of it — the shape of
+// the problem (an infinite evenly-spaced sequence, walked only where it's on
+// screen) is identical, only the axis it's measured along differs.
+export function laneDotPositions(spacing, speed, clockValue, lo, hi, phase = 0, carry = 0) {
   const shift = clockValue * speed + phase + carry;
   const iMin = Math.ceil((lo - shift) / spacing);
   const iMax = Math.floor((hi - shift) / spacing);

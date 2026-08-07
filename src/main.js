@@ -23,6 +23,7 @@ import { createMenu } from "./game/menu.js";
 import { createMusic } from "./audio/synth.js";
 import * as road from "./game/road.js";
 import * as scenery from "./game/scenery.js";
+import * as drones from "./game/drones.js";
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -587,6 +588,10 @@ function render(alpha) {
   // ribbon paints an opaque surface over it, then the player on top. The floor
   // runs on its own half-speed clock and rounds it itself — see scenery.render.
   scenery.render(ctx, camY, player.y, W, H);
+  // Air traffic (Phase 7c): between the floor and the road, so it draws after
+  // the whole scenery layer (grid, buildings, floor traffic) and before the
+  // road ribbon paints its own opaque foreground over everything below it.
+  drones.render(ctx, camY, player.y, W, H);
   road.render(ctx, camY, player.y, W, H);
   // Obstacles before traffic, so a car passing over one is never hidden
   // underneath it; traffic before the player, so the player's car is never
