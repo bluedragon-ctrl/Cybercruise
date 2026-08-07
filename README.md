@@ -533,7 +533,7 @@ history interleaves phase features with side-steps into earlier phases' code.
       the driver is jacked into a deck, so the city is symbolic blocks, simplified
       streets, dot-sized cars and signal markers. Design and per-sub-phase notes:
       `docs/superpowers/specs/2026-08-07-city-map-layer-design.md`.
-  - [ ] **7a** — Street network: `reserve()` claims avenues and cross-streets, all
+  - [x] **7a** — Street network: `reserve()` claims avenues and cross-streets, all
         baked into the one floor tile. Unlocks everything below
   - [ ] **7b** — Traffic dots: cars as a pure function of time, batched, unglowed
   - [ ] **7c** — Far field: a third, slower parallax layer — one more tile

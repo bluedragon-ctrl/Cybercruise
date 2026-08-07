@@ -18,6 +18,13 @@ export const GREEN_DIM = "#1f8f52";    // muted green (faint fills / far scenery
 export const GRID_LINE = "rgba(57,255,136,0.22)";    // grid backdrop in the asset gallery
 export const FLOOR_GRID = "rgba(57,255,136,0.14)";   // the LOWER city floor grid (dimmer,
                                                      // it's further from the camera than the road)
+export const FLOOR_STREET = "rgba(57,255,136,0.055)"; // an avenue/cross-street's wide bed —
+                                                       // dimmer than FLOOR_GRID's own lines, so
+                                                       // the street reads as open ground, not a
+                                                       // brighter version of the grid
+export const FLOOR_STREET_LINE = "rgba(125,255,176,0.4)"; // a street's bright dashed centre
+                                                           // line — GREEN_BRIGHT, so it pops
+                                                           // against both the bed and the grid
 export const ROAD_SURFACE = "#04060a";  // opaque road tarmac — occludes the city floor below,
                                         // selling the road as an elevated ribbon over the city
 export const WALL_FILL = "#08160f";     // dark face of the road's elevated side wall
