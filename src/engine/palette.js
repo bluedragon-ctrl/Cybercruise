@@ -55,6 +55,29 @@ export const DRONE_SHADOW = "rgba(57,255,136,0.12)";  // a drone's ground marker
                                                        // drawn higher up the parallax stack — dimmer
                                                        // than FLOOR_GRID's own lines so it reads as a
                                                        // faint mark, not another grid line.
+export const FLOOR_TICK = "rgba(57,255,136,0.3)";     // registration ticks baked into the floor tile
+                                                       // at every avenue x cross-street intersection
+                                                       // (Phase 7d) — a notch brighter than FLOOR_GRID
+                                                       // (0.14) so the crossing reads as deliberately
+                                                       // marked even where the two dashed centre lines'
+                                                       // own DASH pattern happens to land in a gap right
+                                                       // at the intersection, but still dim: this is
+                                                       // texture, not the distinguished NODE marker
+                                                       // below — uniformity is the whole point of a
+                                                       // registration tick, where a node has to stand
+                                                       // out from it.
+export const NODE_BRACKET = "#7dffb0";                // = GREEN_BRIGHT — a NODE's corner brackets
+                                                       // (Phase 7d), one shade brighter than a
+                                                       // building's own GREEN roofline so the rare,
+                                                       // sprite-cached marker reads as the crispest
+                                                       // thing standing on the floor plane, never
+                                                       // mistaken for another box.
+export const NODE_GLYPH = "#d8ffe6";                  // brighter still — a NODE's centre diamond or
+                                                       // crosshair, the single brightest mark on the
+                                                       // whole floor: pale enough to read as a beacon
+                                                       // while staying clearly GREEN rather than
+                                                       // drifting toward the player's own cyan (see
+                                                       // this file's colour-discipline header).
 export const ROAD_SURFACE = "#04060a";  // opaque road tarmac — occludes the city floor below,
                                         // selling the road as an elevated ribbon over the city
 export const WALL_FILL = "#08160f";     // dark face of the road's elevated side wall

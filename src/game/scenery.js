@@ -17,13 +17,16 @@
 // (buildings), and a plot's or lot's contents are — like the road — a pure
 // function of its index, so the city is infinite and never pops.
 
-import { drawBuildingVariant } from "./sprites.js";
+import { drawBuildingVariant, drawNodeVariant } from "./sprites.js";
 import {
-  CELL, PLOT, ARTERIAL_PERIOD, BUILDING, isAvenueCol,
+  CELL, PLOT, ARTERIAL_PERIOD, BUILDING, NODE, isAvenueCol,
   lotAt, lotX, lotY, lotColumns, lotRows, plotColumns,
+  plotAt, plotX, plotY, plotRows,
 } from "./citygrid.js";
 import { neonStroke } from "../engine/neon.js";
-import { FLOOR_GRID, FLOOR_STREET, FLOOR_STREET_LINE, FLOOR_TRAFFIC } from "../engine/palette.js";
+import {
+  FLOOR_GRID, FLOOR_STREET, FLOOR_STREET_LINE, FLOOR_TRAFFIC, FLOOR_TICK,
+} from "../engine/palette.js";
 
 // The floor drifts at this fraction of the road's travelled distance. Lower =
 // feels further away / more depth. 0.5 = floor moves at half road speed.
@@ -58,6 +61,16 @@ export function render(ctx, distance, playerY, W, H) {
   // road's camera — the floor needs its own because it runs at half speed.
   const fDist = Math.round(distance * FLOOR_PARALLAX);
   drawFloorGrid(ctx, fDist, playerY, W, H);
+  // NODES BEFORE BUILDINGS, not interleaved into the far-to-near building
+  // walk — a node is flat ground texture, not a depth-sorted entity, so it is
+  // drawn once as a single pass. A building never SHARES a plot with a node
+  // (citygrid.js's reserve() claims the whole plot), but a NEIGHBOURING
+  // building's footprint or glow padding can still visually reach across the
+  // plot boundary — drawing every node first means any building nearer the
+  // camera that does reach that far is painted on top of it, which is what
+  // "a building standing nearer the camera should be able to overlap a node"
+  // (the design doc's own draw-order rule) actually requires in practice.
+  drawFloorNodes(ctx, fDist, playerY, W, H);
   drawFloorBuildings(ctx, fDist, playerY, W, H);
   // AFTER the buildings, not before — a street plot never hosts one
   // (citygrid.js's reserve() claims avenues/cross-streets before the building
@@ -212,6 +225,37 @@ function neonDashedStroke(ctx, build, color, dash, width, spread) {
   ctx.restore();
 }
 
+// px each registration tick's arm reaches off its intersection centre — kept
+// small enough to read as texture, not a shape (that's what a NODE's corner
+// brackets + glyph are for). Exported alongside tileIntersections below so a
+// test can size its own on-screen tolerance against the actual drawn mark.
+export const TICK_LEN = 5;
+
+// TILE-LOCAL (pre-phase) centres of every registration tick the floor tile
+// bakes (Phase 7d) — every (avenue column, cross-street band) pairing within
+// the tile's own height, in the SAME tile-local coordinate space the ribbon
+// loops in floorGridTile() below use (y0 a multiple of ARTERIAL_PERIOD, bx an
+// avenue column — see isAvenueCol). Pulled out as its own pure function,
+// rather than a loop written inline in floorGridTile(), for exactly the
+// reason isAvenueCol/isCrossStreetRow are pure functions in citygrid.js
+// instead of being re-derived wherever they're needed: a SECOND copy of this
+// geometry is how the tile and citygrid.js's index math drifted a whole PLOT
+// apart once already (see isCrossStreetRow's own "+1" comment). The test
+// suite maps this tile-local list through gridPhase and cross-checks it
+// against crossStreetBands()/avenueCenters() — this file's SCREEN-space,
+// per-frame equivalent — rather than trusting this comment alone.
+export function tileIntersections(W, tileHeight) {
+  const points = [];
+  for (let y0 = 0; y0 <= tileHeight; y0 += ARTERIAL_PERIOD) {
+    const y = y0 + PLOT / 2;
+    for (let bx = 0; bx * PLOT < W; bx++) {
+      if (!isAvenueCol(bx)) continue;
+      points.push({ x: bx * PLOT + PLOT / 2, y });
+    }
+  }
+  return points;
+}
+
 // Build the tile if we don't have one for this canvas size. `document` is
 // touched only in here, never at module scope — the test suite imports this file
 // under plain Node (same rule as engine/spritecache.js).
@@ -260,6 +304,45 @@ function floorGridTile(W, H) {
       3,
     );
   }
+
+  // Registration ticks (Phase 7d): a small, uniform mark baked at every
+  // avenue x cross-street INTERSECTION. Free — it's baked into this ONE-TIME
+  // tile build like everything else in this function (see the header above),
+  // so it costs literally nothing per frame. Deliberately UNIFORM, unlike a
+  // NODE (citygrid.js's reserve() claim, drawn separately by scenery.js's own
+  // drawFloorNodes): identical marks at every intersection read as a map's
+  // own registration grid — survey ticks, a radar bezel — which is the whole
+  // point, where a node instead has to be rare and distinguishable to read as
+  // a facility rather than more grid furniture.
+  //
+  // Drawn as its own pass rather than folded into the two centre-line strokes
+  // above: those are DASHED, so whether a dash segment actually lands on a
+  // given crossing depends on the dash phase there, and a tick that only
+  // showed up where a dash happened to overlap would flicker in and out
+  // across the grid instead of marking every intersection alike.
+  //
+  // The point list comes from tileIntersections() above rather than a loop
+  // written out here, so there is exactly ONE place that says where a tile
+  // intersection falls — the test suite imports the same function and
+  // cross-checks it against crossStreetBands()/avenueCenters() (this file's
+  // own SCREEN-space, per-frame equivalent), rather than trusting a second
+  // copy of this loop to stay in step with the ribbon loops above by
+  // inspection. See citygrid.js's isCrossStreetRow "+1" comment for the bug
+  // this exact kind of duplication already produced once.
+  neonStroke(
+    g,
+    (c) => {
+      for (const { x, y } of tileIntersections(W, canvas.height)) {
+        c.moveTo(x - TICK_LEN, y);
+        c.lineTo(x + TICK_LEN, y);
+        c.moveTo(x, y - TICK_LEN);
+        c.lineTo(x, y + TICK_LEN);
+      }
+    },
+    FLOOR_TICK,
+    1,
+    3,
+  );
 
   // The fine CELL grid, one batched path stroked WITHOUT ctx.shadowBlur (see
   // the header above), skipping any line that falls inside a street band so
@@ -380,6 +463,45 @@ function drawFloorBuildings(ctx, fDist, playerY, W, H) {
   for (const b of visibleBuildings(fDist, playerY, W, H)) {
     // Lean away from screen centre for a subtle shared vanishing point.
     drawBuildingVariant(ctx, b.cx, b.sy, b.variant, b.leanRight);
+  }
+}
+
+// --- Distinguished nodes (Phase 7d) -------------------------------------------
+//
+// citygrid.js's reserve() claims a NODE at PLOT granularity, not LOT — a
+// facility takes the whole block rather than subdividing it the way four
+// buildings would (see reserve()'s own comment). So this walks PLOT rows, via
+// citygrid.js's plotRows/plotX/plotY/plotAt, NOT the LOT walk visibleBuildings
+// uses above: walking lots here would visit the SAME plot's claim
+// LOT_SUBDIV x LOT_SUBDIV times and draw the same marker stacked on itself.
+//
+// Every visible node this frame, as plain data — no canvas anywhere in this
+// function, mirroring visibleBuildings so test/invariants.test.js can assert
+// the walk directly under plain Node. Order doesn't matter the way it does for
+// visibleBuildings (nodes never overlap each other — one per plot, plots don't
+// overlap), so this doesn't bother walking far-to-near.
+export function visibleNodes(fDist, playerY, W, H) {
+  const rows = plotRows(fDist + playerY - H - 40, fDist + playerY + 200);
+  const cols = plotColumns(W);
+  const nodes = [];
+
+  for (let by = rows.min; by <= rows.max; by++) {
+    const sy = playerY - (plotY(by) - fDist);
+    for (let bx = 0; bx < cols; bx++) {
+      const plot = plotAt(bx, by);
+      if (!plot || plot.type !== NODE) continue;
+      nodes.push({ cx: plotX(bx), sy, variant: plot.variant });
+    }
+  }
+  return nodes;
+}
+
+// Blits every visible node — rare by construction (citygrid.js's NODE_CHANCE
+// targets ~1-2 on screen at 600x800), so this is a handful of cached sprite
+// blits, not a walk worth the far-to-near care visibleBuildings needs.
+function drawFloorNodes(ctx, fDist, playerY, W, H) {
+  for (const n of visibleNodes(fDist, playerY, W, H)) {
+    drawNodeVariant(ctx, n.cx, n.sy, n.variant);
   }
 }
 

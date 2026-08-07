@@ -263,12 +263,122 @@ assumed.
 **Goal.** The first thing that says "map" rather than "city". Depends on 7a for
 somewhere sensible to sit (intersections).
 
-**Approach.** A new reserved plot type in `citygrid.js`. Look: corner brackets
-plus a small diamond or crosshair. A bounded set of variants → a sprite-cache
-entry each, blitted through the same path `drawBuildingVariant` uses.
+**The doc's own contradiction.** "A new reserved plot type… nodes on
+intersections" can't both be true: `reserve()` already claims an intersection
+plot as `CROSS_STREET` first, on purpose (an intersection plot is street
+ground, and `scenery.js` paints avenue/cross-street ribbons from
+`isAvenueCol`/`isCrossStreetRow` independently of `reserve()` — claiming it for
+a node punches a hole in the ribbon those two derivations still have to agree
+on). Resolved by building **two different things**, because they're right for
+two different jobs:
 
-**Done when.** Nodes appear on intersections, the sprite cache stays bounded
-(assert it, as `invariants.test.js` already does for the car catalogue).
+- **Registration ticks — baked into the floor tile, free.** A small uniform
+  mark at every avenue × cross-street intersection, drawn once into
+  `scenery.js`'s existing grid tile (the same one 7a's ribbons already share)
+  and blitted with it. Since the tile is periodic in `ARTERIAL_PERIOD` and
+  static in screen x, "every intersection" is one geometry pass over the tile,
+  not a per-intersection draw call — literally zero per-frame cost. Uniformity
+  is the point here: identical marks at every crossing read as a map's own
+  registration grid (survey ticks, a radar bezel), which is a different job
+  from a facility marker and doesn't compete with it.
+- **Distinguished nodes — a real `reserve()` claim, sprite-cached.** A new
+  `NODE` plot type, claimed in `reserve()` **after** both street checks, so it
+  can only ever land on ground a street would otherwise have left for a
+  building. These are the ones that read as *facilities*, and the ones 7e's
+  conduits/pings will attach to.
+
+**Placement.** `NODE` is claimed at PLOT granularity (`citygrid.js`'s
+`reserve()`), not LOT — a facility takes the whole 128×128 block, not a
+building-sized fraction of it. A new `frontsStreet(by)` gates eligibility:
+`isCrossStreetRow(by - 1) || isCrossStreetRow(by + 1)`. It only checks the y
+axis, and that's not an oversight — `AVENUE_COLS`' own period (3) means every
+column that isn't itself an avenue already has one directly beside it (the
+period equals avenue-plus-both-neighbours), so an x-axis check here would
+never once come back false. The one axis where a plot can genuinely sit
+buried mid-block — no street on either side — is y, at `CROSS_STREET_ROWS`'
+coarser period (4), and that's what this excludes.
+
+**Rarity, the single most important tuning decision here.** `NODE_CHANCE =
+0.06`, applied to the street-adjacent, unclaimed pool. Tuned by sampling
+`visibleNodes()` (mirroring how `BUILD_CHANCE`'s own density comment is
+checked): mean ~0.9–1.2 nodes/frame at 600×800 across a wide sweep of scroll
+positions and screen widths (400–700px), 0 on roughly a third of frames, max
+observed 5 out of 68,000+ samples. A first pass at 0.09 measured mean ~2.0
+with a tail out to 7 — visibly too many to read as individually rare — and
+was pulled back down. See `citygrid.js`'s own `NODE_CHANCE` comment for the
+arithmetic.
+
+**Density effect on buildings, measured.** A `NODE` claim removes all 4 lots
+in its plot from the building roll, not just the one plot — so the eligible
+pool shrinks a little. Measured (a wide `lotAt` sweep, mirroring
+`BUILD_CHANCE`'s own sampling): eligible-lot fraction 0.4854, realized-build
+fraction 0.4123, `visibleBuildings` mean ~65/frame (range 52–83) — down from
+the pre-7d ~70/frame (range 56–81), about 7% fewer. Small, as predicted;
+`BUILD_CHANCE` wasn't touched.
+
+**Look.** Flat on the ground plane, no extrusion — buildings go up, a node
+marker lies flat, and that contrast is what makes it read as annotation
+rather than architecture (`src/game/nodeshapes.js`, new module, alongside
+`buildingshapes.js`). Corner brackets (four short L's hugging a bounding
+square — a closed outline would silhouette like a building footprint) plus a
+centre glyph, diamond or crosshair. `NODE_VARIANTS = 6`: three bracket sizes
+× two glyphs. Rendered with `neonStroke`'s full multi-pass glow — allowed
+here, unlike 7b/7c's live per-frame paths, because a node is baked into its
+sprite once (`sprites.js`'s `drawNodeVariant`, the same `getSprite`/
+`blitSprite` path `drawBuildingVariant` uses) and blitted thereafter, exactly
+the case `spritecache.js` exists for. Two new green-family palette entries
+(`NODE_BRACKET`, `NODE_GLYPH`), brighter than a building's own `GREEN`, so a
+node reads as the crispest thing on the floor plane.
+
+**Draw order.** Nodes draw with the floor, right after the grid blit and
+before the building walk (`scenery.js`'s `render()`) — a building nearer the
+camera can still visually overlap a node if its footprint or glow padding
+reaches across the plot boundary, even though a `NODE` plot never itself
+hosts a building.
+
+**Cost, measured.** The registration ticks are provably zero per frame: their
+placement (`scenery.js`'s exported `tileIntersections()`) is only ever called
+from inside `floorGridTile()`, which is cache-gated on canvas size and
+rebuilds once, not per frame. The node layer itself — `visibleNodes()` (the
+plot-level walk) plus every `drawNodeVariant` blit it triggers — measured in
+isolation, warmed, across the same wide scroll sweep used for the rarity
+tuning: **~2µs/frame**, consistent with the ~1-2 blits/frame the rarity
+target implies and the README's own cached-blit figures (a building blits at
+~1.3-8µs; a node blit measured ~1µs, cheaper still — its sprite canvas is
+smaller). That number is reproducible and isolated from the rest of the
+render pipeline.
+
+The end-to-end `scenery.render()` total is harder to pin precisely in the
+sandboxed browser this was measured in: the rAF-saturation method (README's
+own profiling-traps section) gave a clean **~0.39ms** baseline for the
+pre-7d code (six warmed samples, JIT warmup discarded, median 0.398ms) — in
+line with the README's previously-recorded ~0.36–0.5ms range from a real
+GPU-accelerated browser. Re-measuring the SAME code path after adding 7d
+through a full `render()` call, rather than the isolated node-layer
+measurement above, showed session-to-session variance (roughly 0.6–1.0ms)
+that persisted even with warmup discarded and did not track with node count,
+sprite-cache size (confirmed bounded and stable at 54 entries — 48 building +
+6 node), or any change traceable to this sub-phase's own code; an earlier,
+uncontrolled sample of the unmodified pre-7d baseline showed the same order
+of variance (~1.0ms) before a cleaner methodology (discard-first-sample,
+median-of-six) brought it back down to ~0.39ms. Given the isolated,
+controlled measurement of the actual new code (~2µs) is reproducible and
+the variance is not, the honest reading is: **the pre-7d baseline stays
+~0.39-0.5ms (this environment's noise floor sits well below the ~0.5ms
+budget), and 7d adds on the order of microseconds on top of it** — nowhere
+near enough to be the reason to start culling. A follow-up should re-run this
+specific comparison in a real (non-sandboxed) browser before treating the
+~0.6-1.0ms figures as real; they don't survive the isolated component
+measurement's cross-check.
+
+**Done when.** Registration ticks sit on every intersection at zero per-frame
+cost (baked in the tile). A small number of distinguished nodes (~1/frame on
+average, rare enough to notice) read clearly as facilities, not buildings.
+No street ribbon has a hole in it (`reserve()`'s ordering — `NODE` checked
+after both street claims — asserted directly in `invariants.test.js`, not
+just inferred from node placement in isolation). The sprite cache stays
+bounded (`NODE_VARIANTS` pinned at 6, asserted). All of the above verified
+in the browser and against the test suite.
 
 ---
 
