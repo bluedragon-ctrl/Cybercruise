@@ -189,20 +189,72 @@ fill calls, and the frame cost is measured rather than assumed.
 
 ---
 
-## Sub-phase 7c — Far field
+## Sub-phase 7c — Drone air traffic
 
-**Goal.** Depth. Cheapest real depth available in this phase.
+**Rejected first: a far field.** The original plan here was a third, dimmer,
+static parallax tile above the floor (~0.15, against the floor's 0.5) standing
+in for a distant skyline — one more pre-rendered tile, one more blit, cheapest
+depth available on paper. It was built, looked at in the browser, and
+rejected. The reason is worth keeping on record so it doesn't get proposed
+again on the strength of its own "cheapest depth available" pitch: a **static**
+layer is a weak depth cue in this game. What actually sells depth is a
+**discrete object moving at a rate different from everything else** — which is
+exactly why 7b's traffic dots, not the street network or the buildings, are
+the sub-phase this doc already calls the largest perceptual return in the
+whole phase. A dim motionless tile doesn't borrow any of that; it's scenery
+sitting still behind other scenery sitting still.
 
-**Approach.** A third layer above the current floor at ~0.15 parallax (the floor
-runs at 0.5): tiny 3–6px boxes, denser, dimmer — a distant skyline. Periodic, so
-it is **one more pre-rendered tile and one more blit**.
+**Goal, restated.** Depth, and motion in the one band of the frame that still
+has none: the sky between the floor (0.5) and the elevated road (1.0).
 
-**Watch for.** A third parallax clock is a third rounding site. `main.js` rounds
-the camera once and `scenery.render` rounds its own half-speed clock; this layer
-rounds its own too, and the tile blit is only pixel-exact at an integer offset.
+**Approach.** A layer of small flying drones at `DRONE_PARALLAX` — between the
+floor and the road (~0.65–0.8; shipped at 0.72, tuned by eye) — drawn in a new
+`src/game/drones.js`, not folded into `scenery.js`. Same rule 7b's traffic
+dots follow: **a drone is a phase, not an entity**. Position is a pure
+function of time and index, reusing `scenery.js`'s own clock (now exported)
+rather than keeping a second one, so the layer freezes exactly when the
+floor's traffic dots do.
 
-**Done when.** Two blits for two floor layers, and the far field visibly lags the
-near one.
+Unlike ground traffic, drones are **not locked to the street grid** — nothing
+constrains them to an avenue or a cross-street the way tarmac constrains a
+car. Each flight line gets a heading and speed off a small, fixed, index-keyed
+table (deliberately kept off axis-alignment), so lines cross the grid
+diagonally at their own angle. That, more than anything else on this list, is
+what reads as *air* traffic rather than as more dots. Bounding the count still
+follows 7b's own rule: positions are generated only within the visible span
+(closed-form, via the same line-of-sight arithmetic `laneDotPositions` already
+does for an axis-aligned lane, generalised to a diagonal one and exported for
+reuse) — never a loose modulo over an invented path length, and a drone past
+the edge of the screen costs nothing.
+
+**Look.** A 3px body plus a 1-2px blinking nav light (another phase off the
+same clock — the cheapest and strongest "aircraft" cue available at this
+scale), loose 1-3 drone formations (an index grouping, not per-frame state),
+and a dim ground-shadow marker drawn on the floor. The shadow's naive
+mechanism — the same "one world point, two parallax rates" idea every other
+depth cue on this floor already uses — turns out to be **unbounded** in raw
+distance driven (0.22px of drift per world unit at this layer's parallax gap,
+which is already 1000+px within the opening couple thousand units of a normal
+run). Saturated through a `tanh` cap instead: a small, genuinely growing gap
+right as the player starts driving, capped at a fixed on-screen maximum for
+the rest of the run rather than drifting off into nowhere. Worth knowing if
+this pattern gets reused elsewhere — any "same point, two rates" cue needs a
+cap the moment `distance` is unbounded, which on this floor it always is.
+
+**Cost.** The first genuinely per-frame path layer on the city floor — no tile
+to hide behind, so the README's three rendering rules are hard requirements
+here, not advice (see the "Two constraints" section above, and its own
+correction below). No `ctx.shadowBlur`; every drone batched into one path per
+colour (body, nav light, shadow — three `fill()` calls total, not three per
+drone). Measured by the rAF-saturation method: the new layer costs
+**~7-12µs/frame** on top of `scenery.render()`'s own ~0.36-0.5ms (unchanged by
+this sub-phase — `scenery.js` only gained two exports), comfortably inside the
+~0.5ms city-layer budget with room to spare.
+
+**Done when.** Drones fly their own diagonal lines across the sky, formations
+and blink are visible at speed, the ground shadow separates from its drone
+without ever drifting off-screen, and the frame cost is measured rather than
+assumed.
 
 ---
 
@@ -285,6 +337,14 @@ comes from and everything later is decoration on a floor that already works. 7c 
 out of order on theme but in order on value-per-µs. 7d/7e are the map layer
 proper. 7f is flavour. 7g is the fiction, and wants everything else present to
 decorate.
+
+**Correction.** The "Two constraints" section above originally reserved
+"genuinely dynamic per frame, no tile to hide behind" for 7e. 7c, once it
+became drone air traffic rather than a static far field, got there first: it
+is the first sub-phase with no pre-rendered tile behind it, and its own
+section documents the cost work that implies. 7e still gets there next, on
+its own per-frame paths (conduits, pings) — this just corrects which
+sub-phase actually crossed that line first.
 
 **7a + 7b is the recommended first PR** — roughly 2 blits and 2 fills for the
 whole change, and it is the slice that changes how the game reads.

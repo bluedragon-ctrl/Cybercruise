@@ -35,6 +35,26 @@ export const FLOOR_TRAFFIC = "rgba(125,255,176,0.6)"; // dot-sized traffic on th
                                                        // gameplay faction read (see this file's
                                                        // header) — a floor dot tells itself apart
                                                        // by brightness and motion, never hue.
+export const DRONE_BODY = "rgba(57,255,136,0.4)";     // air traffic (Phase 7c) — a drone's own 2-4px
+                                                       // body, dimmer than FLOOR_TRAFFIC's dots: it
+                                                       // sits at a shallower parallax than the floor
+                                                       // (further from the camera plane than the
+                                                       // road, but not the floor's own depth either),
+                                                       // and the nav light below is what has to read
+                                                       // as "aircraft" — the body itself just has to
+                                                       // avoid reading as another ground dot.
+export const DRONE_NAV = "rgba(182,255,204,0.95)";    // a drone's blinking nav light — GREEN_PALE,
+                                                       // near-full alpha: the single strongest
+                                                       // "aircraft" cue available at 1-2px, so it
+                                                       // gets the brightest shade in the family
+                                                       // rather than a shadowBlur it can't afford.
+                                                       // Still green — red/amber stay reserved for
+                                                       // the gameplay faction (see FLOOR_TRAFFIC).
+export const DRONE_SHADOW = "rgba(57,255,136,0.12)";  // a drone's ground marker, drawn on the FLOOR
+                                                       // at FLOOR_PARALLAX while the drone itself is
+                                                       // drawn higher up the parallax stack — dimmer
+                                                       // than FLOOR_GRID's own lines so it reads as a
+                                                       // faint mark, not another grid line.
 export const ROAD_SURFACE = "#04060a";  // opaque road tarmac — occludes the city floor below,
                                         // selling the road as an elevated ribbon over the city
 export const WALL_FILL = "#08160f";     // dark face of the road's elevated side wall
