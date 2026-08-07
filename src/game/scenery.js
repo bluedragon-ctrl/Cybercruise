@@ -28,9 +28,22 @@ import { FLOOR_GRID, FLOOR_STREET, FLOOR_STREET_LINE } from "../engine/palette.j
 // feels further away / more depth. 0.5 = floor moves at half road speed.
 export const FLOOR_PARALLAX = 0.5;
 
-// The grid drawn below and the grid things are placed on are the same grid: both
-// come from citygrid.js, so scenery can never drift out of step with placement.
-const GRID_SPACING = CELL;
+// The drawn grid SUBDIVIDES the placement grid: it is CELL / GRID_SUBDIV, so
+// every plot and cell boundary citygrid.js works in is still a drawn line, and
+// scenery still can't drift out of step with placement — there are just extra
+// lines between them. That relation is the whole reason this is safe to tune;
+// an arbitrary spacing (say 40) would put grid lines through the middle of
+// plots and the floor would stop reading as the thing buildings stand on.
+//
+// GRID_SUBDIV = 2 halves the spacing on BOTH axes, which is what makes the
+// floor read as a fine map mesh rather than as big empty tiles. It costs
+// nothing per frame: the tile is still ONE blit, and 4x the lines are 4x the
+// work only in the one-time build.
+//
+// Exported so the test suite can assert the tile's phase against the spacing
+// actually drawn rather than against CELL, which is no longer the same number.
+const GRID_SUBDIV = 2;
+export const GRID_SPACING = CELL / GRID_SUBDIV;
 
 export function render(ctx, distance, playerY, W, H) {
   // The floor uses its own, slower "distance". Same screen<->world mapping as the
@@ -58,21 +71,27 @@ export function render(ctx, distance, playerY, W, H) {
 // road.js describes (and warns about): ~1500-2000us -> ~18us, i.e. ~100x. Which
 // is to say the grid stops being a cost the frame can notice.
 //
-// The horizontals are world-anchored at every CELL, so the grid is exactly
-// PERIODIC in y with period CELL. The verticals are fixed SCREEN columns, so the
-// grid is static in x. A periodic-and-static layer is one tile, built once, and
-// blitted once per frame at a phase offset — never rebuilt, never keyed.
+// The horizontals are world-anchored at every GRID_SPACING, so the grid is
+// exactly PERIODIC in y with that period. The verticals are fixed SCREEN
+// columns, so the grid is static in x. A periodic-and-static layer is one tile,
+// built once, and blitted once per frame at a phase offset — never rebuilt,
+// never keyed.
 //
 // Avenues and cross-streets (citygrid.js) share the SAME property: an avenue is
 // a fixed screen column, a cross-street is periodic in y — with period
-// ARTERIAL_PERIOD (a whole multiple of CELL, since CELL divides PLOT divides
-// ARTERIAL_PERIOD). A period that's a multiple of another period is still one
-// period, so all three layers bake into ONE tile rather than three, and the
-// floor stays at exactly one drawImage per frame. Concretely: the tile is built
-// at ARTERIAL_PERIOD's phase, and because CELL divides that period, the CELL
-// lines it already contains land correctly too — shifting a CELL-periodic
-// pattern by any whole number of CELLs leaves it self-aligned, and
-// ARTERIAL_PERIOD is exactly that (PLOT * 4 = CELL * 8).
+// ARTERIAL_PERIOD (a whole multiple of GRID_SPACING, since GRID_SPACING divides
+// CELL divides PLOT divides ARTERIAL_PERIOD). A period that's a multiple of
+// another period is still one period, so all three layers bake into ONE tile
+// rather than three, and the floor stays at exactly one drawImage per frame.
+// Concretely: the tile is built at ARTERIAL_PERIOD's phase, and because
+// GRID_SPACING divides that period, the fine lines it already contains land
+// correctly too — shifting a GRID_SPACING-periodic pattern by any whole number
+// of GRID_SPACINGs leaves it self-aligned, and ARTERIAL_PERIOD is exactly that
+// (PLOT * 4 = CELL * 8 = GRID_SPACING * 16).
+//
+// That divisibility is the constraint on GRID_SUBDIV, and the reason it is a
+// SUBDIVISION rather than a free spacing: halving keeps every one of those
+// divisions whole, so the one-tile argument above survives untouched.
 //
 // The tile is W x (H + ARTERIAL_PERIOD): one arterial period taller than the
 // screen, so that whatever the phase, a single blit at destY in
@@ -81,8 +100,8 @@ export function render(ctx, distance, playerY, W, H) {
 // 600x1312x4 = ~3.1MB, up from ~2MB when the tile only had to cover one CELL.
 //
 // EXACTNESS. The phase is (playerY + fDist) mod ARTERIAL_PERIOD and BOTH TERMS
-// MATTER: a line world-anchored at k*ARTERIAL_PERIOD (or any multiple of CELL,
-// since CELL divides the period) lands at screen playerY + fDist - k*period, so
+// MATTER: a line world-anchored at k*ARTERIAL_PERIOD (or any multiple of
+// GRID_SPACING, since it divides the period) lands at playerY + fDist - k*period, so
 // the whole set sits at that sum's residue. Dropping playerY (an easy thing to
 // talk yourself into, since it is a constant) misplaces the whole tile.
 //
@@ -93,10 +112,17 @@ export function render(ctx, distance, playerY, W, H) {
 // same diff jumps to a mean of 1.2 with channels off by 32, which is what says
 // the measurement can actually see a phase error rather than being blind to one.
 //
-// LOOK. Each street is a wide, dim fill (FLOOR_STREET) plus a brighter dashed
-// centre line (FLOOR_STREET_LINE), and the fine CELL grid is skipped — not
-// merely painted over — wherever it would cross a street, so the street reads
-// as open ground rather than a brighter patch of grid. None of this uses
+// LOOK. Each street is a dim fill (FLOOR_STREET) plus a brighter dashed centre
+// line (FLOOR_STREET_LINE), and the fine grid is skipped — not merely painted
+// over — wherever it would cross the ribbon, so the street reads as open ground
+// rather than a brighter patch of grid.
+//
+// The ribbon is STREET_WIDTH, not the full plot it owns, and the grid is
+// GRID_SPACING, not CELL. Both are deliberate and they are the same decision
+// made twice: the floor is meant to read as a fine MAP MESH with routes through
+// it, and at plot-wide streets on cell-wide squares it read as a handful of big
+// tiles instead. Scale the two together if either is retuned — a ribbon several
+// grid squares wide goes back to looking like a gap in the mesh. None of this uses
 // ctx.shadowBlur: this whole tile is one canvas-spanning path, and a shadow on
 // a shape that size was measured at ~0.5ms/frame — a quarter of the whole
 // frame, from one draw call (see neonStroke's own header for the same trade
@@ -112,20 +138,43 @@ let gridTile = null;
 let gridTileW = 0;
 let gridTileH = 0;
 
-// True where canvas-local y falls inside a cross-street's band. Canvas y = 0
-// stands for plot row by = 0, which citygrid.js's isCrossStreetRow makes a
-// cross-street by convention, so the band occupies [0, PLOT) of every
-// ARTERIAL_PERIOD — this is what the tile build and the CELL-grid suppression
-// below both key off.
+// How wide the painted street ribbon is. A street still OWNS its whole plot —
+// that is citygrid.js's call and none of this changes it — but it is painted
+// CELL wide and centred, not PLOT wide, so the tarmac matches the scale of the
+// grid it lies on instead of being a double square of flat fill. What is left
+// of the plot either side stays gridded, which is what makes the street read as
+// a route through the mesh rather than as a hole cut in it.
+//
+// Centred on the plot, so the ribbon runs from STREET_INSET to
+// STREET_INSET + STREET_WIDTH within it. Both of those land on GRID_SPACING
+// boundaries (32 and 96 of a 128 plot), which is the point: the ribbon's edges
+// fall exactly on grid lines rather than slicing squares in half.
+const STREET_WIDTH = CELL;
+const STREET_INSET = (PLOT - STREET_WIDTH) / 2;
+
+// Where a cross-street's ribbon sits inside one ARTERIAL_PERIOD, in canvas y.
+// Canvas y = 0 stands for plot row by = 0, which citygrid.js's isCrossStreetRow
+// makes a cross-street by convention, so the ribbon occupies
+// [STREET_INSET, STREET_INSET + STREET_WIDTH) of every period.
+function crossStreetLocal(y) {
+  return ((y % ARTERIAL_PERIOD) + ARTERIAL_PERIOD) % ARTERIAL_PERIOD;
+}
+
+// True where canvas-local y is STRICTLY inside a cross-street ribbon. Strictly,
+// so a grid line landing exactly on a ribbon edge is still drawn: those two
+// lines are what give the street a crisp kerb on each side instead of a fill
+// that fades out against nothing.
 function insideCrossStreet(y) {
-  const local = ((y % ARTERIAL_PERIOD) + ARTERIAL_PERIOD) % ARTERIAL_PERIOD;
-  return local < PLOT;
+  const local = crossStreetLocal(y);
+  return local > STREET_INSET && local < STREET_INSET + STREET_WIDTH;
 }
 
 // Same idea across x: canvas x = 0 stands for plot column bx = 0, an avenue by
 // isAvenueCol's own convention (0 is always a multiple of AVENUE_COLS).
 function insideAvenue(x) {
-  return isAvenueCol(Math.floor(x / PLOT));
+  if (!isAvenueCol(Math.floor(x / PLOT))) return false;
+  const local = ((x % PLOT) + PLOT) % PLOT;
+  return local > STREET_INSET && local < STREET_INSET + STREET_WIDTH;
 }
 
 // A dashed neon stroke: neonStroke's own overdraw passes, with the dash
@@ -156,7 +205,7 @@ function floorGridTile(W, H) {
   // fine grid's own y-loop below, just at the coarser period.
   for (let y0 = 0; y0 <= canvas.height; y0 += ARTERIAL_PERIOD) {
     g.fillStyle = FLOOR_STREET;
-    g.fillRect(0, y0, W, PLOT);
+    g.fillRect(0, y0 + STREET_INSET, W, STREET_WIDTH);
     neonDashedStroke(
       g,
       (c) => {
@@ -175,7 +224,7 @@ function floorGridTile(W, H) {
     if (!isAvenueCol(bx)) continue;
     const x0 = bx * PLOT;
     g.fillStyle = FLOOR_STREET;
-    g.fillRect(x0, 0, PLOT, canvas.height);
+    g.fillRect(x0 + STREET_INSET, 0, STREET_WIDTH, canvas.height);
     neonDashedStroke(
       g,
       (c) => {

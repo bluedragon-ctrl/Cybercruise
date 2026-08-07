@@ -40,7 +40,7 @@ import {
   TILE_STRIDE, DASH_SPAN, blockOf, blockLocalY, blockDestY,
   DIST_UNITS,
 } from "../src/game/road.js";
-import { gridPhase } from "../src/game/scenery.js";
+import { gridPhase, GRID_SPACING } from "../src/game/scenery.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import {
   CELL, ARTERIAL_PERIOD, plotAt, plotColumns, plotRows,
@@ -333,20 +333,25 @@ test("a strip's overdraw margin is wider than anything drawn across its seam", (
 
 test("the floor tile's phase reproduces the world-anchored grid AND street lines", () => {
   // The tile is blitted at gridPhase() - ARTERIAL_PERIOD. Every fine-grid
-  // horizontal in it sits at a multiple of CELL, and every cross-street band at
-  // a multiple of ARTERIAL_PERIOD — since CELL divides ARTERIAL_PERIOD, BOTH
-  // must land in the same residue class as the world-anchored line the direct
-  // render would draw, which is the arithmetic that lets them share one tile.
-  // The playerY term in the phase is the load-bearing part and the easy one to
-  // drop: without it the grid is misplaced by a mean channel diff of 18.6/255.
+  // horizontal in it sits at a multiple of GRID_SPACING, and every cross-street
+  // band at a multiple of ARTERIAL_PERIOD — since GRID_SPACING divides
+  // ARTERIAL_PERIOD, BOTH must land in the same residue class as the
+  // world-anchored line the direct render would draw, which is the arithmetic
+  // that lets them share one tile. The playerY term in the phase is the
+  // load-bearing part and the easy one to drop: without it the grid is
+  // misplaced by a mean channel diff of 18.6/255.
+  //
+  // GRID_SPACING is asserted here rather than CELL because the drawn grid is a
+  // SUBDIVISION of the placement grid (CELL / GRID_SUBDIV), so testing CELL
+  // would pass while the lines actually drawn were free to be misaligned.
   for (const playerY of [0, 496, 500, 803]) {
     for (let fDist = 0; fDist < 3000; fDist += 7) {
       const phase = gridPhase(fDist, playerY);
       assert.ok(phase >= 0 && phase < ARTERIAL_PERIOD, `phase ${phase} is outside one arterial period`);
-      // Where the direct render puts a fine-grid line at wy = k*CELL, and a
-      // cross-street band at wy = k*ARTERIAL_PERIOD.
+      // Where the direct render puts a fine-grid line at wy = k*GRID_SPACING,
+      // and a cross-street band at wy = k*ARTERIAL_PERIOD.
       for (const k of [-3, 0, 11, 47]) {
-        for (const period of [CELL, ARTERIAL_PERIOD]) {
+        for (const period of [GRID_SPACING, CELL, ARTERIAL_PERIOD]) {
           const direct = playerY - (k * period - fDist);
           const residue = (((direct - phase) % period) + period) % period;
           assert.ok(
@@ -357,6 +362,23 @@ test("the floor tile's phase reproduces the world-anchored grid AND street lines
       }
     }
   }
+});
+
+test("the drawn grid spacing subdivides the placement grid", () => {
+  // The drawn grid is CELL / GRID_SUBDIV, not CELL, so the floor reads as a fine
+  // mesh. Two things rest on it dividing cleanly, and both fail SILENTLY — the
+  // game still runs, it just looks subtly wrong:
+  //   - every plot and cell boundary must still fall ON a drawn line, or grid
+  //     lines cut through the middle of the plots buildings stand on;
+  //   - the whole one-tile argument in scenery.js needs GRID_SPACING to divide
+  //     ARTERIAL_PERIOD, or the tile's own pattern doesn't repeat at the period
+  //     it is blitted at and the fine grid shears at every wrap.
+  assert.equal(CELL % GRID_SPACING, 0, `CELL ${CELL} is not a whole number of ${GRID_SPACING}px cells`);
+  assert.equal(
+    ARTERIAL_PERIOD % GRID_SPACING,
+    0,
+    `the tile repeats every ${ARTERIAL_PERIOD}px, which is not a whole number of ${GRID_SPACING}px cells`,
+  );
 });
 
 test("one extra arterial period of tile height is enough to cover the screen at any phase", () => {
