@@ -289,6 +289,12 @@ function update(dt) {
     return; // frozen the instant ESC is pressed — no world update this tick
   }
 
+  // The floor's traffic dots are the one thing on it that depends on time
+  // rather than position alone (see scenery.js's own header) — advanced here,
+  // on the fixed step, alongside every other per-run system, so they freeze
+  // exactly when "playing" stops rather than drifting on a clock of their own.
+  scenery.update(dt);
+
   // Road edges at the player's own row (worldY === distance there), used to keep
   // the car on the tarmac and to trigger barrier-scrape damage.
   const edges = road.edgesAt(distance, W);

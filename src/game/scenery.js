@@ -22,7 +22,7 @@ import {
   plotAt, plotX, plotY, plotColumns, plotRows,
 } from "./citygrid.js";
 import { neonStroke } from "../engine/neon.js";
-import { FLOOR_GRID, FLOOR_STREET, FLOOR_STREET_LINE } from "../engine/palette.js";
+import { FLOOR_GRID, FLOOR_STREET, FLOOR_STREET_LINE, FLOOR_TRAFFIC } from "../engine/palette.js";
 
 // The floor drifts at this fraction of the road's travelled distance. Lower =
 // feels further away / more depth. 0.5 = floor moves at half road speed.
@@ -58,6 +58,15 @@ export function render(ctx, distance, playerY, W, H) {
   const fDist = Math.round(distance * FLOOR_PARALLAX);
   drawFloorGrid(ctx, fDist, playerY, W, H);
   drawFloorBuildings(ctx, fDist, playerY, W, H);
+  // AFTER the buildings, not before — a street plot never hosts one
+  // (citygrid.js's reserve() claims avenues/cross-streets before the building
+  // roll ever runs), so a dot is never actually occluded either way and this
+  // is a draw-order choice rather than a correctness one. Drawing last keeps
+  // every dot crisp on top of the far-to-near building walk instead of
+  // sharing a pixel at a street's edge with whatever variant a building drew
+  // there, and reads as the map's moving-marker layer sitting above its
+  // static one.
+  drawTrafficDots(ctx, trafficDots(clock, fDist, playerY, W, H));
 }
 
 // --- The floor grid, avenues and cross-streets are ONE pre-rendered tile ----
@@ -149,8 +158,11 @@ let gridTileH = 0;
 // STREET_INSET + STREET_WIDTH within it. Both of those land on GRID_SPACING
 // boundaries (32 and 96 of a 128 plot), which is the point: the ribbon's edges
 // fall exactly on grid lines rather than slicing squares in half.
-const STREET_WIDTH = CELL;
-const STREET_INSET = (PLOT - STREET_WIDTH) / 2;
+//
+// Exported so the test suite can assert traffic-dot lanes (below) against the
+// ribbon actually painted, rather than a value it recomputes itself.
+export const STREET_WIDTH = CELL;
+export const STREET_INSET = (PLOT - STREET_WIDTH) / 2;
 
 // Where a cross-street's ribbon sits inside one ARTERIAL_PERIOD, in canvas y.
 // Canvas y = 0 stands for plot row by = 0, which citygrid.js's isCrossStreetRow
@@ -308,4 +320,208 @@ function drawFloorBuildings(ctx, fDist, playerY, W, H) {
       drawBuildingVariant(ctx, cx, sy, plot.variant, cx >= W / 2);
     }
   }
+}
+
+// --- Traffic dots (Phase 7b) --------------------------------------------------
+//
+// THE ONE EXCEPTION TO "PURE FUNCTION OF POSITION". Every other layer on this
+// floor — the grid, the streets, the buildings — is identical at a given index
+// or screen position no matter WHEN you ask for it, which is what lets all of
+// it be pre-rendered once. A traffic dot is the one thing here that ALSO
+// depends on time. It is still not simulated: there is no car object, nothing
+// spawns or despawns, nothing is stored per-dot. A dot's position is a pure
+// function of (lane, dot index, clock) exactly the way a building's is a pure
+// function of (bx, by) — `update(dt)` below only advances what "now" means for
+// that function, on the same fixed step as every other per-run system (see
+// main.js's update()), so the dots freeze exactly when the rest of the world
+// does (paused, dying) instead of drifting on a clock of their own.
+//
+// Two lanes per street, opposite directions, at different speeds — different
+// from both the road's own scroll and this floor's FLOOR_PARALLAX, which is
+// what sells the depth (see the design doc's "why the avenues matter most").
+// A cross-street's lanes slide in SCREEN X (the street runs left-right); an
+// avenue's lanes slide in SCREEN Y (the street runs top-to-bottom, the
+// direction of travel) — each lane slides along its OWN street, never across
+// it.
+
+let clock = 0;
+
+// Advances the floor's traffic clock. Called from main.js's update() alongside
+// every other per-run system — NOT from render(), which must stay a pure
+// function of its arguments like the rest of this file (see gridPhase/plotAt).
+export function update(dt) {
+  clock += dt;
+}
+
+// Spacing and speed are screen px and px/s. DOT_SPACING is picked so the total
+// dot count at 600x800 — ~2 avenues (citygrid's AVENUE_COLS) and ~2 visible
+// cross-street bands (ARTERIAL_PERIOD 512 against an 800px screen), 4 lanes
+// each (see DOT_LANE_OFFSET_INNER/OUTER below) — lands a little over the
+// design doc's original 60-80, a deliberate retune: two dot-sized cars per
+// direction reads as actual traffic against the road's own scale where one
+// read as sparse. Retune DOT_SPACING together with the ribbon width if either
+// changes.
+const DOT_SPACING = 75;
+const DOT_SPEED_A = 70;  // one direction's lanes
+const DOT_SPEED_B = -55; // the other direction's lanes, opposite way —
+                          // deliberately not the same magnitude, so the two
+                          // directions never look paired
+const DOT_MARGIN = 8;    // a dot is fully drawn before it crosses on/off screen,
+                          // rather than popping in already half-formed at 0/W/H
+
+// Two lanes per direction, kept inside the ribbon and off both the kerb and
+// the centre line. STREET_WIDTH/8 and 3*STREET_WIDTH/8 quarter each HALF of
+// the ribbon — from a kerb inward: margin, outer lane, gap, inner lane,
+// margin, centre line — so the four lanes and the two margins land in an
+// even 1:2:2:1 split of the half-ribbon rather than needing four independent
+// numbers. Scales automatically with STREET_WIDTH, same reasoning the single
+// offset this replaced was built on.
+const DOT_LANE_OFFSET_INNER = STREET_WIDTH / 8;
+const DOT_LANE_OFFSET_OUTER = STREET_WIDTH * 3 / 8;
+
+// The outer lane of a pair is walked at a half-spacing phase from its inner
+// neighbour, so the two don't draw as a mirrored, lockstep pair of dots
+// gliding in the same direction — see laneDotPositions' `phase` argument.
+const DOT_LANE_PHASE = DOT_SPACING / 2;
+
+const DOT_LEN = 4; // long axis, along the direction of travel
+const DOT_WID = 2; // short axis, across it
+
+// Positions along ONE lane at a fixed spacing, shifted by `clockValue * speed
+// + phase`, bounded to the visible span [lo, hi] — NOT to a lane length. The
+// design doc phrases this as `pos = (t*speed + offset) mod laneLength`, but a
+// lane has no natural length to mod against (a street runs the full screen,
+// forever), and inventing one risks a dot count that depends on the invented
+// number rather than on the screen. Walking the index range that lands in
+// [lo, hi] instead gives an infinite, evenly-spaced sequence and just asks
+// which of it is on screen right now — the count stays bounded by
+// (hi - lo) / spacing no matter how far `clockValue` has run. `phase` is a
+// fixed px offset (see DOT_LANE_PHASE) for staggering a second lane running
+// the same direction at the same speed, not something that varies with time.
+function laneDotPositions(spacing, speed, clockValue, lo, hi, phase = 0) {
+  const shift = clockValue * speed + phase;
+  const iMin = Math.ceil((lo - shift) / spacing);
+  const iMax = Math.floor((hi - shift) / spacing);
+  const positions = [];
+  for (let i = iMin; i <= iMax; i++) positions.push(i * spacing + shift);
+  return positions;
+}
+
+// Screen-y tops of every cross-street ribbon touching [0, H] — derived from
+// the SAME phase drawFloorGrid's blit uses, walked forward and back from it
+// rather than a fresh modulo of our own, so a dot can never drift from the
+// ribbon the tile actually painted.
+//
+// Inside the tile, a band at y0 = n*ARTERIAL_PERIOD (any integer n) has its
+// ribbon at [y0 + STREET_INSET, y0 + STREET_INSET + STREET_WIDTH) — see
+// floorGridTile's own cross-street loop above. The tile is blitted at
+// gridPhase(fDist, playerY) - ARTERIAL_PERIOD, so mapping a tile-local y0
+// through that offset gives screen top = phase + n*ARTERIAL_PERIOD +
+// STREET_INSET for every integer n; walk n across the range that can possibly
+// touch the screen and keep the ones that do.
+export function crossStreetBands(fDist, playerY, H) {
+  const phase = gridPhase(fDist, playerY);
+  const nMin = Math.floor((-STREET_INSET - STREET_WIDTH - phase) / ARTERIAL_PERIOD);
+  const nMax = Math.ceil((H - STREET_INSET - phase) / ARTERIAL_PERIOD);
+  const bands = [];
+  for (let n = nMin; n <= nMax; n++) {
+    const top = phase + n * ARTERIAL_PERIOD + STREET_INSET;
+    if (top + STREET_WIDTH > 0 && top < H) bands.push(top);
+  }
+  return bands;
+}
+
+// Screen-x centres of every avenue ribbon touching [0, W] — citygrid.js's own
+// isAvenueCol, walked over the same plot columns drawFloorGrid's tile does, so
+// an avenue lane can never straddle a column the tile didn't paint as one.
+export function avenueCenters(W) {
+  const centers = [];
+  for (let bx = 0; bx < plotColumns(W); bx++) {
+    if (isAvenueCol(bx)) centers.push(bx * PLOT + PLOT / 2);
+  }
+  return centers;
+}
+
+// Every dot visible this frame, as plain data — no canvas anywhere in this
+// function, which is what lets test/invariants.test.js exercise lane
+// placement, the gridPhase relation and the count bound directly under plain
+// Node. `alongX` says which way the dot's long axis should be drawn (see
+// drawTrafficDots): true on a cross-street, where travel runs along screen x;
+// false on an avenue, where it runs along screen y.
+//
+// FOUR lanes per street, two each direction (inner + outer, see
+// DOT_LANE_OFFSET_INNER/OUTER) — the same two sides of the centre line as
+// before, just each one split in two, so the street still reads as one
+// two-way road rather than four independent ones.
+export function trafficDots(clockValue, fDist, playerY, W, H) {
+  const dots = [];
+
+  for (const top of crossStreetBands(fDist, playerY, H)) {
+    const mid = top + STREET_WIDTH / 2;
+    const yInnerA = mid - DOT_LANE_OFFSET_INNER;
+    const yOuterA = mid - DOT_LANE_OFFSET_OUTER;
+    const yInnerB = mid + DOT_LANE_OFFSET_INNER;
+    const yOuterB = mid + DOT_LANE_OFFSET_OUTER;
+    for (const x of laneDotPositions(DOT_SPACING, DOT_SPEED_A, clockValue, -DOT_MARGIN, W + DOT_MARGIN)) {
+      dots.push({ x, y: yInnerA, alongX: true });
+    }
+    for (const x of laneDotPositions(DOT_SPACING, DOT_SPEED_A, clockValue, -DOT_MARGIN, W + DOT_MARGIN, DOT_LANE_PHASE)) {
+      dots.push({ x, y: yOuterA, alongX: true });
+    }
+    for (const x of laneDotPositions(DOT_SPACING, DOT_SPEED_B, clockValue, -DOT_MARGIN, W + DOT_MARGIN)) {
+      dots.push({ x, y: yInnerB, alongX: true });
+    }
+    for (const x of laneDotPositions(DOT_SPACING, DOT_SPEED_B, clockValue, -DOT_MARGIN, W + DOT_MARGIN, DOT_LANE_PHASE)) {
+      dots.push({ x, y: yOuterB, alongX: true });
+    }
+  }
+
+  for (const cx of avenueCenters(W)) {
+    const xInnerA = cx - DOT_LANE_OFFSET_INNER;
+    const xOuterA = cx - DOT_LANE_OFFSET_OUTER;
+    const xInnerB = cx + DOT_LANE_OFFSET_INNER;
+    const xOuterB = cx + DOT_LANE_OFFSET_OUTER;
+    for (const y of laneDotPositions(DOT_SPACING, DOT_SPEED_A, clockValue, -DOT_MARGIN, H + DOT_MARGIN)) {
+      dots.push({ x: xInnerA, y, alongX: false });
+    }
+    for (const y of laneDotPositions(DOT_SPACING, DOT_SPEED_A, clockValue, -DOT_MARGIN, H + DOT_MARGIN, DOT_LANE_PHASE)) {
+      dots.push({ x: xOuterA, y, alongX: false });
+    }
+    for (const y of laneDotPositions(DOT_SPACING, DOT_SPEED_B, clockValue, -DOT_MARGIN, H + DOT_MARGIN)) {
+      dots.push({ x: xInnerB, y, alongX: false });
+    }
+    for (const y of laneDotPositions(DOT_SPACING, DOT_SPEED_B, clockValue, -DOT_MARGIN, H + DOT_MARGIN, DOT_LANE_PHASE)) {
+      dots.push({ x: xOuterB, y, alongX: false });
+    }
+  }
+
+  return dots;
+}
+
+// Every dot in ONE fill() — the whole per-frame budget this layer gets (see
+// the README's third rendering rule and the design doc's cost section).
+// Multiple ctx.rect() calls between one beginPath()/fill() are one fill, not
+// one each. No ctx.shadowBlur: the layer's glow is FLOOR_TRAFFIC's own alpha —
+// a shadow across ~150 scattered small rects would cost far more than the
+// rects themselves (see neon.js's own header for the same trade made at
+// road-barrier scale, and the grid tile's header for it made at floor scale).
+//
+// MEASURED, trafficDots() + this function together, at 600x800 with a live
+// 118-156 dots (four lanes per street — see DOT_LANE_OFFSET_INNER/OUTER):
+// ~14us/frame — by the rAF-saturated-throughput method (README's own
+// profiling-traps section), i.e. running the pair thousands of times inside
+// one rAF callback until the callback's own elapsed time was many vsync
+// ticks, not one call timed inside a single frame (which floors at vsync and
+// reports nothing useful). Still comfortably inside the design doc's
+// ~0.03ms (30us) budget for this layer despite the doubled lane count.
+function drawTrafficDots(ctx, dots) {
+  if (dots.length === 0) return;
+  ctx.beginPath();
+  for (const dot of dots) {
+    const w = dot.alongX ? DOT_LEN : DOT_WID;
+    const h = dot.alongX ? DOT_WID : DOT_LEN;
+    ctx.rect(dot.x - w / 2, dot.y - h / 2, w, h);
+  }
+  ctx.fillStyle = FLOOR_TRAFFIC;
+  ctx.fill();
 }

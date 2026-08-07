@@ -25,6 +25,16 @@ export const FLOOR_STREET = "rgba(57,255,136,0.055)"; // an avenue/cross-street'
 export const FLOOR_STREET_LINE = "rgba(125,255,176,0.4)"; // a street's bright dashed centre
                                                            // line — GREEN_BRIGHT, so it pops
                                                            // against both the bed and the grid
+export const FLOOR_TRAFFIC = "rgba(125,255,176,0.6)"; // dot-sized traffic on the city floor's
+                                                       // streets (Phase 7b) — same hue as
+                                                       // FLOOR_STREET_LINE, brighter still, since
+                                                       // a 2-4px dot has to read at speed with no
+                                                       // shadowBlur to help it. Green, on purpose:
+                                                       // this is the map layer, not real traffic,
+                                                       // and amber/red are reserved for the
+                                                       // gameplay faction read (see this file's
+                                                       // header) — a floor dot tells itself apart
+                                                       // by brightness and motion, never hue.
 export const ROAD_SURFACE = "#04060a";  // opaque road tarmac — occludes the city floor below,
                                         // selling the road as an elevated ribbon over the city
 export const WALL_FILL = "#08160f";     // dark face of the road's elevated side wall

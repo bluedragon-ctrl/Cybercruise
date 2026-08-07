@@ -535,7 +535,7 @@ history interleaves phase features with side-steps into earlier phases' code.
       `docs/superpowers/specs/2026-08-07-city-map-layer-design.md`.
   - [x] **7a** — Street network: `reserve()` claims avenues and cross-streets, all
         baked into the one floor tile. Unlocks everything below
-  - [ ] **7b** — Traffic dots: cars as a pure function of time, batched, unglowed
+  - [x] **7b** — Traffic dots: cars as a pure function of time, batched, unglowed
   - [ ] **7c** — Far field: a third, slower parallax layer — one more tile
   - [ ] **7d** — Nodes and markers: a reserved plot type, sprite-cached
   - [ ] **7e** — Links and pings: conduits with packet dots, expanding signal rings
