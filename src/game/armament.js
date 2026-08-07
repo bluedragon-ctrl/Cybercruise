@@ -59,7 +59,7 @@ const MINE_LAYER = {
   id: "minelayer",
   label: "MINES",
   // SIX SECONDS AND THREE OF THEM, for the car's whole life. A mine is the
-  // hardest single hit anything on the road can deal (30 hull — obstacletypes.js)
+  // hardest single hit anything on the road can deal (150 hull — obstacletypes.js)
   // and, unlike a bullet, it stays there: laying them freely would carpet the
   // road behind every enemy and turn the mine from an event into weather. The
   // magazine is what makes a drop worth noticing, and it is also why the gun

@@ -41,7 +41,7 @@
 //               obstacle that is a genuine area weapon
 //   blastDamage hull taken at the centre of that blast, falling off linearly to
 //               nothing at the rim — same falloff Traffic gives a car's own
-//               death. The player has 100 hull; a TrafficCar's ranges 25..220
+//               death. The player has 100 hull; a TrafficCar's ranges 25..400
 //               (cartypes.js)
 //   placement   where across the road this type belongs — PLACE_LANE / _SIDE /
 //               _CENTRE / _ANY. See the block above
@@ -191,7 +191,14 @@ export const OBSTACLE_TYPES = [
     // A real explosive, not a debris field: wide enough to reach past the car
     // that found it, unlike the blocks' contact-only radii above.
     blastRadius: 66,
-    blastDamage: 30, // the single hardest hit anything on the road can deal
+    // ONE-HIT KILL ON EVERYTHING BUT THE BRUISER AND THE RIVAL, deliberately —
+    // 150 clears the toughest of the rest (the stocker's 130 hull, cartypes.js)
+    // with room to spare, so a direct hit is always lethal for them. The
+    // bruiser (160) and rival (400) are the two exceptions, tuned in
+    // cartypes.js to take exactly two and three mines respectively rather than
+    // by any special-casing here — the mine deals one flat number, the target's
+    // own hull is what decides how many it takes.
+    blastDamage: 150, // the single hardest hit anything on the road can deal
     // ANYWHERE, and it is the only type that gets to be. The other three are
     // road furniture — somebody put them there, and where they sit says so. A
     // mine is the opposite: nobody laid it out for the player's benefit, and
