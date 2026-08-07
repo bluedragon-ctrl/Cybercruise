@@ -7,6 +7,7 @@ import { drawCarCached } from "./sprites.js";
 import { glowDashedRing } from "../engine/neon.js";
 import { steerAxis, throttleAxis } from "../engine/input.js";
 import { PLAYER, PLAYER_THRUST, HAZARD, SHIELD_FLICKER } from "../engine/palette.js";
+import * as gameConsole from "../engine/console.js";
 
 // Exported: the traffic catalogue is pinned to both ends of the player's speed
 // band (see cartypes.js), and that relation is asserted in test/invariants.test.js.
@@ -52,6 +53,18 @@ const SHOVE_DAMP = 5; // per second
 
 const HIT_FLASH = 0.18; // seconds the car flashes after taking a hit
 
+// Hull damage call-outs to the in-game console (engine/console.js). `frac` is
+// the health fraction remaining at which the line fires, so these read as
+// "25% damage taken", "50%", "75%" even though the check below is against
+// health LEFT, not damage taken. Fires once per crossing (see healthWarned
+// below), and re-arms if the player heals back above the threshold, so a
+// later crossing of the same line warns again.
+const DAMAGE_THRESHOLDS = [
+  { frac: 0.75, text: "HULL DAMAGE 25%", severity: gameConsole.WARN },
+  { frac: 0.5, text: "HULL DAMAGE 50%", severity: gameConsole.WARN },
+  { frac: 0.25, text: "HULL DAMAGE 75%", severity: gameConsole.CRITICAL },
+];
+
 // The shield buff (game/pickuptypes.js's SHIELD entry activates this). Two
 // dashed rings, spun in opposite directions by an animated dash offset (see
 // engine/neon.js's glowDashedRing) — a genuine rotation, not a squashed
@@ -90,6 +103,8 @@ export class Player {
 
     this.shieldTime = 0; // seconds of invulnerability left (game/pickuptypes.js's SHIELD)
     this.shieldSpin = 0; // accumulated only while shielded — drives the ring animation
+
+    this.healthWarned = DAMAGE_THRESHOLDS.map(() => false);
   }
 
   // Take `hp` off the hull. Health floors at 0 — main.js is watching this
@@ -108,12 +123,26 @@ export class Player {
     if (hp <= 0 || this.shieldTime > 0) return;
     this.health = Math.max(0, this.health - hp);
     this.flash = HIT_FLASH;
+
+    const frac = this.health / this.maxHealth;
+    DAMAGE_THRESHOLDS.forEach((t, i) => {
+      if (!this.healthWarned[i] && frac <= t.frac) {
+        this.healthWarned[i] = true;
+        gameConsole.push(t.text, t.severity);
+      }
+    });
   }
 
   // Restore `hp` of hull, capped at maxHealth (game/pickuptypes.js's FIX).
   heal(hp) {
     if (hp <= 0) return;
     this.health = Math.min(this.maxHealth, this.health + hp);
+
+    // Re-arm any threshold healed back past, so a later crossing warns again.
+    const frac = this.health / this.maxHealth;
+    DAMAGE_THRESHOLDS.forEach((t, i) => {
+      if (this.healthWarned[i] && frac > t.frac) this.healthWarned[i] = false;
+    });
   }
 
   // Grant `seconds` of invulnerability. NOT additive with time already

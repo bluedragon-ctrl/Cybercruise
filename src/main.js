@@ -24,6 +24,7 @@ import { createMusic } from "./audio/synth.js";
 import * as road from "./game/road.js";
 import * as scenery from "./game/scenery.js";
 import * as drones from "./game/drones.js";
+import * as gameConsole from "./engine/console.js";
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -167,6 +168,7 @@ function newGame() {
   // mine.
   enemyShots = new Projectiles(explosions);
   disconnect.reset();
+  gameConsole.reset();
 }
 newGame();
 
@@ -295,6 +297,7 @@ function update(dt) {
   // on the fixed step, alongside every other per-run system, so they freeze
   // exactly when "playing" stops rather than drifting on a clock of their own.
   scenery.update(dt);
+  gameConsole.update(dt);
 
   // Road edges at the player's own row (worldY === distance there), used to keep
   // the car on the tarmac and to trigger barrier-scrape damage.
@@ -533,6 +536,8 @@ function drawHud() {
       bx, by + bh + 6, GREEN_PALE, 13, "left", 8,
     );
   }
+
+  gameConsole.render(ctx, W, H);
 }
 
 function render(alpha) {
