@@ -42,7 +42,10 @@ import {
 } from "../src/game/road.js";
 import { gridPhase } from "../src/game/scenery.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
-import { CELL, plotAt, plotColumns, plotRows, BUILDING, EMPTY } from "../src/game/citygrid.js";
+import {
+  CELL, ARTERIAL_PERIOD, plotAt, plotColumns, plotRows,
+  isAvenueCol, isCrossStreetRow, BUILDING, EMPTY, AVENUE, CROSS_STREET,
+} from "../src/game/citygrid.js";
 import { resolveCollisions, impactCost, ramSpeed, SIDE_DAMAGE } from "../src/game/collisions.js";
 import { Score, DISTANCE_POINTS } from "../src/game/score.js";
 import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES } from "../src/game/weapons.js";
@@ -328,38 +331,50 @@ test("a strip's overdraw margin is wider than anything drawn across its seam", (
   );
 });
 
-test("the floor grid's tile phase reproduces the world-anchored horizontals", () => {
-  // The grid tile is blitted at gridPhase() - CELL. Every horizontal in the tile
-  // sits at a multiple of CELL, so every horizontal ON SCREEN must land in the
-  // same residue class as the world-anchored line the direct render would draw.
+test("the floor tile's phase reproduces the world-anchored grid AND street lines", () => {
+  // The tile is blitted at gridPhase() - ARTERIAL_PERIOD. Every fine-grid
+  // horizontal in it sits at a multiple of CELL, and every cross-street band at
+  // a multiple of ARTERIAL_PERIOD — since CELL divides ARTERIAL_PERIOD, BOTH
+  // must land in the same residue class as the world-anchored line the direct
+  // render would draw, which is the arithmetic that lets them share one tile.
   // The playerY term in the phase is the load-bearing part and the easy one to
   // drop: without it the grid is misplaced by a mean channel diff of 18.6/255.
   for (const playerY of [0, 496, 500, 803]) {
     for (let fDist = 0; fDist < 3000; fDist += 7) {
       const phase = gridPhase(fDist, playerY);
-      assert.ok(phase >= 0 && phase < CELL, `phase ${phase} is outside one cell`);
-      // Where the direct render puts the world line at wy = k*CELL.
+      assert.ok(phase >= 0 && phase < ARTERIAL_PERIOD, `phase ${phase} is outside one arterial period`);
+      // Where the direct render puts a fine-grid line at wy = k*CELL, and a
+      // cross-street band at wy = k*ARTERIAL_PERIOD.
       for (const k of [-3, 0, 11, 47]) {
-        const direct = playerY - (k * CELL - fDist);
-        const residue = (((direct - phase) % CELL) + CELL) % CELL;
-        assert.ok(
-          residue < 1e-9 || CELL - residue < 1e-9,
-          `world line ${k * CELL} lands at ${direct}, off the tile's phase ${phase}`,
-        );
+        for (const period of [CELL, ARTERIAL_PERIOD]) {
+          const direct = playerY - (k * period - fDist);
+          const residue = (((direct - phase) % period) + period) % period;
+          assert.ok(
+            residue < 1e-9 || period - residue < 1e-9,
+            `world line ${k * period} (period ${period}) lands at ${direct}, off the tile's phase ${phase}`,
+          );
+        }
       }
     }
   }
 });
 
-test("one extra cell of tile height is enough to cover the screen at any phase", () => {
-  // The tile is H + CELL tall and blitted at a negative offset in [-CELL, 0).
-  // That single extra cell is what lets ONE blit cover the screen whatever the
-  // phase — the reason this layer needs no position-keyed cache at all.
+test("one extra arterial period of tile height is enough to cover the screen at any phase", () => {
+  // The tile is H + ARTERIAL_PERIOD tall and blitted at a negative offset in
+  // [-ARTERIAL_PERIOD, 0). That single extra period is what lets ONE blit cover
+  // the screen whatever the phase — the reason this layer needs no
+  // position-keyed cache at all.
   const H = 800;
   for (let fDist = 0; fDist < 640; fDist += 0.5) {
-    const destY = gridPhase(fDist, 496) - CELL;
-    assert.ok(destY <= 0 && destY >= -CELL, `blit offset ${destY} is outside [-CELL, 0]`);
-    assert.ok(destY + (H + CELL) >= H, `the tile stops ${-(destY + CELL)}px short of the bottom`);
+    const destY = gridPhase(fDist, 496) - ARTERIAL_PERIOD;
+    assert.ok(
+      destY <= 0 && destY >= -ARTERIAL_PERIOD,
+      `blit offset ${destY} is outside [-ARTERIAL_PERIOD, 0]`,
+    );
+    assert.ok(
+      destY + (H + ARTERIAL_PERIOD) >= H,
+      `the tile stops ${-(destY + ARTERIAL_PERIOD)}px short of the bottom`,
+    );
   }
 });
 
@@ -374,10 +389,30 @@ test("plotAt is deterministic and total", () => {
       const a = plotAt(bx, by);
       const b = plotAt(bx, by);
       assert.deepEqual(a, b, `plot (${bx}, ${by}) is not stable across calls`);
-      assert.ok(a.type === BUILDING || a.type === EMPTY, `plot (${bx}, ${by}) has an unknown type`);
+      assert.ok(
+        a.type === BUILDING || a.type === EMPTY || a.type === AVENUE || a.type === CROSS_STREET,
+        `plot (${bx}, ${by}) has an unknown type`,
+      );
       if (a.type === BUILDING) {
         assert.ok(Number.isInteger(a.variant) && a.variant >= 0, "building variant must be an index");
       }
+    }
+  }
+});
+
+test("a plot claimed as a street never returns BUILDING", () => {
+  // citygrid.js's reserve() runs before the building roll specifically so a
+  // claim always wins the plot outright — this is the assertion that promise
+  // actually holds, not just that reserve() returns something non-null.
+  for (let bx = 0; bx < 6; bx++) {
+    for (let by = -30; by < 30; by++) {
+      if (!isAvenueCol(bx) && !isCrossStreetRow(by)) continue;
+      const plot = plotAt(bx, by);
+      assert.notEqual(plot.type, BUILDING, `plot (${bx}, ${by}) is a street but plotAt returned BUILDING`);
+      assert.ok(
+        plot.type === AVENUE || plot.type === CROSS_STREET,
+        `plot (${bx}, ${by}) is a street index but plotAt says type ${plot.type}`,
+      );
     }
   }
 });

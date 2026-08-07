@@ -17,9 +17,12 @@
 // pure function of its index, so the city is infinite and never pops.
 
 import { drawBuildingVariant } from "./sprites.js";
-import { CELL, BUILDING, plotAt, plotX, plotY, plotColumns, plotRows } from "./citygrid.js";
+import {
+  CELL, PLOT, ARTERIAL_PERIOD, BUILDING, isAvenueCol,
+  plotAt, plotX, plotY, plotColumns, plotRows,
+} from "./citygrid.js";
 import { neonStroke } from "../engine/neon.js";
-import { FLOOR_GRID } from "../engine/palette.js";
+import { FLOOR_GRID, FLOOR_STREET, FLOOR_STREET_LINE } from "../engine/palette.js";
 
 // The floor drifts at this fraction of the road's travelled distance. Lower =
 // feels further away / more depth. 0.5 = floor moves at half road speed.
@@ -44,7 +47,7 @@ export function render(ctx, distance, playerY, W, H) {
   drawFloorBuildings(ctx, fDist, playerY, W, H);
 }
 
-// --- The floor grid is ONE pre-rendered tile ---------------------------------
+// --- The floor grid, avenues and cross-streets are ONE pre-rendered tile ----
 //
 // WHY. The grid was profiled at 2.35ms/frame — 95% of all scenery work — and it
 // is pure lines: one batched neonStroke, not a single fill(). That is the same
@@ -60,14 +63,28 @@ export function render(ctx, distance, playerY, W, H) {
 // grid is static in x. A periodic-and-static layer is one tile, built once, and
 // blitted once per frame at a phase offset — never rebuilt, never keyed.
 //
-// The tile is W x (H + CELL): one cell taller than the screen, so that whatever
-// the phase, a single blit at destY in [-CELL, 0) still covers the bottom row.
-// 600x864x4 = ~2MB.
+// Avenues and cross-streets (citygrid.js) share the SAME property: an avenue is
+// a fixed screen column, a cross-street is periodic in y — with period
+// ARTERIAL_PERIOD (a whole multiple of CELL, since CELL divides PLOT divides
+// ARTERIAL_PERIOD). A period that's a multiple of another period is still one
+// period, so all three layers bake into ONE tile rather than three, and the
+// floor stays at exactly one drawImage per frame. Concretely: the tile is built
+// at ARTERIAL_PERIOD's phase, and because CELL divides that period, the CELL
+// lines it already contains land correctly too — shifting a CELL-periodic
+// pattern by any whole number of CELLs leaves it self-aligned, and
+// ARTERIAL_PERIOD is exactly that (PLOT * 4 = CELL * 8).
 //
-// EXACTNESS. The phase is (playerY + fDist) mod CELL and BOTH TERMS MATTER: a
-// horizontal at world k*CELL lands at screen playerY + fDist - k*CELL, so the
-// whole set sits at that sum's residue. Dropping playerY (an easy thing to talk
-// yourself into, since it is a constant) misplaces the whole grid.
+// The tile is W x (H + ARTERIAL_PERIOD): one arterial period taller than the
+// screen, so that whatever the phase, a single blit at destY in
+// [-ARTERIAL_PERIOD, 0) still covers the bottom row — the same reasoning the
+// old H + CELL tile used, just at the coarser period now driving the blit.
+// 600x1312x4 = ~3.1MB, up from ~2MB when the tile only had to cover one CELL.
+//
+// EXACTNESS. The phase is (playerY + fDist) mod ARTERIAL_PERIOD and BOTH TERMS
+// MATTER: a line world-anchored at k*ARTERIAL_PERIOD (or any multiple of CELL,
+// since CELL divides the period) lands at screen playerY + fDist - k*period, so
+// the whole set sits at that sum's residue. Dropping playerY (an easy thing to
+// talk yourself into, since it is a constant) misplaces the whole tile.
 //
 // Diffed against the direct re-stroke at integer fDist: mean 0.07-0.25/255, and
 // no single channel off by more than 4. Everything that differs is 8-bit rounding
@@ -75,10 +92,53 @@ export function render(ctx, distance, playerY, W, H) {
 // background, where the direct render rounds once. Drop the playerY term and the
 // same diff jumps to a mean of 1.2 with channels off by 32, which is what says
 // the measurement can actually see a phase error rather than being blind to one.
+//
+// LOOK. Each street is a wide, dim fill (FLOOR_STREET) plus a brighter dashed
+// centre line (FLOOR_STREET_LINE), and the fine CELL grid is skipped — not
+// merely painted over — wherever it would cross a street, so the street reads
+// as open ground rather than a brighter patch of grid. None of this uses
+// ctx.shadowBlur: this whole tile is one canvas-spanning path, and a shadow on
+// a shape that size was measured at ~0.5ms/frame — a quarter of the whole
+// frame, from one draw call (see neonStroke's own header for the same trade
+// made for the road's barriers). The dashed centre lines get their glow the
+// same way the grid does — neonStroke's overdraw passes — with ctx.setLineDash
+// applied just around that one call.
+//
+// All of the above is a ONE-TIME cost (tile build, on first draw or a canvas
+// resize), not a per-frame one, so it can afford more draw calls than the
+// per-frame budget ever could.
 
 let gridTile = null;
 let gridTileW = 0;
 let gridTileH = 0;
+
+// True where canvas-local y falls inside a cross-street's band. Canvas y = 0
+// stands for plot row by = 0, which citygrid.js's isCrossStreetRow makes a
+// cross-street by convention, so the band occupies [0, PLOT) of every
+// ARTERIAL_PERIOD — this is what the tile build and the CELL-grid suppression
+// below both key off.
+function insideCrossStreet(y) {
+  const local = ((y % ARTERIAL_PERIOD) + ARTERIAL_PERIOD) % ARTERIAL_PERIOD;
+  return local < PLOT;
+}
+
+// Same idea across x: canvas x = 0 stands for plot column bx = 0, an avenue by
+// isAvenueCol's own convention (0 is always a multiple of AVENUE_COLS).
+function insideAvenue(x) {
+  return isAvenueCol(Math.floor(x / PLOT));
+}
+
+// A dashed neon stroke: neonStroke's own overdraw passes, with the dash
+// pattern scoped to just this call via an outer save/restore (neonStroke saves
+// and restores around its own passes, but that inner restore returns to
+// whatever was current when IT was called — including a dash set just before —
+// so the outer pair is what actually clears it again afterward).
+function neonDashedStroke(ctx, build, color, dash, width, spread) {
+  ctx.save();
+  ctx.setLineDash(dash);
+  neonStroke(ctx, build, color, width, spread);
+  ctx.restore();
+}
 
 // Build the tile if we don't have one for this canvas size. `document` is
 // touched only in here, never at module scope — the test suite imports this file
@@ -88,13 +148,50 @@ function floorGridTile(W, H) {
 
   const canvas = document.createElement("canvas");
   canvas.width = W;
-  canvas.height = H + GRID_SPACING;
+  canvas.height = H + ARTERIAL_PERIOD;
   const g = canvas.getContext("2d");
+  const DASH = [14, 10];
 
-  // The whole grid is one batched path, stroked WITHOUT ctx.shadowBlur. It spans
-  // the entire canvas, so a shadow here blurred a full-screen bounding box for a
-  // measured ~0.5ms/frame — a quarter of the whole frame, from one draw call.
-  // neonStroke's overdraw keeps the soft edge for a fraction of that.
+  // Cross-street bands: periodic every ARTERIAL_PERIOD, full width. Mirrors the
+  // fine grid's own y-loop below, just at the coarser period.
+  for (let y0 = 0; y0 <= canvas.height; y0 += ARTERIAL_PERIOD) {
+    g.fillStyle = FLOOR_STREET;
+    g.fillRect(0, y0, W, PLOT);
+    neonDashedStroke(
+      g,
+      (c) => {
+        c.moveTo(0, y0 + PLOT / 2);
+        c.lineTo(W, y0 + PLOT / 2);
+      },
+      FLOOR_STREET_LINE,
+      DASH,
+      2,
+      3,
+    );
+  }
+
+  // Avenue bands: fixed screen columns, running the tile's full height.
+  for (let bx = 0; bx * PLOT < W; bx++) {
+    if (!isAvenueCol(bx)) continue;
+    const x0 = bx * PLOT;
+    g.fillStyle = FLOOR_STREET;
+    g.fillRect(x0, 0, PLOT, canvas.height);
+    neonDashedStroke(
+      g,
+      (c) => {
+        c.moveTo(x0 + PLOT / 2, 0);
+        c.lineTo(x0 + PLOT / 2, canvas.height);
+      },
+      FLOOR_STREET_LINE,
+      DASH,
+      2,
+      3,
+    );
+  }
+
+  // The fine CELL grid, one batched path stroked WITHOUT ctx.shadowBlur (see
+  // the header above), skipping any line that falls inside a street band so
+  // the street reads as open ground rather than a patch of grid.
   //
   // Verticals run the tile's FULL height rather than the screen's, so they scroll
   // off both edges instead of showing a round line-cap at the screen boundary.
@@ -102,10 +199,12 @@ function floorGridTile(W, H) {
     g,
     (c) => {
       for (let y = 0; y <= canvas.height; y += GRID_SPACING) {
+        if (insideCrossStreet(y)) continue;
         c.moveTo(0, y);
         c.lineTo(W, y);
       }
       for (let x = 0; x <= W; x += GRID_SPACING) {
+        if (insideAvenue(x)) continue;
         c.moveTo(x, 0);
         c.lineTo(x, canvas.height);
       }
@@ -121,21 +220,21 @@ function floorGridTile(W, H) {
   return gridTile;
 }
 
-// The grid's phase: where the world-anchored horizontals fall inside one cell,
-// in screen y. Exported so a test can assert it against the world->screen
-// mapping rather than trusting the comment above.
+// The tile's phase: where the pattern (grid, avenues, cross-streets) falls
+// inside one ARTERIAL_PERIOD, in screen y. Exported so a test can assert it
+// against the world->screen mapping rather than trusting the comment above.
 export function gridPhase(fDist, playerY) {
-  return (((playerY + fDist) % GRID_SPACING) + GRID_SPACING) % GRID_SPACING;
+  return (((playerY + fDist) % ARTERIAL_PERIOD) + ARTERIAL_PERIOD) % ARTERIAL_PERIOD;
 }
 
-// Full-width Tron floor grid: one blit. The road will paint over the middle,
-// leaving the floor visible to either side.
+// Full-width Tron floor grid, avenues and cross-streets: one blit. The road
+// will paint over the middle, leaving the floor visible to either side.
 //
 // Exported (rather than kept private like drawFloorBuildings) so the blit can be
 // pixel-diffed against a direct re-stroke IN ISOLATION — buildings drawn on top
 // would mask exactly the rows a phase error shows up in.
 export function drawFloorGrid(ctx, fDist, playerY, W, H) {
-  ctx.drawImage(floorGridTile(W, H), 0, gridPhase(fDist, playerY) - GRID_SPACING);
+  ctx.drawImage(floorGridTile(W, H), 0, gridPhase(fDist, playerY) - ARTERIAL_PERIOD);
 }
 
 // Buildings on the floor's plot grid, far (top) to near (bottom) so nearer boxes
