@@ -13,13 +13,14 @@
 // appears to pass underneath the highway.
 //
 // This module only DRAWS the floor. What stands where is citygrid.js's call:
-// the floor is divided into plots, and a plot's contents are — like the road — a
-// pure function of its index, so the city is infinite and never pops.
+// the floor is divided into plots (streets) and, within them, lots
+// (buildings), and a plot's or lot's contents are — like the road — a pure
+// function of its index, so the city is infinite and never pops.
 
 import { drawBuildingVariant } from "./sprites.js";
 import {
   CELL, PLOT, ARTERIAL_PERIOD, BUILDING, isAvenueCol,
-  plotAt, plotX, plotY, plotColumns, plotRows,
+  lotAt, lotX, lotY, lotColumns, lotRows, plotColumns,
 } from "./citygrid.js";
 import { neonStroke } from "../engine/neon.js";
 import { FLOOR_GRID, FLOOR_STREET, FLOOR_STREET_LINE, FLOOR_TRAFFIC } from "../engine/palette.js";
@@ -131,7 +132,17 @@ export function render(ctx, distance, playerY, W, H) {
 // made twice: the floor is meant to read as a fine MAP MESH with routes through
 // it, and at plot-wide streets on cell-wide squares it read as a handful of big
 // tiles instead. Scale the two together if either is retuned — a ribbon several
-// grid squares wide goes back to looking like a gap in the mesh. None of this uses
+// grid squares wide goes back to looking like a gap in the mesh.
+//
+// A building's footprint (sprites.js's variantOpts, sited by citygrid.js's
+// LOT) is the THIRD term in that same sentence, even though it never touches
+// this tile: it is sized to a LOT rather than the PLOT a building used to have
+// to itself, for exactly the same reason the ribbon and the grid are scaled to
+// CELL rather than PLOT — a building several times the size of the block
+// beneath it reads as a box standing on a mesh, not as the thing the mesh is
+// a map OF. Retuning LOT_SUBDIV without rebalancing the footprint catalogue
+// (or vice versa) breaks the same read the ribbon/grid pair breaks if scaled
+// alone. None of this uses
 // ctx.shadowBlur: this whole tile is one canvas-spanning path, and a shadow on
 // a shape that size was measured at ~0.5ms/frame — a quarter of the whole
 // frame, from one draw call (see neonStroke's own header for the same trade
@@ -298,27 +309,77 @@ export function drawFloorGrid(ctx, fDist, playerY, W, H) {
   ctx.drawImage(floorGridTile(W, H), 0, gridPhase(fDist, playerY) - ARTERIAL_PERIOD);
 }
 
-// Buildings on the floor's plot grid, far (top) to near (bottom) so nearer boxes
-// overlap farther ones. Some will sit under the road ribbon and get occluded —
-// that's intentional: the highway flies over the city.
+// Every building lot visible this frame, in the far-to-near draw order, as
+// plain data — no canvas anywhere in this function, mirroring trafficDots
+// below: it's what lets test/invariants.test.js assert the walk's bound and
+// its row order directly under plain Node instead of only by eye.
 //
-// This walks plots and asks citygrid.js what stands on each; it never decides
-// placement itself. Whatever else ends up owning plots later renders from the
+// Buildings sit on the floor's LOT grid (citygrid.js) — finer than the plot
+// grid streets are claimed on — walked ROW BY LOT ROW, far (top) to near
+// (bottom), so nearer footprints overlap farther ones. Subdividing plots into
+// lots means a block's four lots can now span the same screen row at
+// different depths only along y — never within a row, since a lot row is a
+// fixed floor-world y band exactly like a plot row was — so walking lot rows
+// in the same far-to-near order the old plot-row walk used is sufficient; get
+// the row order wrong (say, iterating plot rows and drawing all four lots
+// within one at once) and a near lot silently draws UNDER a far one, visible
+// only at certain scroll offsets since the two rows share screen space for
+// only part of a cycle.
+//
+// This walks lots and asks citygrid.js what stands on each; it never decides
+// placement itself. Whatever else ends up owning lots later renders from the
 // same walk, and can't collide with a building.
-function drawFloorBuildings(ctx, fDist, playerY, W, H) {
-  const rows = plotRows(fDist + playerY - H - 40, fDist + playerY + 200);
-  const cols = plotColumns(W);
+//
+// COST. Subdividing plots into lots roughly quadruples the walk (~40 plots at
+// 600x800 to ~160 lots — see invariants.test.js's own bound), and a second
+// pass (citygrid.js's BUILD_CHANCE, 0.325 -> 0.85) pushed the eligible-lot
+// fill rate to near-full to answer "the map still looks empty" — so this was
+// re-measured, not assumed to still be flat: ~70 buildings visible on an
+// average frame now (range 56-81, up from ~27 at the old chance, itself up
+// from 5-10 with one building per plot), and scenery.render() as a whole —
+// this walk, the grid blit and the traffic dots together — measured
+// ~0.36ms/frame by the rAF-saturation method (README's profiling-traps
+// section), up from ~0.25-0.26ms/frame at the old chance. Higher this time,
+// not flat — a sprite-cache blit (~1.3us per the README) is real cost, and
+// the extra ~40 buildings/frame are mostly actual blits rather than cheap
+// index checks on lots that turn out EMPTY, since EMPTY is now the rare
+// outcome. Still comfortably inside the design doc's ~0.5ms/frame budget for
+// the whole city layer, so the README's "the city has no culling" stays true
+// here, though with less headroom than before — a further density increase
+// should re-measure rather than assume the same margin holds.
+export function visibleBuildings(fDist, playerY, W, H) {
+  const rows = lotRows(fDist + playerY - H - 40, fDist + playerY + 200);
+  const cols = lotColumns(W);
+  const buildings = [];
 
-  for (let by = rows.max; by >= rows.min; by--) {
-    const sy = playerY - (plotY(by) - fDist); // plot centre, in screen y
-    for (let bx = 0; bx < cols; bx++) {
-      const plot = plotAt(bx, by);
-      if (plot.type !== BUILDING) continue;
+  for (let ly = rows.max; ly >= rows.min; ly--) {
+    const sy = playerY - (lotY(ly) - fDist); // lot centre, in screen y
+    for (let lx = 0; lx < cols; lx++) {
+      const lot = lotAt(lx, ly);
+      if (lot.type !== BUILDING) continue;
 
-      const cx = plotX(bx);
-      // Lean away from screen centre for a subtle shared vanishing point.
-      drawBuildingVariant(ctx, cx, sy, plot.variant, cx >= W / 2);
+      const cx = lotX(lx) + lot.dx;
+      // dx is a screen-x offset (x needs no transform — see citygrid.js's own
+      // header), but dy is a FLOOR-WORLD y offset, and sy is already screen
+      // space, where growing world-y maps to SHRINKING screen-y (see `sy`
+      // above) — so it subtracts here rather than adding. `ly` rides along
+      // only so test/invariants.test.js can assert the walk is far-to-near BY
+      // ROW without being tripped up by same-row siting jitter in `sy` (two
+      // buildings sharing a row can differ in `sy` by their own dy, which is
+      // not a depth difference — see that test's own comment).
+      buildings.push({ cx, sy: sy - lot.dy, ly, variant: lot.variant, leanRight: cx >= W / 2 });
     }
+  }
+  return buildings;
+}
+
+// Blits every visible building, far to near. Some will sit under the road
+// ribbon and get occluded — that's intentional: the highway flies over the
+// city.
+function drawFloorBuildings(ctx, fDist, playerY, W, H) {
+  for (const b of visibleBuildings(fDist, playerY, W, H)) {
+    // Lean away from screen centre for a subtle shared vanishing point.
+    drawBuildingVariant(ctx, b.cx, b.sy, b.variant, b.leanRight);
   }
 }
 

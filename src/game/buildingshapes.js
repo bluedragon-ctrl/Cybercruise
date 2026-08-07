@@ -78,10 +78,9 @@ function at(pts, dx, dy) {
 //   topZ      per-vertex roof heights, for a slanted roof (defaults to z1)
 //   smooth    the footprint approximates a curve, so only draw the outline
 //             verticals, not one per facet
-//   windows   light the most camera-facing wall
 //   ribEvery  dim vertical accent lines every N facets (curved walls)
 function section(base, z0, z1, opts = {}) {
-  return { base, z0, z1, topScale: 1, smooth: false, windows: false, ribEvery: 0, ...opts };
+  return { base, z0, z1, topScale: 1, smooth: false, ribEvery: 0, ...opts };
 }
 
 // ---------------------------------------------------------------------------
@@ -107,18 +106,18 @@ const BUILDERS = [
     beacons: [[0, 0, o.height]],
   }),
 
-  // 1 — ZIGGURAT: three setback tiers. Windows on the tall middle tier.
+  // 1 — ZIGGURAT: three setback tiers.
   (o) => ({
     sections: [
       section(rect(o.w, o.d), 0, o.height * 0.3),
-      section(rect(o.w * 0.72, o.d * 0.72), o.height * 0.3, o.height * 0.68, { windows: true }),
+      section(rect(o.w * 0.72, o.d * 0.72), o.height * 0.3, o.height * 0.68),
       section(rect(o.w * 0.44, o.d * 0.44), o.height * 0.68, o.height),
     ],
   }),
 
   // 2 — TAPER: a single wall sloping inward, the classic setback skyscraper.
   (o) => ({
-    sections: [section(rect(o.w, o.d), 0, o.height, { topScale: 0.55, windows: true })],
+    sections: [section(rect(o.w, o.d), 0, o.height, { topScale: 0.55 })],
   }),
 
   // 3 — DRUM: a round tower. 16 facets read as a curve once the per-facet
@@ -132,7 +131,7 @@ const BUILDERS = [
   // 4 — SPIRE: a slim tower carrying a tapered mast and a beacon.
   (o) => ({
     sections: [
-      section(rect(o.w * 0.66, o.d * 0.66), 0, o.height * 0.78, { windows: true }),
+      section(rect(o.w * 0.66, o.d * 0.66), 0, o.height * 0.78),
       section(rect(o.w * 0.16, o.d * 0.16), o.height * 0.78, o.height * 1.4, { topScale: 0.35 }),
     ],
     beacons: [[0, 0, o.height * 1.4]],
@@ -142,7 +141,7 @@ const BUILDERS = [
   // just another section, so the depth sort puts it in front of both towers.
   (o) => ({
     sections: [
-      section(at(rect(o.w * 0.36, o.d * 0.8), -o.w * 0.3, 0), 0, o.height, { windows: true }),
+      section(at(rect(o.w * 0.36, o.d * 0.8), -o.w * 0.3, 0), 0, o.height),
       section(at(rect(o.w * 0.36, o.d * 0.8), o.w * 0.3, 0), 0, o.height * 0.74),
       section(rect(o.w * 0.62, o.d * 0.3), o.height * 0.46, o.height * 0.56),
     ],
@@ -156,7 +155,6 @@ const BUILDERS = [
     sections: [
       section(rect(o.w, o.d), 0, o.height, {
         topZ: [o.height * 0.5, o.height * 0.5, o.height, o.height],
-        windows: true,
       }),
     ],
   }),
@@ -164,7 +162,7 @@ const BUILDERS = [
   // 7 — HEX: a hexagonal prism. Three walls face the camera instead of two, so
   // the facing-based shading gives it a rounded, lit look.
   (o) => ({
-    sections: [section(ngon(o.w, o.d * 1.1, 6), 0, o.height, { windows: true })],
+    sections: [section(ngon(o.w, o.d * 1.1, 6), 0, o.height)],
   }),
 ];
 
@@ -260,8 +258,6 @@ function shapeOpts(opts) {
     d: 55,
     height: 60,
     color: GREEN,
-    lit: 0.5,
-    seed: 1,
     skew: 0.28,
     ...opts,
   };
@@ -278,18 +274,14 @@ function drawSection(ctx, cx, cy, s, o, eye) {
   });
 
   // Per-wall facing: > 0 means we can see it. The largest value is the wall most
-  // square-on to the camera, which anchors both the shading ramp and the windows.
+  // square-on to the camera, which anchors the shading ramp.
   const facing = [];
   let maxFacing = 0;
-  let frontWall = -1;
   for (let i = 0; i < n; i++) {
     const nrm = outwardNormal(s.base, i, cen);
     const dot = nrm[0] * eye[0] + nrm[1] * eye[1];
     facing.push(dot);
-    if (dot > maxFacing) {
-      maxFacing = dot;
-      frontWall = i;
-    }
+    if (dot > maxFacing) maxFacing = dot;
   }
   const visible = facing.map((f) => f > 1e-6);
   const pointed = s.topScale < 0.01; // tapers to an apex: walls are triangles
@@ -343,13 +335,6 @@ function drawSection(ctx, cx, cy, s, o, eye) {
   // Roof outline (brightest — it's the top, furthest from the ground). An apex
   // has none: its wall edges already meet at the point.
   if (!pointed) glowPoly(ctx, top, o.color, 1.5, 10);
-
-  // Lit windows, on the wall facing the camera most squarely. Skipped on walls
-  // that taper away to nothing, where a window grid would shear into mush.
-  if (s.windows && frontWall >= 0 && s.topScale > 0.3) {
-    const j = (frontWall + 1) % n;
-    drawWallWindows(ctx, bot[frontWall], bot[j], top[j], top[frontWall], o.color, o.lit, o.seed);
-  }
 }
 
 // A small glowing point — the aircraft-warning light on a spire or apex.
@@ -419,51 +404,3 @@ export function fillPoly(ctx, pts, color = BUILDING_FILL) {
   ctx.restore();
 }
 
-// Bilinear point inside a quad: u runs A->B (bottom) / D->C (top); v runs bottom
-// (v=0) to top (v=1).
-function quadPoint(A, B, C, D, u, v) {
-  const bx = A[0] + (B[0] - A[0]) * u;
-  const by = A[1] + (B[1] - A[1]) * u;
-  const tx = D[0] + (C[0] - D[0]) * u;
-  const ty = D[1] + (C[1] - D[1]) * u;
-  return [bx + (tx - bx) * v, by + (ty - by) * v];
-}
-
-// Fills a grid of lit windows across a wall quad. `litFrac` of them glow; which
-// ones is deterministic from `seed` so a given building always looks the same.
-export function drawWallWindows(ctx, A, B, C, D, color, litFrac, seed) {
-  const cols = 3;
-  const rows = 5;
-  const pad = 0.16; // inset within each window cell (0..0.5)
-  let s = (seed * 9301 + 49297) % 233280;
-  const rnd = () => {
-    s = (s * 9301 + 49297) % 233280;
-    return s / 233280;
-  };
-  ctx.save();
-  ctx.fillStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 5;
-  ctx.globalAlpha = 0.7;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (rnd() > litFrac) continue;
-      const u0 = (c + pad) / cols;
-      const u1 = (c + 1 - pad) / cols;
-      const v0 = (r + pad) / rows;
-      const v1 = (r + 1 - pad) / rows;
-      const p00 = quadPoint(A, B, C, D, u0, v0);
-      const p10 = quadPoint(A, B, C, D, u1, v0);
-      const p11 = quadPoint(A, B, C, D, u1, v1);
-      const p01 = quadPoint(A, B, C, D, u0, v1);
-      ctx.beginPath();
-      ctx.moveTo(p00[0], p00[1]);
-      ctx.lineTo(p10[0], p10[1]);
-      ctx.lineTo(p11[0], p11[1]);
-      ctx.lineTo(p01[0], p01[1]);
-      ctx.closePath();
-      ctx.fill();
-    }
-  }
-  ctx.restore();
-}
