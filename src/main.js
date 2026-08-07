@@ -24,6 +24,7 @@ import { createMusic } from "./audio/synth.js";
 import * as road from "./game/road.js";
 import * as scenery from "./game/scenery.js";
 import * as drones from "./game/drones.js";
+import * as links from "./game/links.js";
 import * as gameConsole from "./engine/console.js";
 
 const canvas = document.getElementById("game");
@@ -169,6 +170,7 @@ function newGame() {
   enemyShots = new Projectiles(explosions);
   disconnect.reset();
   gameConsole.reset();
+  links.reset();
 }
 newGame();
 
@@ -310,6 +312,13 @@ function update(dt) {
   distance += travelled;
   score.travel(travelled);
   score.update(dt);
+
+  // The console voice for Phase 7e's nodes (game/links.js): re-derives which
+  // node, if any, is currently mid-ping among the ones on screen and pushes
+  // one SYS LOG line the moment that changes. Reads scenery.js's own clock
+  // (see links.js's header) and this tick's just-updated `distance`/
+  // `player.y`, the same pair render() will use a moment later.
+  links.announce(scenery.clock, distance, player.y, W, H);
 
   // Shooting, BEFORE traffic: a bullet that kills a car this tick leaves that
   // car dead when traffic.update runs, so it detonates and scores in the same
@@ -593,6 +602,10 @@ function render(alpha) {
   // ribbon paints an opaque surface over it, then the player on top. The floor
   // runs on its own half-speed clock and rounds it itself — see scenery.render.
   scenery.render(ctx, camY, player.y, W, H);
+  // Links and pings (Phase 7e): ground-plane annotation on the nodes
+  // scenery.render() just drew, so it draws immediately after that layer and
+  // before the sky band (drones) or the road's own opaque foreground.
+  links.render(ctx, camY, player.y, W, H);
   // Air traffic (Phase 7c): between the floor and the road, so it draws after
   // the whole scenery layer (grid, buildings, floor traffic) and before the
   // road ribbon paints its own opaque foreground over everything below it.

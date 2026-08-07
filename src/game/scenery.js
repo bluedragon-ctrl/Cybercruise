@@ -480,6 +480,14 @@ function drawFloorBuildings(ctx, fDist, playerY, W, H) {
 // the walk directly under plain Node. Order doesn't matter the way it does for
 // visibleBuildings (nodes never overlap each other — one per plot, plots don't
 // overlap), so this doesn't bother walking far-to-near.
+//
+// `bx`/`by` ride along with the screen position (Phase 7e, game/links.js):
+// a conduit's heading, a ping's phase and a console callsign all have to be
+// derived from the SAME plot index that made this a node in the first place
+// (citygrid.js's reserve()), not a second identity invented downstream —
+// exactly the reasoning plotAt itself already documents for staying a pure
+// function of (bx, by). Free to add: citygrid.js's own walk already has both
+// in scope, this just stops discarding them at the return.
 export function visibleNodes(fDist, playerY, W, H) {
   const rows = plotRows(fDist + playerY - H - 40, fDist + playerY + 200);
   const cols = plotColumns(W);
@@ -490,7 +498,7 @@ export function visibleNodes(fDist, playerY, W, H) {
     for (let bx = 0; bx < cols; bx++) {
       const plot = plotAt(bx, by);
       if (!plot || plot.type !== NODE) continue;
-      nodes.push({ cx: plotX(bx), sy, variant: plot.variant });
+      nodes.push({ cx: plotX(bx), sy, variant: plot.variant, bx, by });
     }
   }
   return nodes;

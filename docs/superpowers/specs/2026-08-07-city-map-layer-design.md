@@ -385,22 +385,106 @@ in the browser and against the test suite.
 ## Sub-phase 7e — Links and pings
 
 **Goal.** Signals moving between places — the "symbolic signal from somewhere"
-idea. Depends on 7d.
+idea. Depends on 7d. Built as three pieces rather than two: this doc originally
+scoped 7e as pure decoration, but the in-game SYS LOG (`src/engine/console.js`)
+landed after this doc was written, and it turns a ping from a pretty circle
+into information — a ping that coincides with a console line reads as the world
+talking to you, not a screensaver. The three pieces (conduits, pings, the
+console voice) shipped together because the third is what justifies the first
+two.
 
-**Two effects, both nearly free:**
+**The doc's own design didn't survive contact with 7d.** "A dashed line
+between two nodes" was the original plan. `NODE_CHANCE` is 0.06 of
+street-adjacent unclaimed plots (7d's own section), so two nodes on screen *at
+once* is uncommon — a conduit that only exists in that coincidence would
+almost never be drawn. Shipped instead: a conduit anchors at **one** node and
+runs off along a heading derived from that node's own plot index, to a
+destination that is usually off screen, clipped to the viewport. This is both
+more available (every visible node gets a conduit, not just a rare pair) and
+better fiction — a signal heading toward the horizon reads as a city-wide
+network, where a closed A-to-B line reads as two boxes with a wire between
+them. If two nodes happen to be on screen with headings that point at each
+other, that's a nice accident; nothing engineers it.
 
-- **Conduits** — a dashed line between two nodes with a single bright packet dot
-  travelling along it. One line, one dot. Extremely 80s-cyberspace for the cost.
-- **Pings** — a stroked circle expanding out of a node and fading, phase derived
-  deterministically from the node index and time, 1–2 alive at once. One `arc()`
-  each, stroke only.
+**Three effects, all cheap:**
 
-**Watch for.** These are the first genuinely per-frame paths on the floor. They
-stay cheap only while they stay *few* and stay unblurred — the glow comes from
-`neonStroke` overdraw, never `shadowBlur`.
+- **Conduits** — a dashed line running off a node's own heading, clipped to the
+  viewport, with a single bright packet dot travelling along it. The packet is
+  a phase, not an entity: `pos = (t * speed + offset) mod length`, the same
+  shape `laneDotPositions` already gives the floor's traffic — reused via
+  `scenery.js`'s exported `clock` rather than a second one, so the whole city
+  still freezes together.
+- **Pings** — a stroked circle expanding out of a node and fading, radius and
+  alpha derived deterministically from the node index and the clock (a short
+  active window inside an otherwise idle per-node cycle — no state needed to
+  know a node is *currently* pinging, only to announce that it *just started*,
+  see below). 1–2 alive at once across the whole screen, by construction: node
+  rarity (7d's ~1/frame) times a short duty cycle inside each node's own
+  period. One `arc()` each, stroke only.
+- **The console voice** — when a ping *begins*, push one SYS LOG line: a
+  stable callsign (derived from the plot index by the same hash trick
+  everything else on this floor uses, so a given node reads the same name
+  every time the player passes it) plus a short status, e.g.
+  `NODE 7F-2 // UPLINK`, `GRID-A4 // SWEEP`. Always `HINT` severity — never
+  `WARN`/`CRITICAL`, which `console.js` maps to `NEUTRAL`/`HAZARD`, gameplay
+  **faction** colours this floor is not allowed to use (see "Two constraints"
+  above). Rate-limited hard (one line roughly every several seconds) and
+  suppressed while `console.js`'s own `isBusy()` says the log is showing
+  something else — a small read-only accessor added to `console.js` for
+  exactly this, since the city module has no business guessing busy-ness from
+  outside. Real gameplay call-outs (hull damage, pickups) are the log's actual
+  job; city chatter has to lose that contest, not compete for it.
 
-**Done when.** Both are on screen, both are bounded in count, and the floor's
-total is still measured under budget.
+**The one place on this floor that keeps state.** Every other layer here —
+conduits, pings, and everything in 7a-7d before them — is a pure function of
+position or time: same (clock, index) in, same answer out, nothing stored.
+"A ping just started" is inherently an *edge*, and detecting an edge needs to
+remember which side of it the last frame was on. `game/links.js` keeps exactly
+one scalar for this — the identity of whichever node is the currently active
+announcement (or none) — so a ping that stays alive across many frames
+announces once, and the same node's next cycle (after the log has gone quiet
+on it in between) announces again. Reset alongside everything else `newGame()`
+tears down, the same place `console.reset()` is already called from.
+
+**Cost, measured.** Not the first genuinely per-frame paths on the floor after
+all — 7c's drones got there first (see the "Order, and why" section's own
+correction below), but the same rule applies: no `ctx.shadowBlur` (the glow is
+`neonStroke`'s own overdraw), batched by colour (every conduit's dash in one
+path, every packet dot in one fill; every ping arc gets its own `stroke()`
+call rather than a shared one, since a ring's alpha fades over its own
+lifetime and a single path can only carry one alpha for everything drawn in
+it — but pings are independently bounded to "1-2 alive at once" regardless of
+node count, so this never scales the way the dash/packet batching exists to
+bound), and bounded by the visible node walk (`visibleNodes`) so a
+conduit/ping belonging to an off-screen node is never even constructed.
+
+Measured by the rAF-saturation method in a real (non-sandboxed) browser, per
+this doc's own note on 7d's measurement environment — six warmed samples,
+first-sample warmup discarded, median taken, mirroring 7d's own methodology:
+`links.render()` alone measured **~2.5-4.2µs/frame** (median ~3.4µs) across a
+wide distance sweep (60000 world units, 733-unit steps, so both zero-node and
+multi-node frames are represented) — cheaper even than 7c's drones (~5.2µs in
+the same environment, same run), consistent with nodes being rarer than
+drones and a ping/conduit costing at most one extra draw call each per
+visible node.
+
+`scenery.render()` alone re-measured at **~460µs (~0.46ms)** in this same
+environment (one of six samples came back at ~1.6ms — noise, not signal; see
+this doc's own note on this codebase's measurement environment producing
+occasional outliers, and the tight cluster of the other five). Combined —
+`scenery.render()` + `links.render()` + `drones.render()`, the actual
+per-frame city-floor total — measured **~500.67µs (~0.50ms)**, which lands
+**at** the ~0.5ms budget this doc sets for the whole layer, not comfortably
+under it the way 7d's own addition was. Stated plainly, as the cost section
+above asks: **the floor's total no longer has headroom**, and culling
+(the README's own "still open" item) becomes 7f's prerequisite rather than a
+someday item — the next sub-phase that adds a per-frame cost to this floor
+should not assume the margin 7a-7d enjoyed still exists.
+
+**Done when.** All three are on screen and in the log, all three are bounded
+in count, city chatter never crowds out a real gameplay call-out, every city
+line is `HINT`, and the floor's total is measured (in a real browser) under
+budget or, if it no longer is, that is stated rather than assumed away.
 
 ---
 
@@ -413,8 +497,23 @@ total is still measured under budget.
 - **Sector labels** — `SEC 07-N`, `GRID-A4`. `fillText` is expensive per frame, so
   these are **baked into the tiles or cached as sprites**, never drawn live.
 
-**Done when.** Labels are legible at speed and no `fillText` runs in the render
-pass.
+**Flagged by 7e, not built there: sector labels may not need `fillText` — or a
+tile/sprite bake — at all.** 7e's console voice (`game/links.js`'s `announce`)
+already proved out the pattern this needs: announcing something in the SYS LOG
+the instant the player crosses a boundary, rather than rendering it on the
+floor every frame. A sector label is the same shape of problem a node's
+callsign already is — a name derived from an index, read out on an edge
+(crossing into a new sector) rather than painted continuously. That sidesteps
+`fillText`'s per-frame cost entirely, without needing a bake step, and reads
+better at speed than a label a player has to find and read on a moving floor
+— a HUD line the deck reads out is more legible doing 600 than text scrolling
+past at the same speed ever would be. That likely reduces this sub-phase to
+the **zone highlight alone** (the `fillRect` + cached bracket sprite), with
+sector identity moving to the console instead of the floor. Left for 7f to
+actually build — this is a note, not an implementation.
+
+**Done when.** Labels (or their console-voice equivalent) are legible at speed
+and no `fillText` runs in the render pass.
 
 ---
 

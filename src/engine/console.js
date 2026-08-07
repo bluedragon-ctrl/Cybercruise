@@ -108,6 +108,18 @@ export function render(ctx, W, H) {
   }
 }
 
+// Read-only: is the log currently showing anything at all (a still-fading
+// line counts). Exists for callers OUTSIDE this file that must never crowd
+// out the log's real job — pickup hints, hull-damage call-outs — with their
+// own chatter (Phase 7e's city SYS LOG lines, game/links.js): those callers
+// need to know the log is busy before deciding to push, and guessing that
+// from outside (no messages pushed in the last N seconds? counting some
+// other system's own calls?) would be both more code and less accurate than
+// this file just answering the question directly.
+export function isBusy() {
+  return messages.length > 0;
+}
+
 export function reset() {
   messages = [];
 }

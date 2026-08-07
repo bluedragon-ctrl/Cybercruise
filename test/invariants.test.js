@@ -48,6 +48,11 @@ import {
   FLOOR_PARALLAX,
 } from "../src/game/scenery.js";
 import { droneField, DRONE_PARALLAX } from "../src/game/drones.js";
+import {
+  conduitField, pingField, callsign, announcement, announce, activePing, announceActive,
+  reset as linksReset,
+} from "../src/game/links.js";
+import { HINT as CONSOLE_HINT } from "../src/engine/console.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import {
   CELL, PLOT, LOT, LOT_SUBDIV, ARTERIAL_PERIOD, lotAt, lotColumns, lotRows, lotX, lotY, plotColumns,
@@ -970,6 +975,158 @@ test("a formation's nav lights blink rather than staying on or off forever", () 
   }
   assert.ok(sawLit, "no drone was ever lit across the clock sweep");
   assert.ok(sawUnlit, "no drone was ever unlit across the clock sweep — the blink never toggles");
+});
+
+// --- Links and pings (Phase 7e) -----------------------------------------------
+//
+// Same split as the traffic-dot/drone tests above: conduitField/pingField are
+// pure functions of (clock, nodes), so most of this runs against them
+// directly. The console voice (announce/announceActive) is the one stateful
+// piece on this floor — see links.js's own header — and gets its own tests,
+// isolated from the real singleton SYS LOG via injected push/busy stubs.
+
+test("a conduit's packet position is a pure function of (clock, node index)", () => {
+  const nodes = [{ cx: 120, sy: 300, bx: 3, by: -7 }, { cx: 480, sy: 640, bx: -12, by: 205 }];
+  for (const clockValue of [0, 1.7, 42.25, 999.9]) {
+    const a = conduitField(clockValue, nodes, 600, 800);
+    const b = conduitField(clockValue, nodes, 600, 800);
+    assert.deepEqual(a, b, `conduitField(${clockValue}, ...) is not stable across calls`);
+  }
+});
+
+test("a ping's radius/alpha are a pure function of (clock, node index)", () => {
+  const nodes = [{ cx: 120, sy: 300, bx: 3, by: -7 }, { cx: 480, sy: 640, bx: -12, by: 205 }];
+  for (const clockValue of [0, 1.7, 42.25, 999.9]) {
+    const a = pingField(clockValue, nodes);
+    const b = pingField(clockValue, nodes);
+    assert.deepEqual(a, b, `pingField(${clockValue}, ...) is not stable across calls`);
+  }
+});
+
+test("conduits and pings are bounded by, and never exceed, the visible node walk", () => {
+  // Both conduitField and pingField produce AT MOST one entry per node in
+  // the list they're handed — mirrors the design doc's "bound the count by
+  // the visible node walk" — so driving them off the REAL visibleNodes()
+  // output (rather than a hand-built list) across the same sweep the 7d
+  // node-count test uses is what proves a conduit/ping belonging to a node
+  // that isn't on screen is never even constructed, not just never drawn.
+  for (const W of [400, 550, 600, 700]) {
+    for (const playerY of [0, 250, 496, 803]) {
+      for (let fDist = 0; fDist < 20000; fDist += 733) {
+        const nodes = visibleNodes(fDist, playerY, W, 800);
+        for (const clockValue of [0, 17.3, 401.2]) {
+          const conduits = conduitField(clockValue, nodes, W, 800);
+          const pings = pingField(clockValue, nodes);
+          assert.ok(conduits.length <= nodes.length, "more conduits than visible nodes");
+          assert.ok(pings.length <= nodes.length, "more pings than visible nodes");
+        }
+      }
+    }
+  }
+});
+
+test("a callsign is stable for a given plot index", () => {
+  // The property that makes the SYS LOG mean anything (see links.js's own
+  // header): a node has to read the same name every time the player passes
+  // it, which is only true if callsign() is a pure function of (bx, by) with
+  // no hidden dependence on call order or on anything else.
+  for (const [bx, by] of [[0, 0], [3, -7], [-12, 205], [40, 40000], [-5, -9999]]) {
+    const a = callsign(bx, by);
+    const b = callsign(bx, by);
+    assert.equal(a, b, `callsign(${bx}, ${by}) is not stable across calls`);
+    assert.equal(typeof a, "string");
+    assert.ok(a.length > 0, `callsign(${bx}, ${by}) is empty`);
+  }
+});
+
+test("every city-log line is HINT severity, never a gameplay faction colour", () => {
+  // console.js maps WARN/CRITICAL to NEUTRAL/HAZARD — gameplay FACTION
+  // colours (amber/red) — and the whole point of this floor's colour
+  // discipline is protecting the half-second faction read (palette.js's own
+  // header). A city callsign flashing hazard-red would read as a threat.
+  // Cheap to assert directly across a wide sweep of plot indices, and it's
+  // the guard against the single worst regression available here.
+  for (let bx = -10; bx < 10; bx++) {
+    for (let by = -50; by < 50; by++) {
+      const msg = announcement(bx, by);
+      assert.equal(msg.severity, CONSOLE_HINT, `announcement(${bx}, ${by}) used a non-HINT severity`);
+    }
+  }
+});
+
+test("a single ping announces exactly once, not once per frame it is alive", () => {
+  linksReset();
+  const node = { bx: 5, by: -3 };
+  let pushCount = 0;
+  const push = () => { pushCount++; };
+  const busy = () => false;
+
+  // A ping "alive" for several consecutive frames, clock advancing a little
+  // each time (well under the rate-limit interval) — announceActive is
+  // handed the SAME node object every frame, exactly as announce() would
+  // while a real ping's window stays open.
+  for (let i = 0; i < 20; i++) {
+    announceActive(i * 0.05, node, push, busy);
+  }
+  assert.equal(pushCount, 1, `a single continuously-alive ping pushed ${pushCount} times, expected exactly 1`);
+
+  // The ping ending (active -> null) and nothing else happening shouldn't
+  // push anything either.
+  announceActive(1.1, null, push, busy);
+  assert.equal(pushCount, 1, "a ping ENDING must not itself push a line");
+});
+
+test("the console voice rate-limits city chatter to roughly one line every several seconds", () => {
+  // Drives the STATE MACHINE (announceActive) directly with a synthetic
+  // node that starts a fresh ping every 0.2s — far more often than any real
+  // node's own period (pingState's PING_PERIOD_MIN/MAX, 4.5-9s) — over a
+  // long simulated span, so the rate limit is the only thing that could be
+  // holding the push count down. If it didn't hold, this would push on
+  // nearly every one of the ~9000 edges below instead of a small fraction
+  // of them.
+  linksReset();
+  const nodeA = { bx: 1, by: 1 };
+  let pushCount = 0;
+  const RATE_LIMIT = 6; // mirrors links.js's own CITY_LINE_MIN_INTERVAL
+  const push = () => { pushCount++; };
+  const busy = () => false;
+
+  const SPAN = 1800; // seconds — a long simulated drive
+  for (let clockValue = 0; clockValue < SPAN; clockValue += 0.1) {
+    // Alternate active/inactive every 0.1s so this is a fresh "just started"
+    // edge roughly every 0.2s — announceActive only cares about the EDGE,
+    // not how long the ping stays alive, so toggling like this is a stress
+    // test of the edge path itself rather than a claim about real timing.
+    const active = Math.floor(clockValue / 0.1) % 2 === 0 ? nodeA : null;
+    announceActive(clockValue, active, push, busy);
+  }
+
+  const ceiling = Math.ceil(SPAN / RATE_LIMIT) + 1; // +1 slack for the edge at t=0
+  assert.ok(pushCount <= ceiling, `city chatter pushed ${pushCount} times over ${SPAN}s, expected <= ${ceiling}`);
+  assert.ok(pushCount > 1, "expected more than one push over a long span — the test isn't exercising anything otherwise");
+});
+
+test("announce() (the real wrapper) never pushes a non-HINT line across a wide, real sweep", () => {
+  // A lighter integration check of the actual wiring (fDist, visibleNodes,
+  // activePing) rather than the synthetic state-machine tests above —
+  // whatever DOES get pushed while driving a long simulated stretch with
+  // real geography must still be HINT, matching the pure announcement()
+  // test above but exercised through the real call path.
+  linksReset();
+  const pushed = [];
+  const push = (text, severity) => pushed.push({ text, severity });
+  const busy = () => false;
+
+  const SPEED = 300; // px/s, a plausible mid-range player speed
+  const SPAN = 600; // seconds of simulated driving
+  for (let t = 0; t < SPAN; t += 0.25) {
+    announce(t, t * SPEED, 400, 600, 800, push, busy);
+  }
+
+  assert.ok(pushed.length > 0, "expected at least one real city line over a long simulated drive");
+  for (const m of pushed) {
+    assert.equal(m.severity, CONSOLE_HINT, `announce() pushed "${m.text}" at non-HINT severity`);
+  }
 });
 
 // --- Ramming physics ---------------------------------------------------------
