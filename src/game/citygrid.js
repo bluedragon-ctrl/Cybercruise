@@ -32,6 +32,13 @@
 // columns, since the floor never pans sideways.
 
 import { BUILDING_VARIANTS, buildingFootprint } from "./sprites.js";
+// NODE_VARIANTS comes straight from nodeshapes.js, not through sprites.js the
+// way BUILDING_VARIANTS does — sprites.js only sits between citygrid.js and
+// buildingshapes.js because a building's SITED FOOTPRINT is a function of box
+// vs. shape (variantOpts), which citygrid.js needs (buildingFootprint) and a
+// node has no equivalent of: a node's variant is just a catalogue index, so
+// there is nothing sprites.js needs to derive before this file can use it.
+import { NODE_VARIANTS } from "./nodeshapes.js";
 
 export const CELL = 64;        // floor grid cell size (world units on the floor plane)
 const BLOCK_CELLS = 2;         // a plot is this many cells on a side
@@ -101,6 +108,14 @@ export const ARTERIAL_PERIOD = PLOT * CROSS_STREET_ROWS; // 512
 // before. Visible buildings at 600x800 (scenery.js's visibleBuildings, the
 // same sampling its own cost comment uses): mean ~70/frame (range 56-81)
 // against the prior ~27 (range up to 41) — roughly 2.6x, not merely "more".
+//
+// RE-MEASURED after Phase 7d's NODE claim (below) started competing for the
+// same lots: eligible-lot fraction 0.4854 (a wide lx/ly sweep — see this
+// file's own density test), realized-build fraction 0.4123, visibleBuildings
+// mean ~65/frame (range 52-83) — down from ~70, about 7% fewer, which
+// matches NODE's own ~2% bite out of every lot (a NODE claim removes ALL 4
+// lots in its plot from the building roll, not just the one plot). Small, as
+// the design doc predicted, and not worth retuning BUILD_CHANCE for.
 const BUILD_CHANCE = 0.85;
 
 // What a plot holds. Anything added later (parks, pads, ...) becomes another
@@ -109,6 +124,7 @@ export const EMPTY = 0;
 export const BUILDING = 1;
 export const AVENUE = 2;
 export const CROSS_STREET = 3;
+export const NODE = 4;
 
 // Modulo that stays positive for negative bx/by — plot rows run both
 // directions of travel, and JS's % keeps the sign of its left operand.
@@ -153,6 +169,38 @@ export function plotColumns(W) {
   return Math.ceil(W / PLOT);
 }
 
+// Whether plot row `by` sits next to a cross-street — the plot-level relative
+// of frontage() below (which does the same edge-adjacency check per LOT, not
+// per PLOT). Only the y axis is checked, and that is not an oversight: AVENUE_
+// COLS' own period (3) means every column that ISN'T ITSELF an avenue has one
+// directly beside it — bx mod 3 == 1 borders the avenue at bx-1, bx mod 3 == 2
+// borders the one at bx+1, since the period is exactly avenue-plus-both-
+// neighbours — so by the time reserve() below reaches this check, x-adjacency
+// already holds unconditionally and re-checking it here would decide nothing.
+// The one axis where a plot genuinely CAN sit buried mid-block — no street on
+// either side — is y, at CROSS_STREET_ROWS' coarser period (4): by mod 4 == 1
+// (using isCrossStreetRow's own by+1 convention) is the one residue two rows
+// shy of the nearest cross-street on both sides. This is what excludes it.
+function frontsStreet(by) {
+  return isCrossStreetRow(by - 1) || isCrossStreetRow(by + 1);
+}
+
+// Fraction of street-adjacent, unclaimed PLOTS that become a NODE (below).
+// THE SINGLE MOST IMPORTANT TUNING DECISION IN THIS SUB-PHASE (see the design
+// doc's 7d section): if every intersection reads as a node, nothing does, and
+// 7e's planned conduits would end up meshing across the whole floor instead of
+// linking a few. The target was ONE OR TWO ON SCREEN AT ONCE at 600x800 — the
+// eye should find a node, not wade through them — not a density figure.
+//
+// 0.06 measured (test/invariants.test.js samples visibleNodes directly, the
+// same way BUILD_CHANCE's own comment is checked against lotAt): mean ~0.9-1.2
+// nodes/frame across a wide sweep of scroll positions and screen widths
+// (400-700px), 0 on roughly a third of frames, max observed 5 (vanishingly
+// rare — 6 samples out of 68000+). A first pass at 0.09 measured mean ~2.0
+// with a tail out to 7 — too many to read as individually rare — and was
+// pulled back down from there.
+const NODE_CHANCE = 0.06;
+
 // Reserved plots: things other than buildings that own ground. Runs BEFORE
 // any lot within the plot is looked at, so a claim always wins the WHOLE
 // plot outright — streets are a plot-level concept and stay one regardless of
@@ -160,10 +208,54 @@ export function plotColumns(W) {
 // first: at an intersection a plot is both an avenue column and a
 // cross-street row, and it only needs to come back as ONE type — callers care
 // that it isn't BUILDING, not which street claimed it.
+//
+// NODE is checked LAST, after both street claims, so it can only ever land on
+// ground a street would otherwise have left for a building — the ordering the
+// design doc calls for explicitly, and the one this file's own tests check
+// directly rather than trusting this comment to stay true. Claimed at PLOT
+// granularity, like a street and unlike a building: a node is a facility, not
+// a lot-sized structure, so it takes the whole block rather than subdividing.
 function reserve(bx, by) {
   if (isCrossStreetRow(by)) return { type: CROSS_STREET };
   if (isAvenueCol(bx)) return { type: AVENUE };
+  if (frontsStreet(by)) {
+    // Distinct seed space from lotAt's own building roll below (which seeds
+    // off lx/ly, a finer index) and from citygrid's other hashes generally —
+    // see lotAt's own comment on why each roll gets its own offset.
+    const seed = bx * 50261 + by * 30931 + 7000;
+    if (hash(seed * 1.7) < NODE_CHANCE) {
+      return { type: NODE, variant: Math.floor(hash(seed * 3.1) * NODE_VARIANTS) };
+    }
+  }
   return null;
+}
+
+// The reserved claim on plot (bx, by) alone, without going through a lot —
+// what scenery.js's node walk needs (visibleNodes), since a NODE is claimed
+// at PLOT granularity and walking it via lotAt would visit the SAME claim
+// LOT_SUBDIV x LOT_SUBDIV times over and draw the same marker that many times.
+// Returns null for an ordinary buildable plot, exactly like reserve() itself.
+export function plotAt(bx, by) {
+  return reserve(bx, by);
+}
+
+// Plot centres, in screen x and floor-world y — the PLOT-grained equivalent
+// of lotX/lotY below, for anything (a node) claimed a whole plot at a time
+// rather than sited within a lot.
+export function plotX(bx) {
+  return PLOT * (bx + 0.5);
+}
+export function plotY(by) {
+  return PLOT * (by + 0.5);
+}
+
+// Plot rows covering a floor-world y range — the PLOT-grained equivalent of
+// lotRows below, for scenery.js's node walk (which walks plots, not lots).
+export function plotRows(worldBottom, worldTop) {
+  return {
+    min: Math.floor(worldBottom / PLOT),
+    max: Math.ceil(worldTop / PLOT),
+  };
 }
 
 // Lot centres, in screen x and floor-world y — the position a building would

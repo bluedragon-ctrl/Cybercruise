@@ -134,14 +134,22 @@ measurement, not a hunch; the likely triggers are a high-DPI backing store, a ne
 full-screen effect (scanlines, CRT curvature, colour grade), or an order of
 magnitude more entities.
 
-Still open: the city has no culling. Checked, not just assumed, at the two
+Still open: the city has no culling. Checked, not just assumed, at the three
 points that seemed likeliest to force it — subdividing PLOTs into LOTs for
 Phase 7's building re-siting quadrupled the per-frame walk (~40 to ~160
-cells) and stayed flat, and retargeting the density (`BUILD_CHANCE`) to
-answer "the map looks empty" then pushed the render cost up for real, ~0.25ms
-to ~0.36ms/frame — but still under the ~0.5ms city-layer budget (see the
-city-map-layer design doc's own correction section for both), so it remains
-open rather than added.
+cells) and stayed flat, retargeting the density (`BUILD_CHANCE`) to answer
+"the map looks empty" then pushed the render cost up for real, ~0.25ms to
+~0.36ms/frame (see the city-map-layer design doc's own correction section for
+both), and 7d's registration ticks + distinguished nodes added a measured
+~2µs/frame on top of that (baked-tile ticks cost literally nothing per frame;
+the rare node blits are the whole of it) — all three still comfortably under
+the ~0.5ms city-layer budget, so it remains open rather than added. 7d's own
+section in the design doc also flags that this codebase's usual
+rAF-saturation method produced noisier, higher end-to-end numbers for
+`scenery.render()` as a whole in one particular sandboxed measurement
+environment than the isolated component measurement supports — worth a
+re-check in a real browser before trusting an end-to-end figure from that
+environment specifically.
 
 Two traps when profiling canvas work here, both of which cost time to rediscover:
 `getImageData` used to "force a flush" demotes the canvas out of GPU acceleration
@@ -547,7 +555,7 @@ history interleaves phase features with side-steps into earlier phases' code.
         the road, own diagonal headings, batched, unglowed. (Originally a
         static "far field" tile — built, rejected: see the design doc's 7c
         section for why a static layer doesn't sell depth here.)
-  - [ ] **7d** — Nodes and markers: a reserved plot type, sprite-cached
+  - [x] **7d** — Nodes and markers: a reserved plot type, sprite-cached
   - [ ] **7e** — Links and pings: conduits with packet dots, expanding signal rings
   - [ ] **7f** — Zone highlights and sector labels (baked, never live `fillText`)
   - [ ] **7g** — VR framing: buildings materialising on entry, rare deck glitches

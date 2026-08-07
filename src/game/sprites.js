@@ -13,6 +13,7 @@ import {
   fillPoly,
   SHAPE_COUNT,
 } from "./buildingshapes.js";
+import { drawNode, nodeExtent } from "./nodeshapes.js";
 import {
   PLAYER,
   PLAYER_THRUST,
@@ -327,5 +328,25 @@ export function drawBuildingVariant(ctx, cx, cy, v, leanRight) {
   const sprite = getSprite(key, sw, sh, originX, originY, (sctx, sx, sy) =>
     shape === 0 ? drawBuilding(sctx, sx, sy, o) : drawShape(sctx, sx, sy, shape - 1, o),
   );
+  blitSprite(ctx, sprite, cx, cy);
+}
+
+// Cached drawNode (nodeshapes.js), anchored at its own centre — a node has no
+// footprint edge to flush against (citygrid.js sites it at the plot centre,
+// unlike a building's kerb-pushed lot), and no lean: it is flat and
+// symmetric, so unlike drawBuildingVariant there is exactly one sprite per
+// variant, not one per (variant, lean direction). `v` is the only thing that
+// can vary — it comes straight from citygrid.js's reserve(), already bounded
+// to [0, NODE_VARIANTS), so the key below can never mint more than
+// NODE_VARIANTS entries no matter how large the city grows.
+export function drawNodeVariant(ctx, cx, cy, v) {
+  const ext = nodeExtent(v);
+  const originX = ext.left + GLOW_PAD;
+  const originY = ext.up + GLOW_PAD;
+  const sw = ext.left + ext.right + GLOW_PAD * 2;
+  const sh = ext.up + ext.down + GLOW_PAD * 2;
+
+  const key = `node|${v}`;
+  const sprite = getSprite(key, sw, sh, originX, originY, (sctx, sx, sy) => drawNode(sctx, sx, sy, v));
   blitSprite(ctx, sprite, cx, cy);
 }

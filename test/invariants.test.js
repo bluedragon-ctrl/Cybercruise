@@ -42,7 +42,8 @@ import {
 } from "../src/game/road.js";
 import {
   gridPhase, GRID_SPACING, STREET_WIDTH, STREET_INSET,
-  trafficDots, crossStreetBands, avenueCenters, visibleBuildings,
+  trafficDots, crossStreetBands, avenueCenters, visibleBuildings, visibleNodes,
+  tileIntersections,
   DOT_SPACING, DOT_SPEED_A, DOT_SPEED_B, DOT_LANE_PHASE,
   FLOOR_PARALLAX,
 } from "../src/game/scenery.js";
@@ -50,8 +51,10 @@ import { droneField, DRONE_PARALLAX } from "../src/game/drones.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import {
   CELL, PLOT, LOT, LOT_SUBDIV, ARTERIAL_PERIOD, lotAt, lotColumns, lotRows, lotX, lotY, plotColumns,
-  isAvenueCol, isCrossStreetRow, BUILDING, EMPTY, AVENUE, CROSS_STREET,
+  plotAt, plotRows, plotX, plotY,
+  isAvenueCol, isCrossStreetRow, BUILDING, EMPTY, AVENUE, CROSS_STREET, NODE,
 } from "../src/game/citygrid.js";
+import { NODE_VARIANTS } from "../src/game/nodeshapes.js";
 import { resolveCollisions, impactCost, ramSpeed, SIDE_DAMAGE } from "../src/game/collisions.js";
 import { Score, DISTANCE_POINTS } from "../src/game/score.js";
 import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES } from "../src/game/weapons.js";
@@ -418,12 +421,19 @@ test("lotAt is deterministic and total", () => {
       const b = lotAt(lx, ly);
       assert.deepEqual(a, b, `lot (${lx}, ${ly}) is not stable across calls`);
       assert.ok(
-        a.type === BUILDING || a.type === EMPTY || a.type === AVENUE || a.type === CROSS_STREET,
+        a.type === BUILDING || a.type === EMPTY || a.type === AVENUE ||
+          a.type === CROSS_STREET || a.type === NODE,
         `lot (${lx}, ${ly}) has an unknown type`,
       );
       if (a.type === BUILDING) {
         assert.ok(Number.isInteger(a.variant) && a.variant >= 0, "building variant must be an index");
         assert.ok(Number.isFinite(a.dx) && Number.isFinite(a.dy), "a sited building must carry a numeric dx/dy");
+      }
+      if (a.type === NODE) {
+        assert.ok(
+          Number.isInteger(a.variant) && a.variant >= 0 && a.variant < NODE_VARIANTS,
+          "a node variant must be an index inside [0, NODE_VARIANTS)",
+        );
       }
     }
   }
@@ -582,6 +592,172 @@ test("buildings draw far to near, in LOT row order", () => {
         assert.ok(
           buildings[i].ly <= buildings[i - 1].ly,
           `building ${i} in lot row ${buildings[i].ly} drew after row ${buildings[i - 1].ly} — not far-to-near`,
+        );
+      }
+    }
+  }
+});
+
+test("the eligible-lot and realized-build fractions, re-measured now that NODE competes for the same lots", () => {
+  // citygrid.js's BUILD_CHANCE comment documents the exact numbers a NODE
+  // claim should have nudged: eligible-lot fraction (BUILDING+EMPTY / all
+  // lots) and realized-build fraction (BUILDING / all lots). This samples
+  // lotAt directly, the same way that comment is checked, rather than trusting
+  // the prose to still be right now that a NODE plot removes all 4 of its
+  // lots from the roll — see BUILD_CHANCE's own re-measured note.
+  const counts = {};
+  let total = 0;
+  for (let lx = -40; lx < 40; lx++) {
+    for (let ly = -400; ly < 400; ly++) {
+      const t = lotAt(lx, ly).type;
+      counts[t] = (counts[t] ?? 0) + 1;
+      total++;
+    }
+  }
+  const eligible = (counts[BUILDING] ?? 0) + (counts[EMPTY] ?? 0);
+  const eligibleFrac = eligible / total;
+  const builtFrac = (counts[BUILDING] ?? 0) / total;
+  assert.ok(
+    Math.abs(eligibleFrac - 0.4854) < 0.01,
+    `eligible-lot fraction drifted to ${eligibleFrac.toFixed(4)}, expected ~0.4854`,
+  );
+  assert.ok(
+    Math.abs(builtFrac - 0.4123) < 0.01,
+    `realized-build fraction drifted to ${builtFrac.toFixed(4)}, expected ~0.4123`,
+  );
+});
+
+// --- Distinguished nodes (Phase 7d) -------------------------------------------
+
+test("the node sprite cache stays bounded at NODE_VARIANTS", () => {
+  // sprites.js's drawNodeVariant keys its cache on `v` alone (`node|${v}`),
+  // with no lean direction and no continuous parameter the way a building's
+  // key carries — so the WHOLE cache is bounded by NODE_VARIANTS, and this is
+  // the assertion that constant hasn't quietly grown, mirroring the building
+  // catalogue's own "stays bounded" test above.
+  assert.equal(NODE_VARIANTS, 6, `NODE_VARIANTS grew to ${NODE_VARIANTS} — the node catalogue must stay fixed`);
+});
+
+test("a NODE claim never lands on an avenue or cross-street plot", () => {
+  // citygrid.js's reserve() checks the two street claims BEFORE ever rolling
+  // a NODE, so a node can only ever land on ground a street would otherwise
+  // have left for a building — this is the assertion that ordering actually
+  // holds, not just that it reads that way in reserve()'s own comment. Silent
+  // in any test that only samples NODE placement in isolation, since a NODE
+  // sitting on top of a street plot would still "work" (nothing draws a
+  // building there either way) while quietly punching a hole in the ribbon
+  // scenery.js paints independently of reserve() (see the design doc's own
+  // note on why this is the bug this sub-phase has to avoid).
+  for (let bx = -20; bx < 20; bx++) {
+    for (let by = -80; by < 80; by++) {
+      const plot = plotAt(bx, by);
+      if (!plot || plot.type !== NODE) continue;
+      assert.ok(!isAvenueCol(bx), `NODE at plot (${bx}, ${by}) sits on an avenue column`);
+      assert.ok(!isCrossStreetRow(by), `NODE at plot (${bx}, ${by}) sits on a cross-street row`);
+    }
+  }
+});
+
+test("plotAt is deterministic — a node is a pure function of the plot index, no state", () => {
+  // Mirrors the "lotAt is deterministic and total" test above: citygrid.js's
+  // whole design rests on every claim being a pure function of its index, so
+  // a node that varied between calls (or with call ORDER) would make a
+  // facility flicker in and out as the player approached it.
+  for (let bx = -20; bx < 20; bx++) {
+    for (let by = -80; by < 80; by++) {
+      const a = plotAt(bx, by);
+      const b = plotAt(bx, by);
+      assert.deepEqual(a, b, `plot (${bx}, ${by})'s claim is not stable across calls`);
+      if (a && a.type === NODE) {
+        assert.ok(
+          Number.isInteger(a.variant) && a.variant >= 0 && a.variant < NODE_VARIANTS,
+          `node at (${bx}, ${by}) has a variant outside [0, NODE_VARIANTS)`,
+        );
+      }
+    }
+  }
+});
+
+test("the distinguished-node count stays rare, and bounded, across a wide sweep", () => {
+  // citygrid.js's own NODE_CHANCE comment: mean ~0.9-1.2/frame, 0 on roughly a
+  // third of frames, max observed 5 across a sweep of screen widths and scroll
+  // positions. Pinned here with slack above that observed max (mirrors the
+  // traffic-dot and drone count-bound tests above), so a future retune of
+  // NODE_CHANCE or the street periods can't quietly let this drift toward
+  // "every intersection" — the one outcome the design doc calls out as
+  // actively bad (7e's conduits would mesh across the whole floor instead of
+  // linking a few).
+  for (const W of [400, 550, 600, 700]) {
+    for (const playerY of [0, 250, 496, 803]) {
+      for (let fDist = 0; fDist < 20000; fDist += 233) {
+        const count = visibleNodes(fDist, playerY, W, 800).length;
+        assert.ok(count <= 12, `node count grew to ${count} on screen at once`);
+      }
+    }
+  }
+});
+
+test("the node walk is a bounded PLOT-level walk, not a LOT-level one", () => {
+  // A NODE is claimed at PLOT granularity (citygrid.js's reserve() runs
+  // before any lot inside the plot is examined), so visibleNodes has to walk
+  // PLOT rows — walking LOT rows instead (4x finer, per LOT_SUBDIV^2) would
+  // visit the SAME claim repeatedly and draw the same marker stacked on
+  // itself LOT_SUBDIV times over. This pins the walk at the plot-grained
+  // size (~40/frame at 600x800, matching 7a's own budget), not the ~160
+  // lot-grained size visibleBuildings's own bound test pins.
+  const rows = plotRows(0, 800 + 240);
+  const plots = (rows.max - rows.min + 1) * plotColumns(600);
+  assert.ok(plots <= 60, `plot-level walk grew to ${plots} plots per frame`);
+});
+
+test("the baked registration ticks land on real intersections, not just where isAvenueCol/isCrossStreetRow say so", () => {
+  // scenery.js's tileIntersections() is what floorGridTile() actually bakes
+  // ticks from, in TILE-LOCAL coordinates; crossStreetBands()/avenueCenters()
+  // are the SCREEN-space, per-frame equivalents this file's ribbon tests
+  // already trust. This maps every tile-local intersection through the SAME
+  // gridPhase offset drawFloorGrid's own blit uses, and checks the result
+  // against those two — not against isAvenueCol/isCrossStreetRow directly,
+  // which is exactly the shortcut that let the ribbon and citygrid.js's index
+  // math drift a whole PLOT apart once already (see isCrossStreetRow's own
+  // "+1" comment) while looking consistent on paper.
+  const H = 800;
+  for (const W of [400, 550, 600, 700]) {
+    for (const playerY of [0, 250, 496, 803]) {
+      for (let fDist = 0; fDist < ARTERIAL_PERIOD * 3; fDist += 131) {
+        const phase = gridPhase(fDist, playerY);
+        const destY = phase - ARTERIAL_PERIOD;
+        const centers = avenueCenters(W);
+
+        // A band that is only PARTIALLY on screen (its top clipped above the
+        // canvas, or spilling past the bottom) can still have its own MID —
+        // where the tick actually sits — off screen, so "on screen" for a
+        // tick has to be evaluated at the mid, not inherited from the band's
+        // own (more permissive) visibility test. Filtering crossStreetBands'
+        // own output down to on-screen mids, rather than re-deriving them,
+        // keeps this cross-checking crossStreetBands' actual output — the
+        // whole point of this test — instead of a second computation of it.
+        const expected = new Set();
+        for (const top of crossStreetBands(fDist, playerY, H)) {
+          const mid = top + STREET_WIDTH / 2;
+          if (mid < 0 || mid >= H) continue;
+          for (const cx of centers) expected.add(`${cx}|${mid}`);
+        }
+
+        const tileHeight = H + ARTERIAL_PERIOD;
+        const actual = new Set();
+        for (const { x, y } of tileIntersections(W, tileHeight)) {
+          const screenY = y + destY;
+          if (screenY < 0 || screenY >= H) continue;
+          actual.add(`${x}|${screenY}`);
+          assert.ok(
+            expected.has(`${x}|${screenY}`),
+            `tile intersection (${x}, ${screenY}) at fDist=${fDist}, playerY=${playerY}, W=${W} ` +
+              `is not one of crossStreetBands/avenueCenters' own painted crossings`,
+          );
+        }
+        assert.equal(
+          actual.size, expected.size,
+          `expected ${expected.size} on-screen intersections at fDist=${fDist}, playerY=${playerY}, W=${W}, got ${actual.size}`,
         );
       }
     }
