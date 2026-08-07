@@ -573,6 +573,11 @@ export const CAR_TYPES = [
     thrust: ENEMY_THRUST,
     w: 40,
     h: 74,
+    // ALSO the one enemy type that survives a single mine (150 hull,
+    // obstacletypes.js) without being tuned for it specially: 160 takes one
+    // hit down to 10 and dies on the second. Everything lighter than the
+    // stocker's 130 dies to a mine outright; this and the rival (400, below)
+    // are the two built to take a second and third respectively.
     health: 160,
     mass: 2.2, // built to ram; Phase 4 gives it the behaviour to go with the mass
     speedMin: 280,
@@ -605,7 +610,13 @@ export const CAR_TYPES = [
     thrust: ENEMY_THRUST,
     w: 34,
     h: 62,
-    health: 90,
+    // RAISED FROM 90 so a mine takes exactly THREE to finish it — the
+    // toughest thing on the road, deliberately outlasting even the bruiser.
+    // The mine deals a flat 150 (obstacletypes.js): 400 survives two direct
+    // hits (400-150=250, 250-150=100) and dies on the third (100-150<0). A
+    // rival worth chasing down shouldn't fold to a single dropped mine the
+    // way the rest of the enemy roster now does.
+    health: 400,
     mass: 1.2,
     // Straddles the player's top speed: flat out, you draw level with a rival
     // and neither of you gets away. The only hostile that can hold that.

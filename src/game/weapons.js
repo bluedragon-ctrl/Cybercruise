@@ -266,7 +266,7 @@ export const WEAPON_TYPES = [
     // WIDEST ON THE ROAD, HARDEST STILL NOT. This now tops the obstacle
     // catalogue's radii (26-66, obstacletypes.js) — deliberately, because a
     // hand-aimed warhead should out-reach road furniture. What it must NOT do
-    // is out-HIT the mine: obstacletypes.js calls the mine's 30 "the single
+    // is out-HIT the mine: obstacletypes.js calls the mine's 150 "the single
     // hardest hit anything on the road can deal", so blastDamage stays under
     // it. The rocket is the widest blast in the game; the mine is the meanest.
     blastRadius: 90,

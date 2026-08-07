@@ -524,10 +524,10 @@ history interleaves phase features with side-steps into earlier phases' code.
 - [x] **Phase 1** — Road: infinite curving highway + barriers
 - [x] **Phase 2** — Surroundings A: simplified box buildings along the road
 - [x] **Phase 3** — Traffic: neutral/enemy cars, ramming physics
-- [ ] **Phase 4** — Combat: shooting, explosions, enemy AI (shoot / mines)
-      — **in progress**
-- [ ] **Phase 5** — Weapons: multiple weapons + swap pickups
-- [ ] **Phase 6** — Score/states: scoring, penalties, game-over, difficulty ramp
+- [x] **Phase 4** — Combat: shooting, explosions, enemy AI (shoot / mines)
+- [x] **Phase 5** — Weapons: multiple weapons + swap pickups
+- [x] **Phase 6** — Score/states: scoring, penalties, game-over, difficulty ramp
 - [ ] **Phase 7** — Surroundings B: richer lit / parallax city
+      — **in progress**
 - [ ] **Phase 8** — Audio & juice: wavesynth music, SFX, screen shake, scanlines
 - [ ] **Phase 9** — Polish: balance, high scores, performance
