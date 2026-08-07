@@ -20,8 +20,24 @@
 // real road time to measure the buffs against, not by guessing.
 
 import { drawPickupShape, PICKUP_SHAPES } from "./pickupshapes.js";
-import { pickPickupType, applyPickup } from "./pickuptypes.js";
+import { pickPickupType, applyPickup, AMMO, HEAL, SHIELD } from "./pickuptypes.js";
 import { centerXAt, headingAt, ROAD_HALF_WIDTH } from "./road.js";
+import * as gameConsole from "../engine/console.js";
+
+// The console line a crate's kind reads as (engine/console.js) — always a
+// HINT, never a warning, since a pickup is only ever good news.
+function pickupMessage(type) {
+  switch (type.kind) {
+    case AMMO:
+      return `${type.label} +${type.amount}`;
+    case HEAL:
+      return `HULL REPAIRED +${type.amount}`;
+    case SHIELD:
+      return `SHIELD ONLINE ${type.duration}s`;
+    default:
+      return type.label;
+  }
+}
 
 const SPAWN_INTERVAL = 5; // seconds between spawn attempts
 const MAX_PICKUPS = 3; // live crates at once
@@ -100,6 +116,7 @@ export class Pickups {
       p.age += dt;
       if (overlaps(p, playerBox)) {
         applyPickup(p.type, player, loadout);
+        gameConsole.push(pickupMessage(p.type), gameConsole.HINT);
         // The burst borrows the crate's own accent (pickuptypes.js's `color`,
         // matched to the glyph it just showed) — see effects.js's
         // drawCollectBurst header for why that colour is the whole point.
