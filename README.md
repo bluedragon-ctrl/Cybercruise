@@ -134,22 +134,34 @@ measurement, not a hunch; the likely triggers are a high-DPI backing store, a ne
 full-screen effect (scanlines, CRT curvature, colour grade), or an order of
 magnitude more entities.
 
-Still open: the city has no culling. Checked, not just assumed, at the three
-points that seemed likeliest to force it — subdividing PLOTs into LOTs for
-Phase 7's building re-siting quadrupled the per-frame walk (~40 to ~160
-cells) and stayed flat, retargeting the density (`BUILD_CHANCE`) to answer
-"the map looks empty" then pushed the render cost up for real, ~0.25ms to
-~0.36ms/frame (see the city-map-layer design doc's own correction section for
-both), and 7d's registration ticks + distinguished nodes added a measured
-~2µs/frame on top of that (baked-tile ticks cost literally nothing per frame;
-the rare node blits are the whole of it) — all three still comfortably under
-the ~0.5ms city-layer budget, so it remains open rather than added. 7d's own
-section in the design doc also flags that this codebase's usual
-rAF-saturation method produced noisier, higher end-to-end numbers for
-`scenery.render()` as a whole in one particular sandboxed measurement
-environment than the isolated component measurement supports — worth a
-re-check in a real browser before trusting an end-to-end figure from that
-environment specifically.
+No longer open: **7e's own measurement is the trigger.** The city had no
+culling through 7a-7d — checked, not just assumed, at the three points that
+seemed likeliest to force it: subdividing PLOTs into LOTs for Phase 7's
+building re-siting quadrupled the per-frame walk (~40 to ~160 cells) and
+stayed flat, retargeting the density (`BUILD_CHANCE`) to answer "the map looks
+empty" then pushed the render cost up for real, ~0.25ms to ~0.36ms/frame (see
+the city-map-layer design doc's own correction section for both), and 7d's
+registration ticks + distinguished nodes added a measured ~2µs/frame on top of
+that (baked-tile ticks cost literally nothing per frame; the rare node blits
+are the whole of it) — all three still comfortably under the ~0.5ms
+city-layer budget. 7d's own section in the design doc also flagged that this
+codebase's usual rAF-saturation method produced noisier, higher end-to-end
+numbers for `scenery.render()` as a whole in one particular sandboxed
+measurement environment than the isolated component measurement supported,
+and asked for a re-check in a real browser before trusting an end-to-end
+figure from that environment specifically.
+
+That re-check happened as part of 7e (links, pings, and a console voice —
+`game/links.js`), measured in a real, non-sandboxed browser: `links.render()`
+alone costs ~2.5-4.2µs/frame (cheaper even than 7c's drones, ~5.2µs in the
+same run), but `scenery.render()` + `drones.render()` + `links.render()`
+together — the actual per-frame city-floor total — measured **~500.67µs
+(~0.50ms)**, landing **at** the ~0.5ms budget rather than comfortably under
+it. See the design doc's own 7e section for the full numbers (including one
+noisy outlier sample, noted rather than hidden). The floor's headroom is
+gone: culling is now **7f's prerequisite**, not a someday item, and any
+further per-frame addition to this layer should re-measure rather than assume
+the margin 7a-7e enjoyed still exists.
 
 Two traps when profiling canvas work here, both of which cost time to rediscover:
 `getImageData` used to "force a flush" demotes the canvas out of GPU acceleration
@@ -556,7 +568,8 @@ history interleaves phase features with side-steps into earlier phases' code.
         static "far field" tile — built, rejected: see the design doc's 7c
         section for why a static layer doesn't sell depth here.)
   - [x] **7d** — Nodes and markers: a reserved plot type, sprite-cached
-  - [ ] **7e** — Links and pings: conduits with packet dots, expanding signal rings
+  - [x] **7e** — Links and pings: conduits with packet dots, expanding signal
+        rings, and a console voice that names a node the instant it pings
   - [ ] **7f** — Zone highlights and sector labels (baked, never live `fillText`)
   - [ ] **7g** — VR framing: buildings materialising on entry, rare deck glitches
 - [ ] **Phase 8** — Audio & juice: wavesynth music, SFX, screen shake, scanlines

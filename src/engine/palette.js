@@ -78,6 +78,25 @@ export const NODE_GLYPH = "#d8ffe6";                  // brighter still — a NO
                                                        // while staying clearly GREEN rather than
                                                        // drifting toward the player's own cyan (see
                                                        // this file's colour-discipline header).
+export const CONDUIT_LINE = "rgba(57,255,136,0.22)";  // a conduit's dashed run (Phase 7e) —
+                                                       // about FLOOR_GRID's own brightness: it has
+                                                       // to read as a mark ON the mesh, not a
+                                                       // second street, so it sits at the grid's
+                                                       // level rather than the ribbon's brighter one.
+export const CONDUIT_PACKET = "rgba(216,255,230,0.9)"; // = NODE_GLYPH's own brightness — the
+                                                        // single travelling dot is the whole point
+                                                        // of a conduit ("a bright packet dot"), so
+                                                        // it gets the same near-white top of the
+                                                        // green family a node's own centre glyph
+                                                        // does, not another dim background mark.
+export const PING_RING = "rgba(125,255,176,0.6)";      // an expanding signal ring (Phase 7e) —
+                                                        // FLOOR_TRAFFIC's own shade: bright enough
+                                                        // to read as a live event against the dim
+                                                        // grid/conduit lines, but a notch under
+                                                        // NODE_GLYPH/CONDUIT_PACKET's near-white,
+                                                        // since the ring is a moment's flourish
+                                                        // around a node rather than the brightest
+                                                        // mark on the floor plane.
 export const ROAD_SURFACE = "#04060a";  // opaque road tarmac — occludes the city floor below,
                                         // selling the road as an elevated ribbon over the city
 export const WALL_FILL = "#08160f";     // dark face of the road's elevated side wall
