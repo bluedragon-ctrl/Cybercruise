@@ -528,6 +528,18 @@ history interleaves phase features with side-steps into earlier phases' code.
 - [x] **Phase 5** — Weapons: multiple weapons + swap pickups
 - [x] **Phase 6** — Score/states: scoring, penalties, game-over, difficulty ramp
 - [ ] **Phase 7** — Surroundings B: richer lit / parallax city
-      — **in progress**
+      — **in progress**, and split into sub-phases that each ship on their own.
+      The floor is meant to read as a **tactical map** rather than as scenery —
+      the driver is jacked into a deck, so the city is symbolic blocks, simplified
+      streets, dot-sized cars and signal markers. Design and per-sub-phase notes:
+      `docs/superpowers/specs/2026-08-07-city-map-layer-design.md`.
+  - [ ] **7a** — Street network: `reserve()` claims avenues and cross-streets, all
+        baked into the one floor tile. Unlocks everything below
+  - [ ] **7b** — Traffic dots: cars as a pure function of time, batched, unglowed
+  - [ ] **7c** — Far field: a third, slower parallax layer — one more tile
+  - [ ] **7d** — Nodes and markers: a reserved plot type, sprite-cached
+  - [ ] **7e** — Links and pings: conduits with packet dots, expanding signal rings
+  - [ ] **7f** — Zone highlights and sector labels (baked, never live `fillText`)
+  - [ ] **7g** — VR framing: buildings materialising on entry, rare deck glitches
 - [ ] **Phase 8** — Audio & juice: wavesynth music, SFX, screen shake, scanlines
 - [ ] **Phase 9** — Polish: balance, high scores, performance
