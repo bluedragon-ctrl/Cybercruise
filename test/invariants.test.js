@@ -43,6 +43,7 @@ import {
 import {
   gridPhase, GRID_SPACING, STREET_WIDTH, STREET_INSET,
   trafficDots, crossStreetBands, avenueCenters, visibleBuildings,
+  DOT_SPACING, DOT_SPEED_A, DOT_SPEED_B, DOT_LANE_PHASE,
 } from "../src/game/scenery.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import {
@@ -632,6 +633,43 @@ test("avenue traffic lanes sit strictly inside the painted ribbon, off its kerbs
       const cx = centers.find((c) => x > c - STREET_WIDTH / 2 && x < c + STREET_WIDTH / 2);
       assert.ok(cx !== undefined, `lane x=${x} is not strictly inside any avenue ribbon`);
       assert.notEqual(x, cx, `lane x=${x} sits exactly on the dashed centre line`);
+    }
+  }
+});
+
+test("avenue traffic lanes carry the floor's own scroll, not just their own clock", () => {
+  // AN AVENUE'S OWN AXIS (screen y) IS ALSO THE ONE THE FLOOR SCROLLS ON, so a
+  // dot's speed there has to be measured against the WORLD (its own speed on
+  // top of the floor's scroll, fDist) rather than the screen — the same
+  // relative-motion relationship traffic.js's highway cars have to `distance`.
+  // Shipped without that term, an avenue dot's y depended only on its own
+  // clock and never moved with fDist at all, so at speed (fDist moving far
+  // faster than the dot's own 55-70px/s) the dot read as passively carried
+  // along by the scroll rather than driving its own line — see scenery.js's
+  // avenue loop for the full failure this guards.
+  //
+  // Every avenue y this frame has to satisfy `y - fDist === clock * speed +
+  // phase` (mod DOT_SPACING, for whichever of the four lanes produced it) —
+  // i.e. the whole set shifts by exactly fDist as fDist moves, rather than
+  // sitting still on screen while the floor around it scrolls past.
+  const W = 600, H = 800, playerY = 496, clock = 12.5;
+  const residuesFor = (y, fDist) =>
+    [
+      clock * DOT_SPEED_A,
+      clock * DOT_SPEED_A + DOT_LANE_PHASE,
+      clock * DOT_SPEED_B,
+      clock * DOT_SPEED_B + DOT_LANE_PHASE,
+    ].map((r) => (((y - fDist - r) % DOT_SPACING) + DOT_SPACING) % DOT_SPACING);
+
+  for (const fDist of [0, 137, 900.5]) {
+    const avenueDots = trafficDots(clock, fDist, playerY, W, H).filter((d) => !d.alongX);
+    assert.ok(avenueDots.length > 0, `expected at least one avenue dot at fDist=${fDist}`);
+    for (const { y } of avenueDots) {
+      const residues = residuesFor(y, fDist);
+      assert.ok(
+        residues.some((r) => r < 1e-6 || DOT_SPACING - r < 1e-6),
+        `avenue dot y=${y} at fDist=${fDist} doesn't land on any lane's own clock+carry phase`,
+      );
     }
   }
 });

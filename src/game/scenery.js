@@ -397,13 +397,16 @@ function drawFloorBuildings(ctx, fDist, playerY, W, H) {
 // main.js's update()), so the dots freeze exactly when the rest of the world
 // does (paused, dying) instead of drifting on a clock of their own.
 //
-// Two lanes per street, opposite directions, at different speeds — different
-// from both the road's own scroll and this floor's FLOOR_PARALLAX, which is
-// what sells the depth (see the design doc's "why the avenues matter most").
-// A cross-street's lanes slide in SCREEN X (the street runs left-right); an
-// avenue's lanes slide in SCREEN Y (the street runs top-to-bottom, the
-// direction of travel) — each lane slides along its OWN street, never across
-// it.
+// Two lanes per street, opposite directions, at different speeds of their
+// OWN — on top of, not instead of, the road's own scroll and this floor's
+// FLOOR_PARALLAX, which is what sells the depth (see the design doc's "why
+// the avenues matter most"). A cross-street's lanes slide in SCREEN X (the
+// street runs left-right, an axis the floor never scrolls on at all); an
+// avenue's lanes slide in SCREEN Y (the street runs top-to-bottom, the same
+// axis — and same direction — the floor itself scrolls on, so an avenue
+// lane's own speed has to be added to that scroll rather than measured
+// against the screen in place of it — see laneDotPositions' `carry`) — each
+// lane slides along its OWN street, never across it.
 
 let clock = 0;
 
@@ -422,9 +425,15 @@ export function update(dt) {
 // direction reads as actual traffic against the road's own scale where one
 // read as sparse. Retune DOT_SPACING together with the ribbon width if either
 // changes.
-const DOT_SPACING = 75;
-const DOT_SPEED_A = 70;  // one direction's lanes
-const DOT_SPEED_B = -55; // the other direction's lanes, opposite way —
+//
+// Exported (with DOT_SPEED_A/B and DOT_LANE_PHASE below) so the test suite
+// can assert an avenue dot's position against its own lane's speed and phase
+// directly, rather than trusting the carry fix by eye — see
+// test/invariants.test.js's "avenue traffic lanes carry the floor's own
+// scroll" test.
+export const DOT_SPACING = 75;
+export const DOT_SPEED_A = 70;  // one direction's lanes
+export const DOT_SPEED_B = -55; // the other direction's lanes, opposite way —
                           // deliberately not the same magnitude, so the two
                           // directions never look paired
 const DOT_MARGIN = 8;    // a dot is fully drawn before it crosses on/off screen,
@@ -443,24 +452,33 @@ const DOT_LANE_OFFSET_OUTER = STREET_WIDTH * 3 / 8;
 // The outer lane of a pair is walked at a half-spacing phase from its inner
 // neighbour, so the two don't draw as a mirrored, lockstep pair of dots
 // gliding in the same direction — see laneDotPositions' `phase` argument.
-const DOT_LANE_PHASE = DOT_SPACING / 2;
+// Exported alongside DOT_SPACING/DOT_SPEED_A/B above, same reason.
+export const DOT_LANE_PHASE = DOT_SPACING / 2;
 
 const DOT_LEN = 4; // long axis, along the direction of travel
 const DOT_WID = 2; // short axis, across it
 
 // Positions along ONE lane at a fixed spacing, shifted by `clockValue * speed
-// + phase`, bounded to the visible span [lo, hi] — NOT to a lane length. The
-// design doc phrases this as `pos = (t*speed + offset) mod laneLength`, but a
-// lane has no natural length to mod against (a street runs the full screen,
-// forever), and inventing one risks a dot count that depends on the invented
-// number rather than on the screen. Walking the index range that lands in
-// [lo, hi] instead gives an infinite, evenly-spaced sequence and just asks
-// which of it is on screen right now — the count stays bounded by
-// (hi - lo) / spacing no matter how far `clockValue` has run. `phase` is a
-// fixed px offset (see DOT_LANE_PHASE) for staggering a second lane running
-// the same direction at the same speed, not something that varies with time.
-function laneDotPositions(spacing, speed, clockValue, lo, hi, phase = 0) {
-  const shift = clockValue * speed + phase;
+// + phase + carry`, bounded to the visible span [lo, hi] — NOT to a lane
+// length. The design doc phrases this as `pos = (t*speed + offset) mod
+// laneLength`, but a lane has no natural length to mod against (a street
+// runs the full screen, forever), and inventing one risks a dot count that
+// depends on the invented number rather than on the screen. Walking the
+// index range that lands in [lo, hi] instead gives an infinite, evenly-spaced
+// sequence and just asks which of it is on screen right now — the count
+// stays bounded by (hi - lo) / spacing no matter how far `clockValue` has
+// run. `phase` is a fixed px offset (see DOT_LANE_PHASE) for staggering a
+// second lane running the same direction at the same speed, not something
+// that varies with time.
+//
+// `carry`, unlike `phase`, DOES vary with time — it is trafficDots' own
+// `fDist` for an avenue lane (0 for a cross-street one; see the call sites
+// below for why only one of the two axes needs it). Without it a dot's
+// speed was measured against the SCREEN, not the WORLD, which is wrong the
+// moment the floor itself is also moving along that same axis — see
+// trafficDots' avenue loop for the failure that shipped without this term.
+function laneDotPositions(spacing, speed, clockValue, lo, hi, phase = 0, carry = 0) {
+  const shift = clockValue * speed + phase + carry;
   const iMin = Math.ceil((lo - shift) / spacing);
   const iMax = Math.floor((hi - shift) / spacing);
   const positions = [];
@@ -537,21 +555,44 @@ export function trafficDots(clockValue, fDist, playerY, W, H) {
     }
   }
 
+  // AVENUES RUN ALONG SCREEN Y — the one axis the floor itself is also
+  // scrolling on as the player drives (see render()'s fDist and
+  // drawFloorBuildings' sy, both playerY - (worldY - fDist)). A cross-street
+  // runs along screen x, which the floor never scrolls on at all (an avenue
+  // column is a FIXED screen position — see avenueCenters/insideAvenue) — so
+  // only this loop needs the fix below; the cross-street loop above is
+  // already correct as written.
+  //
+  // A dot's speed here is meant to be its OWN motion on top of the floor's,
+  // the same relative-motion relationship traffic.js's highway cars have to
+  // `distance` — so its position has to carry `fDist` exactly like every
+  // other thing on this floor does, or it is really being measured against
+  // the SCREEN rather than the WORLD the floor represents.
+  //
+  // Shipped without this term first, and the failure was visible only at
+  // speed: DOT_SPEED_A/B (55-70 px/s) is small next to how fast fDist itself
+  // can move (up toward ~310 px/s at the player's own top speed, halved by
+  // FLOOR_PARALLAX), so a dot's own contribution — the ONLY thing moving it,
+  // with no `carry` term — was swamped by the floor scrolling underneath it
+  // at a rate the dot knew nothing about. Every avenue dot read as being
+  // carried along AT the player's own pace rather than driving its own
+  // line — exactly backwards from the depth effect two independent speeds
+  // (DOT_SPEED_A/B) exist to sell in the first place.
   for (const cx of avenueCenters(W)) {
     const xInnerA = cx - DOT_LANE_OFFSET_INNER;
     const xOuterA = cx - DOT_LANE_OFFSET_OUTER;
     const xInnerB = cx + DOT_LANE_OFFSET_INNER;
     const xOuterB = cx + DOT_LANE_OFFSET_OUTER;
-    for (const y of laneDotPositions(DOT_SPACING, DOT_SPEED_A, clockValue, -DOT_MARGIN, H + DOT_MARGIN)) {
+    for (const y of laneDotPositions(DOT_SPACING, DOT_SPEED_A, clockValue, -DOT_MARGIN, H + DOT_MARGIN, 0, fDist)) {
       dots.push({ x: xInnerA, y, alongX: false });
     }
-    for (const y of laneDotPositions(DOT_SPACING, DOT_SPEED_A, clockValue, -DOT_MARGIN, H + DOT_MARGIN, DOT_LANE_PHASE)) {
+    for (const y of laneDotPositions(DOT_SPACING, DOT_SPEED_A, clockValue, -DOT_MARGIN, H + DOT_MARGIN, DOT_LANE_PHASE, fDist)) {
       dots.push({ x: xOuterA, y, alongX: false });
     }
-    for (const y of laneDotPositions(DOT_SPACING, DOT_SPEED_B, clockValue, -DOT_MARGIN, H + DOT_MARGIN)) {
+    for (const y of laneDotPositions(DOT_SPACING, DOT_SPEED_B, clockValue, -DOT_MARGIN, H + DOT_MARGIN, 0, fDist)) {
       dots.push({ x: xInnerB, y, alongX: false });
     }
-    for (const y of laneDotPositions(DOT_SPACING, DOT_SPEED_B, clockValue, -DOT_MARGIN, H + DOT_MARGIN, DOT_LANE_PHASE)) {
+    for (const y of laneDotPositions(DOT_SPACING, DOT_SPEED_B, clockValue, -DOT_MARGIN, H + DOT_MARGIN, DOT_LANE_PHASE, fDist)) {
       dots.push({ x: xOuterB, y, alongX: false });
     }
   }
