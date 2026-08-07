@@ -40,7 +40,10 @@ import {
   TILE_STRIDE, DASH_SPAN, blockOf, blockLocalY, blockDestY,
   DIST_UNITS,
 } from "../src/game/road.js";
-import { gridPhase, GRID_SPACING } from "../src/game/scenery.js";
+import {
+  gridPhase, GRID_SPACING, STREET_WIDTH, STREET_INSET,
+  trafficDots, crossStreetBands, avenueCenters,
+} from "../src/game/scenery.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import {
   CELL, ARTERIAL_PERIOD, plotAt, plotColumns, plotRows,
@@ -445,6 +448,95 @@ test("the visible floor stays a bounded walk", () => {
   const rows = plotRows(0, 800 + 240);
   const plots = (rows.max - rows.min + 1) * plotColumns(600);
   assert.ok(plots <= 60, `floor walk grew to ${plots} plots per frame`);
+});
+
+// --- Traffic dots (Phase 7b) --------------------------------------------------
+//
+// These run entirely against scenery.js's pure functions — trafficDots,
+// crossStreetBands, avenueCenters — never against drawTrafficDots, which
+// touches a canvas. That split is deliberate (see scenery.js's own header):
+// it's what lets "is a dot on the road it's supposed to be on" be asserted
+// exactly, under plain Node, instead of only checked by eye in a browser.
+
+test("cross-street traffic lanes sit strictly inside the painted ribbon, off its kerbs and centre line", () => {
+  // Only x depends on the clock for these lanes (see trafficDots: a
+  // cross-street's dots slide in screen x), so at ANY fixed clock the set of
+  // distinct y's is the lane geometry itself — exactly FOUR per band (two
+  // each direction — see DOT_LANE_OFFSET_INNER/OUTER), and never moving.
+  for (const playerY of [0, 250, 496, 803]) {
+    for (let fDist = 0; fDist < 2000; fDist += 53) {
+      const bands = crossStreetBands(fDist, playerY, 800);
+      const dots = trafficDots(0, fDist, playerY, 600, 800);
+      const ys = [...new Set(dots.filter((d) => d.alongX).map((d) => d.y))];
+      assert.equal(
+        ys.length, bands.length * 4,
+        `expected 4 lanes per cross-street band, got ${ys.length} distinct y's for ${bands.length} bands`,
+      );
+      for (const y of ys) {
+        const band = bands.find((top) => y > top && y < top + STREET_WIDTH);
+        assert.ok(band !== undefined, `lane y=${y} is not strictly inside any cross-street ribbon`);
+        assert.notEqual(y, band + STREET_WIDTH / 2, `lane y=${y} sits exactly on the dashed centre line`);
+      }
+    }
+  }
+});
+
+test("avenue traffic lanes sit strictly inside the painted ribbon, off its kerbs and centre line", () => {
+  // Mirror of the cross-street test above: an avenue's dots slide in screen y,
+  // so at any fixed clock the set of distinct x's is the lane geometry itself
+  // — four per avenue, two each direction.
+  for (let W = 400; W <= 700; W += 47) {
+    const centers = avenueCenters(W);
+    const dots = trafficDots(0, 0, 496, W, 800);
+    const xs = [...new Set(dots.filter((d) => !d.alongX).map((d) => d.x))];
+    assert.equal(
+      xs.length, centers.length * 4,
+      `expected 4 lanes per avenue, got ${xs.length} distinct x's for ${centers.length} avenues`,
+    );
+    for (const x of xs) {
+      const cx = centers.find((c) => x > c - STREET_WIDTH / 2 && x < c + STREET_WIDTH / 2);
+      assert.ok(cx !== undefined, `lane x=${x} is not strictly inside any avenue ribbon`);
+      assert.notEqual(x, cx, `lane x=${x} sits exactly on the dashed centre line`);
+    }
+  }
+});
+
+test("crossStreetBands shares gridPhase's own mapping rather than a fresh modulo", () => {
+  // scenery.js's header is explicit about this: a dot has to be derived from
+  // the SAME phase drawFloorGrid's blit uses, or it can drift from the ribbon
+  // the tile actually painted at certain scroll positions. Every band top
+  // this function returns has to land in the same residue class (mod
+  // ARTERIAL_PERIOD) as gridPhase() + STREET_INSET.
+  for (const playerY of [0, 496, 500, 803]) {
+    for (let fDist = 0; fDist < 3000; fDist += 37) {
+      const phase = gridPhase(fDist, playerY);
+      for (const top of crossStreetBands(fDist, playerY, 800)) {
+        const residue = (((top - STREET_INSET - phase) % ARTERIAL_PERIOD) + ARTERIAL_PERIOD) % ARTERIAL_PERIOD;
+        assert.ok(
+          residue < 1e-9 || ARTERIAL_PERIOD - residue < 1e-9,
+          `band top ${top} is off gridPhase's own phase ${phase} at fDist=${fDist}, playerY=${playerY}`,
+        );
+      }
+    }
+  }
+});
+
+test("the floor's traffic-dot count stays bounded", () => {
+  // 118-156 is the actual range at 600x800 with today's DOT_SPACING and four
+  // lanes per street (see scenery.js's own comment on DOT_SPACING) — above
+  // the design doc's original 60-80 by deliberate retune, still one fill()
+  // and still trivial against the phase's ~0.5ms/frame budget (measured
+  // ~14us; see drawTrafficDots' own comment). Pinned with slack above the
+  // observed max so a future retune can't quietly let the per-frame fill
+  // grow unbounded.
+  for (const playerY of [0, 250, 496, 803]) {
+    for (let fDist = 0; fDist < 2000; fDist += 53) {
+      for (const clock of [0, 3.3, 17.9, 123.4]) {
+        const count = trafficDots(clock, fDist, playerY, 600, 800).length;
+        assert.ok(count <= 170, `floor traffic grew to ${count} dots per frame`);
+      }
+    }
+  }
 });
 
 // --- Ramming physics ---------------------------------------------------------
