@@ -33,7 +33,7 @@ import {
 import { driveCar, dodgeDistance, TACTIC_NAMES, TRAIL_ENGAGE } from "../src/game/behaviours.js";
 import { DRIVING_PROFILES, drivingFor, typesDriving } from "../src/game/driving.js";
 import { MIN_SPEED, MAX_SPEED, ACCEL as PLAYER_ACCEL, PLAYER_MASS, Player } from "../src/game/player.js";
-import { WHEEL_FRAMES } from "../src/game/sprites.js";
+import { WHEEL_FRAMES, BUILDING_VARIANTS, buildingFootprint } from "../src/game/sprites.js";
 import {
   LANE_COUNT, LANE_WIDTH, ROAD_HALF_WIDTH, laneAt, laneOffset, centerXAt,
   centerOffset, headingAt,
@@ -42,11 +42,11 @@ import {
 } from "../src/game/road.js";
 import {
   gridPhase, GRID_SPACING, STREET_WIDTH, STREET_INSET,
-  trafficDots, crossStreetBands, avenueCenters,
+  trafficDots, crossStreetBands, avenueCenters, visibleBuildings,
 } from "../src/game/scenery.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import {
-  CELL, ARTERIAL_PERIOD, plotAt, plotColumns, plotRows,
+  CELL, PLOT, LOT, LOT_SUBDIV, ARTERIAL_PERIOD, lotAt, lotColumns, lotRows, lotX, lotY, plotColumns,
   isAvenueCol, isCrossStreetRow, BUILDING, EMPTY, AVENUE, CROSS_STREET,
 } from "../src/game/citygrid.js";
 import { resolveCollisions, impactCost, ramSpeed, SIDE_DAMAGE } from "../src/game/collisions.js";
@@ -403,51 +403,186 @@ test("one extra arterial period of tile height is enough to cover the screen at 
   }
 });
 
-// --- The city floor is a pure function of its plot index ---------------------
+// --- The city floor is a pure function of its lot index -----------------------
 
-test("plotAt is deterministic and total", () => {
+test("lotAt is deterministic and total", () => {
   // citygrid.js's whole design rests on this: the city is infinite and identical
-  // every time you drive past because nothing is stored. A plot that varied
+  // every time you drive past because nothing is stored. A lot that varied
   // between calls would make buildings flicker in and out as you approached.
-  for (let bx = 0; bx < 6; bx++) {
-    for (let by = -30; by < 30; by++) {
-      const a = plotAt(bx, by);
-      const b = plotAt(bx, by);
-      assert.deepEqual(a, b, `plot (${bx}, ${by}) is not stable across calls`);
+  for (let lx = 0; lx < 12; lx++) {
+    for (let ly = -60; ly < 60; ly++) {
+      const a = lotAt(lx, ly);
+      const b = lotAt(lx, ly);
+      assert.deepEqual(a, b, `lot (${lx}, ${ly}) is not stable across calls`);
       assert.ok(
         a.type === BUILDING || a.type === EMPTY || a.type === AVENUE || a.type === CROSS_STREET,
-        `plot (${bx}, ${by}) has an unknown type`,
+        `lot (${lx}, ${ly}) has an unknown type`,
       );
       if (a.type === BUILDING) {
         assert.ok(Number.isInteger(a.variant) && a.variant >= 0, "building variant must be an index");
+        assert.ok(Number.isFinite(a.dx) && Number.isFinite(a.dy), "a sited building must carry a numeric dx/dy");
       }
     }
   }
 });
 
-test("a plot claimed as a street never returns BUILDING", () => {
-  // citygrid.js's reserve() runs before the building roll specifically so a
-  // claim always wins the plot outright — this is the assertion that promise
-  // actually holds, not just that reserve() returns something non-null.
-  for (let bx = 0; bx < 6; bx++) {
-    for (let by = -30; by < 30; by++) {
+test("a lot claimed as a street never returns BUILDING", () => {
+  // citygrid.js's reserve() runs before any lot's building roll, one PLOT at a
+  // time, so a claim always wins every lot inside it outright — this is the
+  // assertion that promise actually holds, not just that reserve() returns
+  // something non-null.
+  for (let lx = 0; lx < 12; lx++) {
+    for (let ly = -60; ly < 60; ly++) {
+      const bx = Math.floor(lx / LOT_SUBDIV);
+      const by = Math.floor(ly / LOT_SUBDIV);
       if (!isAvenueCol(bx) && !isCrossStreetRow(by)) continue;
-      const plot = plotAt(bx, by);
-      assert.notEqual(plot.type, BUILDING, `plot (${bx}, ${by}) is a street but plotAt returned BUILDING`);
+      const lot = lotAt(lx, ly);
+      assert.notEqual(lot.type, BUILDING, `lot (${lx}, ${ly}) is on a street plot but lotAt returned BUILDING`);
       assert.ok(
-        plot.type === AVENUE || plot.type === CROSS_STREET,
-        `plot (${bx}, ${by}) is a street index but plotAt says type ${plot.type}`,
+        lot.type === AVENUE || lot.type === CROSS_STREET,
+        `lot (${lx}, ${ly}) is on a street plot but lotAt says type ${lot.type}`,
       );
     }
   }
 });
 
+test("LOT subdivides PLOT wholly", () => {
+  // Mirrors the drawn-grid-subdivides-CELL test below: LOT_SUBDIV has to be a
+  // clean divisor, or a lot's edges don't land on the plot boundaries reserve()
+  // reasons about, and a building could be sited straddling one.
+  assert.equal(PLOT % LOT, 0, `PLOT ${PLOT} is not a whole number of ${LOT}px lots`);
+  assert.equal(LOT, PLOT / LOT_SUBDIV, "LOT and LOT_SUBDIV have drifted apart");
+});
+
+test("isCrossStreetRow/isAvenueCol agree with where the ribbon is actually painted", () => {
+  // citygrid.js's reserve() and scenery.js's drawn ribbon are two SEPARATE
+  // derivations of "where is a street" — one from isCrossStreetRow(by)/
+  // isAvenueCol(bx) alone, the other from gridPhase()/ARTERIAL_PERIOD — and
+  // nothing before this enforced they agree; a bygone comment claiming "canvas
+  // y = 0 stands for plot row by = 0" was the only thing tying them together,
+  // and it had drifted a whole PLOT out of true (by ≡ 0 mod 4 was flagged, but
+  // the tile actually paints by ≡ 3 mod 4). Quiet with one centred building
+  // per plot, since a wrongly-excluded plot just stood empty and a
+  // wrongly-included one had 96px of margin to hide in — glaring once
+  // citygrid.js's siting starts pushing footprints flush against what it
+  // BELIEVES is the plot boundary. This computes each candidate plot's ribbon
+  // in screen space via the SAME playerY-(worldY-fDist) mapping road.js's own
+  // tested "direct render" formula uses, and cross-checks it against
+  // crossStreetBands()/avenueCenters() — scenery.js's actual output — rather
+  // than re-deriving gridPhase's own arithmetic a second time.
+  for (const playerY of [0, 250, 496, 803]) {
+    for (let fDist = 0; fDist < ARTERIAL_PERIOD * 3; fDist += 97) {
+      const bands = crossStreetBands(fDist, playerY, 800);
+      for (let by = -8; by <= 8; by++) {
+        const worldTop = by * PLOT + STREET_INSET;
+        const screenTop = Math.min(
+          playerY - (worldTop - fDist),
+          playerY - (worldTop + STREET_WIDTH - fDist),
+        );
+        const onScreen = screenTop > -STREET_WIDTH && screenTop < 800;
+        const painted = bands.some((top) => Math.abs(top - screenTop) < 1e-6);
+        if (onScreen) {
+          assert.equal(
+            isCrossStreetRow(by), painted,
+            `by=${by}'s ribbon is ${painted ? "" : "NOT "}painted at screenTop=${screenTop} ` +
+              `(fDist=${fDist}, playerY=${playerY}), but isCrossStreetRow(${by}) says ${isCrossStreetRow(by)}`,
+          );
+        }
+      }
+    }
+  }
+
+  for (let W = 400; W <= 700; W += 53) {
+    const centers = avenueCenters(W);
+    for (let bx = 0; bx < plotColumns(W); bx++) {
+      const painted = centers.includes(bx * PLOT + PLOT / 2);
+      assert.equal(
+        isAvenueCol(bx), painted,
+        `avenue column bx=${bx} painted=${painted} but isAvenueCol(${bx})=${isAvenueCol(bx)}`,
+      );
+    }
+  }
+});
+
+test("a building's footprint never crosses into a street ribbon", () => {
+  // citygrid.js's siting pushes a footprint toward whichever edge of its lot
+  // faces a street, instead of centring it — this is the check that the push
+  // still stops short of the street itself, using the SAME STREET_WIDTH/
+  // STREET_INSET scenery.js actually paints the ribbon with, not a value
+  // re-derived here.
+  for (let lx = -20; lx < 20; lx++) {
+    for (let ly = -20; ly < 20; ly++) {
+      const lot = lotAt(lx, ly);
+      if (lot.type !== BUILDING) continue;
+
+      const { w, d } = buildingFootprint(lot.variant);
+      const cx = lotX(lx) + lot.dx;
+      const cy = lotY(ly) + lot.dy;
+      const left = cx - w / 2;
+      const right = cx + w / 2;
+      const top = cy - d / 2;
+      const bottom = cy + d / 2;
+
+      for (let bx = Math.floor(left / PLOT) - 1; bx <= Math.floor(right / PLOT) + 1; bx++) {
+        if (!isAvenueCol(bx)) continue;
+        const ribLeft = bx * PLOT + STREET_INSET;
+        const ribRight = ribLeft + STREET_WIDTH;
+        assert.ok(
+          right <= ribLeft || left >= ribRight,
+          `building at lot (${lx},${ly}) spans x[${left},${right}], crossing avenue ${bx}'s ribbon [${ribLeft},${ribRight}]`,
+        );
+      }
+      for (let by = Math.floor(top / PLOT) - 1; by <= Math.floor(bottom / PLOT) + 1; by++) {
+        if (!isCrossStreetRow(by)) continue;
+        const ribTop = by * PLOT + STREET_INSET;
+        const ribBottom = ribTop + STREET_WIDTH;
+        assert.ok(
+          bottom <= ribTop || top >= ribBottom,
+          `building at lot (${lx},${ly}) spans y[${top},${bottom}], crossing cross-street ${by}'s ribbon [${ribTop},${ribBottom}]`,
+        );
+      }
+    }
+  }
+});
+
+test("the building sprite cache stays bounded at BUILDING_VARIANTS * 2", () => {
+  // sprites.js: "at most BUILDING_VARIANTS * 2 sprites (one per lean
+  // direction) exist no matter how large the city grows." Rebalancing the
+  // footprint catalogue for lots must not have grown the catalogue itself —
+  // that was the one thing the task ruled out doing to compensate.
+  assert.equal(BUILDING_VARIANTS, 24, `BUILDING_VARIANTS grew to ${BUILDING_VARIANTS} — the catalogue must stay fixed`);
+});
+
 test("the visible floor stays a bounded walk", () => {
-  // scenery.js walks every plot in view each frame, so this product is per-frame
-  // work. It is small today; this pins it so it cannot creep.
-  const rows = plotRows(0, 800 + 240);
-  const plots = (rows.max - rows.min + 1) * plotColumns(600);
-  assert.ok(plots <= 60, `floor walk grew to ${plots} plots per frame`);
+  // scenery.js walks every LOT in view each frame, so this product is
+  // per-frame work. Subdividing plots into lots roughly quadruples it (more
+  // rows AND more columns); this pins the new number so it cannot creep
+  // further unnoticed.
+  const rows = lotRows(0, 800 + 240);
+  const lots = (rows.max - rows.min + 1) * lotColumns(600);
+  assert.ok(lots <= 200, `floor walk grew to ${lots} lots per frame`);
+});
+
+test("buildings draw far to near, in LOT row order", () => {
+  // scenery.js's visibleBuildings walks lot rows, not plot rows — if it ever
+  // regressed to plot-row granularity (drawing all of a block's lots as one
+  // unordered group), a near lot could paint UNDER a far one from the SAME
+  // block, visible only at the scroll offsets where their screen rows
+  // actually overlap. `ly` must be non-increasing across the list (rows.max
+  // down to rows.min); within one row, siting can jitter `sy` by a few px
+  // (see scenery.js's own comment on `ly`) without that being a depth error,
+  // so this checks row order directly rather than raw `sy`.
+  for (const playerY of [0, 250, 496, 803]) {
+    for (let fDist = 0; fDist < 2000; fDist += 97) {
+      const buildings = visibleBuildings(fDist, playerY, 600, 800);
+      for (let i = 1; i < buildings.length; i++) {
+        assert.ok(
+          buildings[i].ly <= buildings[i - 1].ly,
+          `building ${i} in lot row ${buildings[i].ly} drew after row ${buildings[i - 1].ly} — not far-to-near`,
+        );
+      }
+    }
+  }
 });
 
 // --- Traffic dots (Phase 7b) --------------------------------------------------

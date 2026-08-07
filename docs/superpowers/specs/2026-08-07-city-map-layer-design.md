@@ -33,7 +33,84 @@ neither needs changing:
 
 At 600x800 the plot walk is ~8 rows x 5 columns = ~40 plots per frame. That one
 walk is the budget for *all* the plot types added below; none of them adds a
-second pass over the floor.
+second pass over the floor. (Buildings now walk a finer LOT grid within this —
+see the correction below — but streets, and anything else that claims ground
+a whole plot at a time, still only need the plot-level walk this number
+describes.)
+
+## Correction — buildings site on LOTS, not PLOTS (mid-Phase-7)
+
+7a, 7b and the finer-grid change each landed independently and, together,
+left the floor's scale disagreeing with the buildings standing on it: a
+128-wide PLOT held exactly one building, floating at its centre with an even
+gap on every side — scattered boxes on a mesh, not blocks. This is a
+correction to the shared assumptions above, not a new sub-phase, since it
+touches nothing any sub-phase below depends on:
+
+- **`citygrid.js` still owns placement**, but a PLOT now subdivides again
+  into `LOT_SUBDIV` x `LOT_SUBDIV` LOTs (`LOT_SUBDIV = 2`, so `LOT = CELL =
+  64`) — the unit a building actually stands on. `reserve()` is unchanged:
+  streets still claim a whole PLOT, and every LOT inside a claimed PLOT
+  inherits that claim. A LOT sites its building **flush against whichever
+  edge faces a street** (known from the index alone, via `isAvenueCol`/
+  `isCrossStreetRow` on the neighbouring PLOT) instead of centring it, so a
+  block presents a built edge to the street with open ground behind — a
+  corner LOT sites into the corner. The flush-not-margined siting matters:
+  a non-zero, non-grid-multiple margin looks like a building floating off
+  the mesh once it's pushed close enough to a kerb to matter.
+- **The footprint catalogue was rebalanced, not grown**: `sprites.js`'s
+  `variantOpts` now sizes `w`/`d` to fit a LOT (max 48x40) rather than the old
+  PLOT (max 90x58); `height` stays at its old 24-96 range on purpose — free
+  vertical variety is what keeps a denser skyline from reading as uniform.
+  `BUILDING_VARIANTS` is still 24.
+- **The density target was re-derived, not eyeballed**: subdividing shrinks
+  the mean footprint far more than it grows the eligible-lot count, so
+  holding the OLD building-count target would have made the city read
+  *sparser*. `citygrid.js`'s `BUILD_CHANCE` now targets holding built AREA
+  roughly constant instead (~3.4 buildings per 150 world units, up from 1.3 —
+  see its own comment for the arithmetic).
+- **A pre-existing alignment bug surfaced and was fixed in the process**:
+  `isCrossStreetRow(by)` and the grid tile's actual painted ribbon (via
+  `gridPhase`/`ARTERIAL_PERIOD`) had silently disagreed by a whole PLOT since
+  7a — invisible with one centred building per plot (a wrongly-excluded plot
+  just stood empty), glaring once siting started pushing footprints flush
+  against what `reserve()` believed was the boundary. Fixed by a `+1` in
+  `isCrossStreetRow`; guarded by a new invariants.test.js assertion that
+  cross-checks it against `crossStreetBands()`'s actual screen output rather
+  than trusting the two modules' comments to keep agreeing.
+- **Cost, measured**: the lot walk is ~160 lots/frame (up from ~40 plots),
+  but `scenery.render()` as a whole measured ~0.25-0.26ms/frame after this
+  change against ~0.27-0.29ms/frame before (rAF-saturation method) — flat,
+  since the extra walk is mostly cheap index checks on lots that turn out
+  empty or street, not extra sprite blits. Still comfortably under the
+  ~0.5ms budget below; no culling added.
+
+**Second pass — flat geometry, higher density.** Sited-on-lots fixed scale
+and alignment, but reviewing it in the browser turned up two more things a
+correction is the right place for, not a new sub-phase, since neither changes
+what any sub-phase below depends on:
+
+- **Windows removed.** `drawWallWindows` (and the `lit`/`seed` machinery that
+  fed it) is deleted from `sprites.js`'s box and every shape in
+  `buildingshapes.js`. The design doc's own Purpose section calls for a
+  tactical map read — "symbolic blocks... not scenery" — and a window grid is
+  photographic detail working against that, more so as buildings get smaller
+  and denser. Buildings are now flat-shaded silhouettes only.
+- **`BUILD_CHANCE` retargeted from area-preservation to near-full occupancy**:
+  0.325 -> 0.85. The first pass's target (hold built area roughly constant
+  against the pre-lot city) was the wrong thing to preserve once the actual
+  complaint was "the map still looks empty between the avenues" — a real city
+  block doesn't leave lots empty for texture. 0.85 realizes as ~0.38 of ALL
+  lots built (eligible fraction is still 0.45, unchanged — see above), against
+  ~0.15 before. Measured via `scenery.js`'s `visibleBuildings`: mean ~70
+  buildings/frame at 600x800 (range 56-81), up from ~27 (range up to 41).
+  `scenery.render()` as a whole re-measured at ~0.36ms/frame (rAF-saturation
+  method) — up from ~0.25-0.26ms, not flat this time, since most of the extra
+  buildings are real blits rather than cheap empty-lot checks — but still
+  under the ~0.5ms budget below, so still no culling. `LOT_SUBDIV` (still 2)
+  was not revisited: the density goal was reached through `BUILD_CHANCE`
+  alone, without re-running the field-of-sheds risk a finer subdivision
+  carried the first time it was tried.
 
 ## Two constraints that apply to every sub-phase
 

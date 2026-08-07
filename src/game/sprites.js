@@ -11,7 +11,6 @@ import {
   drawShape,
   shapeExtent,
   fillPoly,
-  drawWallWindows,
   SHAPE_COUNT,
 } from "./buildingshapes.js";
 import {
@@ -56,6 +55,10 @@ export function drawObstacle(ctx, cx, cy, opts = {}) {
 // An extruded "cube" building — a wireframe box rising off the grid, giving the
 // roadside a simple 2.5D skyline while the FOOTPRINT stays flat on the ground
 // plane (so it scrolls in perfect sync with the road; only the roof is offset).
+// Deliberately flat-shaded geometry, no windows: the design doc's target is a
+// tactical map (symbolic blocks), not photographic detail, and a denser city of
+// smaller footprints reads as blocks, not a texture, once nothing on a building
+// needs to be big enough to resolve a window grid.
 //
 // (cx, cy) is the centre of the base footprint on the grid. The roof is the same
 // rectangle shifted by the extrusion vector (ox, oy) = up + slight rightward
@@ -67,8 +70,6 @@ export function drawBuilding(ctx, cx, cy, opts = {}) {
     d = 55,       // footprint depth  (y, along the road)
     height = 60,  // extrusion height in px
     color = GREEN,
-    lit = 0.5,    // fraction of front-wall windows that are lit
-    seed = 1,     // deterministic window-lighting seed (stable per building)
     skew = 0.28,  // horizontal roof shift as a fraction of height (+right / -left)
   } = opts;
   const hw = w / 2;
@@ -129,10 +130,6 @@ export function drawBuilding(ctx, cx, cy, opts = {}) {
   // Roof (brightest — it's the top and furthest from the ground). All four of its
   // edges are on the silhouette, so the whole quad is stroked.
   glowPoly(ctx, [tFL, tFR, tBR, tBL], color, 1.5, 10);
-
-  // Lit windows on the front (south-facing) wall quad: A,B along the base edge,
-  // C,D along the roof edge.
-  drawWallWindows(ctx, bFL, bFR, tFR, tFL, color, lit, seed);
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +244,7 @@ export function drawObstacleCached(ctx, cx, cy, opts = {}) {
 // A fixed catalogue of building looks. Placement code picks a variant INDEX
 // instead of rolling continuous dimensions, which is what caps the cache: at
 // most BUILDING_VARIANTS * 2 sprites (one per lean direction) exist no matter
-// how large the city grows. Rolling w/d/height/lit freely would key the cache on
+// how large the city grows. Rolling w/d/height freely would key the cache on
 // a product of continuous ranges — tens of thousands of entries — and defeat it.
 export const BUILDING_VARIANTS = 24;
 
@@ -268,17 +265,34 @@ function variantShape(v) {
 
 // Deterministic parameters for variant `v`. The multipliers are chosen so each
 // field cycles through its full range at a different rate, giving a varied
-// skyline from a small catalogue. Dimensions land on 8px steps.
+// skyline from a small catalogue. Dimensions land on 8px steps — a divisor of
+// scenery.js's GRID_SPACING, so a footprint's edges land on grid lines.
+//
+// w/d are sized to fit a LOT (citygrid.js — 64, a quarter of the old 128
+// PLOT a single building used to have to itself), not the screen: the
+// largest, 48 x 40, leaves margin on every side even before citygrid.js's
+// siting pushes it toward a kerb, the way the old 90 x 58 fit inside a 128
+// plot with room around it. height is DELIBERATELY NOT shrunk to match —
+// vertical variety is what stops a denser city of smaller footprints reading
+// as a uniform field of small blocks, and it costs nothing extra to keep.
 function variantOpts(v, leanRight) {
   return {
-    w: 42 + ((v * 3) % 7) * 8, // 42..90
-    d: 34 + ((v * 5) % 4) * 8, // 34..58
-    height: 24 + ((v * 7) % 10) * 8, // 24..96
-    lit: 0.3 + ((v * 11) % 6) * 0.1, // 0.3..0.8
-    seed: v + 1,
+    w: 24 + ((v * 3) % 4) * 8, // 24..48
+    d: 24 + ((v * 5) % 3) * 8, // 24..40
+    height: 24 + ((v * 7) % 10) * 8, // 24..96, unchanged
     skew: leanRight ? 0.26 : -0.26,
     color: GREEN,
   };
+}
+
+// A variant's ground footprint alone, for citygrid.js's siting math — it needs
+// w/d to push a footprint toward a kerb before any building is drawn, and
+// pulling in the whole sprite/cache machinery just for two numbers would put a
+// canvas dependency in a module the test suite imports under plain Node.
+// leanRight doesn't affect w/d (only skew does), so it's fixed arbitrarily.
+export function buildingFootprint(v) {
+  const o = variantOpts(v, true);
+  return { w: o.w, d: o.d };
 }
 
 // Cached drawBuilding, anchored (like drawBuilding) at the BASE CENTRE so

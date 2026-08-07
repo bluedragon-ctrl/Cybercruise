@@ -134,7 +134,14 @@ measurement, not a hunch; the likely triggers are a high-DPI backing store, a ne
 full-screen effect (scanlines, CRT curvature, colour grade), or an order of
 magnitude more entities.
 
-Still open: the city has no culling, which will matter for Phase 7.
+Still open: the city has no culling. Checked, not just assumed, at the two
+points that seemed likeliest to force it — subdividing PLOTs into LOTs for
+Phase 7's building re-siting quadrupled the per-frame walk (~40 to ~160
+cells) and stayed flat, and retargeting the density (`BUILD_CHANCE`) to
+answer "the map looks empty" then pushed the render cost up for real, ~0.25ms
+to ~0.36ms/frame — but still under the ~0.5ms city-layer budget (see the
+city-map-layer design doc's own correction section for both), so it remains
+open rather than added.
 
 Two traps when profiling canvas work here, both of which cost time to rediscover:
 `getImageData` used to "force a flush" demotes the canvas out of GPU acceleration
