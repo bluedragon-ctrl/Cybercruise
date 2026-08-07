@@ -33,6 +33,7 @@ html, body {
 }
 
 #hint {
+  width: 600px;
   margin-top: 8px;
   text-align: center;
   font-size: 12px;
