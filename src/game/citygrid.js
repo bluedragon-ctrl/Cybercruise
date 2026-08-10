@@ -89,6 +89,45 @@ const CROSS_STREET_ROWS = 4;
 // cross-streets share one pre-rendered tile instead of needing three.
 export const ARTERIAL_PERIOD = PLOT * CROSS_STREET_ROWS; // 512
 
+// --- Sectors (Phase 7f) -------------------------------------------------------
+//
+// The period at which the city's PALETTE changes, in FLOOR-WORLD units — the
+// same space ARTERIAL_PERIOD is written in, and for the same reason: the
+// floor tile (scenery.js) repeats every ARTERIAL_PERIOD in floor-world, so a
+// sector boundary that ISN'T a whole multiple of it would put a colour seam
+// through the middle of a tile instead of landing on a tile edge. Written as
+// a MULTIPLIER of ARTERIAL_PERIOD rather than a bare number for exactly that
+// reason — changing ARTERIAL_PERIOD can never accidentally reintroduce a seam
+// here the way an independently-chosen constant could.
+//
+// 1x is the shortest legal value, and what ships: at this size a sector
+// crossing happens often enough to exercise the rescan (game/sectors.js) as a
+// matter of course while testing, not to set a PACE for a real run — raise
+// this alone once the pace itself is the thing being tuned, the same
+// "obviously correct first value, revisit once the rest works" role
+// GRID_SUBDIV played for the drawn grid.
+//
+// floor-world = distance * FLOOR_PARALLAX (scenery.js), so the SAME period
+// expressed in player DISTANCE — the unit game/sectors.js actually receives
+// every tick — is SECTOR_PERIOD / FLOOR_PARALLAX = 1024. Writing 512 in
+// distance units instead would be HALF a tile's width and wrong; this file
+// deliberately never expresses the period in that space itself, so there is
+// only one number here to get right.
+const SECTOR_PERIOD_MULT = 1;
+export const SECTOR_PERIOD = ARTERIAL_PERIOD * SECTOR_PERIOD_MULT;
+
+// Which sector floor-world position `fDist` falls in. An UNBOUNDED integer —
+// like the bx/by this file already hands lotAt/plotAt — deliberately not
+// wrapped to a palette count here: this function's only job is GEOMETRY
+// (where a boundary falls), the same separation of concerns plotAt keeps
+// from "what does this plot look like". Wrapping the result to a palette is
+// engine/palette.js's own call (setSector); wrapping it to a display name is
+// game/sectors.js's. Pure function of fDist, like everything else in this
+// file — same distance in, same sector out, forever.
+export function sectorIndex(fDist) {
+  return Math.floor(fDist / SECTOR_PERIOD);
+}
+
 // Fraction of unclaimed LOTS that grow a building. Superseded a first pass
 // (0.325) that held built AREA roughly constant against the pre-lot city —
 // area-preservation is the wrong target once the ask is explicitly a DENSER

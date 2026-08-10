@@ -163,6 +163,23 @@ gone: culling is now **7f's prerequisite**, not a someday item, and any
 further per-frame addition to this layer should re-measure rather than assume
 the margin 7a-7e enjoyed still exists.
 
+**7f (sectors) re-measured the same total, plus the road**, in the same real,
+non-sandboxed browser, by the same rAF-saturation method (six warmed samples,
+first discarded, median taken): `scenery.render()` + `links.render()` +
+`drones.render()` + `road.render()` together — now including the road, whose
+own strip cache also invalidates on a sector crossing — measured **~0.26-0.59ms
+across six samples, median ~0.39ms**. Read as noise around the same figure
+7e found, not as a real improvement despite doing more work: the two numbers
+came from different measurement sessions, and this file's own profiling-traps
+section is exactly the caution against over-trusting either one in isolation.
+The headroom question 7e left open stays open; this is a data point for it, not
+an answer. **The rescan glitch itself** (`sectors.renderGlitch`) costs **~0.13µs**
+when idle — a single comparison, confirming "costs nothing when it isn't
+firing" — and **~0.59ms** per frame while it IS firing, for the ~0.35s a
+crossing's tear lasts (roughly 21 frames at 60fps) before the next crossing
+at 1x `SECTOR_PERIOD`. See the design doc's own 7f section for the full
+numbers and the sector-palette architecture behind them.
+
 Two traps when profiling canvas work here, both of which cost time to rediscover:
 `getImageData` used to "force a flush" demotes the canvas out of GPU acceleration
 and changes what is being compared; and measuring throughput inside `requestAnimationFrame`
@@ -570,7 +587,13 @@ history interleaves phase features with side-steps into earlier phases' code.
   - [x] **7d** — Nodes and markers: a reserved plot type, sprite-cached
   - [x] **7e** — Links and pings: conduits with packet dots, expanding signal
         rings, and a console voice that names a node the instant it pings
-  - [ ] **7f** — Zone highlights and sector labels (baked, never live `fillText`)
-  - [ ] **7g** — VR framing: buildings materialising on entry, rare deck glitches
+  - [x] **7f** — Sectors: the palette changes at a fixed distance interval, the
+        deck reads out the new sector's name in the SYS LOG, and the crossing
+        itself is a brief full-screen rescan glitch. Supersedes the original
+        7f (a per-district highlight quad + corner brackets — see the design
+        doc's own 7f section for the record) and absorbs 7g's transition half
+  - [ ] **7g** — VR framing: buildings materialising on entry (remains); rare
+        deck glitches on a timer (superseded — the sector rescan already
+        spends that vocabulary; see 7f)
 - [ ] **Phase 8** — Audio & juice: wavesynth music, SFX, screen shake, scanlines
 - [ ] **Phase 9** — Polish: balance, high scores, performance

@@ -37,8 +37,8 @@
 
 import { glowLine, glowPoly } from "../engine/neon.js";
 import {
-  GREEN,
-  GREEN_DIM,
+  BUILDING_EDGE,
+  BUILDING_EDGE_DIM,
   BUILDING_FILL,
   BUILDING_FILL_SIDE,
   BUILDING_FILL_ROOF,
@@ -257,7 +257,7 @@ function shapeOpts(opts) {
     w: 70,
     d: 55,
     height: 60,
-    color: GREEN,
+    color: BUILDING_EDGE,
     skew: 0.28,
     ...opts,
   };
@@ -307,7 +307,7 @@ function drawSection(ctx, cx, cy, s, o, eye) {
     for (let i = 0; i < n; i++) {
       if (!visible[i]) continue;
       const j = (i + 1) % n;
-      glowLine(ctx, bot[i][0], bot[i][1], bot[j][0], bot[j][1], GREEN_DIM, 1, 5);
+      glowLine(ctx, bot[i][0], bot[i][1], bot[j][0], bot[j][1], BUILDING_EDGE_DIM, 1, 5);
     }
   }
 
@@ -328,7 +328,7 @@ function drawSection(ctx, cx, cy, s, o, eye) {
   if (s.ribEvery > 0) {
     for (let i = 0; i < n; i += s.ribEvery) {
       if (!visible[i]) continue;
-      glowLine(ctx, bot[i][0], bot[i][1], top[i][0], top[i][1], GREEN_DIM, 1, 4);
+      glowLine(ctx, bot[i][0], bot[i][1], top[i][0], top[i][1], BUILDING_EDGE_DIM, 1, 4);
     }
   }
 
