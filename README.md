@@ -180,6 +180,24 @@ crossing's tear lasts (roughly 21 frames at 60fps) before the next crossing
 at 1x `SECTOR_PERIOD`. See the design doc's own 7f section for the full
 numbers and the sector-palette architecture behind them.
 
+**Closed by 7g, the last sub-phase of Phase 7: culling was never needed.**
+7g added materialisation (buildings and nodes wiping in bottom-up as they
+cross the screen's top edge — see the design doc's own 7g section) — the
+one addition left that could still have moved this needle, since it puts a
+`clip`/`save`/`restore` and a small static overlay on whichever row is
+currently mid-wipe. Measured (same rAF-saturation method, real browser, six
+warmed samples): `scenery.render()` costs ~0.41ms/frame in the *realistic*
+steady state — `WIPE_SPAN` sits just under `LOT`, so some row is mid-wipe
+roughly 94% of the time, not a rare case — against ~0.27ms with none
+active, confirming the unclipped fast path itself hasn't moved. Both land
+inside the same ~0.36-0.5ms range this layer has measured since 7d, not a
+new one. The headroom question 7e opened and 7f left sitting stays a data
+point rather than a crisis through the whole of Phase 7: seven sub-phases
+landed at or under the ~0.5ms city-layer budget without a single line of
+culling code, and 7g — the sub-phase most likely to have finally needed
+it — didn't either. See the design doc's own closing note for the full
+retrospective.
+
 Two traps when profiling canvas work here, both of which cost time to rediscover:
 `getImageData` used to "force a flush" demotes the canvas out of GPU acceleration
 and changes what is being compared; and measuring throughput inside `requestAnimationFrame`
@@ -592,8 +610,11 @@ history interleaves phase features with side-steps into earlier phases' code.
         itself is a brief full-screen rescan glitch. Supersedes the original
         7f (a per-district highlight quad + corner brackets — see the design
         doc's own 7f section for the record) and absorbs 7g's transition half
-  - [ ] **7g** — VR framing: buildings materialising on entry (remains); rare
-        deck glitches on a timer (superseded — the sector rescan already
-        spends that vocabulary; see 7f)
+  - [x] **7g** — VR framing: buildings and nodes materialise bottom-up as
+        they cross the screen's top edge, a distance-spanned wipe (stateless,
+        `WIPE_SPAN` under `LOT` so at most one row is ever mid-wipe) with a
+        leading-edge static scanline; rare deck glitches on a timer
+        (superseded — the sector rescan already spends that vocabulary; see
+        7f). Closes Phase 7 — see the design doc's own closing note
 - [ ] **Phase 8** — Audio & juice: wavesynth music, SFX, screen shake, scanlines
 - [ ] **Phase 9** — Polish: balance, high scores, performance

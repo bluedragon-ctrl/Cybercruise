@@ -490,6 +490,90 @@ export function drawFloorGrid(ctx, fDist, playerY, W, H, sector) {
   ctx.drawImage(floorGridTile(W, H, sector), 0, gridPhase(fDist, playerY) - ARTERIAL_PERIOD);
 }
 
+// --- Materialisation (Phase 7g) ------------------------------------------
+//
+// Buildings and nodes wipe in bottom-up as they cross the screen's top edge,
+// instead of simply existing there the instant a frame's walk reaches that
+// far — the design doc's strongest "this world is being rendered for you"
+// cue, and nearly free: a `clip` rect around a blit that's already being
+// made (sprites.js's drawBuildingVariant/drawNodeVariant).
+//
+// SPANNED IN DISTANCE, NOT TIME. A time-based wipe needs an entry
+// timestamp — the tick a building first came on screen — and that's state,
+// the one thing every other layer on this floor goes out of its way not to
+// need. A distance-based wipe needs none: `sy`, the row's own screen-y
+// anchor (already computed below by visibleBuildings/visibleNodes), crosses
+// 0 exactly once as fDist grows, and how far past that crossing it is IS the
+// progress — a pure function of the row and the current fDist, recomputed
+// fresh every frame, nothing to store and nothing to reset on newGame(). It
+// also means a building materialises as the player APPROACHES it, which
+// this doc's own view is the more correct behaviour anyway, not just the
+// cheaper one.
+//
+// WIPE_SPAN IS SHORT ON PURPOSE. At a crawl, fDist barely moves, so a wide
+// span would leave a building sitting part-drawn for a long time — reading
+// as a bug, not an effect. 60 (floor-world units — this plane has no further
+// projection, so that's also screen px) keeps it under LOT (64), which is
+// what guarantees AT MOST ONE lot row is ever mid-wipe at once: two adjacent
+// rows are exactly LOT apart in fDist (lotY's own spacing), so a span
+// shorter than that can never have two rows' wipes overlap. A stopped player
+// therefore always sees a single row resolving, never a band of
+// half-buildings. At a ~400 floor-world-units/s cruising pace (fDist moves
+// at FLOOR_PARALLAX x the player's own speed — see floorDist above), that
+// lands the wipe at 60/200 = 0.3s, matching the design doc's figure;
+// ~0.19s at the player's own top speed (620, floor speed 310), ~1.0s at the
+// low end of the throttle (120, floor speed 60) — long at a crawl, but
+// always confined to the one row.
+export const WIPE_SPAN = 60;
+
+// progress in [0, 1]. `sy` is the row's own screen-y anchor at THIS fDist —
+// sy <= 0 means the row hasn't crossed the top edge yet (0, nothing to
+// draw), sy >= WIPE_SPAN means it crossed at least WIPE_SPAN of floor
+// distance ago (1, fully materialised — the fast, unclipped blit path in
+// sprites.js). Monotonic in fDist for a fixed row, since sy only grows as
+// fDist grows (see visibleBuildings/visibleNodes below), which is what
+// makes "never un-materialises as you approach" a property of the formula
+// rather than something that has to be maintained by hand.
+//
+// USED FOR THE FAST-PATH DECISION ONLY (progress >= 1?) — NOT for how much
+// of the sprite the clip actually reveals. A sprite (glow padding included)
+// is typically 100-170px tall, well over WIPE_SPAN (60): scaling the clip by
+// this fraction of the SPRITE's own height, instead of by WIPE_SPAN's own
+// px budget, was tried first and made the wipe invisible for most of its
+// span — the canvas's own top-edge clip is already hiding everything above
+// screen y=0, and a fraction-of-sprite-height clip catches up to (and
+// overtakes) that natural edge after only the first ~25-30% of the wipe, at
+// which point the explicit clip stops restricting anything a plain
+// unclipped blit wouldn't already show. sprites.js's drawBuildingVariant/
+// drawNodeVariant use the row's raw `sy` (passed alongside `progress`,
+// always in (0, WIPE_SPAN) whenever this is < 1) against the sprite's own
+// height instead — see their own comment for why that's what actually keeps
+// the wipe visible for its whole span.
+export function materialiseProgress(sy) {
+  if (sy <= 0) return 0;
+  if (sy >= WIPE_SPAN) return 1;
+  return sy / WIPE_SPAN;
+}
+
+// COST, MEASURED (rAF-saturation, real non-sandboxed browser, six warmed
+// samples, first discarded, median taken — this file's own established
+// method). Two numbers matter, not one: WIPE_SPAN (60) sits just under LOT
+// (64), so WIPE_SPAN/LOT = 60/64 of every LOT cycle has EXACTLY ONE row
+// materialising somewhere on screen — meaning "some row is mid-wipe" is the
+// REAL steady state a running game sees ~94% of the time, not a rare edge
+// case, even though "at most one row" still holds (see WIPE_SPAN's own
+// comment). scenery.render() measured ~0.41ms/frame with the materialising
+// row's few buildings/nodes paying the clip+scanline (spritecache.js's
+// blitSpriteMaterialising), against ~0.27ms/frame with fDist held in the
+// ~4-unit gap where nothing is (the fast-path-only figure — confirms the
+// unclipped branch itself hasn't moved). Both land inside this layer's own
+// pre-7g range (~0.36-0.5ms across 7d-7f) rather than opening a new one, so
+// the ~0.5ms whole-floor budget the design doc sets still holds without
+// culling. A first version of the scanline (one fillRect/globalAlpha change
+// per static fragment instead of batched paths) measured misleadingly high
+// under a poorly-warmed benchmark; see spritecache.js's own note on the
+// batching fix and the isolated per-call numbers that survived it.
+//
 // Every building lot visible this frame, in the far-to-near draw order, as
 // plain data — no canvas anywhere in this function, mirroring trafficDots
 // below: it's what lets test/invariants.test.js assert the walk's bound and
@@ -535,6 +619,16 @@ export function visibleBuildings(fDist, playerY, W, H) {
 
   for (let ly = rows.max; ly >= rows.min; ly--) {
     const sy = playerY - (lotY(ly) - fDist); // lot centre, in screen y
+    // Phase 7g: a row that hasn't crossed the top edge yet has nothing to
+    // draw — skip it (and every lot in it) before the lx walk even starts,
+    // rather than constructing entries the draw side would only throw away.
+    // materialiseProgress is keyed to the ROW's own sy, not a per-building
+    // one, on purpose: per-building dx/dy siting jitter is at most LOT/2
+    // (32px), well inside WIPE_SPAN, so using the row's sy keeps progress a
+    // pure function of (lot row, fDist) exactly as the design doc asks,
+    // rather than pulling variant footprint dims into the timing too.
+    const progress = materialiseProgress(sy);
+    if (progress <= 0) continue;
     for (let lx = 0; lx < cols; lx++) {
       const lot = lotAt(lx, ly);
       if (lot.type !== BUILDING) continue;
@@ -548,7 +642,10 @@ export function visibleBuildings(fDist, playerY, W, H) {
       // ROW without being tripped up by same-row siting jitter in `sy` (two
       // buildings sharing a row can differ in `sy` by their own dy, which is
       // not a depth difference — see that test's own comment).
-      buildings.push({ cx, sy: sy - lot.dy, ly, variant: lot.variant, leanRight: cx >= W / 2 });
+      // rowSy rides along separately from the post-dy `sy` above: it's the
+      // raw px sprites.js needs for the clip amount (see materialiseProgress's
+      // own comment on why that can't be `progress` alone).
+      buildings.push({ cx, sy: sy - lot.dy, ly, variant: lot.variant, leanRight: cx >= W / 2, progress, rowSy: sy });
     }
   }
   return buildings;
@@ -560,7 +657,11 @@ export function visibleBuildings(fDist, playerY, W, H) {
 function drawFloorBuildings(ctx, fDist, playerY, W, H, sector) {
   for (const b of visibleBuildings(fDist, playerY, W, H)) {
     // Lean away from screen centre for a subtle shared vanishing point.
-    drawBuildingVariant(ctx, b.cx, b.sy, b.variant, b.leanRight, sector);
+    // `b.progress` (Phase 7g) is always > 0 here — visibleBuildings already
+    // filtered out anything at or before its row's own entry — so the only
+    // branch left is inside drawBuildingVariant itself: progress >= 1 takes
+    // the plain, unclipped blit path, exactly as before this phase.
+    drawBuildingVariant(ctx, b.cx, b.sy, b.variant, b.leanRight, sector, b.progress, b.rowSy);
   }
 }
 
@@ -593,10 +694,14 @@ export function visibleNodes(fDist, playerY, W, H) {
 
   for (let by = rows.min; by <= rows.max; by++) {
     const sy = playerY - (plotY(by) - fDist);
+    // Phase 7g: same row-level skip visibleBuildings uses above — a plot row
+    // that hasn't crossed the top edge yet has nothing to draw.
+    const progress = materialiseProgress(sy);
+    if (progress <= 0) continue;
     for (let bx = 0; bx < cols; bx++) {
       const plot = plotAt(bx, by);
       if (!plot || plot.type !== NODE) continue;
-      nodes.push({ cx: plotX(bx), sy, variant: plot.variant, bx, by });
+      nodes.push({ cx: plotX(bx), sy, variant: plot.variant, bx, by, progress });
     }
   }
   return nodes;
@@ -607,7 +712,12 @@ export function visibleNodes(fDist, playerY, W, H) {
 // blits, not a walk worth the far-to-near care visibleBuildings needs.
 function drawFloorNodes(ctx, fDist, playerY, W, H, sector) {
   for (const n of visibleNodes(fDist, playerY, W, H)) {
-    drawNodeVariant(ctx, n.cx, n.sy, n.variant, sector);
+    // Same materialisation as a building (Phase 7g) — it would look odd if
+    // the buildings resolved in and the nodes just popped.
+    // n.sy IS the row's own raw screen-y here (a node has no dx/dy siting
+    // offset — see visibleNodes above), so it doubles as the clip's rowSy
+    // without a separate field the way a building's post-dy sy needs.
+    drawNodeVariant(ctx, n.cx, n.sy, n.variant, sector, n.progress, n.sy);
   }
 }
 

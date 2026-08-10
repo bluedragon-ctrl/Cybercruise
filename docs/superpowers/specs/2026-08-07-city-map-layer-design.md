@@ -697,12 +697,84 @@ tests pass. All true as of this sub-phase shipping.
 **Goal.** Sell the fiction directly: this world is being *rendered for you*, and
 the deck is not perfect. Last, because it decorates everything above.
 
-- **Materialisation.** Buildings draw in as they enter — a bottom-up wipe over
-  ~0.3s — instead of simply existing at the screen edge. Implemented as a `clip`
-  rect around the *existing* cached blit, so the cost is one clip on top of a draw
-  already being made. This is the single strongest "inside a rendered world" cue
-  available and it is nearly free. **Remains, unbuilt** — this is the whole of
-  what's left of 7g.
+- **Materialisation. Built.** Buildings and nodes draw in as they enter — a
+  bottom-up wipe — instead of simply existing at the screen edge.
+
+  **Spanned in distance, not time**, on purpose: a time-based wipe needs an
+  entry timestamp, and that's state this floor otherwise never carries.
+  `scenery.js`'s `materialiseProgress(sy)` is a pure function of a lot or
+  plot row's own screen-y anchor at the current `fDist` — 0 before the row
+  crosses the top edge, 1 once it's `WIPE_SPAN` (60 floor-world units) past
+  it, clamped and monotonic in between — recomputed fresh every frame,
+  nothing stored, nothing to reset on `newGame()`. `WIPE_SPAN` sits just
+  under `LOT` (64), which is what guarantees at most one lot row (and,
+  separately, at most one plot row) is ever mid-wipe at once: a stopped
+  player always sees a single row resolving, never a band of
+  half-buildings. At the design's own ~400 floor-world-units/s reference
+  cruising pace that lands the wipe at ~0.3s, matching the original figure;
+  ~0.19s at the player's top speed, ~1.0s at the low end of the throttle —
+  long at a crawl, but always confined to the one row.
+
+  **The clip isn't scaled by the sprite's own height.** The first version
+  did — "the bottom `progress` fraction of the sprite" read literally — and
+  the effect was invisible in the browser for most of its span: a sprite
+  (glow padding included) is typically 100-170px tall, well over
+  `WIPE_SPAN`, so a clip growing as a fraction of that height raced past
+  what the canvas's own top-edge clip was already hiding within the first
+  ~30% of the wipe, and did nothing more restrictive than an unclipped blit
+  for the rest. `sprites.js`'s `drawBuildingVariant`/`drawNodeVariant` scale
+  the clip by the row's raw `sy` against the sprite's own height instead —
+  an absolute px budget, not a fraction of a number nothing else on this
+  floor varies the wipe's speed by — which keeps the clip strictly ahead of
+  the natural edge for the whole span. Found by instrumenting the clip
+  boundary and comparing it against the canvas edge after the effect
+  didn't show up in a real run; see `scenery.js`'s own `materialiseProgress`
+  comment and `sprites.js`'s `drawBuildingVariant` for the full account.
+
+  **A leading-edge scanline**, added after the plain clip read as merely
+  "quiet" rather than "being rendered": a thin, broken line rides the clip
+  boundary, coloured off the sprite's *own* edge colour lightened toward
+  white (not a fixed system tint, so it stays in a sector's own hue), with
+  loose static flecks scattered in the band not yet revealed, fading as the
+  row nears full reveal. Genuinely random every frame (`Math.random()`, the
+  same vocabulary `sectors.js`'s own rescan tear already spends) rather than
+  a smooth animated sweep — a clean line read as drawn UI, not as a signal
+  resolving out of noise. See `spritecache.js`'s `blitSpriteMaterialising`
+  for the mechanism.
+
+  **Branches on the common case**, per the design's own ask: `progress >= 1`
+  (the ~65-70 already-materialised buildings/nodes a typical frame draws)
+  takes the exact `blitSprite` call this layer has always made — no
+  `save`/`clip`/`restore`, no scanline. Only the handful of buildings/nodes
+  belonging to whichever single row is currently inside `WIPE_SPAN` of its
+  own entry pay for anything more, and `visibleBuildings`/`visibleNodes`
+  filter out rows at or before their own entry before the fast/slow split
+  is even reached — nothing is drawn at `progress <= 0`.
+
+  **Cost, measured** (rAF-saturation, six warmed samples, first discarded,
+  median taken — this doc's own established method): `WIPE_SPAN`/`LOT` =
+  60/64 of every `LOT` cycle has exactly one row materialising somewhere on
+  screen, so "some row is mid-wipe" is the *real* steady state a running
+  game sees roughly 94% of the time, not a rare edge case — though "at most
+  one row" still holds. `scenery.render()` measured ~0.41ms/frame in that
+  realistic state, against ~0.27ms/frame with `fDist` held in the narrow gap
+  where nothing is materialising (confirming the fast path itself hasn't
+  moved). Both land inside this layer's own pre-7g range (~0.36-0.5ms across
+  7d-7f) rather than opening a new one. A first version of the scanline —
+  one `fillRect`/`globalAlpha` change per static fragment instead of one
+  batched path per pass — measured misleadingly high (~0.9ms) under a
+  poorly-warmed benchmark that let real sprite-cache-miss cost leak into the
+  timed loop; batching the segments and flecks into two `fill()` calls
+  (the same "one path, one fill" rule the traffic dots already follow)
+  brought the honest, well-warmed figure back to the numbers above.
+
+  **The optional second beat — a sector-rescan-driven full-city
+  re-materialisation — was not built.** The entry wipe alone already reads
+  as the strongest cue on this floor; a second, whole-screen version tied to
+  `sectors.js`'s own rescan timer would very likely be the same idea spent
+  twice, which is exactly the reasoning that retired the original 7g glitch
+  bullet below. Left for a future pass to judge in the browser rather than
+  built speculatively on top of an effect that already does the job.
 - ~~**Deck glitches.** A horizontal band of floor offsetting a few px for two
   frames; a building occasionally rendering as bare wireframe (skip the fills)
   before resolving; a grid column flickering bright. All state, no draw cost.
@@ -717,8 +789,14 @@ the deck is not perfect. Last, because it decorates everything above.
   get built as written; see `game/sectors.js`'s own header for the rescan that
   absorbed it.
 
-**Done when.** Entry pop is gone, and it isn't on by default in the asset
-gallery.
+**Done when.** Entry pop is gone (buildings and nodes resolve bottom-up
+instead of simply existing at the screen edge), it holds up at high speed,
+low speed and stopped, fully-materialised blits are provably unchanged (the
+fast path stays `blitSprite`, no clip), the steady-state cost is measured
+rather than assumed, and it isn't on by default in the asset gallery (the
+gallery never calls `drawBuildingVariant`/`drawNodeVariant` with a
+`progress` below 1, so this holds by construction). All true as of this
+sub-phase shipping.
 
 ---
 
@@ -743,3 +821,60 @@ sub-phase actually crossed that line first.
 
 **7a + 7b is the recommended first PR** — roughly 2 blits and 2 fills for the
 whole change, and it is the slice that changes how the game reads.
+
+---
+
+## Phase 7, closed out
+
+7g's materialisation was the last item on this list. Final measured cost —
+`scenery.render()` at ~0.41ms/frame in the realistic steady state (some row
+always mid-wipe) and ~0.27ms with none — lands inside the same ~0.36-0.5ms
+band this layer has measured in every sub-phase since 7d, not a new one.
+The whole floor's ~0.5ms budget held across all seven sub-phases (7a-7g),
+and the README's own "no culling through 7a-7d" note, re-checked at every
+sub-phase since, closes here too: **culling was never needed, for the whole
+of Phase 7.**
+
+Three "two derivations of one quantity" bugs and one rejected sub-phase
+turned up along the way, worth having in one place rather than scattered
+across seven sections:
+
+- **7a's `isCrossStreetRow`** disagreed with the floor tile's own painted
+  ribbon phase by a whole `PLOT`, invisible while a plot held one centred
+  building and glaring once 7a's own correction pushed footprints flush
+  against a boundary that wasn't where the ribbon actually was. Fixed by a
+  `+1`, pinned by a test that cross-checks the index math against the
+  tile's actual screen output rather than trusting the two to agree by
+  inspection.
+- **7c's drone shadow** used the same "one world point, two parallax rates"
+  idea every other depth cue on this floor relies on, and that gap grows
+  unbounded in raw distance driven — saturated with `Math.tanh` once the
+  drift was measured rather than assumed away.
+- **7f's sector tick** was computed two different ways at up to five call
+  sites — a single-step rounding in `sectors.js`'s own `update()` against
+  the two-step, camera-quantised rounding every render-side layer actually
+  uses — agreeing almost always and silently not on the ticks that
+  mattered, baking the wrong sector's colour into a cache entry with no way
+  to self-correct. Fixed by pulling the rounding into one exported function
+  (`floorDist`), idempotent under pre-rounding, so there is no longer a
+  wrong value to pass rather than a discipline of remembering the right one.
+
+The general lesson, stated once in 7f's own section and worth repeating
+here: on this floor, a value that looks cheap to recompute wherever it's
+needed is exactly the value that should be computed once and threaded or
+exported instead. Cheap recomputation is how two derivations of one
+quantity end up drifting apart without either call site ever being wrong
+on its own terms.
+
+**The one rejected sub-phase** was 7c's original plan — a third, dimmer,
+static parallax tile standing in for a distant skyline. It was built,
+looked at in the browser, and rejected outright: a static layer is a weak
+depth cue here, and what actually sells depth is a discrete object moving
+at its own rate, which is what shipped instead (the drones). Two more
+sub-phases were *superseded* rather than rejected — the original 7f (a
+per-district highlight quad, replaced wholesale by the sector palette once
+7e's console voice answered the labelling question first) and half of the
+original 7g (the deck-glitch bullet, absorbed by 7f's own sector rescan
+once that turned out to be the motivated version of the same vocabulary) —
+a different outcome from "built and discarded," but the same discipline:
+look at the thing in the browser before trusting the plan on paper.
