@@ -52,6 +52,37 @@ export function currentSector(fDist) {
 // feels further away / more depth. 0.5 = floor moves at half road speed.
 export const FLOOR_PARALLAX = 0.5;
 
+// THE ONE DERIVATION of floor-world distance from player distance. Every
+// per-frame consumer on this floor (drones.js, links.js, sectors.js, and
+// main.js's own road-sector pick) calls this rather than open-coding
+// Math.round(distance * FLOOR_PARALLAX) — that expression used to be
+// hand-copied at five call sites, correct at each one only by accident of
+// what its caller happened to pass in: four were fed main.js's pre-rounded
+// `camY` (see its "THE CAMERA IS QUANTISED" header), but sectors.js's own
+// update() runs in the simulation loop, where `camY` doesn't exist, and was
+// fed the raw `distance` instead. Single-step Math.round(distance *
+// FLOOR_PARALLAX) disagrees with Math.round(camY * FLOOR_PARALLAX) by 1 on
+// roughly 1 in 25 sector crossings, and on that tick, since
+// spritecache.js's Map has no eviction, the wrong sector's colour got baked
+// into a building or floor-tile cache entry with no way to ever self-correct.
+//
+// TWO-STEP ROUNDING, deliberately: round to whole pixels FIRST, then scale
+// and round again — mirroring main.js's own camY = Math.round(distance)
+// followed by a second Math.round(camY * FLOOR_PARALLAX), rather than the
+// single-step Math.round(distance * FLOOR_PARALLAX) that looks equivalent
+// and almost always IS.
+//
+// IDEMPOTENT UNDER PRE-ROUNDING: Math.round(Math.round(d) * FLOOR_PARALLAX)
+// is the same value whether `d` is the simulation's raw float or already an
+// integer, because rounding an integer is a no-op. That property is the
+// whole fix — it's what makes this function safe to call from BOTH the
+// simulation loop (raw `distance` — sectors.js's own update()) and the
+// render loop (main.js's already-rounded `camY` — this file's own render(),
+// drones.render(), links.render()): there is no longer a wrong thing to pass.
+export function floorDist(distance) {
+  return Math.round(Math.round(distance) * FLOOR_PARALLAX);
+}
+
 // The drawn grid SUBDIVIDES the placement grid: it is CELL / GRID_SUBDIV, so
 // every plot and cell boundary citygrid.js works in is still a drawn line, and
 // scenery still can't drift out of step with placement — there are just extra
@@ -79,7 +110,7 @@ export function render(ctx, distance, playerY, W, H) {
   // buildings up to half a pixel against the grid squares they stand on, so the
   // rounded value is the only floor clock there is. main.js does the same for the
   // road's camera — the floor needs its own because it runs at half speed.
-  const fDist = Math.round(distance * FLOOR_PARALLAX);
+  const fDist = floorDist(distance);
   // Phase 7f: which sector this frame's floor falls in, wrapped to a palette
   // index (see wrappedSector above). A pure function of fDist, like
   // gridPhase/plotAt — computed once here and threaded down, not re-derived

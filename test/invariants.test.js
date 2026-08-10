@@ -45,7 +45,7 @@ import {
   trafficDots, crossStreetBands, avenueCenters, visibleBuildings, visibleNodes,
   tileIntersections, makeBoundedCache, currentSector,
   DOT_SPACING, DOT_SPEED_A, DOT_SPEED_B, DOT_LANE_PHASE,
-  FLOOR_PARALLAX,
+  FLOOR_PARALLAX, floorDist,
 } from "../src/game/scenery.js";
 import { droneField, DRONE_PARALLAX } from "../src/game/drones.js";
 import {
@@ -1195,6 +1195,92 @@ test("sector boundaries land on tile boundaries", () => {
   }
 });
 
+test("scenery.floorDist is idempotent under pre-rounding", () => {
+  // THE PROPERTY THE WHOLE FIX RESTS ON (see scenery.js's own floorDist
+  // header): floorDist must give the SAME answer whether it's handed the
+  // simulation loop's raw float `distance` or the render loop's own
+  // already-rounded `camY` for that same tick — because rounding an integer
+  // is a no-op, so the outer Math.round in floorDist's two-step form can't
+  // tell the difference. Asserted directly rather than trusted from the
+  // arithmetic, across a wide sweep including negatives (floorDist itself
+  // makes no assumption distance stays positive, even though play never
+  // drives it negative) and half-integers (where Math.round's own
+  // round-half-away-from-zero tie-breaking is the one place the two paths
+  // could plausibly diverge if the two-step form weren't actually
+  // idempotent).
+  const samples = [];
+  for (let d = -10000; d <= 10000; d += 37.5) samples.push(d);
+  samples.push(0, 0.5, -0.5, 1.5, -1.5, 2.5, -2.5, 100000.5, -100000.5, 999999.5, -999999.5);
+
+  for (const d of samples) {
+    const direct = floorDist(d);
+    const prerounded = floorDist(Math.round(d));
+    assert.equal(
+      direct, prerounded,
+      `floorDist(${d}) = ${direct} disagrees with floorDist(Math.round(${d})) = ${prerounded}`,
+    );
+  }
+});
+
+test("floorDist agrees with the sector index and the floor tile's own phase, checked at boundary ticks specifically", () => {
+  // NOT a sweep of arbitrary distances (see the idempotence test above) —
+  // this walks real tick-by-tick distance progressions, the same way a
+  // player actually drives (speed * STEP accumulated every frame), across a
+  // wide speed range, and checks the tick where sectorIndex(floorDist(...))
+  // actually changes. That's deliberate: the original bug (see the design
+  // doc's own 7f section, "a bug worth recording") only showed up on
+  // roughly 1 in 25 sector crossings, on ticks where the raw accumulated
+  // float landed close enough to a boundary that rounding it directly vs.
+  // rounding it in two steps could disagree — a test sampling clean,
+  // idealised boundary values (like "sector boundaries land on tile
+  // boundaries" above) would never land on one.
+  //
+  // A crossing tick's fDist does NOT land exactly ON a boundary — ticks are
+  // discrete, so the tick that first reports a new sector is somewhere just
+  // PAST the true boundary, by at most one tick's worth of floor-world
+  // movement. That overshoot is bounded: the widest speed swept here is 700
+  // world units/s, so a tick can move fDist at most
+  // 700 * STEP * FLOOR_PARALLAX ≈ 5.83, plus a couple of px of rounding
+  // slop — comfortably under OVERSHOOT_BOUND. What has to be true at every
+  // crossing is that this overshoot is measured from a REAL boundary, i.e.
+  // it agrees with BOTH citygrid.js's own sectorIndex (the crossing lands
+  // within OVERSHOOT_BOUND of a whole SECTOR_PERIOD, which — since
+  // SECTOR_PERIOD is a whole multiple of ARTERIAL_PERIOD — is also within
+  // OVERSHOOT_BOUND of a whole ARTERIAL_PERIOD) and scenery.js's own
+  // gridPhase (the floor tile's ACTUAL phase function, not a re-derivation
+  // of the modulo — a genuinely independent call that has to read back a
+  // small phase, not a mid-tile one, at the same fDist).
+  const STEP = 1 / 60;
+  const OVERSHOOT_BOUND = 15;
+  let crossings = 0;
+
+  for (let speed = 120; speed <= 700; speed += 11) {
+    let distance = 0;
+    let lastSector = sectorIndex(floorDist(distance));
+    for (let tick = 0; tick < 3000; tick++) {
+      distance += speed * STEP;
+      const fDist = floorDist(distance);
+      const sector = sectorIndex(fDist);
+
+      if (sector !== lastSector) {
+        crossings++;
+        const overshoot = fDist % ARTERIAL_PERIOD;
+        assert.ok(
+          overshoot >= 0 && overshoot < OVERSHOOT_BOUND,
+          `at speed=${speed}, tick=${tick}, distance=${distance.toFixed(2)}: sector changed to ${sector} but fDist=${fDist} is ${overshoot} past the nearest ARTERIAL_PERIOD, not a fresh tile boundary`,
+        );
+        assert.equal(
+          gridPhase(fDist, 0), overshoot,
+          `at speed=${speed}, tick=${tick}, distance=${distance.toFixed(2)}: the floor tile's own gridPhase disagrees with fDist's own overshoot from the boundary at fDist=${fDist}`,
+        );
+        lastSector = sector;
+      }
+    }
+  }
+
+  assert.ok(crossings > 20, `expected many sector crossings across this speed sweep, got ${crossings}`);
+});
+
 test("sectors.update()'s palette pick agrees with scenery/road's own camY-based sector, across a wide speed sweep", () => {
   // A REAL BUG, caught by hand in the browser and reproduced here: sectors.js
   // used to compute fDist as Math.round(distance * FLOOR_PARALLAX) straight
@@ -1371,8 +1457,10 @@ test("every sector crossing pushes a HINT-severity line through the shared city-
   const STEP = 1 / 60;
   const SPEED = 400; // px/s of simulated `distance`, comfortably crossing
                       // several SECTOR_PERIOD boundaries over SPAN seconds
-                      // at SECTOR_PERIOD's shipped 1x multiplier
-  const SPAN = 10; // seconds
+                      // at SECTOR_PERIOD's shipped 6x multiplier (a boundary
+                      // every ~15.4s at this speed — see citygrid.js's own
+                      // SECTOR_PERIOD_MULT comment for the tuning behind it)
+  const SPAN = 70; // seconds
   let distance = 0;
   let clockValue = 0;
   for (let t = 0; t < SPAN; t += STEP) {

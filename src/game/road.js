@@ -26,7 +26,7 @@ import {
   ROAD_EDGE, ROAD_EDGE_DIM, ROAD_CENTERLINE, ROAD_SURFACE, WALL_FILL,
 } from "../engine/palette.js";
 // NOT importing scenery.js/citygrid.js for the sector, even though both
-// export exactly what's needed (currentSector/FLOOR_PARALLAX, sectorIndex):
+// export exactly what's needed (currentSector/floorDist, sectorIndex):
 // obstacleshapes.js already imports LANE_WIDTH from THIS file, and both of
 // those modules import obstacleshapes.js on their way down to it (scenery.js
 // via sprites.js, citygrid.js via sprites.js directly) — road.js pulling

@@ -47,7 +47,7 @@
 // conduit or ping belonging to a node that isn't on screen costs nothing,
 // because it is never constructed in the first place.
 
-import { clock, FLOOR_PARALLAX, visibleNodes } from "./scenery.js";
+import { clock, floorDist, visibleNodes } from "./scenery.js";
 import { neonStroke } from "../engine/neon.js";
 import { CONDUIT_LINE, CONDUIT_PACKET, PING_RING } from "../engine/palette.js";
 import * as gameConsole from "../engine/console.js";
@@ -348,7 +348,7 @@ export function announceActive(clockValue, active, push = gameConsole.push, busy
 // so this reads the SAME `clock` those freeze with (pause, death) rather
 // than a second one of its own.
 export function announce(clockValue, distance, playerY, W, H, push = gameConsole.push, busy = gameConsole.isBusy) {
-  const fDist = Math.round(distance * FLOOR_PARALLAX);
+  const fDist = floorDist(distance);
   const nodes = visibleNodes(fDist, playerY, W, H);
   announceActive(clockValue, activePing(nodes, clockValue), push, busy);
 }
@@ -420,7 +420,7 @@ function drawPings(ctx, pings) {
 // reasoning drones.js's own render() gives for doing the same with its own
 // copy: both are one-liners off the same `distance`.
 export function render(ctx, distance, playerY, W, H) {
-  const fDist = Math.round(distance * FLOOR_PARALLAX);
+  const fDist = floorDist(distance);
   const nodes = visibleNodes(fDist, playerY, W, H);
   if (nodes.length === 0) return;
   drawConduits(ctx, conduitField(clock, nodes, W, H));
