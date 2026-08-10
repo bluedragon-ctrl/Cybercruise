@@ -4,7 +4,7 @@
 // given (cx, cy) so callers control placement.
 
 import { glowPoly, glowLine } from "../engine/neon.js";
-import { getSprite, blitSprite, blitSpriteRotated } from "../engine/spritecache.js";
+import { getSprite, blitSprite, blitSpriteRotated, blitSpriteMaterialising } from "../engine/spritecache.js";
 import { drawCarShape, carShapeExtent, CAR_SHAPES } from "./carshapes.js";
 import { drawObstacleShape, obstacleExtent, OBSTACLE_SHAPES } from "./obstacleshapes.js";
 import {
@@ -22,6 +22,7 @@ import {
   BUILDING_FILL,
   BUILDING_FILL_SIDE,
   BUILDING_FILL_ROOF,
+  NODE_BRACKET,
 } from "../engine/palette.js";
 
 // A detailed top-down car wireframe, pointing "up" (toward smaller y). Shared by
@@ -310,7 +311,28 @@ export function buildingFootprint(v) {
 // catalogue at BUILDING_VARIANTS * 2 * SECTOR_COUNT — still cheap to
 // multiply (see palette.js's own note on why this cache and the car
 // catalogue's are on opposite sides of that line).
-export function drawBuildingVariant(ctx, cx, cy, v, leanRight, sector) {
+// `progress` (Phase 7g, default 1) is the entry-wipe fraction from
+// scenery.js's materialiseProgress — 1 for the ~70-odd already-materialised
+// buildings a typical frame draws, which takes the exact blitSprite call
+// this function has always made. Only a building whose LOT ROW is still
+// inside WIPE_SPAN of its own entry pays for anything more: the branch below
+// is what keeps that a save/clip/restore on a couple of blits a frame, not
+// on all of them.
+//
+// `rowSy` (Phase 7g, only read when progress < 1) is the row's own RAW
+// screen-y — always inside (0, WIPE_SPAN) whenever this branch runs, since
+// materialiseProgress(rowSy) < 1 is exactly what got us here. It, not
+// `progress`, is what the clip below is scaled by: WIPE_SPAN (60) is short
+// against a sprite's own height (100-170px including glow padding), so a
+// clip scaled by `progress` — a FRACTION OF THE SPRITE — would grow past
+// what the canvas's own top-edge clip is already hiding within the first
+// ~third of the span, making the wipe invisible for the rest of it (found
+// by instrumenting the clip and comparing it against the canvas edge, after
+// the effect didn't show up in the browser). Scaling by rowSy/sh instead —
+// an absolute px budget, not a fraction of a number this floor never
+// otherwise varies the wipe's speed by — keeps the clip strictly ahead of
+// (more restrictive than) the natural edge for the whole span.
+export function drawBuildingVariant(ctx, cx, cy, v, leanRight, sector, progress = 1, rowSy = 0) {
   const o = variantOpts(v, leanRight);
   const shape = variantShape(v);
 
@@ -338,7 +360,14 @@ export function drawBuildingVariant(ctx, cx, cy, v, leanRight, sector) {
   const sprite = getSprite(key, sw, sh, originX, originY, (sctx, sx, sy) =>
     shape === 0 ? drawBuilding(sctx, sx, sy, o) : drawShape(sctx, sx, sy, shape - 1, o),
   );
-  blitSprite(ctx, sprite, cx, cy);
+  if (progress >= 1) {
+    blitSprite(ctx, sprite, cx, cy);
+  } else {
+    const spriteProgress = Math.min(1, Math.max(0, rowSy) / sh);
+    // o.color is BUILDING_EDGE (variantOpts, above) — the scan reads as
+    // this building's own outline lighting up, not a generic overlay.
+    blitSpriteMaterialising(ctx, sprite, cx, cy, spriteProgress, o.color, GLOW_PAD);
+  }
 }
 
 // Cached drawNode (nodeshapes.js), anchored at its own centre — a node has no
@@ -352,7 +381,10 @@ export function drawBuildingVariant(ctx, cx, cy, v, leanRight, sector) {
 // all: NODE_BRACKET/NODE_GLYPH are live bindings too), so the key below can
 // never mint more than NODE_VARIANTS * SECTOR_COUNT entries no matter how
 // large the city grows.
-export function drawNodeVariant(ctx, cx, cy, v, sector) {
+// `progress`/`rowSy` (Phase 7g, both default to the "fully materialised"
+// case) — same contract as drawBuildingVariant's own; see its comment for
+// why the clip below is scaled by rowSy/sh rather than by progress alone.
+export function drawNodeVariant(ctx, cx, cy, v, sector, progress = 1, rowSy = 0) {
   const ext = nodeExtent(v);
   const originX = ext.left + GLOW_PAD;
   const originY = ext.up + GLOW_PAD;
@@ -361,5 +393,12 @@ export function drawNodeVariant(ctx, cx, cy, v, sector) {
 
   const key = `node|${v}|${sector}`;
   const sprite = getSprite(key, sw, sh, originX, originY, (sctx, sx, sy) => drawNode(sctx, sx, sy, v));
-  blitSprite(ctx, sprite, cx, cy);
+  if (progress >= 1) {
+    blitSprite(ctx, sprite, cx, cy);
+  } else {
+    const spriteProgress = Math.min(1, Math.max(0, rowSy) / sh);
+    // NODE_BRACKET is a node's own outline colour (nodeshapes.js), the same
+    // pairing drawBuildingVariant's o.color/BUILDING_EDGE is above.
+    blitSpriteMaterialising(ctx, sprite, cx, cy, spriteProgress, NODE_BRACKET, GLOW_PAD);
+  }
 }

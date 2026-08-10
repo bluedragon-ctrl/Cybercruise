@@ -46,6 +46,7 @@ import {
   tileIntersections, makeBoundedCache, currentSector,
   DOT_SPACING, DOT_SPEED_A, DOT_SPEED_B, DOT_LANE_PHASE,
   FLOOR_PARALLAX, floorDist,
+  WIPE_SPAN, materialiseProgress,
 } from "../src/game/scenery.js";
 import { droneField, DRONE_PARALLAX } from "../src/game/drones.js";
 import {
@@ -791,6 +792,92 @@ test("the baked registration ticks land on real intersections, not just where is
       }
     }
   }
+});
+
+// --- Materialisation (Phase 7g) -----------------------------------------------
+
+test("materialiseProgress is a pure function of sy — same input, same output, no state", () => {
+  for (const sy of [-500, -60, -0.001, 0, 0.001, 30, WIPE_SPAN - 0.001, WIPE_SPAN, WIPE_SPAN + 0.001, 500]) {
+    const a = materialiseProgress(sy);
+    const b = materialiseProgress(sy);
+    assert.equal(a, b, `materialiseProgress(${sy}) is not stable across calls`);
+  }
+});
+
+test("materialiseProgress clamps to [0, 1] and is monotonic in floor distance — a building never un-materialises as it's approached", () => {
+  // `sy` here is replicated exactly as visibleBuildings/visibleNodes compute
+  // it for a row: playerY - (lotY(ly) - fDist). Sweeping fDist upward for a
+  // FIXED row is "the player keeps approaching that row", and progress must
+  // never fall back down as that happens — it falls out of the formula
+  // (see scenery.js's own comment on materialiseProgress) rather than being
+  // something a caller has to maintain by hand.
+  for (const playerY of [0, 250, 496, 803]) {
+    for (const ly of [-5, 0, 3, 40]) {
+      let last = -Infinity;
+      for (let fDist = 0; fDist < 3000; fDist += 17) {
+        const sy = playerY - (lotY(ly) - fDist);
+        const progress = materialiseProgress(sy);
+        assert.ok(progress >= 0 && progress <= 1, `progress ${progress} out of [0,1] at sy=${sy}`);
+        assert.ok(progress >= last, `progress fell from ${last} to ${progress} as fDist grew (row ${ly}, playerY ${playerY})`);
+        last = progress;
+      }
+    }
+  }
+});
+
+test("materialiseProgress reports fully materialised past WIPE_SPAN — the performance guard for the fast blit path", () => {
+  // sprites.js's drawBuildingVariant/drawNodeVariant take the plain,
+  // unclipped blitSprite path only when progress >= 1 EXACTLY — this is what
+  // keeps the ~70-odd already-on-screen buildings a typical frame draws from
+  // ever paying for a save/clip/restore (spritecache.js's
+  // blitSpriteMaterialising). Progress creeping to 0.999... instead of a
+  // hard 1 past the span would silently put every one of those blits through
+  // the clipped path without changing how anything looks — this is the test
+  // that would catch it.
+  for (const sy of [WIPE_SPAN, WIPE_SPAN + 0.01, WIPE_SPAN * 10, 10000]) {
+    assert.equal(materialiseProgress(sy), 1, `materialiseProgress(${sy}) !== 1, past WIPE_SPAN (${WIPE_SPAN})`);
+  }
+});
+
+test("WIPE_SPAN stays under LOT — at most one lot row is ever mid-materialisation at once", () => {
+  // Two adjacent lot rows are exactly LOT apart in fDist (lotY's own
+  // spacing); a wipe span shorter than that can never have two rows' wipes
+  // overlap on screen at the same time, which is what keeps a stopped
+  // player looking at a single row resolving rather than a band of
+  // half-buildings (see scenery.js's own WIPE_SPAN comment for the reasoning
+  // and the speed-to-duration arithmetic).
+  assert.ok(
+    WIPE_SPAN < LOT,
+    `WIPE_SPAN (${WIPE_SPAN}) is not shorter than LOT (${LOT}) — more than one row could be mid-wipe at once`,
+  );
+});
+
+test("nothing is drawn at progress <= 0 — visibleBuildings/visibleNodes never return an unmaterialised entry", () => {
+  for (const W of [400, 600, 700]) {
+    for (const playerY of [0, 250, 496, 803]) {
+      for (let fDist = 0; fDist < 20000; fDist += 733) {
+        for (const b of visibleBuildings(fDist, playerY, W, 800)) {
+          assert.ok(b.progress > 0, `visibleBuildings returned a building at progress ${b.progress}`);
+        }
+        for (const n of visibleNodes(fDist, playerY, W, 800)) {
+          assert.ok(n.progress > 0, `visibleNodes returned a node at progress ${n.progress}`);
+        }
+      }
+    }
+  }
+});
+
+test("visibleBuildings/visibleNodes are pure functions of their arguments, progress included", () => {
+  // Mirrors the "plotAt is deterministic" test above: a materialisation
+  // effect that depended on anything but (row, fDist) would make a
+  // building's wipe progress jitter between two identically-parameterised
+  // frames — the one behaviour this whole layer's statelessness rules out.
+  const a1 = visibleBuildings(4321, 496, 600, 800);
+  const a2 = visibleBuildings(4321, 496, 600, 800);
+  assert.deepEqual(a1, a2, "visibleBuildings is not a pure function of its arguments");
+  const n1 = visibleNodes(4321, 496, 600, 800);
+  const n2 = visibleNodes(4321, 496, 600, 800);
+  assert.deepEqual(n1, n2, "visibleNodes is not a pure function of its arguments");
 });
 
 // --- Traffic dots (Phase 7b) --------------------------------------------------
