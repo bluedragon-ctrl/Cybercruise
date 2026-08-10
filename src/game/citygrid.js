@@ -100,20 +100,31 @@ export const ARTERIAL_PERIOD = PLOT * CROSS_STREET_ROWS; // 512
 // reason — changing ARTERIAL_PERIOD can never accidentally reintroduce a seam
 // here the way an independently-chosen constant could.
 //
-// 1x is the shortest legal value, and what ships: at this size a sector
-// crossing happens often enough to exercise the rescan (game/sectors.js) as a
-// matter of course while testing, not to set a PACE for a real run — raise
-// this alone once the pace itself is the thing being tuned, the same
-// "obviously correct first value, revisit once the rest works" role
-// GRID_SUBDIV played for the drawn grid.
+// 1x was the shortest legal value, and what shipped FIRST: at that size a
+// sector crossing happens often enough to exercise the rescan (game/
+// sectors.js) as a matter of course while testing, not to set a PACE for a
+// real run — the same "obviously correct first value, revisit once the rest
+// works" role GRID_SUBDIV played for the drawn grid.
 //
-// floor-world = distance * FLOOR_PARALLAX (scenery.js), so the SAME period
-// expressed in player DISTANCE — the unit game/sectors.js actually receives
-// every tick — is SECTOR_PERIOD / FLOOR_PARALLAX = 1024. Writing 512 in
-// distance units instead would be HALF a tile's width and wrong; this file
-// deliberately never expresses the period in that space itself, so there is
-// only one number here to get right.
-const SECTOR_PERIOD_MULT = 1;
+// 6x is the tuned, real-run value — a FEEL call, not a calculation: checked
+// against both ends of the plausible 4-8x range before settling in the
+// middle. At 4x a crossing lands every ~6.6s at the player's cruising top
+// speed (620 world units/s, player.js's MAX_SPEED) — too close to reading as
+// a strobe. At 8x it stretches to ~13.2s at that same speed, long enough that
+// a normal-length run only sees a couple and the feature risks going
+// unnoticed. 6x lands a crossing roughly every ~9.9s at 620, or ~15.4s at a
+// more typical cruising speed around 400 — long enough that a sector reads as
+// somewhere you've been driving THROUGH, short enough that a several-minute
+// run still crosses a double-digit number of them. Retune by ear again if
+// either MAX_SPEED or a run's typical length changes enough to move those
+// numbers.
+//
+// The period this multiplies is in FLOOR-WORLD units, not player distance —
+// scenery.js's floorDist() is the one place that conversion happens (see its
+// own header for why it's a function and not just `* FLOOR_PARALLAX`), so
+// this file never expresses SECTOR_PERIOD in distance units itself and there
+// is only one number here to get right.
+const SECTOR_PERIOD_MULT = 6;
 export const SECTOR_PERIOD = ARTERIAL_PERIOD * SECTOR_PERIOD_MULT;
 
 // Which sector floor-world position `fDist` falls in. An UNBOUNDED integer —

@@ -621,10 +621,11 @@ function render(alpha) {
   drones.render(ctx, camY, player.y, W, H);
   // Phase 7f: the road recolours with the same sector the floor below it
   // does — computed here, once, off the SAME camY every other layer this
-  // frame uses, and handed to road.js as a plain parameter rather than an
-  // import (road.js can't import scenery.js — see its own render() header on
-  // the import cycle that opens).
-  const roadSector = scenery.currentSector(Math.round(camY * scenery.FLOOR_PARALLAX));
+  // frame uses (via scenery.js's own floorDist — see its header), and handed
+  // to road.js as a plain parameter rather than an import (road.js can't
+  // import scenery.js — see its own render() header on the import cycle that
+  // opens).
+  const roadSector = scenery.currentSector(scenery.floorDist(camY));
   road.render(ctx, camY, player.y, W, H, roadSector);
   // Obstacles before traffic, so a car passing over one is never hidden
   // underneath it; traffic before the player, so the player's car is never

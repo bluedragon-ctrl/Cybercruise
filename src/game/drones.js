@@ -37,7 +37,7 @@
 // fill() calls total, not three per drone). See drawDrones() below for the
 // measured cost.
 
-import { clock, FLOOR_PARALLAX, laneDotPositions } from "./scenery.js";
+import { clock, floorDist, laneDotPositions } from "./scenery.js";
 import { DRONE_BODY, DRONE_NAV, DRONE_SHADOW } from "../engine/palette.js";
 
 // Between the floor (0.5) and the road (1) — tuned by eye, not derived; see
@@ -180,11 +180,10 @@ function laneSpan(ax, ay, hx, hy, dDist, playerY, W, H) {
 // driven (see DRONE_SHADOW's own comment in palette.js).
 export function droneField(clockValue, distance, playerY, W, H) {
   const dDist = Math.round(distance * DRONE_PARALLAX);
-  const fDist = Math.round(distance * FLOOR_PARALLAX); // scenery.js's own floor clock,
-                                                        // recomputed here rather than
-                                                        // threaded through render()'s
-                                                        // arguments — both are one-liners
-                                                        // off the same `distance`
+  const fDist = floorDist(distance); // scenery.js's own floor distance,
+                                      // recomputed here rather than threaded
+                                      // through render()'s arguments — both
+                                      // are one-liners off the same `distance`
   // The gap is the SAME for every drone in a given frame — dDist and fDist
   // are both plain functions of `distance` alone, with no per-drone term —
   // so it's computed once here rather than inside the per-drone loop below.

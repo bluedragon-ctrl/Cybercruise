@@ -592,6 +592,47 @@ by making `sectors.js` round the same two-step way everything downstream of
 a wide speed range and asserts its palette pick agrees with the exact `camY`-
 based sector `scenery.render()`/`road.render()` would use that frame.
 
+**The fix above was a patch, not a cure — the cause stayed in the tree.**
+`sectors.js` fixed its own copy of the two-step rounding, but the same
+`Math.round(distance * FLOOR_PARALLAX)` expression was independently
+hand-copied at four more call sites (`scenery.js`'s own `render()`,
+`drones.js`'s `droneField()`, and two in `links.js` — `announce()` and
+`render()`), each one correct today only because of who happens to call it.
+A follow-up PR pulled the two-step rounding into one exported function,
+`scenery.js`'s `floorDist()`, and converted all five sites (including
+`sectors.js`'s own hand-rolled version) to call it. The property that makes
+one function safe for both the simulation loop's raw `distance` and the
+render loop's pre-rounded `camY` is that the two-step form is **idempotent
+under pre-rounding**: rounding an already-integer value is a no-op, so
+`floorDist(camY) === floorDist(distance)` for the same tick regardless of
+which one is handed in. That's what actually closes the bug class — there is
+no longer a wrong value to pass, rather than a discipline of remembering to
+pass the right one.
+
+**This is the third time this exact shape of bug has shown up in this
+sub-phase.** `isCrossStreetRow` disagreeing with the tile's own ribbon phase
+by one whole `PLOT` (citygrid.js's own `+1` comment) was two independent
+derivations of "where a cross-street falls" drifting apart. The drone
+shadow's gap needing `Math.tanh` saturation (`drones.js`'s
+`DRONE_ALTITUDE_MAX`) was two parallax rates applied to the same world point
+with nothing reconciling how far apart their results could grow. And this
+bug is two roundings of the same distance, computed independently at up to
+five call sites, agreeing by construction almost everywhere and silently not
+on the ticks that matter. The general lesson: on this floor, a value that
+looks like it can be recomputed cheaply wherever it's needed is exactly the
+value that should be computed once and threaded or exported instead — cheap
+recomputation is how two derivations of one quantity end up drifting apart
+without either call site ever being wrong on its own terms.
+
+**The period, tuned.** `SECTOR_PERIOD_MULT` shipped at 1x for the reasons
+above (a test harness value); the real-run pace was set afterward, by ear,
+at 6x — a crossing lands roughly every ~10s at the player's cruising top
+speed and ~15s at a more typical cruising pace, comfortably inside the
+"every 10–20s, not constant" cadence 7g's own (now-superseded) deck-glitch
+bullet independently asked for. See `citygrid.js`'s own `SECTOR_PERIOD_MULT`
+comment for the two ends of the range this was checked against before
+settling in the middle.
+
 **The rescan.** Snap, not blend — the palette is already different by the
 time the frame draws (`setSector()` runs in `update()`, before `render()`
 starts), so the glitch's only job is making that snap read as deliberate. It

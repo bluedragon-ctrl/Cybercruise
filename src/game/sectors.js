@@ -32,7 +32,7 @@
 // kick off the two THINGS a crossing does that a lookup can't: a transient
 // glitch timer and one SYS LOG line.
 
-import { FLOOR_PARALLAX } from "./scenery.js";
+import { floorDist } from "./scenery.js";
 import { sectorIndex } from "./citygrid.js";
 import { setSector } from "../engine/palette.js";
 import { announceCityLine } from "./links.js";
@@ -104,23 +104,15 @@ let glitchTimer = 0;
 // "playing"-only cadence running first. main.js passes scenery.clock, the
 // same value links.announce() already reads it from.
 //
-// fDist is rounded in TWO STEPS — distance -> whole pixels (camY) -> *
-// FLOOR_PARALLAX -> whole floor-world units — deliberately mirroring
-// main.js's own camY = Math.round(distance) followed by scenery.render's
-// Math.round(camY * FLOOR_PARALLAX), rather than the single-step Math.round
-// (distance * FLOOR_PARALLAX) that looks equivalent and almost always IS:
-// the two disagree by exactly 1 on a small fraction of ticks (found by
-// simulating a wide speed range — about 1 in 25 sector crossings), and on
-// the tick where they do, setSector() below would fire for a DIFFERENT
-// sector than the one scenery.js's/road.js's own cache keys use that same
-// frame — baking the wrong sector's colour into a building or floor-tile
-// cache entry that then has no way to ever self-correct (spritecache.js has
-// no eviction). Matching the rounding exactly is the whole fix; see
-// scenery.js's own camY comment for why the two-step form is the one
-// everything downstream of `distance` has to use.
+// fDist goes through scenery.js's own floorDist(), not a hand-rolled
+// Math.round(distance * FLOOR_PARALLAX) — see that function's own header for
+// the two-step rounding and the idempotence property that makes it safe to
+// call here with the raw simulation `distance`, the same call that used to
+// disagree by 1 with scenery.render()/road.render()'s camY-based rounding on
+// about 1 in 25 sector crossings and bake the wrong sector's colour into a
+// spritecache.js entry that then had no way to ever self-correct.
 export function update(dt, clockValue, distance, push = gameConsole.push, busy = gameConsole.isBusy) {
-  const camY = Math.round(distance);
-  const fDist = Math.round(camY * FLOOR_PARALLAX);
+  const fDist = floorDist(distance);
   const sector = sectorIndex(fDist);
   setSector(sector);
 
