@@ -22,7 +22,18 @@
 // re-stroked every frame — see "Strip cache" near the bottom of this file.
 
 import { neonStroke } from "../engine/neon.js";
-import { GREEN, GREEN_PALE, GREEN_DIM, ROAD_SURFACE, WALL_FILL } from "../engine/palette.js";
+import {
+  ROAD_EDGE, ROAD_EDGE_DIM, ROAD_CENTERLINE, ROAD_SURFACE, WALL_FILL,
+} from "../engine/palette.js";
+// NOT importing scenery.js/citygrid.js for the sector, even though both
+// export exactly what's needed (currentSector/FLOOR_PARALLAX, sectorIndex):
+// obstacleshapes.js already imports LANE_WIDTH from THIS file, and both of
+// those modules import obstacleshapes.js on their way down to it (scenery.js
+// via sprites.js, citygrid.js via sprites.js directly) — road.js pulling
+// either one back in closes that into a real import cycle (a TDZ
+// ReferenceError on LANE_WIDTH at module load, found by trying it). `sector`
+// comes in as a plain parameter instead — main.js already computes it once
+// for scenery.render(); see this file's own render() for the rest.
 import {
   ROAD_AMPLITUDE,
   ROAD_STRAIGHTNESS,
@@ -281,8 +292,13 @@ function paintRoad(ctx, distance, playerY, W, yFrom, yTo) {
   // Glowing neon barriers. These span the full canvas height, so a shadowBlur
   // glow would blur a screen-sized bounding box twice per frame (~1.8ms of a
   // ~5ms frame); neonStroke gets the same look from overdraw instead.
-  neonStroke(ctx, (c) => traceEdge(c, leftX), GREEN, 2);
-  neonStroke(ctx, (c) => traceEdge(c, rightX), GREEN, 2);
+  //
+  // ROAD_EDGE, not GREEN (Phase 7f): the road recolours with the same sector
+  // the city floor below it does — see palette.js's own "why the split falls
+  // exactly here" comment on why the road gets its OWN sector-varying names
+  // rather than sharing GREEN with the HUD, which must not shift.
+  neonStroke(ctx, (c) => traceEdge(c, leftX), ROAD_EDGE, 2);
+  neonStroke(ctx, (c) => traceEdge(c, rightX), ROAD_EDGE, 2);
 
   // Dashed centre line, batched into ONE path so all the dashes share a single
   // set of strokes. Dashes are tied to WORLD position (not screen) so they
@@ -290,7 +306,7 @@ function paintRoad(ctx, distance, playerY, W, yFrom, yTo) {
   neonStroke(
     ctx,
     (c) => traceCentreDashes(c, distance, playerY, W, yFrom, yTo),
-    GREEN_PALE,
+    ROAD_CENTERLINE,
     3,
     3,
   );
@@ -345,9 +361,12 @@ function drawRoadWall(ctx, edgeX, sign) {
   ctx.fill();
   ctx.restore();
 
-  // Dim-green bottom rim (the base of the wall meeting the city floor). Also a
-  // full-height path, so it gets the same overdraw treatment as the barriers.
-  neonStroke(ctx, (c) => traceEdge(c, edgeX, dx, WALL_DY), GREEN_DIM, 1.5, 3);
+  // Dim bottom rim (the base of the wall meeting the city floor) — ROAD_EDGE_DIM,
+  // the same sector-varying pairing BUILDING_EDGE/BUILDING_EDGE_DIM uses, so the
+  // wall's rim tracks the barrier it belongs to rather than staying green under
+  // a recoloured edge. Also a full-height path, so it gets the same overdraw
+  // treatment as the barriers.
+  neonStroke(ctx, (c) => traceEdge(c, edgeX, dx, WALL_DY), ROAD_EDGE_DIM, 1.5, 3);
 }
 
 // --- Strip cache -------------------------------------------------------------
@@ -444,6 +463,7 @@ const EVICT_MARGIN = 2;
 
 const tiles = new Map(); // block index -> canvas
 let tilesW = 0; // canvas width the live tiles were built for
+let tilesSector = 0; // sector (Phase 7f) the live tiles were painted in
 
 // Build (or fetch) block `k`'s tile.
 //
@@ -471,13 +491,29 @@ function roadTile(k, W) {
 // Draw the road for the current scroll position, from cached strips.
 //
 // `distance` and `playerY` must be WHOLE PIXELS (main.js rounds the camera once
-// per frame) or the blits resample and the road softens.
-export function render(ctx, distance, playerY, W, H) {
+// per frame) or the blits resample and the road softens. `sector` (Phase 7f,
+// default 0 so every existing caller — the test suite's renderDirect() path,
+// anything not yet updated — keeps working) is a plain int main.js already
+// has in hand (scenery.currentSector) — see this file's own header on why it
+// arrives as a parameter instead of an import.
+export function render(ctx, distance, playerY, W, H, sector = 0) {
   // A resize invalidates every tile: the road's screen x is measured from the
   // canvas centre, so nothing built for the old width is reusable.
-  if (W !== tilesW) {
+  //
+  // A SECTOR CROSSING invalidates every tile too, for the same reason
+  // scenery.js's own floor tile is keyed on sector: ROAD_EDGE/ROAD_EDGE_DIM/
+  // ROAD_CENTERLINE are live bindings baked into a strip's actual pixels at
+  // build time, so a cache hit on a tile built under the OLD sector would
+  // keep blitting the old colour forever. Unlike the floor's 2-entry bound,
+  // this is a full CLEAR rather than a per-key eviction: a road strip is far
+  // cheaper to rebuild (~10 tiles, each a fraction of a full paintRoad) than
+  // the floor's single, much larger tile, and the whole visible set
+  // rebuilding over the next few frames hides under the same rescan glitch
+  // cover the floor's own rebuild does (see game/sectors.js).
+  if (W !== tilesW || sector !== tilesSector) {
     tiles.clear();
     tilesW = W;
+    tilesSector = sector;
   }
 
   const kMin = blockOf(distance + playerY - H); // block at the bottom of the screen

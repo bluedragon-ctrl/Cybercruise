@@ -263,6 +263,13 @@ function nodeId(bx, by) {
 // chatter off the log AT ALL while it's showing real content, and this caps
 // how fast it can talk even across the quiet stretches where isBusy() alone
 // would let it.
+//
+// SHARED, not just this file's own. Phase 7f's sector crossings (game/
+// sectors.js) are city chatter too — a new region announcing itself the
+// instant a node also starts pinging shouldn't get a line of its own on top
+// of this one, or the two features would double the log's actual "how often
+// can the city talk" rate despite each individually respecting it. One
+// clock, below, shared by both — see announceCityLine.
 const CITY_LINE_MIN_INTERVAL = 6;
 
 // THE ONE SCALAR THIS FLOOR KEEPS. Everything above is a pure function of
@@ -276,6 +283,20 @@ const CITY_LINE_MIN_INTERVAL = 6;
 // fresh edge too.
 let lastAnnouncedId = null;
 let lastCityLineAt = -Infinity;
+
+// THE SHARED THROTTLE ITSELF. Anything on the floor that wants to speak in
+// the SYS LOG as "city chatter" — a node's ping starting (below) or a
+// sector's own crossing (game/sectors.js) — goes through here rather than
+// calling gameConsole.push() directly, so the two features can't bypass each
+// other's rate limit by each keeping a clock of their own. Returns whether
+// the line actually went out, in case a future caller ever needs to know.
+export function announceCityLine(clockValue, text, severity, push = gameConsole.push, busy = gameConsole.isBusy) {
+  if (busy()) return false;
+  if (clockValue - lastCityLineAt < CITY_LINE_MIN_INTERVAL) return false;
+  push(text, severity);
+  lastCityLineAt = clockValue;
+  return true;
+}
 
 // Pure: of the nodes currently on screen, which one (if any) is CURRENTLY
 // mid-ping at clockValue. "1-2 alive at once" (pingState's own comment)
@@ -315,12 +336,9 @@ export function announceActive(clockValue, active, push = gameConsole.push, busy
                                              // same ping, or still quiet
   lastAnnouncedId = activeId;
   if (activeId === null) return; // the edge was a ping ENDING, not starting
-  if (busy()) return;
-  if (clockValue - lastCityLineAt < CITY_LINE_MIN_INTERVAL) return;
 
   const msg = announcement(active.bx, active.by);
-  push(msg.text, msg.severity);
-  lastCityLineAt = clockValue;
+  announceCityLine(clockValue, msg.text, msg.severity, push, busy);
 }
 
 // The real thing: re-derives which nodes are on screen right now and hands

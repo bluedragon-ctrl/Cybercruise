@@ -25,6 +25,7 @@ import * as road from "./game/road.js";
 import * as scenery from "./game/scenery.js";
 import * as drones from "./game/drones.js";
 import * as links from "./game/links.js";
+import * as sectors from "./game/sectors.js";
 import * as gameConsole from "./engine/console.js";
 
 const canvas = document.getElementById("game");
@@ -171,6 +172,7 @@ function newGame() {
   disconnect.reset();
   gameConsole.reset();
   links.reset();
+  sectors.reset();
 }
 newGame();
 
@@ -319,6 +321,13 @@ function update(dt) {
   // (see links.js's header) and this tick's just-updated `distance`/
   // `player.y`, the same pair render() will use a moment later.
   links.announce(scenery.clock, distance, player.y, W, H);
+
+  // Phase 7f's sectors: re-derives which sector this tick's distance falls
+  // in, re-points palette.js's live bindings at it (every tick, not only on
+  // a crossing — see sectors.js's own header), and on an actual crossing
+  // kicks off the rescan glitch and its own SYS LOG line. Before render()
+  // reads any of that, same ordering links.announce() above relies on.
+  sectors.update(dt, scenery.clock, distance);
 
   // Shooting, BEFORE traffic: a bullet that kills a car this tick leaves that
   // car dead when traffic.update runs, so it detonates and scores in the same
@@ -610,7 +619,13 @@ function render(alpha) {
   // the whole scenery layer (grid, buildings, floor traffic) and before the
   // road ribbon paints its own opaque foreground over everything below it.
   drones.render(ctx, camY, player.y, W, H);
-  road.render(ctx, camY, player.y, W, H);
+  // Phase 7f: the road recolours with the same sector the floor below it
+  // does — computed here, once, off the SAME camY every other layer this
+  // frame uses, and handed to road.js as a plain parameter rather than an
+  // import (road.js can't import scenery.js — see its own render() header on
+  // the import cycle that opens).
+  const roadSector = scenery.currentSector(Math.round(camY * scenery.FLOOR_PARALLAX));
+  road.render(ctx, camY, player.y, W, H, roadSector);
   // Obstacles before traffic, so a car passing over one is never hidden
   // underneath it; traffic before the player, so the player's car is never
   // hidden under one. Traffic draws the shared explosion pool last (car
@@ -634,6 +649,14 @@ function render(alpha) {
   if (state === "dying") disconnect.render(ctx, W, H);
   else player.render(ctx, alpha, road.headingAt(camY));
   ctx.restore();
+
+  // Phase 7f's rescan glitch: a full-screen tear over the just-composited
+  // world (road, traffic, the player's own car), UNDER the HUD — the deck's
+  // video feed hiccups, its chrome doesn't, the same split "dying"'s shake
+  // above already draws on (world inside the translate, HUD outside it).
+  // Costs one comparison and returns when no crossing is currently live —
+  // see sectors.js's own renderGlitch header.
+  sectors.renderGlitch(ctx, canvas, W, H);
 
   drawHud();
   if (state === "dying") disconnect.renderOverlay(ctx, W, H);

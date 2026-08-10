@@ -43,7 +43,7 @@ import {
 import {
   gridPhase, GRID_SPACING, STREET_WIDTH, STREET_INSET,
   trafficDots, crossStreetBands, avenueCenters, visibleBuildings, visibleNodes,
-  tileIntersections,
+  tileIntersections, makeBoundedCache, currentSector,
   DOT_SPACING, DOT_SPEED_A, DOT_SPEED_B, DOT_LANE_PHASE,
   FLOOR_PARALLAX,
 } from "../src/game/scenery.js";
@@ -55,7 +55,8 @@ import {
 import { HINT as CONSOLE_HINT } from "../src/engine/console.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import {
-  CELL, PLOT, LOT, LOT_SUBDIV, ARTERIAL_PERIOD, lotAt, lotColumns, lotRows, lotX, lotY, plotColumns,
+  CELL, PLOT, LOT, LOT_SUBDIV, ARTERIAL_PERIOD, SECTOR_PERIOD, sectorIndex,
+  lotAt, lotColumns, lotRows, lotX, lotY, plotColumns,
   plotAt, plotRows, plotX, plotY,
   isAvenueCol, isCrossStreetRow, BUILDING, EMPTY, AVENUE, CROSS_STREET, NODE,
 } from "../src/game/citygrid.js";
@@ -71,7 +72,16 @@ import { Obstacles, SPAWN_MARGIN as OBSTACLE_SPAWN_MARGIN } from "../src/game/ob
 import { Explosions } from "../src/game/effects.js";
 import { Projectiles } from "../src/game/projectiles.js";
 import { armFor, armamentFor } from "../src/game/armament.js";
-import { NEUTRAL_PALE } from "../src/engine/palette.js";
+import {
+  NEUTRAL_PALE, SECTOR_COUNT, setSector, BUILDING_EDGE,
+  PLAYER, PLAYER_THRUST, HAZARD, CRITICAL_FLASH,
+  ENEMY, ENEMY_DEEP, ENEMY_PALE, ENEMY_THRUST,
+  NEUTRAL, NEUTRAL_DEEP, NEUTRAL_THRUST,
+  GREEN, GREEN_BRIGHT, GREEN_PALE, GREEN_DIM,
+} from "../src/engine/palette.js";
+import {
+  sectorName, update as sectorsUpdate, reset as sectorsReset, glitching as sectorsGlitching,
+} from "../src/game/sectors.js";
 import { PICKUP_SHAPES } from "../src/game/pickupshapes.js";
 import { PICKUP_TYPES, AMMO, HEAL, SHIELD, applyPickup, pickupTypeById } from "../src/game/pickuptypes.js";
 import { Pickups } from "../src/game/pickups.js";
@@ -563,12 +573,20 @@ test("a building's footprint never crosses into a street ribbon", () => {
   }
 });
 
-test("the building sprite cache stays bounded at BUILDING_VARIANTS * 2", () => {
+test("the building sprite cache stays bounded at BUILDING_VARIANTS * 2 * SECTOR_COUNT", () => {
   // sprites.js: "at most BUILDING_VARIANTS * 2 sprites (one per lean
-  // direction) exist no matter how large the city grows." Rebalancing the
-  // footprint catalogue for lots must not have grown the catalogue itself —
-  // that was the one thing the task ruled out doing to compensate.
+  // direction) exist no matter how large the city grows." Phase 7f adds a
+  // third factor: BUILDING_EDGE/BUILDING_FILL* are baked into a building's
+  // own sprite pixels and reassigned per sector (palette.js's setSector), so
+  // drawBuildingVariant's cache key carries the sector too — a building
+  // revisited after a crossing would otherwise blit its OLD sector's colour
+  // forever. spritecache.js's Map has NO eviction, so SECTOR_COUNT has to
+  // stay a small, fixed number or this leaks without bound over a long run.
   assert.equal(BUILDING_VARIANTS, 24, `BUILDING_VARIANTS grew to ${BUILDING_VARIANTS} — the catalogue must stay fixed`);
+  assert.ok(
+    Number.isInteger(SECTOR_COUNT) && SECTOR_COUNT > 0 && SECTOR_COUNT <= 8,
+    `SECTOR_COUNT is ${SECTOR_COUNT} — must stay a small, fixed number`,
+  );
 });
 
 test("the visible floor stays a bounded walk", () => {
@@ -634,13 +652,19 @@ test("the eligible-lot and realized-build fractions, re-measured now that NODE c
 
 // --- Distinguished nodes (Phase 7d) -------------------------------------------
 
-test("the node sprite cache stays bounded at NODE_VARIANTS", () => {
-  // sprites.js's drawNodeVariant keys its cache on `v` alone (`node|${v}`),
-  // with no lean direction and no continuous parameter the way a building's
-  // key carries — so the WHOLE cache is bounded by NODE_VARIANTS, and this is
-  // the assertion that constant hasn't quietly grown, mirroring the building
-  // catalogue's own "stays bounded" test above.
+test("the node sprite cache stays bounded at NODE_VARIANTS * SECTOR_COUNT", () => {
+  // sprites.js's drawNodeVariant used to key its cache on `v` alone
+  // (`node|${v}`), with no lean direction and no continuous parameter the
+  // way a building's key carries. Phase 7f adds `sector` as a second, equally
+  // bounded factor (NODE_BRACKET/NODE_GLYPH are reassigned per sector too),
+  // so the whole cache is now bounded by NODE_VARIANTS * SECTOR_COUNT — this
+  // is the assertion that neither constant has quietly grown, mirroring the
+  // building catalogue's own "stays bounded" test above.
   assert.equal(NODE_VARIANTS, 6, `NODE_VARIANTS grew to ${NODE_VARIANTS} — the node catalogue must stay fixed`);
+  assert.ok(
+    Number.isInteger(SECTOR_COUNT) && SECTOR_COUNT > 0 && SECTOR_COUNT <= 8,
+    `SECTOR_COUNT is ${SECTOR_COUNT} — must stay a small, fixed number`,
+  );
 });
 
 test("a NODE claim never lands on an avenue or cross-street plot", () => {
@@ -1127,6 +1151,268 @@ test("announce() (the real wrapper) never pushes a non-HINT line across a wide, 
   for (const m of pushed) {
     assert.equal(m.severity, CONSOLE_HINT, `announce() pushed "${m.text}" at non-HINT severity`);
   }
+});
+
+// --- Sectors (Phase 7f) -------------------------------------------------------
+
+test("sector index is a pure function of distance", () => {
+  // citygrid.js's sectorIndex: same fDist in, same sector out, forever — the
+  // same contract every other lookup on this floor (plotAt, lotAt, gridPhase)
+  // already keeps.
+  for (const fDist of [0, 1, 511, 512, 513, 1024, -1, -512, -513, 999999]) {
+    const a = sectorIndex(fDist);
+    const b = sectorIndex(fDist);
+    assert.equal(a, b, `sectorIndex(${fDist}) is not stable across calls`);
+    assert.ok(Number.isInteger(a), `sectorIndex(${fDist}) = ${a} is not an integer`);
+  }
+});
+
+test("sector boundaries land on tile boundaries", () => {
+  // The divisibility rule citygrid.js's own SECTOR_PERIOD comment documents:
+  // SECTOR_PERIOD must be a whole multiple of ARTERIAL_PERIOD (floor-world
+  // units), or a boundary would put a colour seam through the middle of a
+  // tile — asserted against the constants themselves, not a hardcoded 512,
+  // so retuning either one fails loudly here instead of drawing a seam.
+  assert.equal(
+    SECTOR_PERIOD % ARTERIAL_PERIOD, 0,
+    `SECTOR_PERIOD (${SECTOR_PERIOD}) is not a whole multiple of ARTERIAL_PERIOD (${ARTERIAL_PERIOD})`,
+  );
+
+  // The same relation, cross-checked in the space main.js's `distance` and
+  // scenery.js's FLOOR_PARALLAX actually put it through: the period expressed
+  // in player DISTANCE (SECTOR_PERIOD / FLOOR_PARALLAX) must, once run
+  // through the exact fDist = round(distance * FLOOR_PARALLAX) conversion
+  // every per-frame layer on this floor uses, land back on a whole multiple
+  // of ARTERIAL_PERIOD — catching a mistake where SECTOR_PERIOD looks right
+  // in floor-world but FLOOR_PARALLAX doesn't divide it cleanly back out.
+  const distancePeriod = SECTOR_PERIOD / FLOOR_PARALLAX;
+  for (const k of [1, 2, 3, 17]) {
+    const fDist = Math.round(k * distancePeriod * FLOOR_PARALLAX);
+    assert.equal(
+      fDist % ARTERIAL_PERIOD, 0,
+      `distance ${k * distancePeriod} (sector boundary ${k}) maps to fDist ${fDist}, not a whole ARTERIAL_PERIOD`,
+    );
+  }
+});
+
+test("sectors.update()'s palette pick agrees with scenery/road's own camY-based sector, across a wide speed sweep", () => {
+  // A REAL BUG, caught by hand in the browser and reproduced here: sectors.js
+  // used to compute fDist as Math.round(distance * FLOOR_PARALLAX) straight
+  // off the raw simulation `distance` — but scenery.render()/road.render()
+  // compute it as Math.round(Math.round(distance) * FLOOR_PARALLAX), because
+  // main.js rounds the camera to camY = Math.round(distance) ONCE and hands
+  // THAT to every layer (see main.js's own "THE CAMERA IS QUANTISED" header).
+  // Those two roundings usually agree, but on roughly 1 in 25 sector
+  // crossings (found by sweeping a wide range of speeds) they land on
+  // opposite sides of a SECTOR_PERIOD boundary for one tick — and on that
+  // tick, setSector() would fire for a sector NEITHER scenery.js's nor
+  // road.js's own cache keys agree is current. Since spritecache.js's Map
+  // has no eviction, a building or floor tile built under that mismatched
+  // palette bakes the WRONG sector's colour in permanently — reproduced live
+  // as buildings staying one colour while the road/floor had already moved
+  // on to the next.
+  //
+  // This asserts the FIX rather than re-deriving the bug: whatever palette
+  // sectors.update() lands on for a given `distance` must be the SAME
+  // palette scenery.js's own currentSector(fDist) would pick for the exact
+  // fDist scenery.render()/road.render() actually draw with this frame.
+  // Compared via BUILDING_EDGE (a live binding) rather than a raw sector
+  // index, since that's what actually ends up baked into a sprite.
+  sectorsReset();
+  const push = () => {};
+  const busy = () => false;
+  let clockValue = 0;
+  const STEP = 1 / 60;
+
+  for (let speed = 120; speed <= 700; speed += 17) {
+    sectorsReset();
+    let distance = 0;
+    for (let tick = 0; tick < 3000; tick++) {
+      distance += speed * STEP;
+      clockValue += STEP;
+      sectorsUpdate(STEP, clockValue, distance, push, busy);
+      const gotEdge = BUILDING_EDGE;
+
+      // Ground truth: the exact fDist scenery.render()/road.render() would
+      // compute this frame, via the SAME camY = Math.round(distance) step
+      // main.js takes before handing distance to any render-side layer.
+      const camY = Math.round(distance);
+      const fDist = Math.round(camY * FLOOR_PARALLAX);
+      const expectedSector = currentSector(fDist);
+      setSector(expectedSector);
+      const expectedEdge = BUILDING_EDGE;
+
+      assert.equal(
+        gotEdge, expectedEdge,
+        `at speed=${speed}, tick=${tick} (distance=${distance.toFixed(2)}), ` +
+        `sectors.update() picked a different palette than scenery/road's own camY-based sector would`,
+      );
+    }
+  }
+  sectorsReset();
+});
+
+test("sector names are stable per index", () => {
+  // Same contract as links.js's callsign() (its own test above): a sector
+  // has to read the same name every time, which is only true if sectorName
+  // is a pure function of the index alone.
+  for (const index of [0, 1, 2, 7, -1, -5, 12345]) {
+    const a = sectorName(index);
+    const b = sectorName(index);
+    assert.equal(a, b, `sectorName(${index}) is not stable across calls`);
+    assert.equal(typeof a, "string");
+    assert.ok(a.length > 0, `sectorName(${index}) is empty`);
+  }
+});
+
+test("faction colours are byte-identical in every sector", () => {
+  // THE single most valuable test in this sub-phase: the guard on the rule
+  // that protects gameplay legibility (palette.js's own header — "green is
+  // the world, red/amber are gameplay faction, a sector may recolour the
+  // city only"). setSector() must never touch any of these, in ANY sector,
+  // including sectors well past SECTOR_COUNT (the wrap-around case a long
+  // run actually reaches). PLAYER/ENEMY*/NEUTRAL*/HAZARD/CRITICAL_FLASH are
+  // the faction read; GREEN* are the road/HUD's own invariant green family,
+  // deliberately kept OUT of the sector table (see palette.js's own "why the
+  // split falls exactly here" comment) and checked here too since a future
+  // change accidentally routing one of them through SECTOR_PALETTES would
+  // otherwise pass every other test in this file silently.
+  // Snapshotted BEFORE any setSector() call in this file runs, so this is a
+  // claim about the actual shipped values, not a tautology against whatever
+  // setSector last left behind.
+  const before = {
+    PLAYER, PLAYER_THRUST, HAZARD, CRITICAL_FLASH,
+    ENEMY, ENEMY_DEEP, ENEMY_PALE, ENEMY_THRUST,
+    NEUTRAL, NEUTRAL_DEEP, NEUTRAL_THRUST,
+    GREEN, GREEN_BRIGHT, GREEN_PALE, GREEN_DIM,
+  };
+  try {
+    for (let i = -3; i < SECTOR_COUNT * 3; i++) {
+      setSector(i);
+      assert.equal(PLAYER, before.PLAYER, `PLAYER changed after setSector(${i})`);
+      assert.equal(PLAYER_THRUST, before.PLAYER_THRUST, `PLAYER_THRUST changed after setSector(${i})`);
+      assert.equal(HAZARD, before.HAZARD, `HAZARD changed after setSector(${i})`);
+      assert.equal(CRITICAL_FLASH, before.CRITICAL_FLASH, `CRITICAL_FLASH changed after setSector(${i})`);
+      assert.equal(ENEMY, before.ENEMY, `ENEMY changed after setSector(${i})`);
+      assert.equal(ENEMY_DEEP, before.ENEMY_DEEP, `ENEMY_DEEP changed after setSector(${i})`);
+      assert.equal(ENEMY_PALE, before.ENEMY_PALE, `ENEMY_PALE changed after setSector(${i})`);
+      assert.equal(ENEMY_THRUST, before.ENEMY_THRUST, `ENEMY_THRUST changed after setSector(${i})`);
+      assert.equal(NEUTRAL, before.NEUTRAL, `NEUTRAL changed after setSector(${i})`);
+      assert.equal(NEUTRAL_DEEP, before.NEUTRAL_DEEP, `NEUTRAL_DEEP changed after setSector(${i})`);
+      assert.equal(NEUTRAL_THRUST, before.NEUTRAL_THRUST, `NEUTRAL_THRUST changed after setSector(${i})`);
+      assert.equal(GREEN, before.GREEN, `GREEN changed after setSector(${i}) — the road/HUD's own green must stay out of the sector table`);
+      assert.equal(GREEN_BRIGHT, before.GREEN_BRIGHT, `GREEN_BRIGHT changed after setSector(${i})`);
+      assert.equal(GREEN_PALE, before.GREEN_PALE, `GREEN_PALE changed after setSector(${i})`);
+      assert.equal(GREEN_DIM, before.GREEN_DIM, `GREEN_DIM changed after setSector(${i})`);
+    }
+  } finally {
+    setSector(0); // leave shared palette state as every other test expects it
+  }
+});
+
+test("the sprite-cache-bound wrap uses a small fixed SECTOR_COUNT, not a growing distance-derived index", () => {
+  // citygrid.js's sectorIndex is deliberately UNBOUNDED (it's a statement
+  // about geometry — see its own comment); wrapping it to a palette is
+  // engine/palette.js's setSector, which must accept any integer, including
+  // ones far outside [0, SECTOR_COUNT), and still resolve to one of the
+  // SECTOR_COUNT tables rather than throwing or returning undefined colours.
+  for (const i of [-1000, -1, 0, 1, SECTOR_COUNT - 1, SECTOR_COUNT, SECTOR_COUNT * 50 + 3]) {
+    setSector(i);
+    assert.equal(typeof PLAYER, "string", "setSector must never corrupt an invariant binding");
+  }
+  setSector(0);
+});
+
+test("the floor tile cache never holds more than 2 entries", () => {
+  // scenery.js's floorGridTile is keyed on (W, H, sector) and MUST stay
+  // bounded to 2 (see its own comment: the old sector's tile has to survive
+  // long enough to cover whatever hasn't scrolled past a boundary yet while
+  // the new one builds). Exercised here against makeBoundedCache directly —
+  // floorGridTile itself touches `document` and can't run under plain Node
+  // (see this file's header on why spritecache.js/scenery.js's canvas code
+  // stays out of these tests), but the eviction rule it's built on has
+  // nothing to do with canvases and is exactly what needs pinning.
+  const cache = makeBoundedCache(2);
+  cache.set("600x800x0", "tileA");
+  cache.set("600x800x1", "tileB");
+  assert.equal(cache.size, 2);
+  cache.set("600x800x2", "tileC");
+  assert.equal(cache.size, 2, `cache grew to ${cache.size} entries, expected at most 2`);
+  assert.equal(cache.get("600x800x0"), undefined, "the oldest tile should have been evicted");
+  assert.equal(cache.get("600x800x1"), "tileB", "the second tile should still be cached");
+  assert.equal(cache.get("600x800x2"), "tileC", "the newest tile should be cached");
+
+  // Re-requesting an already-cached key is a HIT, not a fresh insert — it
+  // must not itself evict anything (a rebuild-on-every-lookup bug would
+  // still pass the raw size check above while thrashing the tile every
+  // frame at a stable, non-crossing distance).
+  cache.set("600x800x1", "tileB-rebuilt");
+  assert.equal(cache.size, 2, "re-setting an existing key changed the cache size");
+});
+
+test("every sector crossing pushes a HINT-severity line through the shared city-chatter throttle", () => {
+  // Drives game/sectors.js's real update() across enough distance to cross
+  // several SECTOR_PERIOD boundaries, with a stubbed push/busy exactly like
+  // links.js's own announce() tests use, so this doesn't touch the real
+  // singleton SYS LOG. Every push observed must be HINT (never WARN/
+  // CRITICAL, which console.js maps to the gameplay faction colours a city
+  // line must never borrow — see this file's other "every city-log line is
+  // HINT" test for links.js's own version of the same guarantee).
+  sectorsReset();
+  // announceCityLine's rate-limit clock is SHARED with links.js's own node
+  // pings (see links.js's own header on why) — reset it too, or whatever
+  // clock value the earlier links.js tests left behind blocks every push
+  // this test expects, for a reason that has nothing to do with sectors.
+  linksReset();
+  const pushed = [];
+  const push = (text, severity) => pushed.push({ text, severity });
+  const busy = () => false;
+
+  const STEP = 1 / 60;
+  const SPEED = 400; // px/s of simulated `distance`, comfortably crossing
+                      // several SECTOR_PERIOD boundaries over SPAN seconds
+                      // at SECTOR_PERIOD's shipped 1x multiplier
+  const SPAN = 10; // seconds
+  let distance = 0;
+  let clockValue = 0;
+  for (let t = 0; t < SPAN; t += STEP) {
+    distance += SPEED * STEP;
+    clockValue += STEP; // mirrors scenery.js's own clock (announceCityLine's
+                         // rate-limit input) without needing scenery.update()
+                         // and its own per-run "playing" gating in this test
+    sectorsUpdate(STEP, clockValue, distance, push, busy);
+  }
+
+  assert.ok(pushed.length > 0, "expected at least one sector crossing over a long simulated drive");
+  for (const m of pushed) {
+    assert.equal(m.severity, CONSOLE_HINT, `sector crossing pushed "${m.text}" at non-HINT severity`);
+  }
+  sectorsReset();
+  linksReset();
+});
+
+test("the rescan glitch is transient — it ends on its own, not just on the next crossing", () => {
+  // sectors.js's own glitching() lets this be asserted without a canvas:
+  // update() must leave the glitch live for a little while after a crossing
+  // (so the rescan has something to draw) and then let it lapse well before
+  // the NEXT crossing at this test's speed — a glitch that never clears
+  // would silently become a permanent full-screen effect, exactly the
+  // "costs nothing when it isn't firing" property this sub-phase exists to
+  // guarantee.
+  sectorsReset();
+  const push = () => {};
+  const busy = () => false;
+  const STEP = 1 / 60;
+
+  // Cross exactly one boundary, then let a couple of frames pass.
+  sectorsUpdate(STEP, 0, 0, push, busy); // settle into sector 0, no crossing
+  const distancePeriod = SECTOR_PERIOD / FLOOR_PARALLAX;
+  sectorsUpdate(STEP, STEP, distancePeriod + 1, push, busy); // cross into sector 1
+  assert.ok(sectorsGlitching(), "expected the glitch to be live immediately after a crossing");
+
+  for (let i = 0; i < 60; i++) sectorsUpdate(STEP, STEP * (i + 2), distancePeriod + 1, push, busy);
+  assert.ok(!sectorsGlitching(), "expected the glitch to have lapsed a full second after the crossing");
+  sectorsReset();
 });
 
 // --- Ramming physics ---------------------------------------------------------

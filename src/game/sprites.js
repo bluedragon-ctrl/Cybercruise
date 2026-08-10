@@ -17,8 +17,8 @@ import { drawNode, nodeExtent } from "./nodeshapes.js";
 import {
   PLAYER,
   PLAYER_THRUST,
-  GREEN,
-  GREEN_DIM,
+  BUILDING_EDGE,
+  BUILDING_EDGE_DIM,
   BUILDING_FILL,
   BUILDING_FILL_SIDE,
   BUILDING_FILL_ROOF,
@@ -70,7 +70,7 @@ export function drawBuilding(ctx, cx, cy, opts = {}) {
     w = 70,       // footprint width  (x, along the road's cross-axis)
     d = 55,       // footprint depth  (y, along the road)
     height = 60,  // extrusion height in px
-    color = GREEN,
+    color = BUILDING_EDGE,
     skew = 0.28,  // horizontal roof shift as a fraction of height (+right / -left)
   } = opts;
   const hw = w / 2;
@@ -118,8 +118,8 @@ export function drawBuilding(ctx, cx, cy, opts = {}) {
 
   // The two visible footprint edges on the grid (dim — they sit on the ground).
   // The far two are inside the silhouette and stay unstroked.
-  glowLine(ctx, farCorner[0], farCorner[1], nearCorner[0], nearCorner[1], GREEN_DIM, 1, 5);
-  glowLine(ctx, nearCorner[0], nearCorner[1], offCorner[0], offCorner[1], GREEN_DIM, 1, 5);
+  glowLine(ctx, farCorner[0], farCorner[1], nearCorner[0], nearCorner[1], BUILDING_EDGE_DIM, 1, 5);
+  glowLine(ctx, nearCorner[0], nearCorner[1], offCorner[0], offCorner[1], BUILDING_EDGE_DIM, 1, 5);
 
   // Three visible vertical edges: the two silhouette sides plus the crease where
   // the front and side walls meet. The fourth (rear, hidden) vertical is skipped.
@@ -282,7 +282,7 @@ function variantOpts(v, leanRight) {
     d: 24 + ((v * 5) % 3) * 8, // 24..40
     height: 24 + ((v * 7) % 10) * 8, // 24..96, unchanged
     skew: leanRight ? 0.26 : -0.26,
-    color: GREEN,
+    color: BUILDING_EDGE,
   };
 }
 
@@ -300,7 +300,17 @@ export function buildingFootprint(v) {
 // callers keep placing buildings by their footprint on the ground plane.
 // `leanRight` picks which way the roof skews, so a building can lean away from
 // screen centre without doubling the variant catalogue.
-export function drawBuildingVariant(ctx, cx, cy, v, leanRight) {
+//
+// `sector` (Phase 7f) rides along in the cache key, not just in `o.color`
+// above. BUILDING_EDGE/BUILDING_FILL* are LIVE bindings (engine/palette.js's
+// setSector), but `getSprite` below only re-runs its draw callback on a cache
+// MISS — a building revisited after a sector crossing would otherwise blit
+// whatever colour was baked into its sprite the first time it was ever drawn,
+// forever, since the cache key wouldn't have changed. Bounds the whole
+// catalogue at BUILDING_VARIANTS * 2 * SECTOR_COUNT — still cheap to
+// multiply (see palette.js's own note on why this cache and the car
+// catalogue's are on opposite sides of that line).
+export function drawBuildingVariant(ctx, cx, cy, v, leanRight, sector) {
   const o = variantOpts(v, leanRight);
   const shape = variantShape(v);
 
@@ -324,7 +334,7 @@ export function drawBuildingVariant(ctx, cx, cy, v, leanRight) {
   const sw = ext.left + ext.right + GLOW_PAD * 2;
   const sh = ext.up + ext.down + GLOW_PAD * 2;
 
-  const key = `bldg|${v}|${leanRight ? 1 : 0}`;
+  const key = `bldg|${v}|${leanRight ? 1 : 0}|${sector}`;
   const sprite = getSprite(key, sw, sh, originX, originY, (sctx, sx, sy) =>
     shape === 0 ? drawBuilding(sctx, sx, sy, o) : drawShape(sctx, sx, sy, shape - 1, o),
   );
@@ -335,18 +345,21 @@ export function drawBuildingVariant(ctx, cx, cy, v, leanRight) {
 // footprint edge to flush against (citygrid.js sites it at the plot centre,
 // unlike a building's kerb-pushed lot), and no lean: it is flat and
 // symmetric, so unlike drawBuildingVariant there is exactly one sprite per
-// variant, not one per (variant, lean direction). `v` is the only thing that
-// can vary — it comes straight from citygrid.js's reserve(), already bounded
-// to [0, NODE_VARIANTS), so the key below can never mint more than
-// NODE_VARIANTS entries no matter how large the city grows.
-export function drawNodeVariant(ctx, cx, cy, v) {
+// (variant, sector) pair, not one per (variant, lean direction). `v` comes
+// straight from citygrid.js's reserve(), already bounded to [0,
+// NODE_VARIANTS) — `sector` (Phase 7f) is the second, equally-bounded factor
+// (see drawBuildingVariant's own comment on why it has to be in the key at
+// all: NODE_BRACKET/NODE_GLYPH are live bindings too), so the key below can
+// never mint more than NODE_VARIANTS * SECTOR_COUNT entries no matter how
+// large the city grows.
+export function drawNodeVariant(ctx, cx, cy, v, sector) {
   const ext = nodeExtent(v);
   const originX = ext.left + GLOW_PAD;
   const originY = ext.up + GLOW_PAD;
   const sw = ext.left + ext.right + GLOW_PAD * 2;
   const sh = ext.up + ext.down + GLOW_PAD * 2;
 
-  const key = `node|${v}`;
+  const key = `node|${v}|${sector}`;
   const sprite = getSprite(key, sw, sh, originX, originY, (sctx, sx, sy) => drawNode(sctx, sx, sy, v));
   blitSprite(ctx, sprite, cx, cy);
 }

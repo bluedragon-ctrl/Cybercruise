@@ -22,11 +22,31 @@ import {
   CELL, PLOT, ARTERIAL_PERIOD, BUILDING, NODE, isAvenueCol,
   lotAt, lotX, lotY, lotColumns, lotRows, plotColumns,
   plotAt, plotX, plotY, plotRows,
+  sectorIndex,
 } from "./citygrid.js";
 import { neonStroke } from "../engine/neon.js";
 import {
   FLOOR_GRID, FLOOR_STREET, FLOOR_STREET_LINE, FLOOR_TRAFFIC, FLOOR_TICK,
+  SECTOR_COUNT,
 } from "../engine/palette.js";
+
+function mod(n, m) {
+  return ((n % m) + m) % m;
+}
+
+// citygrid.js's sectorIndex() is an unbounded integer (see its own comment on
+// why: geometry there, palette count here). Wrapped to [0, SECTOR_COUNT) at
+// exactly this one call site — every cache key downstream that varies by
+// sector (this file's own floor-tile cache and drawBuildingVariant/
+// drawNodeVariant's keys, plus road.js's strip cache — see its own render())
+// uses the WRAPPED value, so none of those caches grow with how far the run
+// has actually gone. Exported so road.js can compute the SAME wrapped sector
+// its own strip cache needs to invalidate on, rather than a second copy of
+// this mod-by-SECTOR_COUNT arithmetic drifting from this one the way
+// isCrossStreetRow's own "+1" once drifted from the tile it describes.
+export function currentSector(fDist) {
+  return mod(sectorIndex(fDist), SECTOR_COUNT);
+}
 
 // The floor drifts at this fraction of the road's travelled distance. Lower =
 // feels further away / more depth. 0.5 = floor moves at half road speed.
@@ -60,7 +80,15 @@ export function render(ctx, distance, playerY, W, H) {
   // rounded value is the only floor clock there is. main.js does the same for the
   // road's camera — the floor needs its own because it runs at half speed.
   const fDist = Math.round(distance * FLOOR_PARALLAX);
-  drawFloorGrid(ctx, fDist, playerY, W, H);
+  // Phase 7f: which sector this frame's floor falls in, wrapped to a palette
+  // index (see wrappedSector above). A pure function of fDist, like
+  // gridPhase/plotAt — computed once here and threaded down, not re-derived
+  // per building/node, so every layer this frame agrees on which sector it's
+  // drawing even if palette.js's own bindings were reassigned mid-frame by
+  // something upstream (they aren't, in practice — see game/sectors.js's own
+  // header on why setSector() only ever runs in update()).
+  const sector = currentSector(fDist);
+  drawFloorGrid(ctx, fDist, playerY, W, H, sector);
   // NODES BEFORE BUILDINGS, not interleaved into the far-to-near building
   // walk — a node is flat ground texture, not a depth-sorted entity, so it is
   // drawn once as a single pass. A building never SHARES a plot with a node
@@ -70,8 +98,8 @@ export function render(ctx, distance, playerY, W, H) {
   // camera that does reach that far is painted on top of it, which is what
   // "a building standing nearer the camera should be able to overlap a node"
   // (the design doc's own draw-order rule) actually requires in practice.
-  drawFloorNodes(ctx, fDist, playerY, W, H);
-  drawFloorBuildings(ctx, fDist, playerY, W, H);
+  drawFloorNodes(ctx, fDist, playerY, W, H, sector);
+  drawFloorBuildings(ctx, fDist, playerY, W, H, sector);
   // AFTER the buildings, not before — a street plot never hosts one
   // (citygrid.js's reserve() claims avenues/cross-streets before the building
   // roll ever runs), so a dot is never actually occluded either way and this
@@ -167,9 +195,44 @@ export function render(ctx, distance, playerY, W, H) {
 // resize), not a per-frame one, so it can afford more draw calls than the
 // per-frame budget ever could.
 
-let gridTile = null;
-let gridTileW = 0;
-let gridTileH = 0;
+// A tiny FIFO cache bounded to `max` entries. Standalone (not folded into
+// floorGridTile below) so the test suite can assert the BOUND directly with
+// plain values — floorGridTile is the one function in this file that touches
+// `document` (a canvas), which can't run under plain Node, but the eviction
+// rule itself has nothing to do with canvases and shouldn't need one to test.
+export function makeBoundedCache(max) {
+  const order = []; // insertion order, oldest first
+  const map = new Map();
+  return {
+    get(key) {
+      return map.get(key);
+    },
+    set(key, value) {
+      if (!map.has(key)) order.push(key);
+      map.set(key, value);
+      while (order.length > max) map.delete(order.shift());
+    },
+    get size() {
+      return map.size;
+    },
+  };
+}
+
+// Phase 7f: the tile now varies by SECTOR too (BUILDING_EDGE/FLOOR_GRID/etc.
+// are live bindings — see palette.js's setSector), so its key grows from
+// (W, H) to (W, H, sector) and a single slot is no longer enough to hold
+// "the tile on screen right now" across a crossing: the OLD sector's tile is
+// still needed for whatever hasn't scrolled past the boundary yet while the
+// NEW one gets built, or every frame straddling a boundary would rebuild.
+// Bounded to 2 anyway, by hand, rather than left to grow with SECTOR_COUNT —
+// this cache is module-local, not spritecache.js (which has no eviction at
+// all), so nothing stops it from holding a stale tile for a canvas size that
+// hasn't been on screen in an hour. 2 is also exactly what the design asks
+// for: "as short as it looks good rather than as long as a rebuild takes"
+// only works if the outgoing tile stays valid through the rescan, and no
+// crossing ever needs a THIRD sector's tile alive at once.
+const FLOOR_TILE_CACHE_MAX = 2;
+const floorTiles = makeBoundedCache(FLOOR_TILE_CACHE_MAX);
 
 // How wide the painted street ribbon is. A street still OWNS its whole plot —
 // that is citygrid.js's call and none of this changes it — but it is painted
@@ -256,11 +319,17 @@ export function tileIntersections(W, tileHeight) {
   return points;
 }
 
-// Build the tile if we don't have one for this canvas size. `document` is
-// touched only in here, never at module scope — the test suite imports this file
-// under plain Node (same rule as engine/spritecache.js).
-function floorGridTile(W, H) {
-  if (gridTile && gridTileW === W && gridTileH === H) return gridTile;
+// Build the tile if we don't have one for this (canvas size, sector). Keyed
+// on `sector` too (Phase 7f) because FLOOR_STREET/FLOOR_STREET_LINE/
+// FLOOR_TICK/FLOOR_GRID are live bindings (palette.js's setSector) baked into
+// this canvas's actual pixels at build time — a cache hit on an old key would
+// silently keep blitting the last sector's colours forever. `document` is
+// touched only in here, never at module scope — the test suite imports this
+// file under plain Node (same rule as engine/spritecache.js).
+function floorGridTile(W, H, sector) {
+  const key = `${W}x${H}x${sector}`;
+  const hit = floorTiles.get(key);
+  if (hit) return hit;
 
   const canvas = document.createElement("canvas");
   canvas.width = W;
@@ -369,10 +438,8 @@ function floorGridTile(W, H) {
     3,
   );
 
-  gridTile = canvas;
-  gridTileW = W;
-  gridTileH = H;
-  return gridTile;
+  floorTiles.set(key, canvas);
+  return canvas;
 }
 
 // The tile's phase: where the pattern (grid, avenues, cross-streets) falls
@@ -388,8 +455,8 @@ export function gridPhase(fDist, playerY) {
 // Exported (rather than kept private like drawFloorBuildings) so the blit can be
 // pixel-diffed against a direct re-stroke IN ISOLATION — buildings drawn on top
 // would mask exactly the rows a phase error shows up in.
-export function drawFloorGrid(ctx, fDist, playerY, W, H) {
-  ctx.drawImage(floorGridTile(W, H), 0, gridPhase(fDist, playerY) - ARTERIAL_PERIOD);
+export function drawFloorGrid(ctx, fDist, playerY, W, H, sector) {
+  ctx.drawImage(floorGridTile(W, H, sector), 0, gridPhase(fDist, playerY) - ARTERIAL_PERIOD);
 }
 
 // Every building lot visible this frame, in the far-to-near draw order, as
@@ -459,10 +526,10 @@ export function visibleBuildings(fDist, playerY, W, H) {
 // Blits every visible building, far to near. Some will sit under the road
 // ribbon and get occluded — that's intentional: the highway flies over the
 // city.
-function drawFloorBuildings(ctx, fDist, playerY, W, H) {
+function drawFloorBuildings(ctx, fDist, playerY, W, H, sector) {
   for (const b of visibleBuildings(fDist, playerY, W, H)) {
     // Lean away from screen centre for a subtle shared vanishing point.
-    drawBuildingVariant(ctx, b.cx, b.sy, b.variant, b.leanRight);
+    drawBuildingVariant(ctx, b.cx, b.sy, b.variant, b.leanRight, sector);
   }
 }
 
@@ -507,9 +574,9 @@ export function visibleNodes(fDist, playerY, W, H) {
 // Blits every visible node — rare by construction (citygrid.js's NODE_CHANCE
 // targets ~1-2 on screen at 600x800), so this is a handful of cached sprite
 // blits, not a walk worth the far-to-near care visibleBuildings needs.
-function drawFloorNodes(ctx, fDist, playerY, W, H) {
+function drawFloorNodes(ctx, fDist, playerY, W, H, sector) {
   for (const n of visibleNodes(fDist, playerY, W, H)) {
-    drawNodeVariant(ctx, n.cx, n.sy, n.variant);
+    drawNodeVariant(ctx, n.cx, n.sy, n.variant, sector);
   }
 }
 

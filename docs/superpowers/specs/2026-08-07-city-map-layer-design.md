@@ -121,6 +121,18 @@ city layer stays in green shades**, and the map layer distinguishes itself by
 brightness, dash pattern and motion instead of hue. New colours here go in the
 green family in `palette.js`, next to `FLOOR_GRID`.
 
+**Amended by 7f.** "The whole city layer stays in green shades" was true
+through 7e and stops being literally true once sectors ship: the WORLD now
+cycles through a small, fixed set of hues (green, azure, teal, violet), one
+at a time, for as long as a sector lasts. What survives unchanged is the rule
+this constraint actually exists to protect — gameplay faction colours
+(red/amber, plus the player's own cyan and the HUD/SYS LOG's green) are
+invariant across every sector, asserted directly in the test suite. Read
+"stays in green shades" from here on as shorthand for "stays out of the
+faction hues", not as a claim about a single fixed palette; see 7f's own
+section for the mechanism (`palette.js`'s `setSector`) and exactly where the
+line is drawn.
+
 **Performance.** The README's three rendering rules are the spec, not advice.
 Restated for this work:
 
@@ -488,32 +500,154 @@ budget or, if it no longer is, that is stated rather than assumed away.
 
 ---
 
-## Sub-phase 7f — Zone highlights and sector labels
+## Sub-phase 7f — Sectors
 
-**Goal.** Flavour and legibility — the map has *regions*, and they have names.
+**Goal.** The city is infinite but statistically uniform, so a long run has no
+shape. Sectors give it one: at a fixed distance interval the world's palette
+changes, the deck reads the new sector's name into the SYS LOG, and the
+crossing itself is a brief full-screen **rescan glitch** — the deck re-syncing
+to a new grid — rather than a blend.
 
-- **Zone highlight** — a district tinted with a very faint quad plus corner
-  brackets. One `fillRect`, one cached bracket sprite.
-- **Sector labels** — `SEC 07-N`, `GRID-A4`. `fillText` is expensive per frame, so
-  these are **baked into the tiles or cached as sprites**, never drawn live.
+**SUPERSEDES the plan above wholesale.** The original 7f was a faint
+per-district highlight quad plus cached corner brackets, with sector labels
+either `fillText` (rejected on sight — see the "flagged by 7e" note this
+replaces) or baked into a tile/sprite. Once 7e's console voice
+(`game/links.js`'s `announce`) shipped, the label question answered itself the
+same way this note predicted: a name read out on the EDGE of a crossing,
+never painted on the floor at all. What's new relative to that prediction is
+the other half — the highlight quad turned out to be the wrong instrument
+entirely. A tinted quad says "you are in a different REGION of the same
+city"; a palette change says "the city itself is different now", which is
+the bigger, cheaper, more legible signal, and it makes the quad redundant
+rather than complementary. So 7f shipped as: **a sector-keyed palette
+(`engine/palette.js`'s `setSector`), a rescan glitch (`game/sectors.js`), and
+the console announcement** — no quad, no bracket sprite, no `fillText` anywhere
+in the render pass.
 
-**Flagged by 7e, not built there: sector labels may not need `fillText` — or a
-tile/sprite bake — at all.** 7e's console voice (`game/links.js`'s `announce`)
-already proved out the pattern this needs: announcing something in the SYS LOG
-the instant the player crosses a boundary, rather than rendering it on the
-floor every frame. A sector label is the same shape of problem a node's
-callsign already is — a name derived from an index, read out on an edge
-(crossing into a new sector) rather than painted continuously. That sidesteps
-`fillText`'s per-frame cost entirely, without needing a bake step, and reads
-better at speed than a label a player has to find and read on a moving floor
-— a HUD line the deck reads out is more legible doing 600 than text scrolling
-past at the same speed ever would be. That likely reduces this sub-phase to
-the **zone highlight alone** (the `fillRect` + cached bracket sprite), with
-sector identity moving to the console instead of the floor. Left for 7f to
-actually build — this is a note, not an implementation.
+**The period.** The floor tile repeats every `ARTERIAL_PERIOD` in FLOOR-WORLD
+units (floor-world = distance × `FLOOR_PARALLAX`, `scenery.js`), so a sector
+boundary that doesn't land on a tile boundary would put a colour seam through
+every tile. `citygrid.js`'s `SECTOR_PERIOD` is therefore defined as a whole
+multiple of `ARTERIAL_PERIOD` — shipped at 1×, the shortest legal value,
+because crossings that come often are what a test harness (and a design
+review) needs; a real run's pacing is `SECTOR_PERIOD_MULT`, one constant, for
+later. Sector index is `citygrid.js`'s `sectorIndex(fDist)`, a pure function
+of position like everything else on this floor — unbounded, the same
+"geometry here, palette count elsewhere" split `plotAt`/`lotAt` already keep.
 
-**Done when.** Labels (or their console-voice equivalent) are legible at speed
-and no `fillText` runs in the render pass.
+**The palette split.** `engine/palette.js` gained a table of `SECTOR_COUNT`
+(4, shipped: green, azure, teal, violet) palettes and a `setSector(index)`
+that reassigns a set of `export let` bindings — a live-binding swap, not an
+accessor, so every existing call site (`scenery.js`, `sprites.js`,
+`buildingshapes.js`, `nodeshapes.js`, `links.js`, `road.js`) picks up a
+crossing with zero changes at the call site itself. What's IN the table is
+exactly the floor, the buildings, the nodes, the city-network signals
+(conduits/pings) — **and the road**, added after an early review caught the
+first cut leaving the elevated ribbon on its own fixed green while the city
+below it recoloured, which read as two disagreeing layers rather than one
+world changing. What's deliberately OUT: gameplay faction colours
+(PLAYER/ENEMY\*/NEUTRAL\*/HAZARD — the half-second faction read this whole
+project's palette discipline protects) and the SYS LOG/HUD's own green
+family, which has to stay a fixed reference point precisely because
+everything else is now allowed to move. See `palette.js`'s own "why the split
+falls exactly here" comment for the full reasoning, including the one trap a
+live-binding swap doesn't fix for free (a module that captures a colour into
+its own structure at import time — checked project-wide; `console.js`'s own
+`COLORS` table does this and is fine, on purpose, for exactly the reason
+above).
+
+**Caches, multiplied, not replaced.** `sprites.js`'s building and node sprite
+keys gained a `sector` field (`bldg|v|lean|sector`, `node|v|sector`) — 54
+cache-able looks becomes 54 × `SECTOR_COUNT`, still cheap, still nowhere near
+the car catalogue's 160-sprite/~7MB budget the same file's header warns
+against multiplying. The floor's own tile — one big canvas, not a per-variant
+sprite — gets a small, HAND-bounded cache instead (`scenery.js`'s
+`makeBoundedCache`, capped at 2): a crossing needs the OUTGOING sector's tile
+to stay valid for whatever hasn't scrolled past the boundary yet while the
+incoming one builds, and 2 is exactly "one on either side of a crossing", no
+more. The road's own strip cache (`road.js`) takes a third approach again —
+a full `tiles.clear()` on any sector change, because a strip tile is cheap
+enough (~10 of them, each a fraction of a full paint) that a targeted
+per-key scheme isn't worth the bookkeeping, and the whole set rebuilding over
+a few frames hides under the same rescan the floor's own rebuild does.
+
+**A bug worth recording, because the fix is the interesting part.** The
+first working version computed the tick that feeds `setSector()`
+(`game/sectors.js`) as `Math.round(distance * FLOOR_PARALLAX)` straight off
+the raw simulation `distance` — which LOOKS identical to what `scenery.js`/
+`road.js` compute for their own cache keys, but isn't: those compute
+`Math.round(Math.round(distance) * FLOOR_PARALLAX)`, because `main.js` rounds
+the camera to a whole pixel ONCE (`camY`) and hands that rounded value to
+every render-side layer (see the README's own "the camera is quantised"
+rule). The two roundings agree almost always and disagree by exactly 1 on
+roughly 1 in 25 sector crossings (found by simulating a wide speed sweep) —
+and on the tick they disagree, `setSector()` fires for a DIFFERENT sector
+than the one the SAME frame's cache keys use, baking the wrong sector's
+colour into a building or floor tile that then has no way to self-correct
+(`spritecache.js` has no eviction). Reproduced live as buildings staying one
+colour after the road and floor had already moved on — caught by hand in the
+browser, confirmed by simulating the two formulas across a speed sweep, fixed
+by making `sectors.js` round the same two-step way everything downstream of
+`distance` has to, and pinned by a test that drives `sectors.update()` across
+a wide speed range and asserts its palette pick agrees with the exact `camY`-
+based sector `scenery.render()`/`road.render()` would use that frame.
+
+**The rescan.** Snap, not blend — the palette is already different by the
+time the frame draws (`setSector()` runs in `update()`, before `render()`
+starts), so the glitch's only job is making that snap read as deliberate. It
+also hides the one real cost a sector change causes: the floor tile and the
+road's strips both need rebuilding for the new palette, and nobody notices a
+rebuild-shaped hitch during a glitch that already looks like a deliberate
+tear. The tear itself (`game/sectors.js`'s `renderGlitch`) reads a few
+horizontal strips back OUT of the already-drawn frame and redraws them a few
+px offset — `drawImage(canvas, ...)` with the live canvas as its own source,
+which stays on the GPU-accelerated path (no `getImageData`/`putImageData`,
+the README's own flagged trap) — plus a brief near-white flash fading with
+the same timer. Bounded to `GLITCH_DURATION` (0.35s) and gated by a single
+`if (glitchTimer <= 0) return` at the top, so the idle cost is one comparison.
+
+**Measured, real browser, rAF-saturation, six samples, first discarded,
+median taken (same method 7d/7e used):** `scenery.render()` + `links.render()`
++ `drones.render()` + `road.render()` together — now including the road,
+whose own cache also reacts to a crossing — measured **~0.26–0.59ms across
+six samples, median ~0.39ms**. Read next to 7e's own ~0.50ms figure as a data
+point from a different session, not a claim that headroom came back: this
+file's own profiling-traps section is exactly the caution against trusting
+either number too far past its own measurement. `renderGlitch` itself costs
+**~0.13µs idle** (confirms the early-return is doing its job) and **~0.59ms
+while firing** — paid for `GLITCH_DURATION` (~21 frames) once per crossing,
+which at 1× `SECTOR_PERIOD` is often but, once `SECTOR_PERIOD_MULT` is raised
+for real pacing, will be rare.
+
+**Purple, tried and kept.** The one candidate this doc's own "two constraints"
+section would flag as risky — neon purple sitting close enough to magenta/red
+to compete with the player's thruster or the hazard family — shipped as
+sector 3, deliberately blue-leaning (hue ~258°, not a redder magenta-purple),
+and judged in the browser with hostile amber/civilian traffic on screen
+across several crossings, not on an empty road: it reads as clearly its own
+hue, distinct from `PLAYER_THRUST`'s magenta and `HAZARD`/`ENEMY`'s red at
+speed. Worth re-checking if a future palette pass pushes it warmer.
+
+**Deferred, not dropped:**
+- **Per-sector density.** Varying `BUILD_CHANCE`/`NODE_CHANCE` per sector so a
+  sector reads as a district (denser, sparser) rather than a pure colour
+  filter over the same city — two constants, and citygrid.js's `reserve()`/
+  `lotAt()` already take an index they could hash a per-sector variant out
+  of. Left for a polish pass, after colour-only sectors have actually been
+  driven and judged, rather than compounding two unproven changes at once.
+- **7g's materialisation-on-entry** — buildings wiping in at the screen edge
+  via a `clip` — is unrelated to sectors (a different moment: the START of a
+  building's time on screen, not a distance boundary) and remains exactly as
+  scoped below. Kept separate deliberately, so this sub-phase's diff stays
+  reviewable.
+
+**Done when.** The world changes palette at sector boundaries that land on
+tile boundaries, the crossing reads as a deliberate rescan rather than a
+hitch, the new sector announces itself in the SYS LOG, faction colours are
+provably identical everywhere (asserted directly, across sectors well past
+`SECTOR_COUNT`), both caches are bounded and asserted, the glitch costs
+nothing when idle, the frame cost is measured in a real browser, and the
+tests pass. All true as of this sub-phase shipping.
 
 ---
 
@@ -526,15 +660,24 @@ the deck is not perfect. Last, because it decorates everything above.
   ~0.3s — instead of simply existing at the screen edge. Implemented as a `clip`
   rect around the *existing* cached blit, so the cost is one clip on top of a draw
   already being made. This is the single strongest "inside a rendered world" cue
-  available and it is nearly free.
-- **Deck glitches.** A horizontal band of floor offsetting a few px for two
+  available and it is nearly free. **Remains, unbuilt** — this is the whole of
+  what's left of 7g.
+- ~~**Deck glitches.** A horizontal band of floor offsetting a few px for two
   frames; a building occasionally rendering as bare wireframe (skip the fills)
   before resolving; a grid column flickering bright. All state, no draw cost.
-  **Rare and short** — every 10–20s, not constant, or it stops reading as a
-  glitch and starts reading as a bug.
+  Rare and short — every 10–20s, not constant, or it stops reading as a glitch
+  and starts reading as a bug.~~ **SUPERSEDED by 7f.** The glitch vocabulary
+  this bullet describes (scanline tear, desync, re-materialisation) was written
+  for a glitch with no motivation of its own, firing on a bare timer. 7f's
+  sector crossing turned out to be exactly the moment that vocabulary was
+  always going to be spent on — a rescan that means something (a real event:
+  the palette changing) rather than a tic. Building a second, motivation-free
+  glitch on top of it would be the same effect twice, so this bullet doesn't
+  get built as written; see `game/sectors.js`'s own header for the rescan that
+  absorbed it.
 
-**Done when.** Entry pop is gone, glitches are rare enough to be noticed rather
-than watched, and neither is on by default in the asset gallery.
+**Done when.** Entry pop is gone, and it isn't on by default in the asset
+gallery.
 
 ---
 
@@ -544,8 +687,10 @@ than watched, and neither is on by default in the asset gallery.
 after, because 7a+7b together are where the "symbolic map" impression actually
 comes from and everything later is decoration on a floor that already works. 7c is
 out of order on theme but in order on value-per-µs. 7d/7e are the map layer
-proper. 7f is flavour. 7g is the fiction, and wants everything else present to
-decorate.
+proper. 7f gives the finished map layer a shape a long run can feel (and,
+built the way it shipped, absorbs half of 7g's own fiction along the way —
+see 7f's own section). 7g is what's left of the fiction, and wants everything
+else present to decorate.
 
 **Correction.** The "Two constraints" section above originally reserved
 "genuinely dynamic per frame, no tile to hide behind" for 7e. 7c, once it
