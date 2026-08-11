@@ -741,6 +741,165 @@ function generateKillNeutral(ctx, dest, t) {
 
 registerGenerator("kill_neutral", generateKillNeutral);
 
+// --- Phase 8 step 3: damage feedback + pickups -----------------------------
+
+// A real hull loss (player.js's damage(), the branch that isn't deflected by
+// a shield) — an amplitude-GATED square, not a thud: per the design brief,
+// "the car is not taking damage, the signal is." opts.intensity (0..1, hp
+// lost relative to maxHealth — main.js computes this, this file only shapes
+// it) scales three things TOGETHER: peak gain, how deep the gate cuts, and
+// how hard the music ducks — a wall-scrape graze and a rocket to the hull
+// are the SAME sound at different depths, not three separate recipes.
+//
+// SELF-DUCKING, UNLIKE EVERY OTHER GENERATOR HERE. soundtypes.js's own
+// `duck` field is a fixed per-entry number decided once, at catalogue-write
+// time; this is the one sound whose duck has to move with a value that only
+// exists at CALL time (opts.intensity), so this entry's catalogue duck is 0
+// and the generator calls context.js's duck() directly — see that entry's
+// own comment in soundtypes.js.
+//
+// THE GATE IS HAND-STEPPED (setValueAtTime per half-cycle), not an LFO like
+// the sustained voices' own tremolos (sustainedfx.js) — this is a single
+// ~120ms burst, not a held voice, so scheduling a handful of discrete steps
+// up front is simpler than spinning up an oscillator+gain pair for a sound
+// that's over before the LFO would complete even one full cycle at 30Hz.
+function generatePlayerHit(ctx, dest, t, opts = {}) {
+  const intensity = Math.max(0, Math.min(1, opts.intensity ?? 0.6));
+  const dur = 0.12;
+  const gateHz = 30;
+  const halfPeriod = 1 / gateHz / 2;
+
+  const osc = ctx.createOscillator();
+  osc.type = "square";
+  osc.frequency.value = 55;
+
+  const gain = ctx.createGain();
+  const peak = 0.08 + intensity * 0.5; // a graze barely registers; a heavy hit reads clearly
+  const off = peak * Math.max(0.05, 0.55 - intensity * 0.5); // deeper gate (lower off-level) at higher intensity
+  let time = t;
+  let on = true;
+  while (time < t + dur) {
+    gain.gain.setValueAtTime(on ? peak : off, time);
+    on = !on;
+    time += halfPeriod;
+  }
+  gain.gain.setValueAtTime(0.0001, t + dur);
+
+  osc.connect(gain).connect(dest);
+  osc.start(t);
+  osc.stop(t + dur + 0.01);
+
+  duck(0.08 + intensity * 0.35); // see the header — this entry ducks itself rather than through soundtypes.js's static field
+
+  return dur;
+}
+
+registerGenerator("player_hit", generatePlayerHit);
+
+// A hit the SHIELD absorbed (player.js's damage(), the deflected branch) —
+// a short, soft, ROUNDED swell of the same fifth shield_drone holds (sine,
+// not player_hit's gated square): per the design brief, "what a hit sounds
+// like when the shield eats it... the fifth from the drone briefly
+// swelling." Without this the shield reads as dead on impact — a hit simply
+// produces no sound at all, which is indistinguishable from nothing having
+// happened.
+function generateShieldDeflect(ctx, dest, t) {
+  const freqs = [110, 164.81]; // A2, E3 — the same fifth shield_drone/pickup_shield use
+  const dur = 0.3;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.linearRampToValueAtTime(0.35, t + 0.04); // soft, ROUNDED attack — not snapped like player_hit's hard gate
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  gain.connect(dest);
+  for (const freq of freqs) {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    osc.connect(gain);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+  }
+  return dur;
+}
+
+registerGenerator("shield_deflect", generateShieldDeflect);
+
+// An ammo crate collected (game/pickuptypes.js's AMMO kind, any of the four
+// weapon-specific crates — see audio/pickupsfx.js for why they collapse onto
+// this one id) — two IDENTICAL 165Hz triangle taps in unison, per the design
+// brief: "Two 165Hz triangle taps, unison." Deliberately the plainest of the
+// three pickup sounds — ammo is the least consequential of the three kinds,
+// so it gets the least eventful confirmation tone.
+function generatePickupAmmo(ctx, dest, t) {
+  function tap(start) {
+    const osc = ctx.createOscillator();
+    osc.type = "triangle";
+    osc.frequency.value = 165;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.exponentialRampToValueAtTime(0.3, start + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + 0.05);
+    osc.connect(g).connect(dest);
+    osc.start(start);
+    osc.stop(start + 0.06);
+  }
+  tap(t);
+  tap(t + 0.07);
+  return 0.13;
+}
+
+registerGenerator("pickup_ammo", generatePickupAmmo);
+
+// A FIX crate collected (game/pickuptypes.js's HEAL kind) — a rising fifth,
+// A2->E3 over ~250ms, per the design brief. PICKUPS STAY ASCENDING BUT LOW:
+// per the brief, "ascending-and-bright is the obvious reward shape and is
+// exactly what would tip this into arcade-toy territory" — so this climbs
+// exactly one interval (a fifth) entirely below 165Hz, told apart from
+// pickup_shield below by WHICH interval it climbs, not by how bright it gets.
+function generatePickupHeal(ctx, dest, t) {
+  const dur = 0.25;
+  const osc = ctx.createOscillator();
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(110, t); // A2
+  osc.frequency.exponentialRampToValueAtTime(164.81, t + dur); // E3 — a fifth up
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.4, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(g).connect(dest);
+  osc.start(t);
+  osc.stop(t + dur + 0.02);
+  return dur;
+}
+
+registerGenerator("pickup_heal", generatePickupHeal);
+
+// A SHIELD crate collected (game/pickuptypes.js's SHIELD kind) — a rising
+// OCTAVE, A2->A3 over ~300ms, per the design brief: "Rising octave A2→A3,
+// then shield_drone takes over." The wider interval (an octave, against
+// pickup_heal's fifth) is what tells the two apart at a glance — still low,
+// still triangle, same "ascending but restrained" family. shield_drone
+// itself (sustainedfx.js) is driven independently off player.shieldTime in
+// main.js's update loop, not from anything in this function — this is only
+// the confirmation tone for the INSTANT of collection.
+function generatePickupShield(ctx, dest, t) {
+  const dur = 0.3;
+  const osc = ctx.createOscillator();
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(110, t); // A2
+  osc.frequency.exponentialRampToValueAtTime(220, t + dur); // A3 — an octave up
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.4, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(g).connect(dest);
+  osc.start(t);
+  osc.stop(t + dur + 0.02);
+  return dur;
+}
+
+registerGenerator("pickup_shield", generatePickupShield);
+
 // --- play() ----------------------------------------------------------------
 //
 // Looks up `id` in the catalogue, asks context.js's voice limiter whether it

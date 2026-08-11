@@ -17,13 +17,19 @@
 //
 // --- Bus graph -----------------------------------------------------------
 //
-//   music voices ──> musicGain ──> duckGain ──> compressor ──> destination
-//   sfx voices   ──> sfxGain   ───────────────────────────^
+//   music voices ──> musicGain ──> duckGain   ──> compressor ──> destination
+//   sfx voices   ──> sfxGain   ──> sfxDropGain ───────────^
 //
 // duckGain sits ONLY on the music path. Ducking sfx against itself would be
 // nonsense — the sound causing the duck would be dipping its own volume out
-// from under itself — so sfxGain bypasses it entirely and joins straight into
-// the compressor, same as musicGain's post-duck signal does.
+// from under itself — so sfxGain never feeds duckGain; it gets its own
+// analogous stage, sfxDropGain, for exactly one purpose (see dropSfxBus()
+// below): Phase 8 step 3's hull_hiss dropout effect, a brief near-total cut
+// of the WHOLE sfx path standing in for "the deck's feed itself hiccups" at
+// critically low hull. Every sfx voice — one-shot (sfx.js) AND sustained
+// (audio/sustained.js) — connects to sfxGain first, so both ride this dip
+// together, which is the point: a dropout has to read as the FEED cutting
+// out, not as one quiet background texture stuttering.
 //
 // The shared feedback delay (an echo unit, not a bus) taps off of and feeds
 // back into musicGain, exactly as the old synth.js's single masterGain did —
@@ -44,6 +50,7 @@ const MASTER_VOLUME = 0.6; // overall mix level; every bus below is balanced aga
 let ctx = null;
 let musicGain = null;
 let sfxGain = null;
+let sfxDropGain = null;
 let duckGain = null;
 let delay = null;
 let noiseBuffer = null;
@@ -98,13 +105,20 @@ function buildGraph() {
   sfxGain = ctx.createGain();
   sfxGain.gain.value = MASTER_VOLUME * sfxVolume;
 
+  // See the header: sfxDropGain is sfxGain's own analogue of duckGain, used
+  // for exactly one thing today (dropSfxBus() below) — undipped (1) until
+  // that first fires.
+  sfxDropGain = ctx.createGain();
+  sfxDropGain.gain.value = 1;
+
   duckGain = ctx.createGain();
   duckGain.gain.value = 1; // undipped until the first duck() call
 
   const compressor = ctx.createDynamicsCompressor();
   musicGain.connect(duckGain);
   duckGain.connect(compressor);
-  sfxGain.connect(compressor);
+  sfxGain.connect(sfxDropGain);
+  sfxDropGain.connect(compressor);
   compressor.connect(ctx.destination);
 
   // Feedback delay tuned to a dotted-8th-ish tap (3 sixteenth-note steps at
@@ -235,6 +249,34 @@ export function duck(amount) {
   duckGain.gain.setValueAtTime(duckGain.gain.value, t);
   duckGain.gain.linearRampToValueAtTime(targetGain, t + DUCK_ATTACK);
   duckGain.gain.linearRampToValueAtTime(1, t + DUCK_ATTACK + DUCK_RELEASE);
+}
+
+// --- SFX bus dropout -----------------------------------------------------
+//
+// A brief, near-total dip of the WHOLE sfx path — see the header's bus
+// diagram for why this rides its own gain stage rather than sfxGain
+// directly: sfxGain's level is also being ramped by setSfxVolume() whenever
+// the SOUND slider moves, and fighting that ramp for the same AudioParam
+// (via the cancelScheduledValues() every ramp here already needs) risks a
+// dropout and a slider drag stepping on each other. A dedicated node means
+// this never has to know or care what the SOUND slider is doing.
+//
+// LINEAR, HARD-EDGED ramps rather than the exponential curves the rest of
+// this file uses for hits and ducks — those want to read as a NATURAL decay;
+// this wants to read as a CUT, the feed dropping out and snapping back, so a
+// fast, straight-line edge on both sides is the right shape, not a softened
+// one.
+const DROPOUT_EDGE = 0.008; // seconds — fast enough to read as a cut, not a fade
+
+export function dropSfxBus(depthGain, holdSeconds) {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const edge = Math.min(DROPOUT_EDGE, holdSeconds / 2); // never let the edges overlap on a very short hold
+  sfxDropGain.gain.cancelScheduledValues(t);
+  sfxDropGain.gain.setValueAtTime(sfxDropGain.gain.value, t);
+  sfxDropGain.gain.linearRampToValueAtTime(depthGain, t + edge);
+  sfxDropGain.gain.setValueAtTime(depthGain, t + holdSeconds - edge);
+  sfxDropGain.gain.linearRampToValueAtTime(1, t + holdSeconds);
 }
 
 // --- Voice limiter -----------------------------------------------------

@@ -5,8 +5,13 @@
 //
 //   context.js   the AudioContext + permanent bus graph, ducking, the voice
 //                limiter — see its header for the bus diagram
-//   music.js     the scheduled synthwave loop, unchanged to the ear
+//   music.js     the scheduled synthwave loop, plus Phase 8 step 3's
+//                disturb() seam for a heavy hit briefly souring the pad
 //   soundtypes.js + sfx.js   the SFX catalogue and its player, `play(id)`
+//   sustainedtypes.js + sustained.js + sustainedfx.js   Phase 8 step 3's
+//                second voice lifecycle — sustained voices (hull_hiss,
+//                shield_drone, wall_scrape) that live for the whole run
+//                instead of one-shot-and-forget; see sustained.js's header
 //
 // main.js owns WHEN this plays: it calls start() the instant the player first
 // confirms START GAME (menu.js's "fire" press), and calls setVolume() /
@@ -26,6 +31,7 @@
 import * as context from "./context.js";
 import * as music from "./music.js";
 import { play as playSfx } from "./sfx.js";
+import * as sustainedfx from "./sustainedfx.js";
 
 // Starts the AudioContext (context.js) and then the music scheduler
 // (music.js) — in that order, since music.js's start() reads context.js's
@@ -61,6 +67,37 @@ function play(id, opts) {
   playSfx(id, opts);
 }
 
+// Phase 8 step 3's music-disturbance seam (music.js's own disturb()) —
+// exposed here rather than main.js importing music.js directly, same reason
+// every other capability in this facade is forwarded one call at a time.
+function disturb(amount) {
+  music.disturb(amount);
+}
+
+// Phase 8 step 3's sustained-voice drivers — main.js calls these once per
+// "playing" tick (see its own update()). Each is a thin forward to
+// sustainedfx.js; see that file's own header for what drives each one.
+function updateHullHiss(dt, hullFrac, glitching) {
+  sustainedfx.updateHullHiss(dt, hullFrac, glitching);
+}
+function updateShieldDrone(shieldTime) {
+  sustainedfx.updateShieldDrone(shieldTime);
+}
+function updateWallScrape(contact) {
+  sustainedfx.updateWallScrape(contact);
+}
+
+// Releases every sustained voice — main.js calls this from newGame(), so a
+// fresh run never inherits a hiss/drone/scrape from the run that just ended.
+// See sustainedfx.js's own reset() for why this also has to be more than
+// just "silence everything".
+function resetSustained() {
+  sustainedfx.reset();
+}
+
 export function createMusic() {
-  return { start, setVolume, setSfxVolume, playDisconnect, play };
+  return {
+    start, setVolume, setSfxVolume, playDisconnect, play, disturb,
+    updateHullHiss, updateShieldDrone, updateWallScrape, resetSustained,
+  };
 }

@@ -78,13 +78,27 @@ const SHIELD_RING_B_R = 23;
 // "about to lose it" tell CRITICAL_FLASH gives a dying car (traffic.js),
 // moved into the player's own family. Kept short: a flicker that ran the
 // whole duration would just read as the wrong colour, not as a countdown.
-const SHIELD_EXPIRING = 1; // seconds left when the flicker starts
+// Exported: Phase 8 step 3's shield_drone (audio/sustainedfx.js) reuses this
+// exact threshold to time its own audible fade-out, rather than hand-picking
+// a second number that could quietly drift from the visual one — see that
+// file's own comment on why it's HALVED there.
+export const SHIELD_EXPIRING = 1; // seconds left when the flicker starts
 const SHIELD_FLICKER_RATE = 26; // rad/sec of the flicker's own sine
 
 export class Player {
-  constructor(x, y) {
+  // `onDamage` is optional: `(hp, deflected) => void`, called every time
+  // damage() below is invoked with hp > 0 — `deflected` is true when the
+  // shield ate the hit (the guard a few lines down), false when hull was
+  // actually lost. A CALLBACK rather than an import, mirroring traffic.js's
+  // own onDestroyed/obstacles.js's onDestroyed — this keeps player.js
+  // ignorant of the audio engine (see the Phase 8 design brief's own rule:
+  // "game modules stay ignorant of audio") while still giving main.js a
+  // single, reliable hook onto the ONE funnel every damage source in the
+  // game already reaches (see damage()'s own header below).
+  constructor(x, y, onDamage) {
     this.x = x;
     this.y = y;
+    this.onDamage = onDamage;
     this.prevX = x; // previous-frame x, for render interpolation
     this.w = 34;
     this.h = 60;
@@ -120,7 +134,11 @@ export class Player {
   // one of them without touching any of those call sites. No flash either —
   // flashing on a hit that did nothing would read as damage that wasn't.
   damage(hp) {
-    if (hp <= 0 || this.shieldTime > 0) return;
+    if (hp <= 0) return;
+    if (this.shieldTime > 0) {
+      if (this.onDamage) this.onDamage(hp, true); // deflected — the shield_deflect branch, see the constructor's own comment
+      return;
+    }
     this.health = Math.max(0, this.health - hp);
     this.flash = HIT_FLASH;
 
@@ -131,6 +149,8 @@ export class Player {
         gameConsole.push(t.text, t.severity);
       }
     });
+
+    if (this.onDamage) this.onDamage(hp, false); // a real hull loss — the player_hit branch
   }
 
   // Restore `hp` of hull, capped at maxHealth (game/pickuptypes.js's FIX).
