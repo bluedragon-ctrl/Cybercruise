@@ -35,8 +35,10 @@ exit /b 1
 :serve_node
 echo Starting Cybercruise server on http://localhost:%PORT%/  ^(Ctrl+C to stop^)
 start "" /b "%~f0" --open %PORT%
-REM -c-1 disables caching, so a reload always picks up edited source.
-call npx --yes http-server . -p %PORT% -c-1
+REM tools/serve.js is a zero-dependency static server built on Node built-ins.
+REM It replaces `npx http-server`, which made starting the game depend on a
+REM working npm install — a missing %%APPDATA%%\npm made npx fail outright.
+node tools\serve.js %PORT%
 exit /b %errorlevel%
 
 :serve_python

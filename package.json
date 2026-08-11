@@ -7,6 +7,6 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "sim": "node tools/drivesim.js",
-    "serve": "python -m http.server 5173"
+    "serve": "node tools/serve.js 5173"
   }
 }
