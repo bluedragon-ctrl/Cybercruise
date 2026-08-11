@@ -23,7 +23,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { CAR_TYPES, FOCUS, pickCarType, typeAvailable } from "../src/game/cartypes.js";
+import { CAR_TYPES, FOCUS, pickCarType, typeAvailable, ENEMY_FACTION } from "../src/game/cartypes.js";
 import { CAR_SHAPES, carShapeExtent } from "../src/game/carshapes.js";
 import {
   ACCEL as TRAFFIC_ACCEL,
@@ -92,6 +92,7 @@ import {
 } from "../src/audio/context.js";
 import { SOUND_TYPES, soundTypeById } from "../src/audio/soundtypes.js";
 import "../src/audio/sfx.js"; // side effect: registers every catalogue entry's generator
+import { PLAYER_FIRE_SOUND, ENEMY_FIRE_SOUND } from "../src/audio/weaponsfx.js";
 
 // A fixture car. Traffic cars are built by traffic.js, which hands them the two
 // things behaviours.js reads that a plain object literal would not have: the
@@ -3699,5 +3700,63 @@ test("every SFX catalogue entry has all required fields, in range, and a registe
     assert.ok(Number.isInteger(entry.maxConcurrent) && entry.maxConcurrent >= 1, `${entry.id}'s maxConcurrent must be >= 1`);
     assert.ok(entry.minInterval >= 0, `${entry.id}'s minInterval must be >= 0`);
     assert.equal(soundTypeById(entry.id), entry, "soundTypeById must resolve back to the same entry");
+  }
+});
+
+test("every SFX catalogue id is unique", () => {
+  const ids = SOUND_TYPES.map((t) => t.id);
+  assert.equal(new Set(ids).size, ids.length, "a duplicate id would let one entry silently shadow another in soundTypeById");
+});
+
+// --- Phase 8 step 2: combat sounds — data and wiring, not Web Audio --------
+//
+// audio/weaponsfx.js is the ONE place a weapons.js catalogue id is mapped to
+// the combat sound it plays (see main.js's fireShot/dropMine and the fire
+// block in update()). These tests are the guard the task's own brief asks
+// for: a future weapon added to WEAPON_TYPES or ENEMY_WEAPON_TYPES with no
+// matching entry here would otherwise fire silently, with nothing to say so
+// until someone happened to notice in the browser.
+
+test("PLAYER_FIRE_SOUND covers every WEAPON_TYPES id, with no orphaned keys, and every mapped id is a real sound", () => {
+  for (const w of WEAPON_TYPES) {
+    assert.ok(w.id in PLAYER_FIRE_SOUND, `WEAPON_TYPES entry "${w.id}" has no entry in PLAYER_FIRE_SOUND`);
+    assert.ok(
+      soundTypeById(PLAYER_FIRE_SOUND[w.id]),
+      `PLAYER_FIRE_SOUND["${w.id}"] points at "${PLAYER_FIRE_SOUND[w.id]}", which isn't in SOUND_TYPES`,
+    );
+  }
+  for (const id of Object.keys(PLAYER_FIRE_SOUND)) {
+    assert.ok(WEAPON_TYPES.some((w) => w.id === id), `PLAYER_FIRE_SOUND["${id}"] has no matching WEAPON_TYPES entry — an orphan`);
+  }
+});
+
+test("ENEMY_FIRE_SOUND covers every ENEMY_WEAPON_TYPES id, with no orphaned keys, and every mapped id is a real sound", () => {
+  for (const w of ENEMY_WEAPON_TYPES) {
+    assert.ok(w.id in ENEMY_FIRE_SOUND, `ENEMY_WEAPON_TYPES entry "${w.id}" has no entry in ENEMY_FIRE_SOUND`);
+    assert.ok(
+      soundTypeById(ENEMY_FIRE_SOUND[w.id]),
+      `ENEMY_FIRE_SOUND["${w.id}"] points at "${ENEMY_FIRE_SOUND[w.id]}", which isn't in SOUND_TYPES`,
+    );
+  }
+  for (const id of Object.keys(ENEMY_FIRE_SOUND)) {
+    assert.ok(ENEMY_WEAPON_TYPES.some((w) => w.id === id), `ENEMY_FIRE_SOUND["${id}"] has no matching ENEMY_WEAPON_TYPES entry — an orphan`);
+  }
+});
+
+test("the kill_enemy/kill_neutral sound split (main.js's onCarDestroyed, value>=0) agrees with score.js's own enemy/civilian classification", () => {
+  // score.js's Score.destroyed() classifies purely on `value >= 0` — see its
+  // own header: "the scoreboard never asks what faction a car belonged to".
+  // main.js's onCarDestroyed mirrors that exact rule rather than reading
+  // car.type.faction, on purpose (see its own comment) — so what this test
+  // actually guards is that faction and value can never quietly diverge
+  // in cartypes.js, which is the one way that mirrored rule could start
+  // picking the wrong sound.
+  for (const type of CAR_TYPES) {
+    const isEnemy = type.faction === ENEMY_FACTION;
+    const scoresAsKill = (type.value ?? 0) >= 0;
+    assert.equal(
+      scoresAsKill, isEnemy,
+      `${type.id}: faction is ${type.faction} but value ${type.value} would play the ${scoresAsKill ? "kill_enemy" : "kill_neutral"} sound`,
+    );
   }
 });

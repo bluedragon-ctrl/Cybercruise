@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cybercruise — SFX Gallery</title>
+  <style>
+    :root { --bg: #05060a; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: #7dffb0;
+      font-family: "Courier New", monospace;
+    }
+    header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid rgba(57, 255, 136, 0.2);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 3px;
+      color: #39ff88;
+      text-shadow: 0 0 10px rgba(57, 255, 136, 0.6);
+    }
+    header p { margin: 6px 0 0; font-size: 12px; color: rgba(125, 255, 176, 0.6); }
+
+    #start {
+      margin-top: 14px;
+      background: transparent;
+      border: 1px solid #39ff88;
+      color: #39ff88;
+      font-family: inherit;
+      font-size: 13px;
+      letter-spacing: 2px;
+      padding: 8px 16px;
+      cursor: pointer;
+      text-shadow: 0 0 6px rgba(57, 255, 136, 0.6);
+    }
+    #start:hover:not(:disabled) { background: rgba(57, 255, 136, 0.12); }
+    #start:disabled { color: rgba(125, 255, 176, 0.4); border-color: rgba(57, 255, 136, 0.25); cursor: default; text-shadow: none; }
+
+    .levels {
+      margin-top: 16px;
+      display: flex;
+      gap: 32px;
+      flex-wrap: wrap;
+    }
+    .level { display: flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: 1px; }
+    .level input[type="range"] { accent-color: #39ff88; width: 140px; }
+    .level .value { width: 40px; color: rgba(125, 255, 176, 0.8); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 14px;
+      padding: 20px 24px;
+    }
+    .sound-cell {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: #05060a;
+      border: 1px solid rgba(57, 255, 136, 0.25);
+      border-radius: 6px;
+      padding: 12px 14px;
+      color: #7dffb0;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .sound-cell:hover { border-color: #39ff88; background: rgba(57, 255, 136, 0.08); }
+    .sound-cell:active { background: rgba(57, 255, 136, 0.2); }
+    .sound-cell .row1 { display: flex; align-items: baseline; justify-content: space-between; }
+    .sound-cell .id { font-size: 14px; letter-spacing: 1px; color: #39ff88; text-shadow: 0 0 6px rgba(57, 255, 136, 0.5); }
+    .sound-cell .key {
+      font-size: 11px;
+      color: #05060a;
+      background: rgba(125, 255, 176, 0.7);
+      border-radius: 3px;
+      padding: 1px 6px;
+    }
+    .sound-cell .stats { margin-top: 6px; font-size: 10px; letter-spacing: 0.5px; color: rgba(125, 255, 176, 0.5); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>CYBERCRUISE // SFX GALLERY</h1>
+    <p>Dev tool — audition every audio/soundtypes.js catalogue entry without playing the game. Click a cell or press its key. Add a sound in soundtypes.js + sfx.js and it appears here on its own.</p>
+    <button id="start">START AUDIO</button>
+    <div class="levels">
+      <label class="level">SOUND
+        <input id="sound" type="range" min="0" max="1" step="0.01" value="1" />
+        <span class="value" id="soundLabel">100%</span>
+      </label>
+      <label class="level">MUSIC
+        <input id="music" type="range" min="0" max="1" step="0.01" value="1" />
+        <span class="value" id="musicLabel">100%</span>
+      </label>
+    </div>
+  </header>
+  <div class="grid" id="gallery"></div>
+  <script type="module" src="src/demo/sfxgallery.js"></script>
+</body>
+</html>

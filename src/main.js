@@ -21,6 +21,7 @@ import { Disconnect } from "./game/disconnect.js";
 import { Loadout } from "./game/weapons.js";
 import { createMenu } from "./game/menu.js";
 import { createMusic } from "./audio/synth.js";
+import { PLAYER_FIRE_SOUND, ENEMY_FIRE_SOUND } from "./audio/weaponsfx.js";
 import * as road from "./game/road.js";
 import * as scenery from "./game/scenery.js";
 import * as drones from "./game/drones.js";
@@ -102,9 +103,25 @@ let distance = 0;
 const ENEMY_FIX_DROP_CHANCE = 0.2;
 function onCarDestroyed(car) {
   score.destroyed(car.type);
+  // Mirrors score.js's OWN enemy/civilian split (`value >= 0` is a kill,
+  // negative is a fine) rather than reading car.type.faction directly here
+  // — score.js's header is explicit that scoring "never asks what faction a
+  // car belonged to", and this sound is standing in for exactly that
+  // judgement. Reading faction instead would risk the sound and the score
+  // disagreeing the day a type's value and faction ever diverge.
+  music.play((car.type.value ?? 0) >= 0 ? "kill_enemy" : "kill_neutral");
   if (car.type.faction === ENEMY_FACTION && Math.random() < ENEMY_FIX_DROP_CHANCE) {
     pickups.drop(pickupTypeById("fix"), car.worldY, car.offset);
   }
+}
+
+// A road obstacle (roadblock or mine, any family — obstacles.js's detonate())
+// has broken. No score, unlike onCarDestroyed above — furniture pays out
+// nothing — so this exists purely to give obstacles.js's onDestroyed hook
+// somewhere to report to, the same reasoning Traffic's own onDestroyed gets
+// wired to onCarDestroyed just above.
+function onObstacleDestroyed() {
+  music.play("kill_obstacle");
 }
 
 // Scratch target list for bullets: cars AND obstacles in one flat array, so a
@@ -139,7 +156,7 @@ function newGame() {
   // (mine blasts, roadblock rubble) — see effects.js's Explosions header and
   // game/obstacles.js for why they must not each get their own.
   explosions = new Explosions();
-  obstacles = new Obstacles(explosions);
+  obstacles = new Obstacles(explosions, onObstacleDestroyed);
   // Buff crates — shares the same explosion pool for their own "collected"
   // burst (effects.js's drawCollectBurst), same reasoning as obstacles above.
   // Constructed BEFORE traffic so onCarDestroyed can close over it.
@@ -187,12 +204,20 @@ newGame();
 // firing back down it at a player who is behind.
 function fireShot(car, type, dir) {
   enemyShots.spawn(car.worldY + dir * (car.h / 2), car.offset, car.speed, type, W, dir);
+  // Every hostile gun collapses onto one sound id — see audio/weaponsfx.js's
+  // ENEMY_FIRE_SOUND for why (timbre tells player fire from enemy fire; it
+  // doesn't need to tell one hostile gun from another).
+  music.play(ENEMY_FIRE_SOUND[type.id]);
 }
 
 // A mine is laid immediately behind `car`. Returns whether the road had room —
 // see obstacles.js's drop(), which owns the placement and the budget.
 function dropMine(car, type) {
-  return obstacles.drop(type, car);
+  const placed = obstacles.drop(type, car);
+  // Only on an actual placement — a drop the road had no room for spends
+  // nothing (see armament.js's layMine), so it should confirm nothing either.
+  if (placed) music.play("mine_placed");
+  return placed;
 }
 
 function update(dt) {
@@ -336,7 +361,10 @@ function update(dt) {
   // purpose, see weapons.js). Edge-triggered (consumePress, not isDown) so
   // holding the key selects one weapon rather than riffling through them
   // every frame.
-  if (consumePress("swap")) loadout.next();
+  if (consumePress("swap")) {
+    loadout.next();
+    music.play("weapon_swap");
+  }
 
   loadout.update(dt);
   const weapon = loadout.current;
@@ -346,13 +374,23 @@ function update(dt) {
     // bullet does with it from here is the weapon's flight mode's business.
     const centerX = road.centerXAt(distance, W);
     shots.spawn(distance + player.h / 2, player.x - centerX, player.speed, weapon.type, W);
+    music.play(PLAYER_FIRE_SOUND[weapon.type.id]);
+  } else if (isDown("fire") && weapon.empty) {
+    // A refusal, not a shot — the trigger is held against an empty magazine.
+    // isDown never edge-triggers the way consumePress does, so it's
+    // soundtypes.js's own minInterval on "dry_fire" that turns a held key
+    // into one refusal rather than sixty (see that entry's own comment).
+    music.play("dry_fire");
   }
 
   // E cycles the DEPLOYABLES — the layers, on their own cursor, so picking a
   // different thing to drop never disturbs which gun is in hand (weapons.js's
   // Loadout). Edge-triggered like TAB, and a no-op while the mine is the only
   // layer carried.
-  if (consumePress("deploy")) loadout.nextDeployable();
+  if (consumePress("deploy")) {
+    loadout.nextDeployable();
+    music.play("weapon_swap");
+  }
 
   // CTRL lays whichever deployable is selected, independent of whichever gun
   // is currently selected — no more tabbing onto the mine layer to drop one
@@ -366,7 +404,10 @@ function update(dt) {
     // obstacles.js's drop() wants — worldY/offset/h, the same shape a car
     // satisfies without an adapter.
     const body = { worldY: distance, offset: player.x - centerX, h: player.h };
-    if (obstacles.drop(obstacleTypeById(deployable.type.payload), body)) deployable.tryFire();
+    if (obstacles.drop(obstacleTypeById(deployable.type.payload), body)) {
+      deployable.tryFire();
+      music.play(PLAYER_FIRE_SOUND[deployable.type.id]);
+    }
   }
   // Traffic cars and road obstacles are both fair game for the PLAYER'S gunfire
   // — one flat list, built fresh each tick into the reused scratch array, so a

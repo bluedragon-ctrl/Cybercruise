@@ -194,7 +194,15 @@ export function setSfxVolume(level) {
 // running total.
 export const DUCK_ATTACK = 0.08; // seconds
 export const DUCK_RELEASE = 0.4; // seconds
-export const MAX_DUCK_DB = 4; // the deepest dip a duck=1 sound can produce
+// RAISED FROM AN INITIAL 4dB — at 4, even soundtypes.js's own duck=1 entry
+// (kill_neutral) only dipped the music bus ~37% in amplitude, which combat
+// playtesting found wasn't enough headroom for SFX to read clearly against
+// a busy music passage (the pad alone sums SIX detuned oscillators — see
+// music.js's schedulePad — so the music bus routinely carries more
+// simultaneous signal than any one-shot SFX does). 8dB gives a duck=1
+// sound roughly 60% amplitude reduction, genuinely audible without being a
+// hard mute.
+export const MAX_DUCK_DB = 8; // the deepest dip a duck=1 sound can produce
 
 function dbToGain(db) {
   return Math.pow(10, db / 20);
