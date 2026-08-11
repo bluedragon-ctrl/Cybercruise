@@ -83,6 +83,30 @@
       padding: 1px 6px;
     }
     .sound-cell .stats { margin-top: 6px; font-size: 10px; letter-spacing: 0.5px; color: rgba(125, 255, 176, 0.5); }
+
+    h2.section {
+      margin: 4px 24px 0;
+      font-size: 13px;
+      letter-spacing: 2px;
+      color: rgba(125, 255, 176, 0.7);
+    }
+    h2.section span { color: rgba(125, 255, 176, 0.45); font-size: 11px; letter-spacing: 0.5px; }
+
+    .sustained-cell .toggle {
+      background: transparent;
+      border: 1px solid rgba(57, 255, 136, 0.4);
+      color: #7dffb0;
+      font-family: inherit;
+      font-size: 10px;
+      letter-spacing: 1px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    .sustained-cell .toggle:hover { border-color: #39ff88; }
+    .sustained-slider { margin-top: 10px; display: flex; align-items: center; gap: 8px; }
+    .sustained-slider input[type="range"] { flex: 1; accent-color: #39ff88; }
+    .sustained-slider .value { width: 34px; font-size: 10px; color: rgba(125, 255, 176, 0.7); text-align: right; }
   </style>
 </head>
 <body>
@@ -102,6 +126,8 @@
     </div>
   </header>
   <div class="grid" id="gallery"></div>
+  <h2 class="section">SUSTAINED VOICES <span>— toggle on, drag the slider, wait a few seconds for dropouts/crackle at low values</span></h2>
+  <div class="grid" id="sustainedGallery"></div>
   <script type="module" src="src/demo/sfxgallery.js"></script>
 </body>
 </html>

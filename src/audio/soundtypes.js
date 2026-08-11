@@ -249,6 +249,71 @@ export const SOUND_TYPES = [
     // own ~520ms length.
     minInterval: 0.25,
   },
+
+  // --- Phase 8 step 3: damage feedback + pickups -------------------------
+  //
+  // Five one-shots alongside this step's real headline, the three SUSTAINED
+  // voices (audio/sustainedtypes.js — a separate, smaller catalogue, see its
+  // own header for why). The organising idea, per the design brief: "the car
+  // is not taking damage, the signal is" — player_hit is a stutter, not a
+  // thud, and the two heal/shield pickups climb but stay LOW, deliberately
+  // short of the bright arcade-toy reward shape a rising tone usually reads
+  // as (see generatePickupHeal/generatePickupShield in sfx.js).
+  {
+    id: "player_hit",
+    generator: null, // sfx.js's registerGenerator("player_hit", ...)
+    gain: 1, // the generator itself scales its own peak via opts.intensity — see its own comment
+    // ZERO ON PURPOSE, unlike every duck>0 entry above. This is the one sound
+    // whose duck has to move with a RUNTIME value (opts.intensity) that
+    // play() below never sees — so the generator calls context.js's duck()
+    // itself instead of leaning on play()'s static per-entry duck. See
+    // generatePlayerHit's own header.
+    duck: 0,
+    delaySend: 0, // a degrading signal trailing into an echo would read as recovery, not damage — same reasoning generateDisconnect's own hum gives
+    priority: 7, // a real hull loss matters as much as a kill — sits with that tier, just under kill_obstacle
+    maxConcurrent: 3, // a ram plus a wall-scrape tick can land within the same tick or two
+    minInterval: 0.06, // a defensive floor, well under WALL_DAMAGE_INTERVAL (player.js, 0.25s) — every distinct hit should still read as its own event, this only guards against a genuine double-fire in the same tick
+  },
+  {
+    id: "shield_deflect",
+    generator: null, // sfx.js's registerGenerator("shield_deflect", ...)
+    gain: 0.8,
+    duck: 0.1, // a light poke — the shield ate the hit, so this should read as "handled", not "damage"
+    delaySend: 0.15, // a little tail, the shield swallowing a hit rather than a hard stop
+    priority: 6, // sits with the player's own weapons tier — an armed response, not a passive tick
+    maxConcurrent: 3,
+    minInterval: 0.08,
+  },
+  {
+    id: "pickup_ammo",
+    generator: null, // sfx.js's registerGenerator("pickup_ammo", ...)
+    gain: 0.6,
+    duck: 0, // a reward, not an event competing for the mix — never worth pushing the music aside for
+    delaySend: 0,
+    priority: 3, // background reward tier — correct to lose a voice slot to anything combat-related
+    maxConcurrent: 2,
+    minInterval: 0.1,
+  },
+  {
+    id: "pickup_heal",
+    generator: null, // sfx.js's registerGenerator("pickup_heal", ...)
+    gain: 0.65,
+    duck: 0,
+    delaySend: 0.1, // a touch of the shared echo — a small "thank you" shimmer, still dry enough not to compete with kill_neutral's own much larger send
+    priority: 3,
+    maxConcurrent: 2,
+    minInterval: 0.1,
+  },
+  {
+    id: "pickup_shield",
+    generator: null, // sfx.js's registerGenerator("pickup_shield", ...)
+    gain: 0.65,
+    duck: 0,
+    delaySend: 0.1,
+    priority: 3,
+    maxConcurrent: 2,
+    minInterval: 0.1,
+  },
 ];
 
 // One named sound type. Mirrors obstacletypes.js's obstacleTypeById /

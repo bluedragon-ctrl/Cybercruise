@@ -88,8 +88,15 @@ class Pickup {
 }
 
 export class Pickups {
-  constructor(explosions) {
+  // `onCollect` is optional: `(type) => void`, called once per crate actually
+  // collected, with its pickuptypes.js entry — mirrors traffic.js's own
+  // onDestroyed/obstacles.js's onDestroyed callback shape, for the same
+  // reason: this file stays ignorant of the audio engine (see the Phase 8
+  // design brief's own rule) while still giving main.js a hook onto the one
+  // place a crate is ever actually applied.
+  constructor(explosions, onCollect) {
     this.explosions = explosions; // shared with Traffic/Obstacles — see effects.js
+    this.onCollect = onCollect;
     this.list = [];
     this.spawnTimer = SPAWN_INTERVAL;
   }
@@ -121,6 +128,7 @@ export class Pickups {
         // matched to the glyph it just showed) — see effects.js's
         // drawCollectBurst header for why that colour is the whole point.
         this.explosions.spawnCollect(p.worldY, p.offset, p.type.color);
+        if (this.onCollect) this.onCollect(p.type);
         p.alive = false;
       }
     }

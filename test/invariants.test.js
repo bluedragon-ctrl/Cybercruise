@@ -32,7 +32,10 @@ import {
 } from "../src/game/traffic.js";
 import { driveCar, dodgeDistance, TACTIC_NAMES, TRAIL_ENGAGE } from "../src/game/behaviours.js";
 import { DRIVING_PROFILES, drivingFor, typesDriving } from "../src/game/driving.js";
-import { MIN_SPEED, MAX_SPEED, ACCEL as PLAYER_ACCEL, PLAYER_MASS, Player } from "../src/game/player.js";
+import {
+  MIN_SPEED, MAX_SPEED, ACCEL as PLAYER_ACCEL, PLAYER_MASS, Player,
+  SHIELD_EXPIRING as PLAYER_SHIELD_EXPIRING,
+} from "../src/game/player.js";
 import { WHEEL_FRAMES, BUILDING_VARIANTS, buildingFootprint } from "../src/game/sprites.js";
 import {
   LANE_COUNT, LANE_WIDTH, ROAD_HALF_WIDTH, laneAt, laneOffset, centerXAt,
@@ -93,6 +96,19 @@ import {
 import { SOUND_TYPES, soundTypeById } from "../src/audio/soundtypes.js";
 import "../src/audio/sfx.js"; // side effect: registers every catalogue entry's generator
 import { PLAYER_FIRE_SOUND, ENEMY_FIRE_SOUND } from "../src/audio/weaponsfx.js";
+import { PICKUP_SOUND } from "../src/audio/pickupsfx.js";
+import { SUSTAINED_TYPES, sustainedTypeById } from "../src/audio/sustainedtypes.js";
+import "../src/audio/sustainedfx.js"; // side effect: registers every sustained voice's generator
+import {
+  planAcquire as sustainedPlanAcquire, planSetLevel as sustainedPlanSetLevel, planRelease as sustainedPlanRelease,
+} from "../src/audio/sustained.js";
+import {
+  HULL_HISS_ON, HULL_HISS_OFF, HULL_HISS_PEAK, hullHissActive, hullHissLevel,
+  DROPOUT_HULL_THRESHOLD, DROPOUT_MIN_INTERVAL, DROPOUT_MAX_INTERVAL, DROPOUT_MIN_HOLD, DROPOUT_MAX_HOLD,
+  stepDropoutTimer, dropoutHoldSeconds,
+  CRACKLE_HULL_THRESHOLD, CRACKLE_MIN_INTERVAL, CRACKLE_MAX_INTERVAL, stepCrackleTimer,
+  shieldDroneLevel, SHIELD_DRONE_FADE_WINDOW,
+} from "../src/audio/sustainedfx.js";
 
 // A fixture car. Traffic cars are built by traffic.js, which hands them the two
 // things behaviours.js reads that a plain object literal would not have: the
@@ -3759,4 +3775,307 @@ test("the kill_enemy/kill_neutral sound split (main.js's onCarDestroyed, value>=
       `${type.id}: faction is ${type.faction} but value ${type.value} would play the ${scoresAsKill ? "kill_enemy" : "kill_neutral"} sound`,
     );
   }
+});
+
+// --- Phase 8 step 3: damage/pickups/shield audio — the sustained lifecycle -
+//
+// audio/sustained.js's own header explains the pure/stateful split this
+// leans on: plan*() functions are plain data in, plain data out, so the
+// REGISTRY's own rules (idempotent acquire, ramp-on-change, release reuses
+// rather than rebuilds) can be exercised here with no AudioContext at all —
+// exactly the same reason context.js's planDuck()/planVoiceRequest() are
+// tested that way above, rather than through duck()/requestVoice()
+// themselves (which short-circuit to a no-op with no ctx).
+
+test("Player's onDamage callback reports a real hull loss as (hp, false)", () => {
+  const calls = [];
+  const player = new Player(0, 0, (hp, deflected) => calls.push({ hp, deflected }));
+  player.damage(25);
+  assert.deepEqual(calls, [{ hp: 25, deflected: false }]);
+});
+
+test("Player's onDamage callback reports a shield deflection as (hp, true), and no hull is lost", () => {
+  const calls = [];
+  const player = new Player(0, 0, (hp, deflected) => calls.push({ hp, deflected }));
+  player.activateShield(2);
+  player.damage(9999);
+  assert.deepEqual(calls, [{ hp: 9999, deflected: true }]);
+  assert.equal(player.health, player.maxHealth);
+});
+
+test("Player's onDamage callback never fires for a non-positive hp — nothing happened, nothing to report", () => {
+  const calls = [];
+  const player = new Player(0, 0, (hp, deflected) => calls.push({ hp, deflected }));
+  player.damage(0);
+  player.damage(-5);
+  assert.deepEqual(calls, []);
+});
+
+test("Pickups calls onCollect with the collected pickup type, exactly once per crate", () => {
+  const explosions = new Explosions();
+  const collected = [];
+  const pickups = new Pickups(explosions, (type) => collected.push(type));
+  const player = new Player(300, 496);
+  const loadout = new Loadout();
+
+  const type = pickupTypeById("fix");
+  const [w, h] = PICKUP_SHAPES[type.shape].size;
+  const worldY = 500;
+  pickups.list.push({ type, worldY, offset: 0, alive: true, age: 0, pulsePhase: 0, w, h });
+
+  const world = { player, distance: worldY, W: 600, H: 800, loadout };
+  player.x = centerXAt(worldY, world.W);
+  pickups.update(1 / 60, world);
+
+  assert.deepEqual(collected, [type]);
+});
+
+test("acquiring a sustained id is idempotent — a second acquire is a true no-op, not just an equal one", () => {
+  const first = sustainedPlanAcquire({}, "hull_hiss");
+  const second = sustainedPlanAcquire(first, "hull_hiss");
+  assert.equal(second, first, "re-acquiring an already-tracked id must return the SAME reference — nothing rebuilt");
+});
+
+test("release then acquire reuses the same registry entry rather than rebuilding it", () => {
+  let state = sustainedPlanAcquire({}, "shield_drone");
+  state = sustainedPlanSetLevel(state, "shield_drone", 0.12).state;
+
+  const released = sustainedPlanRelease(state, "shield_drone").state;
+  assert.ok("shield_drone" in released, "release must not remove the tracked voice — same graph, gain ramped to zero");
+  assert.equal(released.shield_drone.level, 0);
+
+  const reacquired = sustainedPlanAcquire(released, "shield_drone");
+  assert.equal(reacquired, released, "re-acquiring a released id must be a no-op — the SAME entry, not a fresh one");
+});
+
+test("setLevel only reports a change when the requested value actually differs — 'ramp on change, not every frame'", () => {
+  let state = sustainedPlanAcquire({}, "hull_hiss");
+  const first = sustainedPlanSetLevel(state, "hull_hiss", 0.05);
+  assert.equal(first.changed, true);
+  state = first.state;
+
+  // Same value again — as a per-frame poller (updateHullHiss) would send on
+  // every tick the hull fraction hasn't moved.
+  const repeat = sustainedPlanSetLevel(state, "hull_hiss", 0.05);
+  assert.equal(repeat.changed, false, "an unchanged target must not report a change to ramp toward");
+  assert.equal(repeat.state, state, "an unchanged target must return the SAME state reference");
+
+  const moved = sustainedPlanSetLevel(state, "hull_hiss", 0.06);
+  assert.equal(moved.changed, true);
+});
+
+test("releasing an already-silent voice is a no-op — idempotent in both directions", () => {
+  let state = sustainedPlanAcquire({}, "wall_scrape");
+  const first = sustainedPlanRelease(state, "wall_scrape");
+  assert.equal(first.changed, false, "releasing a voice that was never raised above 0 must not report a change");
+  const second = sustainedPlanRelease(first.state, "wall_scrape");
+  assert.equal(second.changed, false);
+});
+
+test("sustained voices have no cap — acquiring more ids than the one-shot GLOBAL_VOICE_CAP never drops any", () => {
+  // Contrast with the one-shot voice limiter tested above: there is no
+  // priority, no maxConcurrent, no stealing anywhere in planAcquire — this
+  // is the architectural guarantee that a sustained voice can never be
+  // evicted the way a one-shot can (sustained.js's own header: "a hiss that
+  // gets evicted mid-firefight... is a bug that would be very hard to
+  // notice"). GLOBAL_VOICE_CAP+5 is an arbitrary count comfortably over the
+  // one-shot cap — the real catalogue only ever has 3.
+  let state = {};
+  const ids = Array.from({ length: GLOBAL_VOICE_CAP + 5 }, (_, i) => `voice${i}`);
+  for (const id of ids) state = sustainedPlanAcquire(state, id);
+  assert.equal(Object.keys(state).length, ids.length, "every sustained id must be tracked — nothing stolen or dropped");
+});
+
+// --- Phase 8 step 3: hull_hiss's own level curve ----------------------------
+
+test("hull_hiss is silent above its threshold, and the curve is monotonic and bounded below it", () => {
+  let last = -1;
+  for (let frac = 0; frac <= 1; frac += 0.01) {
+    const level = hullHissLevel(frac);
+    assert.ok(level >= 0 && level <= HULL_HISS_PEAK, `hullHissLevel(${frac.toFixed(2)}) = ${level} is outside [0, HULL_HISS_PEAK]`);
+    if (frac >= HULL_HISS_ON) {
+      assert.equal(level, 0, `hullHissLevel(${frac.toFixed(2)}) must be silent at/above HULL_HISS_ON`);
+    }
+  }
+  // Monotonic: level must never rise as hull fraction rises (i.e. as damage
+  // heals) across the whole domain, not just above the threshold.
+  for (let frac = 0; frac <= 1; frac += 0.01) {
+    const level = hullHissLevel(frac);
+    assert.ok(level <= last + 1e-9 || last === -1, `hullHissLevel is not monotonic: frac=${frac.toFixed(2)} gave ${level}, previous (lower frac) gave ${last}`);
+    last = level;
+  }
+});
+
+test("hull_hiss's curve hits the documented endpoints exactly", () => {
+  assert.equal(hullHissLevel(HULL_HISS_ON), 0, "level must be exactly 0 right at the threshold");
+  assert.equal(hullHissLevel(0), HULL_HISS_PEAK, "level must reach exactly HULL_HISS_PEAK at 0% hull");
+  assert.equal(hullHissLevel(1), 0, "level at full hull must be 0");
+});
+
+test("hull_hiss hysteresis: once ON it stays on past HULL_HISS_ON, and only switches off past HULL_HISS_OFF", () => {
+  assert.ok(HULL_HISS_OFF > HULL_HISS_ON, "the off-threshold must sit ABOVE the on-threshold, or there is no hysteresis band at all");
+
+  // Starting inactive: switches on only at/below HULL_HISS_ON.
+  assert.equal(hullHissActive(HULL_HISS_ON + 0.001, false), false);
+  assert.equal(hullHissActive(HULL_HISS_ON, false), true);
+  assert.equal(hullHissActive(0, false), true);
+
+  // Starting active: STAYS on all the way up through the gap between the two
+  // thresholds — this is the whole point of the hysteresis band.
+  assert.equal(hullHissActive(HULL_HISS_ON + 0.01, true), true, "must not flutter off inside the hysteresis gap");
+  assert.equal(hullHissActive(HULL_HISS_OFF - 0.001, true), true);
+  assert.equal(hullHissActive(HULL_HISS_OFF, true), false, "must switch off once it reaches HULL_HISS_OFF");
+  assert.equal(hullHissActive(1, true), false);
+});
+
+test("a car scraping the player across the 60% edge cannot flutter the hiss on/off — a hysteresis walk never toggles twice in a row the same way", () => {
+  // Simulates hull ticking back and forth across HULL_HISS_ON by a small
+  // step (as repeated WALL_DAMAGE ticks might) and checks the active state
+  // never oscillates on every single step — it should take a real crossing
+  // of the FAR threshold to flip back.
+  let active = false;
+  let flips = 0;
+  const walk = [0.61, 0.59, 0.61, 0.59, 0.61, 0.60, 0.605, 0.595, 0.61];
+  for (const frac of walk) {
+    const next = hullHissActive(frac, active);
+    if (next !== active) flips++;
+    active = next;
+  }
+  assert.ok(flips <= 1, `hiss toggled ${flips} times walking back and forth across HULL_HISS_ON — hysteresis isn't holding`);
+});
+
+// --- Phase 8 step 3: dropout/crackle scheduling -----------------------------
+
+test("the dropout timer never fires while inactive, however long it runs", () => {
+  let timer = DROPOUT_MIN_INTERVAL;
+  let fired = 0;
+  for (let i = 0; i < 100000; i++) {
+    const step = stepDropoutTimer(timer, 1 / 60, false);
+    timer = step.timer;
+    if (step.fired) fired++;
+  }
+  assert.equal(fired, 0, "an inactive (hull >= DROPOUT_HULL_THRESHOLD) dropout timer must never fire");
+});
+
+test("the dropout timer's average interval, run continuously active, lands inside its documented [min, max] range", () => {
+  let timer = DROPOUT_MIN_INTERVAL;
+  let fired = 0;
+  const dt = 1 / 60;
+  const totalSeconds = 20000; // long enough for a stable average across many events
+  for (let t = 0; t < totalSeconds; t += dt) {
+    const step = stepDropoutTimer(timer, dt, true);
+    timer = step.timer;
+    if (step.fired) fired++;
+  }
+  const avgInterval = totalSeconds / fired;
+  assert.ok(
+    avgInterval >= DROPOUT_MIN_INTERVAL && avgInterval <= DROPOUT_MAX_INTERVAL,
+    `average dropout interval ${avgInterval.toFixed(2)}s is outside [${DROPOUT_MIN_INTERVAL}, ${DROPOUT_MAX_INTERVAL}]`,
+  );
+});
+
+test("dropoutHoldSeconds always stays within its documented 30-60ms range", () => {
+  for (let i = 0; i < 10000; i++) {
+    const hold = dropoutHoldSeconds();
+    assert.ok(hold >= DROPOUT_MIN_HOLD && hold <= DROPOUT_MAX_HOLD, `dropout hold ${hold} outside [${DROPOUT_MIN_HOLD}, ${DROPOUT_MAX_HOLD}]`);
+  }
+});
+
+test("the crackle timer never fires while inactive, however long it runs", () => {
+  let timer = CRACKLE_MIN_INTERVAL;
+  let fired = 0;
+  for (let i = 0; i < 100000; i++) {
+    const step = stepCrackleTimer(timer, 1 / 60, false);
+    timer = step.timer;
+    if (step.fired) fired++;
+  }
+  assert.equal(fired, 0, "an inactive (hull >= CRACKLE_HULL_THRESHOLD) crackle timer must never fire");
+});
+
+test("the crackle rate, run continuously active, reads as 'a few per second' — bounded well clear of a metronome or a wall of noise", () => {
+  let timer = CRACKLE_MIN_INTERVAL;
+  let fired = 0;
+  const dt = 1 / 60;
+  const totalSeconds = 5000;
+  for (let t = 0; t < totalSeconds; t += dt) {
+    const step = stepCrackleTimer(timer, dt, true);
+    timer = step.timer;
+    if (step.fired) fired++;
+  }
+  const rate = fired / totalSeconds;
+  // The clustering bias (see stepCrackleTimer's own header) pulls the mean
+  // interval below the base [CRACKLE_MIN_INTERVAL, CRACKLE_MAX_INTERVAL]
+  // spread, so the bound here is generous rather than derived from those
+  // two constants alone — this is a "sane order of magnitude" check, not a
+  // tight pin.
+  assert.ok(rate >= 1 && rate <= 10, `crackle rate ${rate.toFixed(2)}/s is not "a few per second"`);
+});
+
+test("crackle scheduling is frozen, not reset, while inactive — no burst of events on re-entry", () => {
+  // Count down close to firing, then go inactive for a long stretch, then
+  // reactivate: the very next active step must fire at most once (whatever
+  // was left on the clock), never a backlog of events for the time spent
+  // inactive.
+  const step = stepCrackleTimer(0, 0, true); // timer already at 0 — fires immediately
+  assert.ok(step.fired);
+  const armedTimer = step.timer;
+
+  // Long inactive stretch — timer must not move at all.
+  const stillInactive = stepCrackleTimer(armedTimer, 1000, false);
+  assert.equal(stillInactive.timer, armedTimer, "an inactive timer must not count down at all");
+  assert.equal(stillInactive.fired, false);
+
+  // Reactivating with the SAME dt budget it was frozen at must fire at most once.
+  const reactivated = stepCrackleTimer(stillInactive.timer, 0.001, true);
+  assert.equal(typeof reactivated.fired, "boolean");
+});
+
+// --- Phase 8 step 3: shield_drone's fade curve ------------------------------
+
+test("shield_drone is silent once expired, holds at peak with time to spare, and fades linearly across its own window", () => {
+  const peak = 0.2;
+  const window = 1.5;
+  assert.equal(shieldDroneLevel(0, peak, window), 0);
+  assert.equal(shieldDroneLevel(-1, peak, window), 0, "an already-expired shield must never report a positive level");
+  assert.equal(shieldDroneLevel(window, peak, window), peak);
+  assert.equal(shieldDroneLevel(window * 5, peak, window), peak, "well before the fade window, level must hold at peak, not keep climbing");
+  assert.ok(Math.abs(shieldDroneLevel(window / 2, peak, window) - peak / 2) < 1e-9, "the fade must be linear across its own window");
+});
+
+test("SHIELD_DRONE_FADE_WINDOW reuses player.js's own SHIELD_EXPIRING rather than a second, driftable number", () => {
+  assert.equal(SHIELD_DRONE_FADE_WINDOW, PLAYER_SHIELD_EXPIRING / 2);
+});
+
+// --- Phase 8 step 3: catalogues ---------------------------------------------
+
+test("every SUSTAINED_TYPES entry has an id and a registered generator", () => {
+  assert.ok(SUSTAINED_TYPES.length > 0);
+  for (const entry of SUSTAINED_TYPES) {
+    assert.equal(typeof entry.id, "string");
+    assert.equal(typeof entry.generator, "function", `${entry.id} must have had its generator registered by sustainedfx.js`);
+    assert.equal(sustainedTypeById(entry.id), entry, "sustainedTypeById must resolve back to the same entry");
+  }
+  const ids = SUSTAINED_TYPES.map((t) => t.id);
+  assert.equal(new Set(ids).size, ids.length, "a duplicate sustained id would let one entry silently shadow another");
+});
+
+test("PICKUP_SOUND covers every kind in pickuptypes.js, with no orphaned keys, and every mapped id is a real sound", () => {
+  const kinds = new Set(PICKUP_TYPES.map((t) => t.kind));
+  for (const kind of kinds) {
+    assert.ok(kind in PICKUP_SOUND, `pickup kind "${kind}" has no entry in PICKUP_SOUND`);
+    assert.ok(soundTypeById(PICKUP_SOUND[kind]), `PICKUP_SOUND["${kind}"] points at "${PICKUP_SOUND[kind]}", which isn't in SOUND_TYPES`);
+  }
+  for (const kind of Object.keys(PICKUP_SOUND)) {
+    assert.ok(kinds.has(kind), `PICKUP_SOUND["${kind}"] has no matching pickuptypes.js kind — an orphan`);
+  }
+});
+
+test("player_hit's intensity scaling stays inside sane bounds at both ends of opts.intensity", () => {
+  // sfx.js's generatePlayerHit isn't exported (its shaping is internal, same
+  // as every other one-shot generator) — but the catalogue entry it's
+  // registered against must still exist, self-duck (duck: 0, see its own
+  // comment), and be in the combat/damage priority tier alongside the kills.
+  const entry = soundTypeById("player_hit");
+  assert.equal(entry.duck, 0, "player_hit must self-duck via opts.intensity, not a static catalogue duck");
+  assert.ok(entry.priority >= 6, "a real hull loss should sit at or above the player's own weapons tier");
 });

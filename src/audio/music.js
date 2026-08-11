@@ -64,6 +64,16 @@ let nextStepTime = 0;
 let currentStep = 0;
 let started = false;
 
+// The CURRENTLY-SOUNDING pad's own oscillators/filter — see disturb() below.
+// Only ever holds the most recent bar's pad: a new schedulePad() call
+// REPLACES these rather than appending, which is safe because the pad's own
+// `dur` is exactly one bar (see scheduleStep), so two pad instances are
+// never simultaneously "current" — the previous bar's has already reached
+// its own release before the next one is scheduled.
+let currentPadOscs = [];
+let currentPadBaseDetunes = []; // each osc's OWN steady-state detune (0 or -6, per the `detuneCents` loop below) — disturb() has to recover to THIS, not one shared value, since not every oscillator in the pad starts at the same detune
+let currentPadFilter = null;
+
 // --- Voices ------------------------------------------------------------------
 // Every voice below builds and tears down its own node graph per hit — Web
 // Audio nodes are one-shot (an OscillatorNode/AudioBufferSourceNode can only
@@ -181,6 +191,12 @@ function schedulePad(ctx, musicGain, delay, t, freqs, dur) {
   gain.connect(musicGain);
   gain.connect(delay);
 
+  // REPLACE, not append — see currentPadOscs' own header for why only the
+  // latest bar's pad is ever tracked as "current" for disturb() to reach.
+  currentPadOscs = [];
+  currentPadBaseDetunes = [];
+  currentPadFilter = filter;
+
   for (const freq of freqs) {
     for (const detuneCents of [0, -6]) {
       const osc = ctx.createOscillator();
@@ -190,8 +206,60 @@ function schedulePad(ctx, musicGain, delay, t, freqs, dur) {
       osc.connect(filter);
       osc.start(t);
       osc.stop(t + dur + 0.05);
+      currentPadOscs.push(osc);
+      currentPadBaseDetunes.push(detuneCents);
     }
   }
+}
+
+// Phase 8 step 3's SEAM into the music: "the soundtrack itself degrading on
+// impact is the strongest single idea in this design, and it costs no extra
+// voices" (design brief). `amount` is 0..1 (main.js passes the same
+// opts.intensity a heavy player_hit uses), and this briefly detunes and
+// darkens the CURRENTLY-SOUNDING pad's own oscillators/filter — not a new
+// voice, not a rewrite of scheduleStep's own timing, just two extra
+// automation ramps layered onto nodes that already exist.
+//
+// A TRANSIENT, RECOVERING IN ~1s — deliberately NOT the same kind of state
+// hull_hiss (audio/sustainedfx.js) tracks. hull_hiss is the PERSISTENT
+// signal-degradation layer (it already reflects how much hull is gone, for
+// as long as it's gone); this is the momentary shudder on the HIT itself.
+// Running both at full strength on the same event would say the same thing
+// twice — see main.js's own onPlayerDamage for how the two are kept
+// separate calls, never combined into one bigger effect.
+//
+// A NO-OP IF NO PAD IS CURRENTLY SOUNDING (silence between one bar's release
+// and the next bar's attack, or before start() has ever scheduled one) —
+// there's nothing to disturb, and scheduleStep will pick the disturbed
+// oscillators back up next bar regardless once they've recovered.
+const DISTURB_DETUNE_CENTS = 45; // extra detune added at amount=1 — enough to read as a genuine wobble, not just the pad's own steady-state chorus thickening
+const DISTURB_FILTER_DROP = 500; // Hz shaved off the pad's own 900Hz cutoff at amount=1
+const DISTURB_RECOVER = 1.0; // seconds — "recovering over ~1s" per the design brief
+
+export function disturb(amount) {
+  if (!currentPadFilter) return;
+  const ctx = getCtx();
+  const t = ctx.currentTime;
+  const clamped = Math.max(0, Math.min(1, amount));
+
+  // Alternate the detune's SIGN across the pad's own oscillators (even index
+  // sharp, odd index flat) rather than pushing every one the same direction
+  // — a hit that shoves the whole chord uniformly sharp/flat still sounds
+  // "in tune with itself", just transposed; alternating is what actually
+  // reads as the chord souring for a moment.
+  currentPadOscs.forEach((osc, i) => {
+    const base = currentPadBaseDetunes[i];
+    const sign = i % 2 === 0 ? 1 : -1;
+    osc.detune.cancelScheduledValues(t);
+    osc.detune.setValueAtTime(osc.detune.value, t);
+    osc.detune.linearRampToValueAtTime(base + sign * clamped * DISTURB_DETUNE_CENTS, t + 0.05);
+    osc.detune.linearRampToValueAtTime(base, t + 0.05 + DISTURB_RECOVER);
+  });
+
+  currentPadFilter.frequency.cancelScheduledValues(t);
+  currentPadFilter.frequency.setValueAtTime(currentPadFilter.frequency.value, t);
+  currentPadFilter.frequency.linearRampToValueAtTime(Math.max(200, 900 - clamped * DISTURB_FILTER_DROP), t + 0.05);
+  currentPadFilter.frequency.linearRampToValueAtTime(900, t + 0.05 + DISTURB_RECOVER);
 }
 
 // A single quiet stinger, not a running melody — see scheduleStep for how

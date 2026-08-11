@@ -22,6 +22,7 @@ import { Loadout } from "./game/weapons.js";
 import { createMenu } from "./game/menu.js";
 import { createMusic } from "./audio/synth.js";
 import { PLAYER_FIRE_SOUND, ENEMY_FIRE_SOUND } from "./audio/weaponsfx.js";
+import { PICKUP_SOUND } from "./audio/pickupsfx.js";
 import * as road from "./game/road.js";
 import * as scenery from "./game/scenery.js";
 import * as drones from "./game/drones.js";
@@ -124,6 +125,37 @@ function onObstacleDestroyed() {
   music.play("kill_obstacle");
 }
 
+// Phase 8 step 3's audio hook onto player.js's ONE damage funnel — see
+// Player's own constructor comment. `deflected` is true when the shield ate
+// the hit (player.js's damage() early-return guard); false is a real hull
+// loss, from ANY source (bullets, blast, ramming, wall-scrape all end up
+// here — see collisions.js's PlayerBody.damage/obstacles.js's playerBox.damage).
+function onPlayerDamage(hp, deflected) {
+  if (deflected) {
+    music.play("shield_deflect");
+    return;
+  }
+  // Intensity relative to the WHOLE hull, not to this one hit's own size
+  // against itself — a wall-scrape tick and a full rocket impact both funnel
+  // through here, and the stutter (and the pad's own disturb() below) should
+  // read louder for whichever one actually cost more of it.
+  const intensity = Math.min(1, hp / player.maxHealth);
+  music.play("player_hit", { intensity });
+  // The pad's own transient seam (music.js's disturb()) — a SEPARATE call,
+  // deliberately not folded into player_hit's own envelope: hull_hiss
+  // (audio/sustainedfx.js, driven from the update loop below) is the
+  // PERSISTENT degradation layer; this is the momentary shudder on the hit
+  // itself. Running both at full strength on the same event would say the
+  // same thing twice — see music.js's own disturb() header.
+  music.disturb(intensity);
+}
+
+// Phase 8 step 3's audio hook onto pickups.js's ONE place a crate is ever
+// actually applied — see Pickups' own constructor comment.
+function onPickupCollected(type) {
+  music.play(PICKUP_SOUND[type.kind]);
+}
+
 // Scratch target list for bullets: cars AND obstacles in one flat array, so a
 // shot resolves against whichever it actually crosses first regardless of
 // which system owns it (see projectiles.js's firstHit). Reused every tick
@@ -146,8 +178,9 @@ const enemyTargets = [];
 function newGame() {
   distance = 0;
   // Player sits around mid-screen (Spy Hunter framing) so traffic catching up
-  // from behind is visible below before it draws level.
-  player = new Player(W / 2, H * 0.62);
+  // from behind is visible below before it draws level. onPlayerDamage is
+  // Phase 8 step 3's audio hook — see its own comment above.
+  player = new Player(W / 2, H * 0.62, onPlayerDamage);
   // The scoreboard, and the wiring that feeds it: traffic reports every car
   // that blows up, main.js reports the road covered (see update). Traffic
   // itself knows nothing about points — see score.js.
@@ -160,7 +193,8 @@ function newGame() {
   // Buff crates — shares the same explosion pool for their own "collected"
   // burst (effects.js's drawCollectBurst), same reasoning as obstacles above.
   // Constructed BEFORE traffic so onCarDestroyed can close over it.
-  pickups = new Pickups(explosions);
+  // onPickupCollected is Phase 8 step 3's audio hook — see its own comment.
+  pickups = new Pickups(explosions, onPickupCollected);
   traffic = new Traffic(onCarDestroyed, explosions);
   enemyTargets[0] = traffic.playerBody;
   // The guns, and the bullets they put in the air. The player holds a Loadout
@@ -190,6 +224,12 @@ function newGame() {
   gameConsole.reset();
   links.reset();
   sectors.reset();
+  // Phase 8 step 3: release every sustained voice (hull_hiss/shield_drone/
+  // wall_scrape) so a fresh run never inherits one still ramping down from
+  // the run that just ended — see sustainedfx.js's own reset() header. A
+  // silent no-op before music.start() has ever run (the very first newGame()
+  // call, at module load), same contract every audio entry point here has.
+  music.resetSustained();
 }
 newGame();
 
@@ -353,6 +393,16 @@ function update(dt) {
   // kicks off the rescan glitch and its own SYS LOG line. Before render()
   // reads any of that, same ordering links.announce() above relies on.
   sectors.update(dt, scenery.clock, distance);
+
+  // Phase 8 step 3's sustained voices, polled every "playing" tick — see
+  // sustainedfx.js's own header on why this is POLLED (not pushed from a
+  // damage/pickup event): the hiss has to fall when healing too, and the
+  // shield/wall voices just mirror whatever player state already says right
+  // now. After sectors.update() above, so sectors.glitching() reflects THIS
+  // tick's own crossing rather than last tick's leftover decay.
+  music.updateHullHiss(dt, player.health / player.maxHealth, sectors.glitching());
+  music.updateWallScrape(player.hitWall);
+  music.updateShieldDrone(player.shieldTime);
 
   // Shooting, BEFORE traffic: a bullet that kills a car this tick leaves that
   // car dead when traffic.update runs, so it detonates and scores in the same
