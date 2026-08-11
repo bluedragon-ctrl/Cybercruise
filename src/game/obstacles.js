@@ -277,8 +277,16 @@ function overlaps(a, b) {
 }
 
 export class Obstacles {
-  constructor(explosions) {
+  // `onDestroyed()` is called once for every obstacle that detonates, at
+  // the moment it does — same shape as Traffic's own `onDestroyed`, wired
+  // up in main.js for the same reason: this file has no notion of audio or
+  // score, so a caller that wants to react to "something just blew up"
+  // gets a callback instead of this module importing anything about what
+  // that reaction should be. Optional, so tests can build an Obstacles with
+  // no listener at all.
+  constructor(explosions, onDestroyed = null) {
     this.explosions = explosions; // shared with Traffic — see the header
+    this.onDestroyed = onDestroyed;
     this.list = [];
     this.spawnTimer = SPAWN_INTERVAL;
   }
@@ -420,6 +428,7 @@ export class Obstacles {
       } else {
         this.explosions.spawnObstacleWreck(o.worldY, o.offset, o.type.shape);
       }
+      if (this.onDestroyed) this.onDestroyed(o);
 
       this.blast(o, playerBox, cars);
     }
