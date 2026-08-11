@@ -86,6 +86,12 @@ import {
 import { PICKUP_SHAPES } from "../src/game/pickupshapes.js";
 import { PICKUP_TYPES, AMMO, HEAL, SHIELD, applyPickup, pickupTypeById } from "../src/game/pickuptypes.js";
 import { Pickups } from "../src/game/pickups.js";
+import {
+  GLOBAL_VOICE_CAP, planVoiceRequest, commitVoice,
+  DUCK_ATTACK, DUCK_RELEASE, planDuck,
+} from "../src/audio/context.js";
+import { SOUND_TYPES, soundTypeById } from "../src/audio/soundtypes.js";
+import "../src/audio/sfx.js"; // side effect: registers every catalogue entry's generator
 
 // A fixture car. Traffic cars are built by traffic.js, which hands them the two
 // things behaviours.js reads that a plain object literal would not have: the
@@ -3544,4 +3550,154 @@ test("Pickups.drop places a crate at an exact spot, bypassing the random spawner
   assert.equal(dropped.type, type);
   assert.equal(dropped.worldY, 1234);
   assert.equal(dropped.offset, -40);
+});
+
+// --- Phase 8 audio infrastructure: voice limiter + duck (context.js) --------
+//
+// Both are exercised through their PURE forms (planVoiceRequest/commitVoice,
+// planDuck) rather than through context.js's stateful requestVoice()/duck()
+// wrappers — those short-circuit to a no-op with no ctx (see context.js's
+// header on why nothing here may touch an AudioContext), so testing the real
+// decision logic means calling the pure functions directly with plain data,
+// exactly as context.js's own header says they're built for.
+
+function voiceRequest(over = {}) {
+  return { id: "a", priority: 1, maxConcurrent: 3, minInterval: 0, ...over };
+}
+
+test("the voice limiter accepts requests until the global cap, then steals the lowest priority", () => {
+  let active = [];
+  const now = 0;
+  // Fill the global cap with distinct ids (so no per-id cap ever fires) at a
+  // range of priorities, lowest first.
+  for (let i = 0; i < GLOBAL_VOICE_CAP; i++) {
+    const result = planVoiceRequest(active, {}, voiceRequest({ id: `id${i}`, priority: i, maxConcurrent: 1 }), now);
+    assert.equal(result.accepted, true, `voice ${i} should fit under the cap`);
+    active = commitVoice(result.active, { id: `id${i}`, priority: i }, now, 10);
+  }
+  assert.equal(active.length, GLOBAL_VOICE_CAP);
+
+  // One more, priority higher than the current lowest (id0, priority 0):
+  // must be accepted by stealing id0, not by growing past the cap.
+  const stealer = planVoiceRequest(active, {}, voiceRequest({ id: "newcomer", priority: 5, maxConcurrent: 1 }), now);
+  assert.equal(stealer.accepted, true);
+  // planVoiceRequest only decides and steals — it doesn't add the new voice
+  // itself (see context.js's header on why that's commitVoice's job), so the
+  // evicted slot shows up as a headcount one BELOW the cap until committed.
+  assert.equal(stealer.active.length, GLOBAL_VOICE_CAP - 1, "stealing must free exactly the one slot the newcomer needs");
+  assert.ok(!stealer.active.some((v) => v.id === "id0"), "the lowest-priority voice (id0) should have been evicted");
+
+  const committed = commitVoice(stealer.active, { id: "newcomer", priority: 5 }, now, 10);
+  assert.equal(committed.length, GLOBAL_VOICE_CAP, "after commitVoice, the cap is filled again with the newcomer in place of id0");
+});
+
+test("over the global cap, a request no more important than the lowest active voice is dropped, not stolen for", () => {
+  let active = [];
+  const now = 0;
+  for (let i = 0; i < GLOBAL_VOICE_CAP; i++) {
+    const result = planVoiceRequest(active, {}, voiceRequest({ id: `id${i}`, priority: 5, maxConcurrent: 1 }), now);
+    active = commitVoice(result.active, { id: `id${i}`, priority: 5 }, now, 10);
+  }
+  // Tied with the lowest priority already active (all 5s) — must be dropped,
+  // not steal one of them for itself.
+  const tied = planVoiceRequest(active, {}, voiceRequest({ id: "newcomer", priority: 5, maxConcurrent: 1 }), now);
+  assert.equal(tied.accepted, false);
+  assert.equal(tied.active.length, GLOBAL_VOICE_CAP, "a dropped request must leave the active set untouched");
+
+  // Strictly lower than everything active — same outcome.
+  const lower = planVoiceRequest(active, {}, voiceRequest({ id: "newcomer", priority: 1, maxConcurrent: 1 }), now);
+  assert.equal(lower.accepted, false);
+});
+
+test("a request over its own maxConcurrent steals its id's oldest instance, not another id's", () => {
+  let active = [];
+  const now = 0;
+  const req = voiceRequest({ id: "kick", priority: 1, maxConcurrent: 2 });
+  // Two instances of "kick", staggered in time, plus one unrelated id that
+  // must never be touched by kick's own per-id stealing.
+  let result = planVoiceRequest(active, {}, req, 0);
+  active = commitVoice(result.active, { id: "kick", priority: 1 }, 0, 10);
+  result = planVoiceRequest(active, result.lastTrigger, req, 1);
+  active = commitVoice(result.active, { id: "kick", priority: 1 }, 1, 10);
+  active = commitVoice(active, { id: "other", priority: 1 }, 1, 10);
+  assert.equal(active.filter((v) => v.id === "kick").length, 2);
+
+  // A third "kick" is over its maxConcurrent of 2: must steal the OLDEST
+  // kick (start: 0), leaving the second kick (start: 1) and "other" alone.
+  const third = planVoiceRequest(active, {}, req, 2);
+  assert.equal(third.accepted, true);
+  const kicksLeft = third.active.filter((v) => v.id === "kick");
+  assert.equal(kicksLeft.length, 1);
+  assert.equal(kicksLeft[0].start, 1, "the OLDEST kick instance should have been stolen, not the newer one");
+  assert.ok(third.active.some((v) => v.id === "other"), "an unrelated id must never be touched by another id's per-id cap");
+});
+
+test("minInterval drops a retrigger that arrives too soon, without touching the active set", () => {
+  const req = voiceRequest({ id: "rapid", minInterval: 0.2 });
+  const first = planVoiceRequest([], {}, req, 0);
+  assert.equal(first.accepted, true);
+  const active = commitVoice(first.active, { id: "rapid", priority: req.priority }, 0, 10);
+
+  // 0.1s later — under the 0.2s minInterval — must be dropped.
+  const tooSoon = planVoiceRequest(active, first.lastTrigger, req, 0.1);
+  assert.equal(tooSoon.accepted, false);
+  assert.equal(tooSoon.active.length, active.length, "a minInterval rejection must not alter the active set");
+
+  // 0.2s later — right at the boundary — must be allowed again.
+  const onTime = planVoiceRequest(active, first.lastTrigger, req, 0.2);
+  assert.equal(onTime.accepted, true);
+});
+
+test("a voice's slot releases once its scheduled end time has passed, freeing it for a new request", () => {
+  const req = voiceRequest({ id: "short", maxConcurrent: 1 });
+  const first = planVoiceRequest([], {}, req, 0);
+  const active = commitVoice(first.active, { id: "short", priority: req.priority }, 0, 1); // ends at t=1
+
+  // Before it ends, a second instance is over the per-id cap and must steal it.
+  const beforeEnd = planVoiceRequest(active, first.lastTrigger, req, 0.5);
+  assert.equal(beforeEnd.active.some((v) => v.id === "short"), false, "the still-live voice should have been stolen");
+
+  // After it ends (t=1.5 > end=1), the slot is already free — a new request
+  // must be accepted WITHOUT stealing anything, because the expired voice is
+  // simply gone from the active set.
+  const afterEnd = planVoiceRequest(active, first.lastTrigger, req, 1.5);
+  assert.equal(afterEnd.accepted, true);
+  assert.equal(afterEnd.active.length, 0, "an expired voice must not still occupy a slot");
+});
+
+test("overlapping ducks take the maximum requested depth, never stack past it", () => {
+  const first = planDuck([], 0.3, 0);
+  assert.equal(first.target, 0.3);
+
+  // A louder duck arrives while the first is still live: target must jump to
+  // the louder one, not sum to 0.3 + 0.6.
+  const louder = planDuck(first.active, 0.6, DUCK_ATTACK);
+  assert.equal(louder.target, 0.6);
+
+  // A quieter duck arrives while the louder one is still live: target must
+  // stay at the louder 0.6, not drop to the new, smaller request.
+  const quieter = planDuck(louder.active, 0.2, DUCK_ATTACK + 0.05);
+  assert.equal(quieter.target, 0.6, "a quieter overlapping duck must not lower the still-active louder one");
+
+  // Once every prior duck has fully released, a fresh request reflects only
+  // itself.
+  const afterAllReleased = planDuck(quieter.active, 0.1, DUCK_ATTACK + DUCK_RELEASE + 1);
+  assert.equal(afterAllReleased.target, 0.1);
+  assert.equal(afterAllReleased.active.length, 1, "expired duck records must not accumulate forever");
+});
+
+test("every SFX catalogue entry has all required fields, in range, and a registered generator", () => {
+  assert.ok(SOUND_TYPES.length > 0);
+  for (const entry of SOUND_TYPES) {
+    assert.equal(typeof entry.id, "string");
+    assert.equal(typeof entry.generator, "function", `${entry.id} must have had its generator registered by sfx.js`);
+    assert.equal(typeof entry.gain, "number");
+    assert.ok(entry.gain >= 0 && entry.gain <= 1, `${entry.id}'s gain must be in 0..1`);
+    assert.ok(entry.duck >= 0 && entry.duck <= 1, `${entry.id}'s duck must be in 0..1`);
+    assert.ok(entry.delaySend >= 0 && entry.delaySend <= 1, `${entry.id}'s delaySend must be in 0..1`);
+    assert.ok(Number.isInteger(entry.priority) && entry.priority >= 0, `${entry.id}'s priority must be a non-negative integer`);
+    assert.ok(Number.isInteger(entry.maxConcurrent) && entry.maxConcurrent >= 1, `${entry.id}'s maxConcurrent must be >= 1`);
+    assert.ok(entry.minInterval >= 0, `${entry.id}'s minInterval must be >= 0`);
+    assert.equal(soundTypeById(entry.id), entry, "soundTypeById must resolve back to the same entry");
+  }
 });
