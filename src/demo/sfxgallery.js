@@ -17,6 +17,8 @@
 import { createMusic } from "../audio/synth.js";
 import { SOUND_TYPES } from "../audio/soundtypes.js";
 import { SUSTAINED_TYPES } from "../audio/sustainedtypes.js";
+import { DREAD_RANGE_ON } from "../audio/sustainedfx.js";
+import { MIN_SPEED, MAX_SPEED } from "../game/player.js";
 
 const music = createMusic();
 
@@ -25,8 +27,10 @@ const sustainedGallery = document.getElementById("sustainedGallery");
 const startBtn = document.getElementById("start");
 const soundSlider = document.getElementById("sound");
 const musicSlider = document.getElementById("music");
+const speedSlider = document.getElementById("speed");
 const soundLabel = document.getElementById("soundLabel");
 const musicLabel = document.getElementById("musicLabel");
+const speedLabel = document.getElementById("speedLabel");
 
 function setSoundLevel(v) {
   music.setSfxVolume(v);
@@ -38,19 +42,33 @@ function setMusicLevel(v) {
   musicLabel.textContent = `${Math.round(v * 100)}%`;
 }
 
+// Phase 8 step 4's speed-linked bus filter — driven off the real
+// MIN_SPEED..MAX_SPEED band (player.js) rather than the slider's own
+// hard-coded HTML attributes, so a future retune of that band can't leave
+// this control silently out of range — see the slider.min/max assignment
+// below.
+function setSpeed(v) {
+  music.updateMusicCutoff(v);
+  speedLabel.textContent = `${Math.round(v)}`;
+}
+
 soundSlider.addEventListener("input", () => setSoundLevel(Number(soundSlider.value)));
 musicSlider.addEventListener("input", () => setMusicLevel(Number(musicSlider.value)));
+speedSlider.min = MIN_SPEED;
+speedSlider.max = MAX_SPEED;
+speedSlider.addEventListener("input", () => setSpeed(Number(speedSlider.value)));
 
-// Before start(), music.play()/setVolume()/setSfxVolume() are all silent
-// no-ops (see synth.js/context.js's own contract) — so the sliders can be
-// dragged freely before the button is pressed, they just have nothing to
-// affect yet. The levels are pushed again the instant audio actually starts
-// so the engine picks up wherever the sliders were left.
+// Before start(), music.play()/setVolume()/setSfxVolume()/updateMusicCutoff()
+// are all silent no-ops (see synth.js/context.js's own contract) — so the
+// sliders can be dragged freely before the button is pressed, they just have
+// nothing to affect yet. The levels are pushed again the instant audio
+// actually starts so the engine picks up wherever the sliders were left.
 startBtn.addEventListener("click", () => {
   if (startBtn.disabled) return;
   music.start();
   setSoundLevel(Number(soundSlider.value));
   setMusicLevel(Number(musicSlider.value));
+  setSpeed(Number(speedSlider.value));
   startBtn.textContent = "AUDIO STARTED";
   startBtn.disabled = true;
 });
@@ -125,6 +143,18 @@ const SUSTAINED_DRIVERS = {
     // No continuous value — contact is a plain boolean (player.hitWall).
     drive: () => music.updateWallScrape(true),
     off: () => music.updateWallScrape(false),
+  },
+  dread_pulse: {
+    sliderLabel: "closeness %",
+    min: 0, max: 100, step: 1, start: 50,
+    // 100 = right on the player's tail (gap 0), 0 = the edge of the threat
+    // range (DREAD_RANGE_ON) — the inverse of sustainedfx.js's own
+    // dreadProximity(). `closing` is held true throughout so the slider
+    // alone drives the rate/level curve by ear, exactly the way the design
+    // brief asks for ("a threat-level slider so the rate curve is tunable
+    // by ear").
+    drive: (value, dt) => music.updateDreadPulse(dt, { gap: DREAD_RANGE_ON * (1 - value / 100), closing: true }),
+    off: () => music.updateDreadPulse(1 / 60, null),
   },
 };
 

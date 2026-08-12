@@ -56,7 +56,11 @@ import {
   conduitField, pingField, callsign, announcement, announce, activePing, announceActive,
   reset as linksReset,
 } from "../src/game/links.js";
-import { HINT as CONSOLE_HINT } from "../src/engine/console.js";
+import {
+  HINT as CONSOLE_HINT, WARN as CONSOLE_WARN, CRITICAL as CONSOLE_CRITICAL,
+  push as consolePush, onPush as consoleOnPush, reset as consoleReset,
+} from "../src/engine/console.js";
+import { CONSOLE_SOUND, CONSOLE_PITCH } from "../src/audio/consolesfx.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import {
   CELL, PLOT, LOT, LOT_SUBDIV, ARTERIAL_PERIOD, SECTOR_PERIOD, sectorIndex,
@@ -108,7 +112,12 @@ import {
   stepDropoutTimer, dropoutHoldSeconds,
   CRACKLE_HULL_THRESHOLD, CRACKLE_MIN_INTERVAL, CRACKLE_MAX_INTERVAL, stepCrackleTimer,
   shieldDroneLevel, SHIELD_DRONE_FADE_WINDOW,
+  DREAD_RANGE_ON, DREAD_RANGE_OFF, DREAD_RATE_MIN, DREAD_RATE_MAX,
+  dreadProximity, dreadPulseLevel, dreadPulseRate, dreadPulseActive,
 } from "../src/audio/sustainedfx.js";
+import {
+  MUSIC_CUTOFF_MIN, MUSIC_CUTOFF_MAX, speedToMusicCutoff,
+} from "../src/audio/context.js";
 
 // A fixture car. Traffic cars are built by traffic.js, which hands them the two
 // things behaviours.js reads that a plain object literal would not have: the
@@ -4078,4 +4087,137 @@ test("player_hit's intensity scaling stays inside sane bounds at both ends of op
   const entry = soundTypeById("player_hit");
   assert.equal(entry.duck, 0, "player_hit must self-duck via opts.intensity, not a static catalogue duck");
   assert.ok(entry.priority >= 6, "a real hull loss should sit at or above the player's own weapons tier");
+});
+
+// --- Phase 8 step 4: console log ticks --------------------------------------
+
+test("CONSOLE_SOUND/CONSOLE_PITCH cover exactly HINT/WARN/CRITICAL, with no orphans, and pitch strictly descends with severity", () => {
+  const severities = [CONSOLE_HINT, CONSOLE_WARN, CONSOLE_CRITICAL];
+  for (const s of severities) {
+    assert.ok(s in CONSOLE_SOUND, `severity "${s}" has no entry in CONSOLE_SOUND`);
+    assert.ok(soundTypeById(CONSOLE_SOUND[s]), `CONSOLE_SOUND["${s}"] points at "${CONSOLE_SOUND[s]}", which isn't in SOUND_TYPES`);
+    assert.ok(s in CONSOLE_PITCH, `severity "${s}" has no entry in CONSOLE_PITCH`);
+  }
+  for (const key of Object.keys(CONSOLE_SOUND)) {
+    assert.ok(severities.includes(key), `CONSOLE_SOUND["${key}"] has no matching console.js severity — an orphan`);
+  }
+  for (const key of Object.keys(CONSOLE_PITCH)) {
+    assert.ok(severities.includes(key), `CONSOLE_PITCH["${key}"] has no matching console.js severity — an orphan`);
+  }
+  assert.ok(
+    CONSOLE_PITCH[CONSOLE_HINT] > CONSOLE_PITCH[CONSOLE_WARN] &&
+      CONSOLE_PITCH[CONSOLE_WARN] > CONSOLE_PITCH[CONSOLE_CRITICAL],
+    "pitch must strictly descend HINT > WARN > CRITICAL — lower reads as worse, per the design brief",
+  );
+});
+
+test("console.js's onPush() fires the subscriber exactly once per push, with the pushed text and severity", () => {
+  consoleReset();
+  const calls = [];
+  consoleOnPush((text, severity) => calls.push({ text, severity }));
+  consolePush("hello", CONSOLE_WARN);
+  consolePush("again", CONSOLE_HINT);
+  assert.deepEqual(calls, [
+    { text: "hello", severity: CONSOLE_WARN },
+    { text: "again", severity: CONSOLE_HINT },
+  ]);
+  consoleReset();
+});
+
+test("registering a second subscriber replaces the first — never stacks two callbacks on one push", () => {
+  consoleReset();
+  let aCalls = 0;
+  let bCalls = 0;
+  consoleOnPush(() => aCalls++);
+  consoleOnPush(() => bCalls++);
+  consolePush("x", CONSOLE_HINT);
+  assert.equal(aCalls, 0, "the first subscriber must have been replaced, not left running alongside the second");
+  assert.equal(bCalls, 1);
+  consoleReset();
+});
+
+test("the unsubscribe function onPush() returns removes exactly that subscriber", () => {
+  consoleReset();
+  let calls = 0;
+  const unsub = consoleOnPush(() => calls++);
+  unsub();
+  consolePush("x", CONSOLE_HINT);
+  assert.equal(calls, 0, "push() must not call an unsubscribed callback");
+  consoleReset();
+});
+
+test("reset() clears the subscriber — nothing fires on a push after reset() unless re-registered", () => {
+  consoleReset();
+  let calls = 0;
+  consoleOnPush(() => calls++);
+  consoleReset();
+  consolePush("x", CONSOLE_HINT);
+  assert.equal(calls, 0, "a subscriber registered before reset() must not survive it");
+});
+
+// --- Phase 8 step 4: dread_pulse's threat curve -----------------------------
+
+test("dread_pulse's proximity curve is 0 with no hostile in range, clamped to [0,1], and monotonic as the gap closes", () => {
+  assert.equal(dreadProximity(Infinity), 0, "no hostile at all (an infinite gap) must report zero proximity");
+  assert.equal(dreadProximity(DREAD_RANGE_ON), 0, "proximity must be exactly 0 right at the edge of the threat range");
+  assert.equal(dreadProximity(0), 1, "proximity must reach exactly 1 at zero gap");
+
+  let last = -1;
+  for (let gap = DREAD_RANGE_ON + 200; gap >= 0; gap -= 5) {
+    const p = dreadProximity(gap);
+    assert.ok(p >= 0 && p <= 1, `dreadProximity(${gap}) = ${p} outside [0,1]`);
+    assert.ok(p >= last - 1e-9, `dreadProximity is not monotonic as gap shrinks: gap=${gap} gave ${p}, previous (larger gap) gave ${last}`);
+    last = p;
+  }
+  assert.ok(
+    dreadPulseLevel(0) > dreadPulseLevel(DREAD_RANGE_ON / 2),
+    "level must read higher right on the player's tail than mid-range",
+  );
+});
+
+test("dread_pulse hysteresis: once ON it stays on past DREAD_RANGE_ON, only switches off past DREAD_RANGE_OFF, and `closing` gates it outright", () => {
+  assert.ok(DREAD_RANGE_OFF > DREAD_RANGE_ON, "the off-threshold must sit ABOVE the on-threshold, or there is no hysteresis band at all");
+
+  // A hostile that isn't closing never activates the pulse, whatever the gap
+  // — and it switches an already-active pulse off outright, no hysteresis.
+  assert.equal(dreadPulseActive(0, false, false), false);
+  assert.equal(dreadPulseActive(0, false, true), false, "closing must gate the pulse off outright even if it was already active");
+
+  // Starting inactive: switches on only at/below DREAD_RANGE_ON, while closing.
+  assert.equal(dreadPulseActive(DREAD_RANGE_ON + 1, true, false), false);
+  assert.equal(dreadPulseActive(DREAD_RANGE_ON, true, false), true);
+
+  // Starting active: STAYS on all the way through the gap between the two
+  // thresholds — the whole point of the hysteresis band.
+  assert.equal(dreadPulseActive(DREAD_RANGE_ON + 10, true, true), true, "must not flutter off inside the hysteresis gap");
+  assert.equal(dreadPulseActive(DREAD_RANGE_OFF - 1, true, true), true);
+  assert.equal(dreadPulseActive(DREAD_RANGE_OFF, true, true), false, "must switch off once it reaches DREAD_RANGE_OFF");
+});
+
+test("dreadPulseRate is bounded at both ends across the full input range, and rises as the gap closes", () => {
+  for (let gap = -100; gap <= DREAD_RANGE_ON + 500; gap += 10) {
+    const rate = dreadPulseRate(gap);
+    assert.ok(
+      rate >= DREAD_RATE_MIN - 1e-9 && rate <= DREAD_RATE_MAX + 1e-9,
+      `dreadPulseRate(${gap}) = ${rate} outside [${DREAD_RATE_MIN}, ${DREAD_RATE_MAX}]`,
+    );
+  }
+  assert.equal(dreadPulseRate(DREAD_RANGE_ON), DREAD_RATE_MIN, "rate must be exactly the minimum at the edge of the threat range");
+  assert.equal(dreadPulseRate(0), DREAD_RATE_MAX, "rate must be exactly the maximum right on the player's tail");
+  assert.ok(dreadPulseRate(50) > dreadPulseRate(400), "rate must rise as the gap closes");
+});
+
+// --- Phase 8 step 4: speed-linked music filter ------------------------------
+
+test("speedToMusicCutoff stays inside [MUSIC_CUTOFF_MIN, MUSIC_CUTOFF_MAX] for every input, including 0 and MAX_SPEED", () => {
+  for (const speed of [-1000, 0, MIN_SPEED - 50, MIN_SPEED, 260, MAX_SPEED, MAX_SPEED + 1000]) {
+    const cutoff = speedToMusicCutoff(speed);
+    assert.ok(
+      cutoff >= MUSIC_CUTOFF_MIN && cutoff <= MUSIC_CUTOFF_MAX,
+      `speedToMusicCutoff(${speed}) = ${cutoff} outside [${MUSIC_CUTOFF_MIN}, ${MUSIC_CUTOFF_MAX}]`,
+    );
+  }
+  assert.equal(speedToMusicCutoff(MIN_SPEED), MUSIC_CUTOFF_MIN, "must hit the floor exactly at MIN_SPEED");
+  assert.equal(speedToMusicCutoff(MAX_SPEED), MUSIC_CUTOFF_MAX, "must hit the ceiling exactly at MAX_SPEED");
+  assert.ok(speedToMusicCutoff(MAX_SPEED) > speedToMusicCutoff(MIN_SPEED), "faster must never read duller than slower");
 });

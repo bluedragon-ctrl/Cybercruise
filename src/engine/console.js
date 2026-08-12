@@ -41,6 +41,40 @@ const clamp01 = (v) => Math.max(0, Math.min(1, v));
 // the panel instead of vanishing.
 let messages = [];
 
+// Phase 8 step 4's SUBSCRIBER SEAM — the one deliberate exception to "game
+// modules stay ignorant of audio". Every other system in this codebase gets
+// wired to the audio engine from main.js (onCarDestroyed, onPlayerDamage,
+// onPickupCollected — see main.js's own header on that pattern), because
+// main.js sits above both the game module and the audio engine and can
+// import both. push() is different: it is called from INSIDE game modules
+// (links.js, sectors.js, player.js, pickups.js, ...), not from main.js, so
+// there is no single call site main.js can wrap the way it wraps
+// onCarDestroyed. Importing the audio engine into THIS file instead would
+// work, but it would make console.js — an engine-layer, presentation-only
+// module — depend on game/audio wiring, which is exactly the dependency
+// direction this codebase avoids everywhere else (see soundtypes.js's own
+// header on why sfx.js and soundtypes.js don't import each other directly,
+// for the same shape of reason).
+//
+// So this file stays ignorant of what, if anything, is listening: onPush(fn)
+// registers a callback push() invokes with (text, severity) every time a
+// line is actually appended, and main.js — which already imports both
+// console.js and the audio engine — is what registers the audio callback at
+// startup. One subscriber, not a list: nothing here has ever needed more
+// than one listener, and a single `let` is simplest to reason about and to
+// reset. onPush() returns an unsubscribe function (call it to remove
+// exactly that subscriber, a no-op if a later onPush() has already replaced
+// it) for symmetry, though today only reset() below actually uses the
+// clearing behaviour.
+let subscriber = null;
+
+export function onPush(fn) {
+  subscriber = fn;
+  return () => {
+    if (subscriber === fn) subscriber = null;
+  };
+}
+
 export function push(text, severity = HINT) {
   messages.push({ text, severity, slot: -1, target: 0, removing: false, age: 0 });
   // Normally this drops at most one entry — the loop only matters if two
@@ -51,6 +85,7 @@ export function push(text, severity = HINT) {
     messages.find((m) => !m.removing).removing = true;
     kept = messages.filter((m) => !m.removing);
   }
+  if (subscriber) subscriber(text, severity);
 }
 
 export function update(dt) {
@@ -122,4 +157,11 @@ export function isBusy() {
 
 export function reset() {
   messages = [];
+  // Cleared, not left standing — main.js re-registers its audio callback
+  // right after calling this (see main.js's own newGame()), so nothing is
+  // actually silenced by this on a normal restart. What it guards against is
+  // main.js ever growing a second wiring path that forgets to re-register:
+  // without this, a stale subscriber from before the reset would keep firing
+  // rather than failing loudly by going silent.
+  subscriber = null;
 }

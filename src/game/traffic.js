@@ -30,7 +30,7 @@
 
 import { drawCarCached } from "./sprites.js";
 import { driveCar } from "./behaviours.js";
-import { pickCarType } from "./cartypes.js";
+import { pickCarType, ENEMY_FACTION } from "./cartypes.js";
 import { drivingFor } from "./driving.js";
 import { armFor } from "./armament.js";
 import { Explosions } from "./effects.js";
@@ -397,6 +397,38 @@ export class Traffic {
     // The solver doesn't know where the road is; put anything it pushed over an
     // edge back on the tarmac. (The player clamps itself — see PlayerBody.)
     for (const car of this.cars) car.clampToRoad();
+  }
+
+  // Phase 8 step 4's "dread_pulse" query — the nearest ENEMY_FACTION car
+  // behind the player, and whether it is gaining, so audio/sustainedfx.js can
+  // turn that into a threat level. Lives HERE, not in the audio layer,
+  // because traffic.js is what owns the cars and their factions — the audio
+  // side only ever sees a plain {gap, closing} pair (or null), never a car
+  // reference, exactly the way main.js already hands hull fraction rather
+  // than a Player instance to updateHullHiss. See main.js's own call site for
+  // where this is turned into sound.
+  //
+  // "BEHIND" is worldY less than the player's own, and `gap` is written the
+  // same sign every other chase in this codebase uses (behaviours.js's
+  // `trail`/`pursue`: `target.worldY - car.worldY`, positive while the car
+  // trails its target) — positive while the hostile is behind the player.
+  // "CLOSING" is the instantaneous car.speed > player.speed comparison, the
+  // same test followSpeed's own `closing` term is built from — a hostile
+  // merely holding pace or falling back is not gaining on the player,
+  // whatever the gap between them.
+  tailThreat() {
+    const player = this.playerBody;
+    let best = null;
+    let bestGap = Infinity;
+    for (const car of this.cars) {
+      if (!car.alive || car.type.faction !== ENEMY_FACTION) continue;
+      const gap = player.worldY - car.worldY;
+      if (gap <= 0 || gap >= bestGap) continue;
+      bestGap = gap;
+      best = car;
+    }
+    if (!best) return null;
+    return { gap: bestGap, closing: best.speed > player.speed };
   }
 
   // --- Destruction ----------------------------------------------------------

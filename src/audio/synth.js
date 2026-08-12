@@ -86,6 +86,22 @@ function updateShieldDrone(shieldTime) {
 function updateWallScrape(contact) {
   sustainedfx.updateWallScrape(contact);
 }
+// Phase 8 step 4's dread_pulse driver — `tailThreat` is traffic.js's own
+// tailThreat() result (a plain {gap, closing} pair, or null), unchanged all
+// the way through to sustainedfx.js. See that file's own header for why the
+// query lives in traffic.js rather than here.
+function updateDreadPulse(dt, tailThreat) {
+  sustainedfx.updateDreadPulse(dt, tailThreat);
+}
+
+// Phase 8 step 4's speed-linked music filter — forwards straight to
+// context.js, which owns both the BiquadFilter node itself and the pure
+// speed->cutoff mapping (speedToMusicCutoff). Kept as two separate calls
+// here (map, then set) rather than a single context.js function, so the
+// pure mapping stays independently testable — see context.js's own comment.
+function updateMusicCutoff(speed) {
+  context.setMusicCutoff(context.speedToMusicCutoff(speed));
+}
 
 // Releases every sustained voice — main.js calls this from newGame(), so a
 // fresh run never inherits a hiss/drone/scrape from the run that just ended.
@@ -98,6 +114,7 @@ function resetSustained() {
 export function createMusic() {
   return {
     start, setVolume, setSfxVolume, playDisconnect, play, disturb,
-    updateHullHiss, updateShieldDrone, updateWallScrape, resetSustained,
+    updateHullHiss, updateShieldDrone, updateWallScrape,
+    updateDreadPulse, updateMusicCutoff, resetSustained,
   };
 }
