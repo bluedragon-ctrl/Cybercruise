@@ -1,5 +1,5 @@
 // Phase 8 audio infrastructure — the ONE place that owns the AudioContext and
-// the permanent bus graph everything else (music.js, sfx.js) plugs into.
+// the permanent bus graph everything else (proceduralmusic.js, sfx.js) plugs into.
 // Splitting this out of the old monolithic synth.js so that adding sound #31
 // later never means touching graph wiring again: the graph is built exactly
 // once, here, and every voice — music or SFX — just connects to a bus this
@@ -17,15 +17,15 @@
 //
 // --- Bus graph -----------------------------------------------------------
 //
-//   music voices ──> musicGain ──> musicFilter ──> duckGain   ──> compressor ──> destination
-//   sfx voices   ──> sfxGain   ────────────────────────────────> sfxDropGain ───────────^
+//   music voices ──> musicGain ──> musicFilter ──> duckGain ──> musicDropGain ──> compressor ──> destination
+//   sfx voices   ──> sfxGain   ──────────────────────────────> sfxDropGain ──────────────────────────^
 //
 // musicFilter (Phase 8 step 4) is a lowpass whose cutoff main.js's update
 // loop tracks against player speed — see setMusicCutoff()/speedToMusicCutoff()
 // below. It sits BETWEEN musicGain and duckGain deliberately, its own node,
 // touching only `.frequency` — never `.gain` — so it can never fight the two
 // existing users of this same bus for control of one AudioParam:
-//   - music.js's disturb() touches the CURRENTLY-SOUNDING PAD'S OWN filter
+//   - proceduralmusic.js's disturb() touches the CURRENTLY-SOUNDING PAD'S OWN filter
 //     (schedulePad's per-bar `currentPadFilter`, a completely different node
 //     from this one) plus that pad's own oscillator detune. A speed-driven
 //     cutoff here and a transient hit-driven dip on the pad's own filter
@@ -43,6 +43,18 @@
 //     out of each other's way on the ONE shared AudioParam instead: a
 //     base+multiplicative-offset split, with a single pair of functions
 //     that ever calls cancelScheduledValues()/rampToValueAtTime() on it.
+//
+// musicDropGain is the music path's analogue of sfxDropGain, and exists for
+// exactly one reason: the disconnect fade (fadeMusicForDisconnect() /
+// restoreMusicAfterDisconnect() below) needs to ramp the whole music path to
+// silence and back WITHOUT fighting setMusicVolume() for musicGain's own
+// AudioParam. It used to ride musicGain directly, which meant the MUSIC
+// slider and the disconnect fade both called cancelScheduledValues() on the
+// same param and whichever ran last won outright — nudging the MUSIC bar on
+// the gameover screen (main.js's own menu handling) audibly pulled the music
+// back up out of the silence the disconnect had just faded it into. Its own
+// node means the fade never has to know or care what the MUSIC slider is
+// doing, exactly as sfxDropGain never has to know about the SOUND slider.
 //
 // duckGain sits ONLY on the music path. Ducking sfx against itself would be
 // nonsense — the sound causing the duck would be dipping its own volume out
@@ -86,6 +98,7 @@ let musicFilter = null;
 let sfxGain = null;
 let sfxDropGain = null;
 let duckGain = null;
+let musicDropGain = null;
 let delay = null;
 let noiseBuffer = null;
 
@@ -148,6 +161,12 @@ function buildGraph() {
   duckGain = ctx.createGain();
   duckGain.gain.value = 1; // undipped until the first duck() call
 
+  // See the header: musicDropGain is musicGain's own analogue of sfxDropGain,
+  // used for exactly one thing (the disconnect fade below) — open (1) until
+  // fadeMusicForDisconnect() first pulls it down.
+  musicDropGain = ctx.createGain();
+  musicDropGain.gain.value = 1;
+
   // Phase 8 step 4's speed-linked lowpass — see the header's bus diagram for
   // why this is its own node, between musicGain and duckGain. Starts at
   // MUSIC_CUTOFF_MAX (brightest) rather than MUSIC_CUTOFF_MIN: nothing has
@@ -162,7 +181,8 @@ function buildGraph() {
   const compressor = ctx.createDynamicsCompressor();
   musicGain.connect(musicFilter);
   musicFilter.connect(duckGain);
-  duckGain.connect(compressor);
+  duckGain.connect(musicDropGain);
+  musicDropGain.connect(compressor);
   sfxGain.connect(sfxDropGain);
   sfxDropGain.connect(compressor);
   compressor.connect(ctx.destination);
@@ -230,7 +250,7 @@ export function setSfxVolume(level) {
 // "Slower means duller." Deliberately NARROW — the design brief is explicit
 // that this must be FELT, not heard as an effect ("if it is audible as a
 // filter sweep it is too wide") — and it stays well inside every source
-// voice's own headroom: music.js's pad rests at 900Hz, the bass at 350Hz,
+// voice's own headroom: proceduralmusic.js's pad rests at 900Hz, the bass at 350Hz,
 // the accent at 1400Hz, so MUSIC_CUTOFF_MIN sitting exactly at the pad's own
 // resting point means a dead crawl caps the WHOLE bus no darker than the pad
 // already always is, and MUSIC_CUTOFF_MAX stays comfortably under the
@@ -290,7 +310,7 @@ const MUSIC_CUTOFF_RAMP = 0.25; // seconds — never snaps; see setMusicVolume's
 // read as darker than the music ever gets in ordinary play, which requires
 // going below MUSIC_CUTOFF_MIN on purpose. composeMusicCutoff instead floors
 // at MUSIC_CUTOFF_FLOOR, a much lower, purely defensive bound (matching
-// music.js's own disturb() floor on the pad's unrelated filter) that exists
+// proceduralmusic.js's own disturb() floor on the pad's unrelated filter) that exists
 // only to stop a BiquadFilter's frequency from ever being driven to
 // something degenerate, not to preserve the speed band's own headroom.
 export const MUSIC_CUTOFF_FLOOR = 150; // Hz — an absolute safety floor, well under any speed-linked base or transition target either system produces
@@ -411,37 +431,46 @@ export function resetMusicCutoffTransition() {
 //
 // "Cut the music to silence ~200ms before the static begins, so the drop
 // lands in a hole" (design brief). Implemented as a head start rather than a
-// real setTimeout: fadeMusicForDisconnect() ramps musicGain toward silence
+// real setTimeout: fadeMusicForDisconnect() ramps musicDropGain toward silence
 // starting NOW, and synth.js's playDisconnect() schedules generateDisconnect
 // itself DISCONNECT_FADE seconds into the future (sfx.js's play() opts.startDelay)
 // — both scheduled off the SAME ctx.currentTime instant, so the two can never
 // drift apart the way two independently-timed calls could.
 //
-// A RAMP ON musicGain, never a stop of anything — music.js's scheduler keeps
+// ON musicDropGain, NOT musicGain — see the module header's own note on that
+// node. musicGain is the MUSIC SLIDER'S param (setMusicVolume above), and
+// these two ramps used to share it: a MUSIC-row adjust on the gameover screen
+// then cancelled the disconnect fade and pulled the music back up out of the
+// silence it was supposed to be lying in. Two effects, two nodes, no shared
+// AudioParam — the same rule sfxDropGain follows against setSfxVolume().
+//
+// A RAMP, never a stop of anything — proceduralmusic.js's scheduler keeps
 // scheduling notes into the silence the whole time (see the module header's
-// own "going quiet is a volume ramp, never a teardown"); restoreMusicAfterDisconnect()
-// below just raises the SAME gain node back up, so whatever the loop already
-// scheduled is simply audible again, no restart, no seam.
+// own "going quiet is a volume ramp, never a teardown"), and trackmusic.js's
+// own source keeps playing through it; restoreMusicAfterDisconnect() below
+// just re-opens the SAME node, so whatever was already sounding is simply
+// audible again, no restart, no seam.
 export const DISCONNECT_FADE = 0.2; // seconds — the head start; sfx.js's generateDisconnect is delayed to start exactly this far into the future
 
 export function fadeMusicForDisconnect() {
   if (!ctx) return;
   const t = ctx.currentTime;
-  musicGain.gain.cancelScheduledValues(t);
-  musicGain.gain.setValueAtTime(musicGain.gain.value, t);
-  musicGain.gain.linearRampToValueAtTime(0.0001, t + DISCONNECT_FADE);
+  musicDropGain.gain.cancelScheduledValues(t);
+  musicDropGain.gain.setValueAtTime(musicDropGain.gain.value, t);
+  musicDropGain.gain.linearRampToValueAtTime(0.0001, t + DISCONNECT_FADE);
 }
 
 // Called from main.js's newGame() (via synth.js's resetForNewRun facade) —
-// "music restored from the disconnect silence" per the design brief. Ramps
-// musicGain back to the current MUSIC slider level, the same shape
-// setMusicVolume() itself already uses to move this exact node.
+// "music restored from the disconnect silence" per the design brief. Re-opens
+// musicDropGain to unity (NOT to the MUSIC slider's level — that's musicGain's
+// job, and this node knows nothing about it), the same ramp-not-snap shape
+// every other AudioParam move in this file uses.
 export function restoreMusicAfterDisconnect() {
   if (!ctx) return;
   const t = ctx.currentTime;
-  musicGain.gain.cancelScheduledValues(t);
-  musicGain.gain.setValueAtTime(musicGain.gain.value, t);
-  musicGain.gain.linearRampToValueAtTime(MASTER_VOLUME * musicVolume, t + 0.15);
+  musicDropGain.gain.cancelScheduledValues(t);
+  musicDropGain.gain.setValueAtTime(musicDropGain.gain.value, t);
+  musicDropGain.gain.linearRampToValueAtTime(1, t + 0.15);
 }
 
 // --- Ducking ---------------------------------------------------------------
@@ -477,7 +506,7 @@ export const DUCK_RELEASE = 0.4; // seconds
 // (kill_neutral) only dipped the music bus ~37% in amplitude, which combat
 // playtesting found wasn't enough headroom for SFX to read clearly against
 // a busy music passage (the pad alone sums SIX detuned oscillators — see
-// music.js's schedulePad — so the music bus routinely carries more
+// proceduralmusic.js's schedulePad — so the music bus routinely carries more
 // simultaneous signal than any one-shot SFX does). 8dB gives a duck=1
 // sound roughly 60% amplitude reduction, genuinely audible without being a
 // hard mute.

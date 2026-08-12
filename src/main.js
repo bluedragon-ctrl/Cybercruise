@@ -161,16 +161,18 @@ function onPlayerDamage(hp, deflected) {
   }
   // Intensity relative to the WHOLE hull, not to this one hit's own size
   // against itself — a wall-scrape tick and a full rocket impact both funnel
-  // through here, and the stutter (and the pad's own disturb() below) should
+  // through here, and the stutter (and the music's own disturb() below) should
   // read louder for whichever one actually cost more of it.
   const intensity = Math.min(1, hp / player.maxHealth);
   music.play("player_hit", { intensity });
-  // The pad's own transient seam (music.js's disturb()) — a SEPARATE call,
-  // deliberately not folded into player_hit's own envelope: hull_hiss
+  // The MUSIC's own transient seam (synth.js's disturb(), forwarded to
+  // whichever backend is currently playing) — a SEPARATE call, deliberately
+  // not folded into player_hit's own envelope: hull_hiss
   // (audio/sustainedfx.js, driven from the update loop below) is the
   // PERSISTENT degradation layer; this is the momentary shudder on the hit
   // itself. Running both at full strength on the same event would say the
-  // same thing twice — see music.js's own disturb() header.
+  // same thing twice — see proceduralmusic.js's own disturb() header (and
+  // trackmusic.js's, for the same effect applied to a recorded track).
   music.disturb(intensity);
 }
 
@@ -386,7 +388,7 @@ function update(dt) {
       state = "playing";
       hint.innerHTML = PLAY_HINT;
       // CONTINUE resumes a run whose music has been playing the whole
-      // time it was paused (the scheduler never stops — see music.js's own
+      // time it was paused (the scheduler never stops — see proceduralmusic.js's own
       // header) — a plain confirm tone, not jack_in, which is reserved for
       // the one moment the scheduler itself actually starts.
       music.play(MENU_SOUND.confirm);
@@ -644,7 +646,15 @@ function update(dt) {
   if (player.health <= 0) {
     state = "dying";
     disconnect.trigger(player.x, player.y, player.w, player.h);
-    if (soundVolume > 0) music.playDisconnect();
+    // UNCONDITIONAL, deliberately — this call does TWO things (see synth.js's
+    // playDisconnect()): it plays the static AND fades the music bus into the
+    // hole the static is supposed to land in. Gating it on soundVolume used to
+    // suppress both, so a player with SOUND at 0 and MUSIC at 100 heard the
+    // music carry on at full level straight through their own death. The SFX
+    // half needs no gate of its own anyway: sfxGain already sits at
+    // soundVolume, so a muted SOUND slider makes the static inaudible without
+    // anything here having to know that.
+    music.playDisconnect();
     hint.innerHTML = "";
   }
 }

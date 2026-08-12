@@ -487,7 +487,7 @@ export function updateWallScrape(contact) {
 // thing that makes "the pulse rate scales with proximity" (the design
 // brief's own words) true. `dreadLfo` is stashed at module scope, once, at
 // build time — the same "capture the node you'll need to keep touching"
-// pattern music.js's own currentPadFilter uses for disturb(), and safe for
+// pattern proceduralmusic.js's own currentPadFilter uses for disturb(), and safe for
 // the same reason sustained.js's whole design rests on: this graph is built
 // exactly once, ever, and never rebuilt (see that file's header), so the
 // reference never goes stale.

@@ -391,15 +391,26 @@ function generateFireEnemy(ctx, dest, t) {
 
 registerGenerator("fire_enemy", generateFireEnemy);
 
-// A hostile car destroyed (main.js's onCarDestroyed, when score.js would
-// score it a bounty) — GLASS SHATTER, reworked a second time against a
-// reference example the user supplied: a genuine glass-break needs BELL-
-// LIKE RINGING shards, not flat clicks. The first pass here used short
-// bandpassed NOISE bursts for each fragment, which read as generic ticks;
-// this pass gives every shard a couple of INHARMONIC SINE PARTIALS instead
-// (a fundamental plus a detuned overtone, each with its own independent
-// decay) — the same technique real bell/glass-ping synthesis uses, and the
-// one thing the reference made obvious was missing.
+// --- The shared glass-shatter body ---------------------------------------
+//
+// ONE implementation, TWO catalogue entries (kill_enemy and kill_neutral —
+// see each generator below). Those two were previously a verbatim ~115-line
+// copy of each other, duplicated ON PURPOSE so either could be retuned
+// without the edit silently reaching the other. That freedom is worth
+// keeping and this keeps it — every number either entry might want to move
+// on its own is a field of the `cfg` it passes in (see GLASS_SHATTER_BASE),
+// so "make kill_neutral's shatter thinner / heavier / longer" is a one-line
+// override rather than an edit to a shared body.
+//
+// WHAT CHANGED, AND WHY IT'S NOT A REGRESSION OF THAT DECISION: duplication
+// protects against a DELIBERATE change reaching the wrong entry; it does
+// nothing about an ACCIDENTAL one-sided edit, which in two 115-line
+// look-alike bodies is both easy to make and invisible in review — and
+// nothing in the test suite compared them. A cfg split keeps intentional
+// divergence cheap while making accidental divergence impossible. If a
+// future retune of one entry is STRUCTURAL rather than numeric (a different
+// set of layers, not different numbers), forking this function at that point
+// is still exactly as available as it was before.
 //
 // SIX LAYERS:
 //   1. a double-transient CRACK — two close noise clicks (12ms apart),
@@ -417,21 +428,38 @@ registerGenerator("fire_enemy", generateFireEnemy);
 //      thing back to a KILL rather than glass breaking in isolation, and
 //      to the game's own low-register identity
 //
+// Every shard is a couple of INHARMONIC SINE PARTIALS (a fundamental plus a
+// detuned overtone, each with its own independent decay) rather than the
+// bandpassed noise burst a first pass used — the same technique real
+// bell/glass-ping synthesis uses, and the one thing a reference example the
+// user supplied made obvious was missing: a genuine glass-break needs
+// BELL-LIKE RINGING shards, not flat clicks.
+//
 // DELIBERATE, BOUNDED DEPARTURE FROM THE CATALOGUE'S ~1.5kHz TONAL CEILING.
-// The shard partials below run up to ~6-7kHz at their brightest — this is
-// the ONE place in the whole catalogue that happens, done at explicit
-// review direction after hearing the reference example, and pulled back
-// from the reference's own ~10-18kHz partials to stay closer to this
-// game's restrained register. Every other entry still obeys the ceiling.
+// The shard partials run up to ~6-7kHz at their brightest — this is the ONE
+// place in the whole catalogue that happens, done at explicit review
+// direction after hearing the reference example, and pulled back from the
+// reference's own ~10-18kHz partials to stay closer to this game's
+// restrained register. Every other entry still obeys the ceiling.
 //
 // SCALED DOWN FROM THE REFERENCE FOR VOICE COUNT: the reference spawns 54
 // shards at 3 partials each (162 oscillators) plus a convolver reverb per
-// hit. This game can have kill_enemy's maxConcurrent (4) all firing inside
-// one tick during a blast chain, so this version uses 16 shards at 2
-// partials each (32 oscillators) and no convolver — there's no shared
-// reverb bus in context.js to route one through, and building one is out
-// of scope here; a touch of shimmer stands in for it instead.
-function generateKillEnemy(ctx, dest, t) {
+// hit. kill_enemy's maxConcurrent (4) can all fire inside one tick during a
+// blast chain, so this uses 16 shards at 2 partials each (32 oscillators)
+// and no convolver — there's no shared reverb bus in context.js to route one
+// through, and building one is out of scope here; a touch of shimmer stands
+// in for it instead.
+const GLASS_SHATTER_BASE = {
+  shards: 10, // the primary spray
+  shardBand: [900, 2200], // Hz — the primary spray's own fundamental range
+  cascadeShards: 6, // the secondary, thinner cascade
+  cascadeBand: [1100, 2500], // Hz — slightly higher/smaller pieces
+  thumpPeak: 0.55, // the low impact thump that keeps this reading as a KILL
+  settlePeak: 0.3, // the low noise wash under the settling shards
+  duration: 0.52, // what the voice limiter is told (see the generator contract)
+};
+
+function glassShatter(ctx, dest, t, cfg) {
   // One ringing fragment: a fundamental plus a randomly-detuned inharmonic
   // overtone, each with its OWN randomised decay so no two shards ring
   // identically — the same "no two wrecks alike" idea effects.js's own
@@ -511,19 +539,21 @@ function generateKillEnemy(ctx, dest, t) {
   // 4. Primary spray — skewed toward the very start (Math.pow(rand, 1.5),
   // same skew the reference uses, so most shards cluster right at impact
   // rather than spreading evenly).
-  for (let i = 0; i < 10; i++) {
+  const [primaryLow, primaryHigh] = cfg.shardBand;
+  for (let i = 0; i < cfg.shards; i++) {
     const start = t + Math.pow(Math.random(), 1.5) * 0.12;
-    const freq = 900 + Math.random() * 1300; // 900-2200Hz
+    const freq = primaryLow + Math.random() * (primaryHigh - primaryLow);
     const peak = 0.16 + Math.random() * 0.08;
     shard(start, freq, peak);
   }
 
   // 5. Secondary cascade — fewer, smaller, later; fading with time so the
   // spray reads as thinning out rather than a second identical burst.
-  for (let i = 0; i < 6; i++) {
+  const [cascadeLow, cascadeHigh] = cfg.cascadeBand;
+  for (let i = 0; i < cfg.cascadeShards; i++) {
     const offset = 0.12 + Math.random() * 0.2;
     const start = t + offset;
-    const freq = 1100 + Math.random() * 1400; // 1100-2500Hz
+    const freq = cascadeLow + Math.random() * (cascadeHigh - cascadeLow);
     const peak = (0.06 + Math.random() * 0.05) * (1 - offset / 0.4);
     shard(start, freq, Math.max(peak, 0.02));
   }
@@ -536,7 +566,7 @@ function generateKillEnemy(ctx, dest, t) {
   thump.frequency.exponentialRampToValueAtTime(40, t + 0.16);
   const thumpGain = ctx.createGain();
   thumpGain.gain.setValueAtTime(0.001, t);
-  thumpGain.gain.exponentialRampToValueAtTime(0.55, t + 0.008);
+  thumpGain.gain.exponentialRampToValueAtTime(cfg.thumpPeak, t + 0.008);
   thumpGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
   thump.connect(thumpGain).connect(dest);
   thump.start(t);
@@ -552,13 +582,23 @@ function generateKillEnemy(ctx, dest, t) {
   settleBand.frequency.exponentialRampToValueAtTime(150, settleStart + 0.4);
   const settleGain = ctx.createGain();
   settleGain.gain.setValueAtTime(0.001, settleStart);
-  settleGain.gain.exponentialRampToValueAtTime(0.3, settleStart + 0.04);
+  settleGain.gain.exponentialRampToValueAtTime(cfg.settlePeak, settleStart + 0.04);
   settleGain.gain.exponentialRampToValueAtTime(0.001, settleStart + 0.4);
   settle.connect(settleBand).connect(settleGain).connect(dest);
   settle.start(settleStart);
   settle.stop(settleStart + 0.42);
 
-  return 0.52;
+  return cfg.duration;
+}
+
+// A hostile car destroyed (main.js's onCarDestroyed, when score.js would
+// score it a bounty) — GLASS SHATTER. The whole body lives in
+// glassShatter() above (see its own header for every layer, the shard
+// technique, and the one bounded departure from the catalogue's tonal
+// ceiling); this entry is the baseline configuration of it, and
+// kill_neutral below is the same shape with its own cfg.
+function generateKillEnemy(ctx, dest, t) {
+  return glassShatter(ctx, dest, t, GLASS_SHATTER_BASE);
 }
 
 registerGenerator("kill_enemy", generateKillEnemy);
@@ -603,152 +643,34 @@ function generateKillObstacle(ctx, dest, t) {
 registerGenerator("kill_obstacle", generateKillObstacle);
 
 // A civilian destroyed (main.js's onCarDestroyed, when score.js would fine
-// it) — THE ONE THAT MATTERS, and, per review, now the SAME glass-shatter
-// shape as generateKillEnemy above.
+// it) — THE ONE THAT MATTERS, and, per review, the SAME glass-shatter shape
+// as generateKillEnemy above (glassShatter(), see its own header for every
+// layer).
 //
-// DELIBERATELY DUPLICATED RATHER THAN CALLED. This function's body is a
-// verbatim copy of generateKillEnemy's, not a call to it — on purpose, so
-// the two can diverge independently the moment one of them needs to (a
-// future retune, a return to the earlier dissonant-dyad design for this
-// entry specifically, anything). Sharing the code the way generateFireTracker
-// shares generateFireBlaster would be the wrong move here: that sharing
-// exists BECAUSE the tracker's identity is "the blaster's body plus
-// something extra" and is meant to track the blaster's own retunes forever;
-// this pairing has no such relationship — kill_neutral and kill_enemy just
-// happen to sound alike today; there is no reason a change to one should
-// ever silently reach the other.
+// ITS OWN cfg, NOT A SHARED CONSTANT WITH kill_enemy — the two pass separate
+// objects even though every value in them is identical today. That is the
+// point: this pairing has no relationship the way generateFireTracker's reuse
+// of generateFireBlaster does (the tracker IS "the blaster plus something
+// extra" and is meant to track the blaster's retunes forever); kill_neutral
+// and kill_enemy just happen to sound alike right now. A future retune of
+// either — a heavier spray here, a return to something closer to the earlier
+// dissonant-dyad design — is an edit to THIS object alone and cannot reach
+// kill_enemy. What that no longer buys, and shouldn't: an accidental
+// one-sided edit to 115 lines of look-alike code, which is what the two
+// verbatim-duplicated bodies here used to risk.
 //
-// WHAT STILL TELLS THEM APART, even with an identical dry generator: this
-// entry's catalogue fields in soundtypes.js — the deepest duck of any combat
-// sound, the catalogue's only real delaySend so the wrongness hangs into
-// the next bar, and the highest priority of the group. The DIFFERENCE
-// between "you killed an enemy" and "you did something wrong" now lives
-// entirely in the MIX rather than in the waveform, which is a genuine
-// departure from the original design brief's dissonant-dyad approach — kept
-// because review chose it, not because the brief changed.
-//
-// REWORKED THE SAME WAY AS generateKillEnemy's own second pass — the
-// bell-like ringing shard() technique, the crack/burst/shimmer/spray/
-// cascade/thump/wash layering, the same bounded departure from the
-// catalogue's ~1.5kHz tonal ceiling — kept numerically identical to that
-// function's own body for now precisely BECAUSE this is a duplicate, not a
-// shared call: if this entry's own levels ever need to diverge from
-// kill_enemy's, this is the one place to change, with no risk of the edit
-// reaching kill_enemy too. See that function's own header for the full
-// explanation of every layer below.
+// WHAT TELLS THEM APART TODAY, given an identical dry generator: this entry's
+// catalogue fields in soundtypes.js — the deepest duck of any combat sound,
+// the catalogue's only real delaySend so the wrongness hangs into the next
+// bar, and the highest priority of the group. The DIFFERENCE between "you
+// killed an enemy" and "you did something wrong" lives entirely in the MIX
+// rather than in the waveform, a genuine departure from the original design
+// brief's dissonant-dyad approach — kept because review chose it, not because
+// the brief changed.
+const KILL_NEUTRAL_SHATTER = { ...GLASS_SHATTER_BASE };
+
 function generateKillNeutral(ctx, dest, t) {
-  function shard(startTime, baseFreq, peak) {
-    const partials = [
-      { ratio: 1, level: 1, decay: 0.05 + Math.random() * 0.11 },
-      { ratio: 2.2 + Math.random() * 0.8, level: 0.5, decay: 0.03 + Math.random() * 0.05 },
-    ];
-    for (const p of partials) {
-      const osc = ctx.createOscillator();
-      osc.type = "sine";
-      const freq = baseFreq * p.ratio;
-      osc.frequency.setValueAtTime(freq, startTime);
-      osc.frequency.exponentialRampToValueAtTime(freq * 0.92, startTime + p.decay);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.001, startTime);
-      g.gain.linearRampToValueAtTime(peak * p.level, startTime + 0.002);
-      g.gain.exponentialRampToValueAtTime(0.001, startTime + p.decay);
-      osc.connect(g).connect(dest);
-      osc.start(startTime);
-      osc.stop(startTime + p.decay + 0.03);
-    }
-  }
-
-  [[0, 2400, 0.5], [0.012, 2900, 0.35]].forEach(([offset, freq, peak]) => {
-    const start = t + offset;
-    const src = ctx.createBufferSource();
-    src.buffer = getNoiseBuffer();
-    const band = ctx.createBiquadFilter();
-    band.type = "bandpass";
-    band.frequency.value = freq;
-    band.Q.value = 3;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(peak, start);
-    g.gain.exponentialRampToValueAtTime(0.001, start + 0.045);
-    src.connect(band).connect(g).connect(dest);
-    src.start(start);
-    src.stop(start + 0.05);
-  });
-
-  const burstStart = t + 0.005;
-  const burst = ctx.createBufferSource();
-  burst.buffer = getNoiseBuffer();
-  const burstBand = ctx.createBiquadFilter();
-  burstBand.type = "bandpass";
-  burstBand.Q.value = 0.9;
-  burstBand.frequency.setValueAtTime(4500, burstStart);
-  burstBand.frequency.exponentialRampToValueAtTime(2000, burstStart + 0.35);
-  const burstGain = ctx.createGain();
-  burstGain.gain.setValueAtTime(0.001, burstStart);
-  burstGain.gain.exponentialRampToValueAtTime(0.35, burstStart + 0.01);
-  burstGain.gain.exponentialRampToValueAtTime(0.001, burstStart + 0.35);
-  burst.connect(burstBand).connect(burstGain).connect(dest);
-  burst.start(burstStart);
-  burst.stop(burstStart + 0.37);
-
-  const shimmerStart = t + 0.01;
-  const shimmer = ctx.createBufferSource();
-  shimmer.buffer = getNoiseBuffer();
-  const shimmerBand = ctx.createBiquadFilter();
-  shimmerBand.type = "bandpass";
-  shimmerBand.frequency.value = 3200;
-  shimmerBand.Q.value = 1.6;
-  const shimmerGain = ctx.createGain();
-  shimmerGain.gain.setValueAtTime(0.001, shimmerStart);
-  shimmerGain.gain.exponentialRampToValueAtTime(0.15, shimmerStart + 0.02);
-  shimmerGain.gain.exponentialRampToValueAtTime(0.001, shimmerStart + 0.2);
-  shimmer.connect(shimmerBand).connect(shimmerGain).connect(dest);
-  shimmer.start(shimmerStart);
-  shimmer.stop(shimmerStart + 0.22);
-
-  for (let i = 0; i < 10; i++) {
-    const start = t + Math.pow(Math.random(), 1.5) * 0.12;
-    const freq = 900 + Math.random() * 1300;
-    const peak = 0.16 + Math.random() * 0.08;
-    shard(start, freq, peak);
-  }
-
-  for (let i = 0; i < 6; i++) {
-    const offset = 0.12 + Math.random() * 0.2;
-    const start = t + offset;
-    const freq = 1100 + Math.random() * 1400;
-    const peak = (0.06 + Math.random() * 0.05) * (1 - offset / 0.4);
-    shard(start, freq, Math.max(peak, 0.02));
-  }
-
-  const thump = ctx.createOscillator();
-  thump.type = "sine";
-  thump.frequency.setValueAtTime(130, t);
-  thump.frequency.exponentialRampToValueAtTime(40, t + 0.16);
-  const thumpGain = ctx.createGain();
-  thumpGain.gain.setValueAtTime(0.001, t);
-  thumpGain.gain.exponentialRampToValueAtTime(0.55, t + 0.008);
-  thumpGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
-  thump.connect(thumpGain).connect(dest);
-  thump.start(t);
-  thump.stop(t + 0.18);
-
-  const settleStart = t + 0.05;
-  const settle = ctx.createBufferSource();
-  settle.buffer = getNoiseBuffer();
-  const settleBand = ctx.createBiquadFilter();
-  settleBand.type = "bandpass";
-  settleBand.Q.value = 0.8;
-  settleBand.frequency.setValueAtTime(400, settleStart);
-  settleBand.frequency.exponentialRampToValueAtTime(150, settleStart + 0.4);
-  const settleGain = ctx.createGain();
-  settleGain.gain.setValueAtTime(0.001, settleStart);
-  settleGain.gain.exponentialRampToValueAtTime(0.3, settleStart + 0.04);
-  settleGain.gain.exponentialRampToValueAtTime(0.001, settleStart + 0.4);
-  settle.connect(settleBand).connect(settleGain).connect(dest);
-  settle.start(settleStart);
-  settle.stop(settleStart + 0.42);
-
-  return 0.52;
+  return glassShatter(ctx, dest, t, KILL_NEUTRAL_SHATTER);
 }
 
 registerGenerator("kill_neutral", generateKillNeutral);
@@ -1047,11 +969,12 @@ registerGenerator("menu_adjust", generateMenuAdjust);
 // --- Phase 8 step 5: transitions ---------------------------------------------
 
 // EXPORTED, not a local constant — synth.js's facade reads this directly
-// (its jackIn() call bundles play("jack_in") with music.js's own
-// start(JACK_IN_DURATION)), so the riser's own length and the moment the
-// music loop's first downbeat is scheduled to land can never drift apart:
-// one number, read by both. See music.js's start() header for the other
-// half of that seam.
+// (its jackIn() call bundles play("jack_in") with the CHOSEN music backend's
+// own start(JACK_IN_DURATION) — either backend, see synth.js's own "Music
+// backend selection" section), so the riser's own length and the moment the
+// music's first downbeat is scheduled to land can never drift apart: one
+// number, read by both. See proceduralmusic.js's start() header (and
+// trackmusic.js's) for the other half of that seam.
 export const JACK_IN_DURATION = 1.5; // seconds — "~1.5s" per the design brief
 
 // The player jacking into the deck for the first time — a DESCENDING
@@ -1115,7 +1038,7 @@ registerGenerator("jack_in", generateJackIn);
 // actually makes this ring out (per the design brief) is soundtypes.js's
 // own high delaySend on this entry, not anything in the envelope below. 82Hz
 // sits in the same low register the pad's own bass line occupies
-// (music.js's PROGRESSION), so the gong reads as coming from the SAME
+// (proceduralmusic.js's PROGRESSION), so the gong reads as coming from the SAME
 // instrument family as the music rather than a separate alert layer bolted
 // on top of it.
 function generateSectorShift(ctx, dest, t) {

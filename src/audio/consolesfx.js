@@ -26,7 +26,7 @@
 // INVERSE of the usual "higher pitch = more urgent" alarm convention. See
 // soundtypes.js's own console_* entries for the full reasoning: this reads
 // as dread settling in rather than an alarm ratcheting up, which is the
-// register the whole soundtrack (music.js's own progression that
+// register the whole soundtrack (proceduralmusic.js's own progression that
 // deliberately never resolves) already works in.
 import { HINT, WARN, CRITICAL } from "../engine/console.js";
 
