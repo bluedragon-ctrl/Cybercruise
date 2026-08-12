@@ -170,6 +170,26 @@ function jackIn() {
   resolveBackend().start(JACK_IN_DURATION);
 }
 
+// The SYS LOG track announcement's seam — forwards straight to
+// trackmusic.js's own onTrackChange (see that file's header), the same
+// one-line forward every other capability in this facade gets, so main.js
+// never has to import an audio backend directly. main.js calls this once,
+// at module scope, right after createMusic() — see its own call site.
+//
+// PROCEDURAL NEVER FIRES THIS, deliberately, not an oversight: the synth
+// loop is one continuous voice with no "track" to hand off between (see
+// proceduralmusic.js's own header — the whole progression loops forever
+// once start() schedules it), so there is nothing here for it to report.
+// The alternative — announcing it once at jackIn() and then never again for
+// the rest of the run — would read as a feed that connects once and then
+// silently drops, which is exactly the confusion the design brief calls
+// out. Saying nothing, always, for this backend is the one choice that
+// stays true every single run: whenever this DOES fire, the player is
+// listening to a recorded track, full stop.
+function onTrackChange(fn) {
+  return trackmusic.onTrackChange(fn);
+}
+
 // Dev-only override for the SFX gallery's A/B panel (src/demo/
 // sfxgallery.js) — main.js never calls this. Forces resolveBackend()'s
 // otherwise-automatic choice, so the comparison the design brief actually
@@ -320,5 +340,6 @@ export function createMusic() {
     updateHullHiss, updateShieldDrone, updateWallScrape,
     updateDreadPulse, updateMusicCutoff, resetForNewRun,
     setBackendPreference, getSelectedBackendName, currentTrackName,
+    onTrackChange,
   };
 }

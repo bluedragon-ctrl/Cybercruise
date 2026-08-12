@@ -185,6 +185,26 @@ let trackGainNode = null; // this backend's OWN trim (musictypes.js's TRACK_GAIN
 let currentSource = null; // the currently-playing AudioBufferSourceNode — disturb() bends THIS node's .detune
 let started = false; // start() is one-shot, same contract as proceduralmusic.js's own `started`
 
+// The SYS LOG announcement's SUBSCRIBER SEAM — same shape as
+// engine/console.js's own onPush (see that file's header for why the
+// pattern exists at all): this file must not import console.js (an
+// engine-layer, presentation-only module has no business depending on
+// which audio backend is currently feeding it), so it stays ignorant of
+// what, if anything, is listening. onTrackChange(fn) registers a callback
+// playIndex() (below) invokes with the raw track name every time playback
+// actually switches to it — main.js is what registers the real handler, at
+// module scope, and turns that name into an actual console line (see its
+// own onTrackChange). One subscriber, not a list, for the same reason
+// console.js's seam only ever needs one.
+let trackChangeSubscriber = null;
+
+export function onTrackChange(fn) {
+  trackChangeSubscriber = fn;
+  return () => {
+    if (trackChangeSubscriber === fn) trackChangeSubscriber = null;
+  };
+}
+
 const TRACK_FILTER_REST = 9000; // Hz — near-transparent at rest. Unlike proceduralmusic.js's pad (deliberately dulled to 900Hz as PART of its tone), a mastered recording is expected to already carry its own frequency balance; this filter's only job is to host disturb()'s dip below.
 const TRACK_DISTURB_DETUNE_CENTS = 20; // cents at amount=1 — noticeably SUBTLER than proceduralmusic.js's 45: that bend souring one pad voice among six oscillators; this one bends the WHOLE mastered mix at once, so the same cent value would read as a much bigger wobble. Tune by ear against a real track.
 const TRACK_DISTURB_FILTER_DROP = 250; // Hz shaved off TRACK_FILTER_REST at amount=1 — a small, "optional" dip per the design brief, scaled down for the same reason as the detune above
@@ -295,6 +315,14 @@ function playIndex(i, delaySeconds) {
   source.start(ctx.currentTime + Math.max(0, delaySeconds));
   currentSource = source;
   index = i;
+
+  // Every call to playIndex() is a track actually starting to sound — the
+  // FIRST one (start(), on jackIn()) and every mid-run HANDOFF
+  // (handleTrackEnded(), below) alike, since both funnel through here and
+  // nowhere else ever calls this. That's what makes one call site enough
+  // to cover "at first play and at every handoff" — see onTrackChange's own
+  // header above.
+  trackChangeSubscriber?.(name);
 
   if (!loopSingle) {
     const ahead = streamAheadTarget();
