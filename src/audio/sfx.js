@@ -15,11 +15,22 @@
 //            already connected to sfxGain (and, if delaySend > 0, already
 //            tapped into the shared delay too) — connect straight to this,
 //            nothing else
-//   time     the ctx.currentTime this voice should start at
+//   time     when this voice should start — ctx.currentTime plus
+//            opts.startDelay if the caller passed one (see play() below)
 //   opts     whatever play()'s caller passed through, generator-specific
 //   returns  how many seconds this voice needs before it's silent — the ONE
 //            piece of information context.js's voice limiter can't know on
 //            its own (see its header on why the slot API is two steps)
+//
+// opts.startDelay (seconds, default 0) is the ONE field play() itself reads
+// rather than passing straight through to the generator — Phase 8 step 5's
+// disconnect polish (synth.js's playDisconnect()) uses it to schedule
+// generateDisconnect's own static to begin exactly context.js's
+// DISCONNECT_FADE seconds after the music has already started fading to
+// silence, so the drop lands in a hole rather than under still-audible
+// music. Nothing else in the catalogue needs this today, but it costs
+// nothing to have available generically rather than one-off plumbing
+// through a `disconnect`-specific code path.
 
 import {
   isStarted, getCtx, getSfxBus, getDelay, getNoiseBuffer,
@@ -936,6 +947,194 @@ for (const severity of Object.keys(CONSOLE_SOUND)) {
   registerGenerator(CONSOLE_SOUND[severity], generateConsoleTick(CONSOLE_PITCH[severity]));
 }
 
+// --- Phase 8 step 5: menu ---------------------------------------------------
+//
+// Four short, dry, triangle-only blips — see soundtypes.js's own header for
+// the shared reasoning (pure interface, no delay send, low gain). All four
+// stay well inside the catalogue's existing pitch vocabulary — 110Hz/164.81Hz
+// are the exact A2/E3 pair shield_deflect and the two pickups already use —
+// rather than inventing a new register just for menu chrome.
+
+// "A cursor step, nothing more" — the plainest generator in the catalogue,
+// on purpose: this fires on every single up/down press in the menu, so
+// anything more eventful than a bare tick would wear thin within a minute
+// of navigating SOUND/MUSIC rows.
+function generateMenuMove(ctx, dest, t) {
+  const dur = 0.025;
+  const osc = ctx.createOscillator();
+  osc.type = "triangle";
+  osc.frequency.value = 130;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.3, t + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(g).connect(dest);
+  osc.start(t);
+  osc.stop(t + dur + 0.01);
+  return dur;
+}
+
+registerGenerator("menu_move", generateMenuMove);
+
+// A DESCENDING fifth, E3->A2 — per the design brief, "you are going down
+// into the system, not levelling up", the opposite contour from every
+// ascending pickup tone in the catalogue (generatePickupHeal/Shield above),
+// deliberately: this needed to read as entering the deck, not as a reward.
+// A single continuous glide, the same shape those two pickups use just
+// inverted, rather than two discrete notes — one unbroken descent reads as
+// one committed action.
+function generateMenuConfirm(ctx, dest, t) {
+  const dur = 0.2;
+  const osc = ctx.createOscillator();
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(164.81, t); // E3
+  osc.frequency.exponentialRampToValueAtTime(110, t + dur); // A2 — a fifth down
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(g).connect(dest);
+  osc.start(t);
+  osc.stop(t + dur + 0.02);
+  return dur;
+}
+
+registerGenerator("menu_confirm", generateMenuConfirm);
+
+// A single, softer note at the bottom of menu_confirm's own glide (A2) —
+// "backing out" is the same direction as confirming, just without following
+// through the whole descent, so sharing the LANDING pitch (rather than
+// inventing a third one) is what ties the two together as the same family
+// of gesture.
+function generateMenuBack(ctx, dest, t) {
+  const dur = 0.06;
+  const osc = ctx.createOscillator();
+  osc.type = "triangle";
+  osc.frequency.value = 110; // A2
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.22, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(g).connect(dest);
+  osc.start(t);
+  osc.stop(t + dur + 0.01);
+  return dur;
+}
+
+registerGenerator("menu_back", generateMenuBack);
+
+// A near-inaudible tick meant to be heard many times a second while a
+// volume bar is being dragged — see soundtypes.js's own minInterval comment
+// for why the RATE this repeats at, not this generator's own envelope, is
+// what actually reads as "scrubbing a slider".
+function generateMenuAdjust(ctx, dest, t) {
+  const dur = 0.02;
+  const osc = ctx.createOscillator();
+  osc.type = "triangle";
+  osc.frequency.value = 150;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.15, t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(g).connect(dest);
+  osc.start(t);
+  osc.stop(t + dur + 0.005);
+  return dur;
+}
+
+registerGenerator("menu_adjust", generateMenuAdjust);
+
+// --- Phase 8 step 5: transitions ---------------------------------------------
+
+// EXPORTED, not a local constant — synth.js's facade reads this directly
+// (its jackIn() call bundles play("jack_in") with music.js's own
+// start(JACK_IN_DURATION)), so the riser's own length and the moment the
+// music loop's first downbeat is scheduled to land can never drift apart:
+// one number, read by both. See music.js's start() header for the other
+// half of that seam.
+export const JACK_IN_DURATION = 1.5; // seconds — "~1.5s" per the design brief
+
+// The player jacking into the deck for the first time — a DESCENDING
+// gesture (a sub sweep down to 40Hz, plus a noise wash sliding down
+// alongside it), per the design brief: "you never hear the world, you hear
+// the deck reporting on the world", and the first thing the deck reports is
+// itself booting down INTO the game rather than up out of it — the same
+// "descending, not triumphant" instinct menu_confirm's own glide follows,
+// stretched out and given real weight here since this is the one moment in
+// the whole game that gets uncontested space (nothing else is sounding on
+// the music bus yet — see this entry's own duck:0 in soundtypes.js).
+//
+// TWO LAYERS, MOVING TOGETHER: the sub oscillator is the gesture's
+// backbone — a long, mostly-exponential descent that only reaches its floor
+// right at the very end, so the ear tracks ONE continuous fall rather than
+// a sweep that arrives early and just sits there. The noise wash's own
+// bandpass centre frequency slides down the SAME direction over the SAME
+// duration, so it reads as texture riding the same descent rather than a
+// second, independent event layered on top.
+function generateJackIn(ctx, dest, t) {
+  const dur = JACK_IN_DURATION;
+
+  const sub = ctx.createOscillator();
+  sub.type = "sine";
+  sub.frequency.setValueAtTime(300, t);
+  sub.frequency.exponentialRampToValueAtTime(40, t + dur * 0.9);
+  const subGain = ctx.createGain();
+  subGain.gain.setValueAtTime(0.0001, t);
+  subGain.gain.exponentialRampToValueAtTime(0.5, t + 0.3);
+  subGain.gain.setValueAtTime(0.5, t + dur * 0.6);
+  subGain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  sub.connect(subGain).connect(dest);
+  sub.start(t);
+  sub.stop(t + dur + 0.05);
+
+  // getNoiseBuffer() is one second of shared white noise (context.js) — this
+  // gesture runs longer than that, hence `loop = true`, the same way any
+  // other sustained noise texture in this codebase would have to.
+  const wash = ctx.createBufferSource();
+  wash.buffer = getNoiseBuffer();
+  wash.loop = true;
+  const band = ctx.createBiquadFilter();
+  band.type = "bandpass";
+  band.Q.value = 0.6;
+  band.frequency.setValueAtTime(2000, t);
+  band.frequency.exponentialRampToValueAtTime(150, t + dur);
+  const washGain = ctx.createGain();
+  washGain.gain.setValueAtTime(0.0001, t);
+  washGain.gain.exponentialRampToValueAtTime(0.25, t + 0.4);
+  washGain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  wash.connect(band).connect(washGain).connect(dest);
+  wash.start(t);
+  wash.stop(t + dur + 0.05);
+
+  return dur;
+}
+
+registerGenerator("jack_in", generateJackIn);
+
+// A single decaying triangle "gong" — deliberately plain on its own; what
+// actually makes this ring out (per the design brief) is soundtypes.js's
+// own high delaySend on this entry, not anything in the envelope below. 82Hz
+// sits in the same low register the pad's own bass line occupies
+// (music.js's PROGRESSION), so the gong reads as coming from the SAME
+// instrument family as the music rather than a separate alert layer bolted
+// on top of it.
+function generateSectorShift(ctx, dest, t) {
+  const dur = 2.0;
+  const osc = ctx.createOscillator();
+  osc.type = "triangle";
+  osc.frequency.value = 82;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.5, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(g).connect(dest);
+  osc.start(t);
+  osc.stop(t + dur + 0.05);
+  return dur;
+}
+
+registerGenerator("sector_shift", generateSectorShift);
+
 // --- play() ----------------------------------------------------------------
 //
 // Looks up `id` in the catalogue, asks context.js's voice limiter whether it
@@ -960,7 +1159,7 @@ export function play(id, opts) {
   if (!accepted) return;
 
   const ctx = getCtx();
-  const t = ctx.currentTime;
+  const t = ctx.currentTime + (opts?.startDelay ?? 0);
 
   // This call's own gain stage, at the catalogue's mix level, feeding the
   // shared sfx bus — every generator connects to THIS, never to getSfxBus()
@@ -979,5 +1178,9 @@ export function play(id, opts) {
   if (entry.duck > 0) duck(entry.duck);
 
   const duration = entry.generator(ctx, dest, t, opts);
-  commitVoiceDuration(id, entry.priority, duration);
+  // commitVoiceDuration measures its own `end` from ctx.currentTime, not
+  // from `t` — so a delayed voice (opts.startDelay > 0) has to report the
+  // delay AS PART OF its duration, or the voice limiter would think this
+  // slot frees up startDelay seconds before the sound actually finishes.
+  commitVoiceDuration(id, entry.priority, (opts?.startDelay ?? 0) + duration);
 }

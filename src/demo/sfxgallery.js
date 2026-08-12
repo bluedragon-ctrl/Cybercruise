@@ -58,14 +58,21 @@ speedSlider.min = MIN_SPEED;
 speedSlider.max = MAX_SPEED;
 speedSlider.addEventListener("input", () => setSpeed(Number(speedSlider.value)));
 
-// Before start(), music.play()/setVolume()/setSfxVolume()/updateMusicCutoff()
+// Before start, music.play()/setVolume()/setSfxVolume()/updateMusicCutoff()
 // are all silent no-ops (see synth.js/context.js's own contract) — so the
 // sliders can be dragged freely before the button is pressed, they just have
 // nothing to affect yet. The levels are pushed again the instant audio
 // actually starts so the engine picks up wherever the sliders were left.
+//
+// startContext() + startMusicLoop(), not jackIn() — this page has no menu
+// screen and no reason to delay the loop's first downbeat behind a riser;
+// see synth.js's own header on why jackIn() is reserved for main.js's START
+// GAME confirm specifically. Both calls together are what the old combined
+// start() used to do in one step.
 startBtn.addEventListener("click", () => {
   if (startBtn.disabled) return;
-  music.start();
+  music.startContext();
+  music.startMusicLoop();
   setSoundLevel(Number(soundSlider.value));
   setMusicLevel(Number(musicSlider.value));
   setSpeed(Number(speedSlider.value));
@@ -204,3 +211,26 @@ SUSTAINED_TYPES.forEach((entry) => {
     });
   }
 });
+
+// --- Phase 8 step 5: the full sector-transition sequence --------------------
+//
+// The one-shots grid above already gets a "sector_shift" cell for free (it's
+// a plain SOUND_TYPES entry) — clicking it plays the gong alone. What it
+// CAN'T audition is the other half of the transition: context.js's musicFilter
+// collapse/reopen, which isn't a catalogue entry at all, just a side effect
+// of synth.js's triggerSectorTransition(). This button fires the SAME call
+// main.js's own sector-crossing edge-detector does, so the gong and the
+// filter collapse can be judged together, the way they're actually heard in
+// the game — "that one sequence can't be judged from the gong alone" per the
+// design brief.
+const transitionGallery = document.getElementById("transitionGallery");
+if (transitionGallery) {
+  const btn = document.createElement("button");
+  btn.className = "sound-cell";
+  btn.innerHTML = `
+    <div class="row1"><span class="id">sector_shift (full sequence)</span></div>
+    <div class="stats">gong + musicFilter collapse (300ms) / reopen (1.5s) — the pair main.js fires together on a sector crossing</div>
+  `;
+  btn.addEventListener("click", () => music.triggerSectorTransition());
+  transitionGallery.append(btn);
+}

@@ -96,11 +96,13 @@ import { Pickups } from "../src/game/pickups.js";
 import {
   GLOBAL_VOICE_CAP, planVoiceRequest, commitVoice,
   DUCK_ATTACK, DUCK_RELEASE, planDuck,
+  isStarted,
 } from "../src/audio/context.js";
 import { SOUND_TYPES, soundTypeById } from "../src/audio/soundtypes.js";
-import "../src/audio/sfx.js"; // side effect: registers every catalogue entry's generator
+import { JACK_IN_DURATION } from "../src/audio/sfx.js"; // also registers every catalogue entry's generator, same side effect the old bare import had
 import { PLAYER_FIRE_SOUND, ENEMY_FIRE_SOUND } from "../src/audio/weaponsfx.js";
 import { PICKUP_SOUND } from "../src/audio/pickupsfx.js";
+import { MENU_ACTIONS, MENU_SOUND } from "../src/audio/menusfx.js";
 import { SUSTAINED_TYPES, sustainedTypeById } from "../src/audio/sustainedtypes.js";
 import "../src/audio/sustainedfx.js"; // side effect: registers every sustained voice's generator
 import {
@@ -117,6 +119,9 @@ import {
 } from "../src/audio/sustainedfx.js";
 import {
   MUSIC_CUTOFF_MIN, MUSIC_CUTOFF_MAX, speedToMusicCutoff,
+  MUSIC_CUTOFF_FLOOR, SECTOR_COLLAPSE_OFFSET, SECTOR_COLLAPSE_ATTACK, SECTOR_COLLAPSE_RELEASE,
+  composeMusicCutoff, planSetMusicCutoff, planBeginSectorTransition,
+  DISCONNECT_FADE,
 } from "../src/audio/context.js";
 
 // A fixture car. Traffic cars are built by traffic.js, which hands them the two
@@ -4220,4 +4225,152 @@ test("speedToMusicCutoff stays inside [MUSIC_CUTOFF_MIN, MUSIC_CUTOFF_MAX] for e
   assert.equal(speedToMusicCutoff(MIN_SPEED), MUSIC_CUTOFF_MIN, "must hit the floor exactly at MIN_SPEED");
   assert.equal(speedToMusicCutoff(MAX_SPEED), MUSIC_CUTOFF_MAX, "must hit the ceiling exactly at MAX_SPEED");
   assert.ok(speedToMusicCutoff(MAX_SPEED) > speedToMusicCutoff(MIN_SPEED), "faster must never read duller than slower");
+});
+
+// --- Phase 8 step 5: menu, transitions and the mix pass ---------------------
+//
+// PROBLEM 1 (context starts on the first keypress, not START GAME) is wired
+// entirely in main.js — a `window.addEventListener("keydown", ..., { once:
+// true })` — which touches `document`/`window` at import time and so can't
+// be imported here (see this file's own header on why main.js itself is
+// never one of the modules under test). What CAN be verified in Node is the
+// contract that listener relies on: nothing anywhere in the audio module
+// graph ever creates an AudioContext merely by being imported. If it did,
+// isStarted() would already read true by this point in the suite, having
+// imported every audio/*.js module above with no browser `window` in sight —
+// and every no-ctx short-circuit this whole file already exercises (duck(),
+// requestVoice(), setMusicCutoff(), ...) would have thrown instead of
+// quietly no-op'ing the moment any of those ran.
+
+test("importing the whole audio module graph never creates an AudioContext on its own", () => {
+  assert.equal(isStarted(), false, "a page loaded and left untouched must never end up with a live AudioContext");
+});
+
+// PROBLEM 2: cutoff composition. See context.js's own "Cutoff composition"
+// section for the full design — base (speed) x offset (sector transition),
+// composed by ONE pair of functions so the two can never fight over
+// musicFilter.frequency the way two independent rampers to the same
+// AudioParam would.
+
+test("composeMusicCutoff(base, 1) reproduces the base exactly — a released offset must have NO effect", () => {
+  for (const base of [MUSIC_CUTOFF_MIN, 1500, MUSIC_CUTOFF_MAX]) {
+    assert.equal(composeMusicCutoff(base, 1), base);
+  }
+});
+
+test("composeMusicCutoff stays sane (never below MUSIC_CUTOFF_FLOOR, never above the base) across the full base x offset space", () => {
+  for (let base = MUSIC_CUTOFF_MIN; base <= MUSIC_CUTOFF_MAX; base += 100) {
+    for (let offset = SECTOR_COLLAPSE_OFFSET; offset <= 1; offset += 0.05) {
+      const composed = composeMusicCutoff(base, offset);
+      assert.ok(composed >= MUSIC_CUTOFF_FLOOR, `composeMusicCutoff(${base}, ${offset}) = ${composed} fell below MUSIC_CUTOFF_FLOOR`);
+      assert.ok(composed <= base, `composeMusicCutoff(${base}, ${offset}) = ${composed} exceeded its own base — an offset in (0,1] must never brighten it`);
+    }
+  }
+  // The collapse offset itself is deliberately allowed to land BELOW
+  // MUSIC_CUTOFF_MIN (see context.js's own header on why this does NOT
+  // reuse the speed mapping's own clamp) — confirm it actually does, at
+  // least at the darkest base the speed mapping ever produces, or the
+  // "reads as darker than the music ever gets in ordinary play" design
+  // goal silently stops being true.
+  assert.ok(
+    composeMusicCutoff(MUSIC_CUTOFF_MIN, SECTOR_COLLAPSE_OFFSET) < MUSIC_CUTOFF_MIN,
+    "the sector collapse must be able to go below the speed mapping's own floor",
+  );
+});
+
+function cutoffState(over = {}) {
+  return { cutoffBase: MUSIC_CUTOFF_MAX, lastCutoffTarget: null, transitionEndTime: 0, ...over };
+}
+
+test("planSetMusicCutoff suppresses the write while a transition is live, but still tracks the freshest base", () => {
+  const state = cutoffState({ transitionEndTime: 5 });
+  const plan = planSetMusicCutoff(state, 1200, 2); // now (2) is before transitionEndTime (5)
+  assert.equal(plan.write, false, "a speed update mid-transition must not touch the AudioParam");
+  assert.equal(plan.state.cutoffBase, 1200, "the new base must still be remembered for whenever the transition releases");
+  assert.equal(plan.state.transitionEndTime, 5, "the transition's own end time must be untouched by a suppressed write");
+});
+
+test("planSetMusicCutoff resumes writing once the transition has ended, using whatever base was tracked during it", () => {
+  // Two suppressed updates during the transition (as main.js would send one
+  // per "playing" tick), then one arriving after transitionEndTime — only
+  // the last should actually write, and it should write the LATEST base.
+  let state = cutoffState({ transitionEndTime: 5 });
+  state = planSetMusicCutoff(state, 1100, 2).state;
+  state = planSetMusicCutoff(state, 1300, 4).state;
+  const after = planSetMusicCutoff(state, 1300, 6); // same value as the last tracked base, but now is PAST transitionEndTime
+  assert.equal(after.write, true, "the first update after the transition ends must write, even if the value hasn't changed since the last SUPPRESSED update");
+  assert.equal(after.target, 1300);
+});
+
+test("planSetMusicCutoff is a plain no-op when the target already matches and no transition is in the way — unchanged from before the transition system existed", () => {
+  const state = cutoffState({ cutoffBase: 1800, lastCutoffTarget: 1800, transitionEndTime: 0 });
+  const plan = planSetMusicCutoff(state, 1800, 10);
+  assert.equal(plan.write, false);
+  assert.equal(plan.state, state, "an unchanged target with no transition must return the SAME state reference, mirroring sustained.js's own setLevel dedupe");
+});
+
+test("planBeginSectorTransition captures the CURRENT base as its reopen target and schedules the collapse/reopen window ATTACK+RELEASE seconds out", () => {
+  const state = cutoffState({ cutoffBase: 2000 });
+  const now = 10;
+  const plan = planBeginSectorTransition(state, now);
+  assert.equal(plan.reopenTarget, 2000, "the reopen must return to the base as it was AT THE MOMENT the crossing fired");
+  assert.equal(plan.collapseTarget, composeMusicCutoff(2000, SECTOR_COLLAPSE_OFFSET));
+  assert.equal(plan.collapseAt, now + SECTOR_COLLAPSE_ATTACK);
+  assert.equal(plan.transitionEndTime, now + SECTOR_COLLAPSE_ATTACK + SECTOR_COLLAPSE_RELEASE);
+  assert.equal(plan.state.transitionEndTime, plan.transitionEndTime, "the returned state must track the same end time the caller schedules the reopen ramp against");
+  assert.equal(plan.state.lastCutoffTarget, 2000, "starting a transition must also settle lastCutoffTarget at the base, so a post-transition setMusicCutoff() for that exact value is correctly treated as already-applied");
+});
+
+test("a speed update mid-transition does not cancel the transition — composing the two end to end", () => {
+  // The scenario the whole composition scheme exists for: a crossing begins
+  // a transition, a speed update arrives mid-flight (must be suppressed,
+  // not cancel anything), and once the transition's own window has elapsed
+  // the next speed update writes cleanly again.
+  let state = cutoffState({ cutoffBase: 1600 });
+  const begin = planBeginSectorTransition(state, 0);
+  state = begin.state;
+  assert.equal(state.transitionEndTime, SECTOR_COLLAPSE_ATTACK + SECTOR_COLLAPSE_RELEASE);
+
+  const midTransition = planSetMusicCutoff(state, 1900, SECTOR_COLLAPSE_ATTACK); // a speed change right as the collapse leg ends
+  assert.equal(midTransition.write, false, "still inside the transition window — must be suppressed");
+  state = midTransition.state;
+
+  const afterTransition = planSetMusicCutoff(state, 1900, SECTOR_COLLAPSE_ATTACK + SECTOR_COLLAPSE_RELEASE + 0.01);
+  assert.equal(afterTransition.write, true, "once the transition's own window has elapsed, the next update must write normally");
+  assert.equal(afterTransition.target, 1900, "and it must write the LATEST base tracked during the transition, not whatever the base was when the transition began");
+});
+
+test("SECTOR_COLLAPSE_ATTACK/RELEASE match the design brief's own ~300ms collapse / ~1.5s reopen", () => {
+  assert.ok(SECTOR_COLLAPSE_ATTACK > 0.1 && SECTOR_COLLAPSE_ATTACK < 0.6, `SECTOR_COLLAPSE_ATTACK ${SECTOR_COLLAPSE_ATTACK} is not close to the brief's ~300ms`);
+  assert.ok(SECTOR_COLLAPSE_RELEASE > 1 && SECTOR_COLLAPSE_RELEASE < 2.2, `SECTOR_COLLAPSE_RELEASE ${SECTOR_COLLAPSE_RELEASE} is not close to the brief's ~1.5s`);
+});
+
+// jack_in's own duration and the music scheduler's start-time offset are the
+// SAME number by construction (synth.js's jackIn(): `music.start(JACK_IN_DURATION)`)
+// rather than two literals that could drift — see that function's own
+// header. What's left to guard in Node is just that the shared constant
+// itself is still a sane figure near the design brief's own "~1.5s".
+test("JACK_IN_DURATION is a sane figure near the design brief's own ~1.5s", () => {
+  assert.ok(JACK_IN_DURATION > 1 && JACK_IN_DURATION < 2, `JACK_IN_DURATION ${JACK_IN_DURATION} is not close to ~1.5s`);
+});
+
+test("DISCONNECT_FADE is a short, sane head start ahead of the disconnect SFX's own static", () => {
+  assert.ok(DISCONNECT_FADE > 0 && DISCONNECT_FADE < 1, `DISCONNECT_FADE ${DISCONNECT_FADE} should be a brief head start, not a long fade`);
+});
+
+// The menu action -> sound id map (audio/menusfx.js). Mirrors
+// PLAYER_FIRE_SOUND/ENEMY_FIRE_SOUND's own coverage tests above, except the
+// "catalogue" being covered (MENU_ACTIONS) is hand-written rather than
+// derived from another file's own list — see menusfx.js's own header for why.
+
+test("MENU_SOUND covers exactly MENU_ACTIONS, with no orphaned keys, and every mapped id is a real sound", () => {
+  for (const action of MENU_ACTIONS) {
+    assert.ok(action in MENU_SOUND, `menu action "${action}" has no entry in MENU_SOUND`);
+    assert.ok(soundTypeById(MENU_SOUND[action]), `MENU_SOUND["${action}"] points at "${MENU_SOUND[action]}", which isn't in SOUND_TYPES`);
+  }
+  const actions = new Set(MENU_ACTIONS);
+  for (const key of Object.keys(MENU_SOUND)) {
+    assert.ok(actions.has(key), `MENU_SOUND["${key}"] has no matching MENU_ACTIONS entry — an orphan`);
+  }
+  assert.equal(Object.keys(MENU_SOUND).length, MENU_ACTIONS.length, "MENU_SOUND must cover MENU_ACTIONS exactly, one entry each");
 });
