@@ -4536,6 +4536,54 @@ test("runPreload's onOrderReady fires synchronously, before decodeTrack is await
   assert.deepEqual(events, ["order", "decode"]);
 });
 
+// The bug this whole mechanism exists to fix: a listing with tracks must be
+// reported SETTLED (and therefore, via trackmusic.js's isAvailable(),
+// available) before the first track's decode has resolved — decode can take
+// as long as it likes here (never resolving, standing in for "still
+// decoding" at the moment jackIn() asks) and onListingSettled must already
+// have fired regardless. This is the pure-logic proof of the third state
+// synth.js's chooseBackend() now has to resolve to "track" for — see the
+// chooseBackend tests below for that half of it.
+test("runPreload's onListingSettled fires as soon as the listing resolves, without waiting for decodeTrack", async () => {
+  const events = [];
+  let releaseDecode;
+  const pendingDecode = new Promise((resolve) => {
+    releaseDecode = resolve;
+  });
+  const preloadPromise = runPreload({
+    fetchListing: async () => [{ name: "a.ogg", size: 1 }],
+    onListingSettled: (order) => events.push(`settled:${order.length}`),
+    decodeTrack: async () => {
+      events.push("decode-start");
+      await pendingDecode;
+      events.push("decode-end");
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0)); // flush microtasks up to decodeTrack's own first await, without resolving it
+  assert.deepEqual(events, ["settled:1", "decode-start"], "the listing must be reported settled while the decode is still pending");
+  releaseDecode();
+  await preloadPromise;
+  assert.deepEqual(events, ["settled:1", "decode-start", "decode-end"]);
+});
+
+test("runPreload's onListingSettled fires on the failure and empty-listing paths too, with an empty order", async () => {
+  const failureEvents = [];
+  await runPreload({
+    fetchListing: async () => { throw new Error("network down"); },
+    onListingSettled: (order) => failureEvents.push(order),
+    decodeTrack: async () => { throw new Error("should never be called"); },
+  });
+  assert.deepEqual(failureEvents, [[]]);
+
+  const emptyEvents = [];
+  await runPreload({
+    fetchListing: async () => [],
+    onListingSettled: (order) => emptyEvents.push(order),
+    decodeTrack: async () => { throw new Error("should never be called"); },
+  });
+  assert.deepEqual(emptyEvents, [[]]);
+});
+
 // --- musictypes.js -----------------------------------------------------
 
 test("validateMusicConfig accepts the shipped configuration as-is", () => {
@@ -4577,12 +4625,28 @@ test("trackDisplayName falls back to the derived name for a track with no TRACK_
 
 // --- Backend selection (audio/synth.js) ---------------------------------
 
-test("chooseBackend picks track when ready, procedural when not, before anything is frozen", () => {
+test("chooseBackend picks track when available, procedural when not, before anything is frozen", () => {
   assert.equal(chooseBackend(null, true), "track");
   assert.equal(chooseBackend(null, false), "procedural");
 });
 
-test("chooseBackend never changes an already-frozen choice, even if readiness flips", () => {
+// The bug fix, made explicit at the pure-decision layer: chooseBackend()'s
+// second argument is now trackmusic.js's isAvailable() (a soundtrack
+// EXISTS, per the listing), not isReady() (a track has actually finished
+// decoding). "Available but not yet decoded" is exactly the state a player
+// who presses START GAME promptly used to lose the race in — the listing
+// has come back with tracks, but the first one is still mid-decode. That
+// state passes `available: true` here (chooseBackend has no notion of
+// decode progress at all — it only ever sees the boolean its caller
+// computed), so it must resolve to "track", same as a fully-decoded track
+// would. See runPreload's own "onListingSettled fires... without waiting
+// for decodeTrack" test above for where that boolean actually comes from
+// in production.
+test("chooseBackend resolves to track for the available-but-not-decoded state, not just the fully-ready one", () => {
+  assert.equal(chooseBackend(null, true), "track", "a listing with tracks must win over the procedural loop even before the first buffer has decoded");
+});
+
+test("chooseBackend never changes an already-frozen choice, even if availability flips", () => {
   assert.equal(chooseBackend("procedural", true), "procedural", "a run that already committed to procedural must not jump to track mid-run");
   assert.equal(chooseBackend("track", false), "track", "a run that already committed to track must not fall back mid-run");
 });

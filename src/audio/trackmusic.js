@@ -24,12 +24,31 @@
 //
 // See synth.js's own header for the full reasoning (backend choice is
 // frozen there, once, for the whole page life). What THIS file is
-// responsible for is making sure synth.js's ONE-TIME readiness check
-// (isReady(), below) is honest: it only ever reports true once the FIRST
-// track has actually finished decoding, never "the fetch started" or "the
-// listing came back" — those can both succeed and still leave the game with
-// nothing playable if the decode itself fails (a corrupt file, an
-// unsupported codec despite the .ogg extension).
+// responsible for is making sure synth.js's ONE-TIME decision has an honest
+// question to answer — and now that means TWO separate, honest booleans,
+// not one:
+//
+//   isReady()      true only once the FIRST track has actually finished
+//                   decoding, never "the fetch started" or "the listing
+//                   came back" — those can both succeed and still leave the
+//                   game with nothing playable if the decode itself fails
+//                   (a corrupt file, an unsupported codec despite the .ogg
+//                   extension). Unchanged from before; still what "fully
+//                   ready to play" means to any caller that asks.
+//   isAvailable()   true once the listing has come back with at least one
+//                   track not already known to have failed — answerable
+//                   from the small JSON listing fetch alone, with NO
+//                   dependency on decodeAudioData ever having run. THIS is
+//                   what synth.js's chooseBackend() now keys off, because
+//                   waiting for isReady() is exactly what used to lose the
+//                   race against a player who presses START GAME promptly:
+//                   the listing is typically resolved well before that
+//                   happens, but the first track's decode is not.
+//
+// A backend chosen on isAvailable() alone can still be committed to before
+// its first buffer exists — see start()/attemptStart() below for how that's
+// made safe (decode-in-progress is awaited via the SAME in-flight promise,
+// not re-fetched, and playback begins the moment it resolves).
 //
 // --- Percent-encoding -------------------------------------------------------
 //
@@ -129,7 +148,9 @@ export function nextPlayableIndex(order, fromIndex, failedNames) {
 // invariant tests wire fakes, so "listing fetch throws", "listing is an
 // empty array", and "first track fails to decode" are all exercised as
 // plain async logic with no fetch/AudioContext involved at all. This is the
-// pure-ish core of what synth.js's isReady() ultimately answers.
+// pure-ish core of what both isReady() and isAvailable() below ultimately
+// answer — the former from `firstTrackReady`, the latter from `order`,
+// both populated straight from this function's return value.
 //
 // `onOrderReady`, if given, fires SYNCHRONOUSLY right after the shuffle,
 // before `decodeTrack` is ever awaited — production's preload() (below)
@@ -139,14 +160,27 @@ export function nextPlayableIndex(order, fromIndex, failedNames) {
 // `index` to decide what's safe to keep, and it runs mid-decode — if it ran
 // against the OLD (empty) `order` instead, it would treat the buffer it
 // just finished decoding as stale and delete it on the spot.
-export async function runPreload({ fetchListing, decodeTrack, onOrderReady, rng = Math.random }) {
+//
+// `onListingSettled`, if given, fires in EVERY branch below — including the
+// two failure paths `onOrderReady` never reaches — the moment the listing
+// question itself is answered, still before `decodeTrack` is ever awaited.
+// This is what backs isAvailable()/whenListingSettled() below: "a
+// soundtrack exists" is answerable from the listing alone (a small JSON
+// fetch), and synth.js's jackIn() needs exactly that signal, independent of
+// however long decoding the first track's several MB of Ogg still takes —
+// see this module's header and synth.js's own "Music backend selection"
+// section for why conflating the two cost trackmusic.js its race against
+// jackIn() before this existed.
+export async function runPreload({ fetchListing, decodeTrack, onOrderReady, onListingSettled, rng = Math.random }) {
   let listing;
   try {
     listing = await fetchListing();
   } catch {
+    onListingSettled?.([]);
     return { order: [], firstTrackReady: false }; // network/parse failure — a normal path, not an error; see the module header
   }
   if (!Array.isArray(listing) || listing.length === 0) {
+    onListingSettled?.([]);
     return { order: [], firstTrackReady: false }; // empty (or malformed) directory listing — same fallback path
   }
 
@@ -155,6 +189,7 @@ export async function runPreload({ fetchListing, decodeTrack, onOrderReady, rng 
     rng
   );
   onOrderReady?.(order);
+  onListingSettled?.(order);
   const firstTrackReady = await decodeTrack(order[0]).then(
     () => true,
     () => false
@@ -175,6 +210,17 @@ let order = []; // fixed once preload() resolves — see shuffleOrder's own "onc
 let index = 0; // which entry of `order` is currently playing (or about to)
 let firstTrackReady = false; // isReady()'s backing flag — see runPreload()
 let preloadPromise = null; // preload() is idempotent; this is what makes a second call a no-op join rather than a second fetch
+
+// isAvailable()'s and whenListingSettled()'s backing state — see both
+// functions below. Created eagerly at module load (not lazily inside
+// preload()) so a caller that asks "is the listing known yet?" before
+// preload() has ever been called still gets a promise that resolves
+// correctly once it eventually is, rather than throwing or hanging on
+// something that doesn't exist yet.
+let resolveListingSettled;
+const listingSettledPromise = new Promise((resolve) => {
+  resolveListingSettled = resolve;
+});
 
 const buffers = new Map(); // name -> decoded AudioBuffer; kept to at most {current, next} — see evictStale()
 const decoding = new Map(); // name -> in-flight decode Promise, so a background stream-ahead and a same-track request from handleTrackEnded share one fetch instead of racing two
@@ -202,6 +248,23 @@ export function onTrackChange(fn) {
   trackChangeSubscriber = fn;
   return () => {
     if (trackChangeSubscriber === fn) trackChangeSubscriber = null;
+  };
+}
+
+// A SECOND, separate subscriber seam — for the one failure mode start()
+// can't route around: EVERY track in the directory failing to decode. Same
+// single-subscriber shape as onTrackChange just above, for the same reason
+// (synth.js is the only production subscriber; see its own registration).
+// Deliberately distinct from onTrackChange rather than reusing it with a
+// null name or similar — "a track started" and "nothing will EVER start"
+// are different facts with different consequences for the listener, and
+// collapsing them would make synth.js's handler guess which one just fired.
+let exhaustedSubscriber = null;
+
+export function onExhausted(fn) {
+  exhaustedSubscriber = fn;
+  return () => {
+    if (exhaustedSubscriber === fn) exhaustedSubscriber = null;
   };
 }
 
@@ -330,27 +393,78 @@ function playIndex(i, delaySeconds) {
   }
 }
 
-// Called from the just-finished source's own 'onended'. Walks forward
-// through the playlist (via nextPlayableIndex, which already skips anything
-// in `failedTracks`) until it finds a track that's already decoded or can
-// be decoded in time, and plays it back to back with no gap. If literally
-// every remaining track has failed, this simply stops — an edge case past
-// what the design brief asks for (a whole directory of corrupt files), not
-// one synth.js falls back to procedural for mid-run (see its own header on
-// why backend swaps never happen after start()).
-async function handleTrackEnded() {
-  let from = nextIndex(order, index);
+// Walks forward from `fromIndex` (INCLUSIVE) through the playlist — via
+// nextPlayableIndex, which already skips anything in `failedTracks` —
+// decoding as needed, until it finds a track that's actually playable or
+// the whole playlist has been exhausted. Shared by handleTrackEnded() (every
+// handoff after the first) and attemptStart() below (the first track,
+// which — under the new availability-based selection — might still be
+// decoding, or might already have failed, by the time start() is called):
+// both are "find the next thing that will actually make sound starting from
+// here", differing only in what each does once it's found one (or found
+// none) — see their own callers.
+async function firstPlayableFrom(fromIndex) {
+  let from = fromIndex;
   for (let step = 0; step < order.length; step++) {
     const candidate = nextPlayableIndex(order, from, failedTracks);
-    if (candidate === null) return; // every remaining track has failed to decode
+    if (candidate === null) return null; // every remaining track has failed to decode
     const name = order[candidate];
     if (!buffers.has(name)) await decodeAndCache(name);
-    if (buffers.has(name)) {
-      playIndex(candidate, 0);
-      return;
-    }
+    if (buffers.has(name)) return candidate;
     from = nextIndex(order, candidate); // that one just failed on THIS attempt — resume the search past it
   }
+  return null;
+}
+
+// Called from the just-finished source's own 'onended'. If literally every
+// remaining track has failed, this simply stops — an edge case past what
+// the design brief asks for (a whole directory of corrupt files), not one
+// synth.js falls back to procedural for mid-run (see its own header on why
+// backend swaps never happen after start() once something has audibly
+// played — unlike attemptStart()'s own exhaustion path below, which fires
+// BEFORE anything has played and is handled differently for exactly that
+// reason).
+async function handleTrackEnded() {
+  const candidate = await firstPlayableFrom(nextIndex(order, index));
+  if (candidate === null) return;
+  playIndex(candidate, 0);
+}
+
+// Commits to actually starting playback, from whatever state the first
+// track happens to be in when start() (below) is called — this is the
+// piece that makes availability-based selection (synth.js may now choose
+// "track" while the first buffer is STILL DECODING, or even before its
+// decode has been attempted at all) safe: it doesn't assume readiness the
+// way the old ready-gated start() did.
+//
+// `targetTime` is an ABSOLUTE ctx.currentTime, fixed once at the top of
+// start() (see below) — NOT a relative delay recomputed on every await.
+// That's what keeps the first note landing exactly `delaySeconds` after
+// start() was called (in sync with the jack_in riser — see synth.js's own
+// jackIn()) even though decodeAndCache() below may await for a while: every
+// resumption re-reads ctx.currentTime and re-subtracts it from the SAME
+// fixed target, so waiting longer only ever shrinks the remaining gap
+// (floored at 0 — the note plays as soon as it can, rather than going
+// negative and trying to schedule a source in the past), never re-bases it.
+async function attemptStart(targetTime) {
+  const candidate = await firstPlayableFrom(index);
+  if (candidate === null) {
+    // EVERY track in the directory failed to decode. The freeze contract
+    // (see synth.js's header) forbids swapping backends mid-run because an
+    // audible jump from one already-sounding thing to another reads as a
+    // bug — but nothing has sounded yet here; start() was called, this
+    // backend was chosen, and it turned out to have nothing playable at
+    // all. That's not a mid-run swap, it's the primary choice failing to
+    // pan out before it ever produced anything — so synth.js's
+    // onExhausted() subscriber (registered once, at module scope) is
+    // free to actually start the procedural backend as a last resort
+    // rather than leaving the run silent, which is a worse bug than the
+    // one this whole mechanism exists to avoid. See synth.js's own
+    // onExhausted handler for the fallback and its console logging.
+    exhaustedSubscriber?.();
+    return;
+  }
+  playIndex(candidate, Math.max(0, targetTime - getCtx().currentTime));
 }
 
 // Fetches the listing and decodes the first track, exactly once per page
@@ -374,6 +488,14 @@ export function preload() {
       order = newOrder;
       index = 0;
     },
+    // Unblocks whenListingSettled() (and, through it, isAvailable() readers
+    // like synth.js's jackIn()) the moment the listing question is
+    // answered — success or failure alike — without waiting on the decode
+    // below. resolveListingSettled is idempotent (a Promise executor's
+    // resolve is a no-op after the first call), which matters here only in
+    // that it makes this safe to reason about even though runPreload()
+    // guarantees a single call anyway.
+    onListingSettled: () => resolveListingSettled(),
     decodeTrack: (name) => decodeAndCache(name),
   }).then((result) => {
     firstTrackReady = result.firstTrackReady;
@@ -383,28 +505,69 @@ export function preload() {
   return preloadPromise;
 }
 
-// synth.js's resolveBackend() reads this ONCE, at the moment anything first
-// asks the facade to actually start playing, to decide track vs.
-// procedural — see that module's own header for the freeze. True only once
-// the FIRST track has actually finished decoding (not "fetch started", not
-// "listing succeeded" — see runPreload()); false for every other state,
-// which is exactly "not ready yet", "listing failed", and "directory empty"
-// collapsed into the one boolean synth.js's chooseBackend() consumes.
+// True only once the FIRST track has actually finished decoding (not
+// "fetch started", not "listing succeeded" — see runPreload()); false for
+// every other state. Kept exactly as-is — other call sites (the SFX
+// gallery's introspection) and the invariant tests still depend on this
+// meaning "fully ready to play," distinct from isAvailable() below.
+// synth.js's resolveBackend() no longer reads this to choose a backend
+// (see isAvailable()) — decode readiness and soundtrack availability are
+// different questions now; see this module's header and synth.js's own
+// "Music backend selection" section for why conflating them was the bug.
 export function isReady() {
   return firstTrackReady;
 }
 
-// Part of the two-backend interface (see the module header). A no-op if
-// called before preload() has produced a playable first track — synth.js's
-// resolveBackend() is what's supposed to prevent that in practice (it only
-// ever selects this backend when isReady() is already true), but this stays
-// defensive rather than throwing, matching every other entry point in this
-// audio layer's own no-throw contract.
+// True once the directory listing has come back with at least one track
+// that hasn't (yet) permanently failed to decode. THIS is what synth.js's
+// chooseBackend() now consumes, via resolveBackend(): "a soundtrack exists"
+// is answerable from the listing alone — a small JSON fetch, typically long
+// resolved before the player has navigated the menu and confirmed START
+// GAME — without waiting for several MB of Ogg to finish decoding. Before
+// the listing has settled, `order` is still its initial empty array, so
+// this correctly (and harmlessly) reads as "not available yet" — callers
+// that need to distinguish "not available" from "not known yet" use
+// whenListingSettled() below instead of polling this.
+//
+// `failedTracks.size < order.length` only matters once every remaining
+// track has actually been attempted and failed (see attemptStart()'s own
+// exhaustion path) — in the common case this check runs (right when the
+// listing arrives, or shortly after), failedTracks is still empty, so this
+// reduces to the simple "order.length > 0" the requirement describes.
+export function isAvailable() {
+  return order.length > 0 && failedTracks.size < order.length;
+}
+
+// Resolves once the listing fetch has settled, one way or another — success
+// with tracks, success but empty, or failure alike (see runPreload()'s
+// onListingSettled). Exists so synth.js's jackIn() can await "is the
+// availability answer known yet?" with its own bounded timeout, rather than
+// polling isAvailable() (which can't distinguish "genuinely no soundtrack"
+// from "listing fetch hasn't come back yet" — both read as `false`). Safe
+// to call before preload() has ever run — see listingSettledPromise's own
+// declaration above for why.
+export function whenListingSettled() {
+  return listingSettledPromise;
+}
+
+// Part of the two-backend interface (see the module header). Under the new
+// availability-based selection, synth.js may commit to this backend well
+// before the first track has finished decoding — sometimes before its
+// decode has even been attempted — so this can no longer just check
+// firstTrackReady and bail. attemptStart() (above) does the real work:
+// it reuses whatever decode of order[index] is already in flight (the
+// `decoding` map dedupes against decodeAndCache()'s own fetch, so this
+// never starts a second one), plays as soon as that resolves, and — if it
+// fails — walks forward through the rest of the playlist exactly like a
+// mid-run handoff would. `targetTime` is fixed HERE, once, from the real
+// ctx.currentTime at the moment start() is actually called, so a long wait
+// inside attemptStart() shrinks the remaining gap rather than re-basing it
+// off whatever ctx.currentTime happens to be when the decode finally
+// resolves — see attemptStart()'s own header.
 export function start(delaySeconds = 0.1) {
   if (started) return;
   started = true;
-  if (!firstTrackReady) return;
-  playIndex(index, delaySeconds);
+  attemptStart(getCtx().currentTime + delaySeconds);
 }
 
 // Part of the two-backend interface. See the module header on why the
