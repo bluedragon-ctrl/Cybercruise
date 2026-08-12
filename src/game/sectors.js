@@ -1,36 +1,21 @@
-// Sectors (Phase 7f) — the city is infinite but statistically uniform, so a
-// long run has no shape. This gives it one: at a fixed distance interval the
-// world's palette changes, the deck reads out the new sector's name in the
-// SYS LOG, and the crossing itself is a brief full-screen "rescan" glitch —
-// the deck re-syncing to a new grid — rather than a blend.
+// Sectors — the city is infinite but statistically uniform, so a long run has no
+// shape. This gives it one: at a fixed distance interval the world's palette
+// changes, the deck reads out the new sector's name in the SYS LOG, and the
+// crossing itself is a brief full-screen "rescan" glitch — the deck re-syncing
+// to a new grid — rather than a blend.
 //
-// SUPERSEDES the design doc's original 7f (a faint per-district highlight
-// quad plus corner brackets, baked, never live fillText). 7e's console voice
-// (game/links.js's callsign/announce) already proved out a cheaper way to
-// say "the map has regions": read the region's name out on the EDGE of
-// crossing into it, the way a node's ping is announced rather than labelled
-// on the floor every frame. A sector is the same shape of problem at a
-// coarser grain, so this reuses that pattern wholesale instead of building
-// the quad+brackets the doc originally proposed. See the design doc's own
-// 7f section for the record of the supersession.
-//
-// ABSORBS the transition half of 7g (VR framing). 7g's deck-glitch vocabulary
-// (scanline tear, desync, re-materialisation) was written for a RARE,
-// otherwise-unmotivated glitch on a timer; a sector crossing turns out to be
-// exactly the moment that vocabulary was always going to be spent on, so the
-// rescan here IS that glitch rather than a second, separate one. 7g's OTHER
-// half — buildings materialising in at the START of a run (a `clip` wipe) —
-// is a different moment with no crossing to hang off, and stays in the doc,
-// unbuilt, on purpose: same vocabulary, deliberately kept out of this PR so
-// the diff stays reviewable.
+// The name is read out on the EDGE of crossing rather than labelled on the floor
+// every frame, reusing the pattern links.js already uses for node callsigns. The
+// rescan spends the same deck-glitch vocabulary (scanline tear, desync,
+// re-materialisation) that spritecache.js's entry wipe does: a crossing is the
+// moment that vocabulary is for, so there is no second, separate glitch.
 //
 // EVERYTHING BUT THE EDGE DETECTOR IS A PURE LOOKUP. citygrid.js's
-// sectorIndex(fDist) is a pure function of position, like the rest of the
-// floor; this file's only job is to notice when that pure answer CHANGES
-// from one tick to the next (the same "an edge needs memory" reasoning
-// links.js's own header gives for lastAnnouncedId) and, on that edge alone,
-// kick off the two THINGS a crossing does that a lookup can't: a transient
-// glitch timer and one SYS LOG line.
+// sectorIndex(fDist) is a pure function of position, like the rest of the floor;
+// this file's only job is to notice when that answer CHANGES from one tick to
+// the next ("an edge needs memory", as links.js puts it) and, on that edge
+// alone, kick off the two things a lookup can't: a transient glitch timer and
+// one SYS LOG line.
 
 import { floorDist } from "./scenery.js";
 import { sectorIndex } from "./citygrid.js";

@@ -213,14 +213,12 @@ function aimSlackFor(type) {
 // function will actually accept, not a copy of the two numbers that might
 // drift out of step with them.
 //
-// 460 REACHES INTO THE TOP OF THE VISIBLE ROAD, not just "far enough to
-// react to". World units are screen pixels along the road (road.js), and the
-// player sits at 62% down an 800px canvas (main.js) — so 460 units ahead
-// lands a shade under 10% from the top edge, comfortably inside the last
-// fifth of what the player can actually see coming, with room to spare
-// before it would scroll off-screen entirely. Raised from an earlier 300
-// (roughly the middle of the screen) once that read as too close to be a
-// real dodge rather than a near-miss.
+// 460 REACHES INTO THE TOP OF THE VISIBLE ROAD, not just "far enough to react
+// to". World units are screen pixels along the road (road.js) and the player
+// sits at 62% down an 800px canvas, so 460 ahead lands a shade under 10% from
+// the top edge — inside the last fifth of what the player can see coming, with
+// room before it would scroll off entirely. Mid-screen (~300) reads as a
+// near-miss rather than a real dodge.
 export const MINE_RANGE = 460;     // world units back the target may be...
 export const MINE_MIN_LEAD = 150;  // ...and no nearer, or it appears in their face
                             // with no road left to steer around it. The player
