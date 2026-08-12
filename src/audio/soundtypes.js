@@ -93,7 +93,7 @@ export const SOUND_TYPES = [
   //
   // MIX REBALANCE (post-review): SFX was found to read too quiet against
   // MUSIC at 100/100 — the music bus routinely sums several simultaneous
-  // voices (music.js's pad alone is six detuned oscillators through one
+  // voices (proceduralmusic.js's pad alone is six detuned oscillators through one
   // gain stage) where every combat sound here is a single one-shot, so raw
   // gain values below were bumped catalogue-wide and weapon fire — which
   // previously never ducked at all — was given a small duck so a shot
@@ -435,7 +435,7 @@ export const SOUND_TYPES = [
   // Two singular moments, not part of the menu/combat/pickup families above:
   // jack_in (main.js's synth.js facade jackIn(), fired once, on the very
   // first START GAME confirm — see synth.js's own header on why it's the
-  // ONE call site that also starts music.js's scheduler) and sector_shift
+  // ONE call site that also starts the chosen music backend) and sector_shift
   // (main.js's own edge-detector on sectors.glitching(), fired on every
   // sector crossing for the rest of the run).
   {

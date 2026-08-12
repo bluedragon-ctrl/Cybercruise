@@ -46,7 +46,7 @@
 // to honour those two calls.
 //
 //   proceduralmusic.js   the original synthesized loop (Phase 8's own
-//                         music.js, renamed). ALWAYS available — nothing
+//                         proceduralmusic.js, renamed). ALWAYS available — nothing
 //                         about it can be "missing" the way a file can.
 //   trackmusic.js         recorded Ogg Vorbis tracks from assets/music/.
 //                         Depends on a directory listing fetch, a track
@@ -271,6 +271,16 @@ function waitForTrackAvailability() {
 // that budget (it doesn't, by design — see its own comment), at which
 // point the remaining delay simply floors at 0 rather than going negative.
 function jackIn() {
+  // THE SAME NO-THROW CONTRACT every other entry point in this layer honours
+  // (see the module header, and context.js's own). Nothing below this line is
+  // safe without a live context — getCtx() returns null before start() — and
+  // this was the one function in the facade that read it unguarded. It's
+  // reachable the moment START GAME can be confirmed by anything that isn't a
+  // keypress: main.js only calls startContext() from a keydown listener, while
+  // menu.js already hit-tests the mouse for its volume bars, so a clickable
+  // row 0 would have turned this into a TypeError on the first click rather
+  // than a silent no-op.
+  if (!context.isStarted()) return;
   playSfx("jack_in");
   const ctxTimeAtJackIn = context.getCtx().currentTime;
   waitForTrackAvailability().then((timedOut) => {
@@ -341,7 +351,7 @@ function setSfxVolume(level) {
 // fades to silence context.js's own DISCONNECT_FADE seconds BEFORE the SFX's
 // own static begins, "so the drop lands in a hole" per the design brief,
 // rather than the TV-switching-off sound landing under music still audibly
-// playing. fadeMusicForDisconnect() ramps musicGain starting NOW; the SFX
+// playing. fadeMusicForDisconnect() ramps musicDropGain starting NOW; the SFX
 // itself is scheduled DISCONNECT_FADE seconds into the future via
 // opts.startDelay (sfx.js's play(), see its own header) — both timed off the
 // SAME ctx.currentTime instant this call makes, so the two can never drift
@@ -427,7 +437,7 @@ function updateMusicCutoff(speed) {
 //     NEXT run's first speed-driven setMusicCutoff() call would find a
 //     transitionEndTime still in its future and silently suppress its own
 //     write (see context.js's own planSetMusicCutoff).
-//   - context.restoreMusicAfterDisconnect() ramps musicGain back up from the
+//   - context.restoreMusicAfterDisconnect() re-opens musicDropGain from the
 //     silence playDisconnect() faded it into — "music restored from the
 //     disconnect silence" per the design brief. A harmless no-op the very
 //     first time this runs (module load's own newGame() call, before any
