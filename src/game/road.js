@@ -393,13 +393,11 @@ function drawRoadWall(ctx, edgeX, sign) {
 //     direct   ~2800-3500us      cached   ~36-44us      i.e. ~75x
 //
 // Read those as a RATIO, not as absolutes. Timing canvas work here is treacherous
-// and two plausible-looking methods disagreed by 5x, so the numbers above come
-// from the only one that survives scrutiny: draw the layer N times inside a rAF
-// callback and measure sustained throughput, with N large enough that the frame
-// overruns its budget. Anything smaller floors at vsync and reports a ratio of 1;
-// and reading the canvas back with getImageData to "force a flush" demotes it out
-// of GPU acceleration, which quietly changes what is being compared. The cached
-// figure agrees closely with a prototype's independently measured 55us.
+// and two plausible-looking methods disagreed by 5x — measure sustained
+// throughput by drawing the layer N times inside one rAF callback, with N large
+// enough to overrun the frame budget. Anything smaller floors at vsync and
+// reports a ratio of 1, and getImageData to "force a flush" demotes the canvas
+// out of GPU acceleration and changes what is being compared.
 //
 // THE LAYOUT. Block `k` covers worldY in [k*S, (k+1)*S). Since worldY runs
 // opposite to screen y, tile-local y = (k+1)*S - worldY, i.e. the top row of the
@@ -410,17 +408,10 @@ function drawRoadWall(ctx, edgeX, sign) {
 // SEAMS, the one real correctness risk. Each tile paints its geometry a FULL
 // STRIDE beyond both ends (world (k-1)*S to (k+2)*S) and lets the canvas clip.
 // The neighbouring tile continues the identical stroke from the identical
-// analytic curve, so the join is exact — measured against renderDirect, the seam
-// rows show a mean channel diff of 0.0146/255 against 0.0142 for every other row.
-// Statistically indistinguishable: there is no seam.
+// analytic curve, so the join is exact: seam rows diff at a mean of 0.0146/255
+// against 0.0142 for every other row — indistinguishable.
 //
-// The whole frame diffs to a mean of ~0.1/255, and what little there is sits in
-// the top 3 and bottom 10 rows — where the CACHE is the more faithful of the two.
-// renderDirect overscans by only one sample step, so its wall rim (offset down by
-// WALL_DY) begins 3px below the top edge and its bottom centre dash is clipped
-// away; a tile has no screen edge to stop at.
-//
-// Do NOT try to hide a seam with overlapping blits instead: neonStroke's two
+// Do NOT hide a seam with overlapping blits instead: neonStroke's two
 // alpha-blended halo passes would composite twice in the overlap and draw a
 // bright band exactly where the seam was.
 //

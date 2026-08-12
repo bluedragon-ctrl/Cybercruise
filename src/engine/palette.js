@@ -73,17 +73,14 @@ export const WALL_FILL = "#08160f";     // dark face of the road's elevated side
 //     block range already, not by variant count — see its own render()) —
 //     not the car catalogue's 160 sprites / ~7MB. Only the colours those
 //     bounded catalogues actually bake in are below.
-// GREEN/GREEN_BRIGHT/GREEN_PALE/GREEN_DIM stay CONST and out of this table
-// even though they read as "the world": main.js's HUD and menu.js import
-// them directly, and neither is the world a sector repaints — the SYS LOG
-// and the score/hull readout have to keep reading the same regardless of
-// what's outside the windshield, or the player loses a fixed reference point
-// for "what colour is a real gameplay signal" the instant it also becomes
-// "what colour is this sector". Where the ROAD or a BUILDING specifically
-// needed its own green (a barrier, a roofline edge, a footprint's dim ground
-// line), it gets its OWN name below — ROAD_EDGE/ROAD_EDGE_DIM/
-// ROAD_CENTERLINE, BUILDING_EDGE/BUILDING_EDGE_DIM — precisely so it can vary
-// without also repainting the HUD out from under it.
+// GREEN/GREEN_BRIGHT/GREEN_PALE/GREEN_DIM stay CONST and out of this table even
+// though they read as "the world": main.js's HUD and menu.js import them
+// directly, and the SYS LOG and score/hull readout have to keep reading the same
+// whatever is outside the windshield, or the player loses their fixed reference
+// for "what colour is a real gameplay signal". Where the ROAD or a BUILDING
+// needs its own green it gets its OWN name below (ROAD_EDGE/ROAD_EDGE_DIM/
+// ROAD_CENTERLINE, BUILDING_EDGE/BUILDING_EDGE_DIM), precisely so it can vary
+// without repainting the HUD out from under it.
 //
 // LIVE BINDINGS, NOT AN ACCESSOR. palette.js is imported directly by every
 // module that wants a colour (road.js, sprites.js, scenery.js, ...); routing

@@ -100,24 +100,14 @@ export const ARTERIAL_PERIOD = PLOT * CROSS_STREET_ROWS; // 512
 // reason — changing ARTERIAL_PERIOD can never accidentally reintroduce a seam
 // here the way an independently-chosen constant could.
 //
-// 1x was the shortest legal value, and what shipped FIRST: at that size a
-// sector crossing happens often enough to exercise the rescan (game/
-// sectors.js) as a matter of course while testing, not to set a PACE for a
-// real run — the same "obviously correct first value, revisit once the rest
-// works" role GRID_SUBDIV played for the drawn grid.
-//
-// 6x is the tuned, real-run value — a FEEL call, not a calculation: checked
-// against both ends of the plausible 4-8x range before settling in the
-// middle. At 4x a crossing lands every ~6.6s at the player's cruising top
-// speed (620 world units/s, player.js's MAX_SPEED) — too close to reading as
-// a strobe. At 8x it stretches to ~13.2s at that same speed, long enough that
-// a normal-length run only sees a couple and the feature risks going
-// unnoticed. 6x lands a crossing roughly every ~9.9s at 620, or ~15.4s at a
-// more typical cruising speed around 400 — long enough that a sector reads as
-// somewhere you've been driving THROUGH, short enough that a several-minute
-// run still crosses a double-digit number of them. Retune by ear again if
-// either MAX_SPEED or a run's typical length changes enough to move those
-// numbers.
+// 6x is a FEEL call, not a calculation, checked against both ends of the
+// plausible 4-8x range. At 4x a crossing lands every ~6.6s at the player's top
+// speed (620, player.js's MAX_SPEED) — close to reading as a strobe. At 8x it
+// stretches to ~13.2s, long enough that a normal run sees only a couple and the
+// feature risks going unnoticed. 6x lands one roughly every ~9.9s at 620, or
+// ~15.4s at a more typical ~400: long enough that a sector reads as somewhere
+// you have been driving THROUGH, short enough that a several-minute run crosses
+// a double-digit number. Retune by ear if MAX_SPEED or typical run length moves.
 //
 // The period this multiplies is in FLOOR-WORLD units, not player distance —
 // scenery.js's floorDist() is the one place that conversion happens (see its
@@ -139,33 +129,16 @@ export function sectorIndex(fDist) {
   return Math.floor(fDist / SECTOR_PERIOD);
 }
 
-// Fraction of unclaimed LOTS that grow a building. Superseded a first pass
-// (0.325) that held built AREA roughly constant against the pre-lot city —
-// area-preservation is the wrong target once the ask is explicitly a DENSER
-// map, not a same-density one at finer grain: at 0.325 the eligible lots
-// between two avenues still read as scattered rather than as a block, which
-// is what "few buildings between highways" (the reported problem) is a
-// description of. This targets near-FULL occupancy of eligible ground
-// instead, since the tactical-map goal (see the design doc's Purpose) is
-// continuous city fabric between streets, not naturalistic vacancy — a real
-// city block doesn't have empty lots for texture.
+// Fraction of unclaimed LOTS that grow a building. Targets near-FULL occupancy
+// of eligible ground: the tactical-map goal is continuous city fabric between
+// streets, not naturalistic vacancy — a real city block doesn't have empty lots
+// for texture, and anything sparser reads as "few buildings between highways".
 //
-// 0.85 measured (test/invariants.test.js samples lotAt directly rather than
-// trusting this comment): eligible-lot fraction is unchanged at 0.45 — see
-// the LOT subdivision comment above, this is a claim about the DENOMINATOR,
-// which streets still remove before this roll ever runs — so 0.85 realizes
-// as 0.85 x 0.45 =~ 0.38 of ALL lots built, versus 0.325 x 0.45 =~ 0.15
-// before. Visible buildings at 600x800 (scenery.js's visibleBuildings, the
-// same sampling its own cost comment uses): mean ~70/frame (range 56-81)
-// against the prior ~27 (range up to 41) — roughly 2.6x, not merely "more".
-//
-// RE-MEASURED after Phase 7d's NODE claim (below) started competing for the
-// same lots: eligible-lot fraction 0.4854 (a wide lx/ly sweep — see this
-// file's own density test), realized-build fraction 0.4123, visibleBuildings
-// mean ~65/frame (range 52-83) — down from ~70, about 7% fewer, which
-// matches NODE's own ~2% bite out of every lot (a NODE claim removes ALL 4
-// lots in its plot from the building roll, not just the one plot). Small, as
-// the design doc predicted, and not worth retuning BUILD_CHANCE for.
+// MEASURED (test/invariants.test.js samples lotAt directly rather than trusting
+// this comment): eligible-lot fraction 0.4854, realized-build fraction 0.4123,
+// and scenery.js's visibleBuildings averages ~65/frame at 600x800 (range 52-83).
+// Streets and NODE claims are what remove ground before this roll runs — a NODE
+// takes all four lots in its plot, worth ~2%.
 const BUILD_CHANCE = 0.85;
 
 // What a plot holds. Anything added later (parks, pads, ...) becomes another

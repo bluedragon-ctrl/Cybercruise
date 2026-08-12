@@ -99,29 +99,20 @@ export function blitSprite(ctx, sprite, cx, cy) {
 // own outline lighting up, which fits a per-sector palette without a new
 // colour entry needing to exist for every sector.
 //
-// BROKEN INTO STATIC, not one clean bar — a solid line reads as drawn UI, not
-// as a signal. Short random-width segments along the boundary, plus a handful
-// of loose flecks scattered just above it (in the band not yet revealed),
-// read as the image resolving out of noise rather than a hard-edged cutoff —
-// closer to "picture building up from the bottom" than a ruler-straight line
-// ever was. Genuinely random EVERY FRAME (Math.random(), not seeded from
-// progress or position) — the same "deck glitch" vocabulary sectors.js's own
-// renderGlitch already spends on its tear, and for the same reason: a
-// flicker that repeated identically frame to frame would read as a texture,
-// not as noise. Purely cosmetic — nothing here feeds back into `progress`.
+// BROKEN INTO STATIC, not one clean bar — a solid line reads as drawn UI, not as
+// a signal. Short random-width segments along the boundary plus a few loose
+// flecks just above it read as the image resolving out of noise rather than a
+// hard-edged cutoff. Genuinely random EVERY FRAME (Math.random(), not seeded
+// from progress or position): a flicker that repeated identically frame to frame
+// would read as a texture, not as noise. Purely cosmetic — nothing here feeds
+// back into `progress`.
 //
-// BATCHED, not one fillRect per segment/fleck — the README's own traffic-dot
-// rule ("multiple ctx.rect() calls between one beginPath()/fill() are one
-// fill, not one each") applies here too. A first version called fillRect
-// (and, for flecks, toggled globalAlpha) once per piece — ~15-20 draw calls
-// for one materialising sprite, each paying its own shadowBlur/state-change
-// overhead regardless of how tiny the rect was — against this version's two
-// (one path/fill for the boundary segments, one for the flecks, one shared
-// fade alpha instead of a per-fleck random one — a small loss the eye
-// doesn't register). Isolated per-call cost (rAF-saturation, warmed sprite
-// cache, this file's own method): a fully-materialised drawBuildingVariant
-// call is ~13us; the same call mid-wipe (progress 0.5) is ~39us — the ~26us
-// difference is this whole function, clip included.
+// BATCHED, not one fillRect per segment/fleck: multiple ctx.rect() calls between
+// one beginPath()/fill() are one fill, not one each, and per-piece fillRect plus
+// globalAlpha toggling costs ~15-20 draw calls per materialising sprite against
+// this version's two. Isolated per-call cost (rAF-saturation, warmed cache): a
+// fully-materialised drawBuildingVariant is ~13us, the same call mid-wipe ~39us
+// — that ~26us difference is this whole function, clip included.
 //
 // `margin` trims the segments in from each side of the sprite canvas — every
 // cached sprite here reserves GLOW_PAD px of empty margin around its own

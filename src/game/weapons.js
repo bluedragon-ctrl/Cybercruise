@@ -150,19 +150,16 @@ export const WEAPON_TYPES = [
     id: "tracker",
     label: "TRACKER",
     // SUSTAINED LANE FIRE — a hose you walk up a curve, not a heavier cannon.
-    // It used to be exactly that: one round every 0.24s for 54 damage, which
-    // read as "the cannon, harder and slower", and the only thing telling it
-    // apart from the cannon was a flight mode that is invisible on a straight
-    // road. The two fields below (burst) and `pierce` are what give it a verb
-    // of its own. Its value stays SITUATIONAL — on a straight the cannon is
-    // still the better tap-fire weapon — but through a long curve this is the
-    // only thing that can rake a whole lane.
+    // The burst fields below and `pierce` are what give it a verb of its own;
+    // without them a tracking flight mode is invisible on a straight road. Its
+    // value stays SITUATIONAL — the cannon is still the better tap-fire weapon —
+    // but through a long curve this is the only thing that can rake a lane.
     damage: 22,
-    // A 0.35s SPRAY, THEN A 0.6s REST. Eight rounds at 22 is 176 damage a
-    // cycle against the cannon's ~256 over the same second — LOWER sustained
-    // damage, deliberately, because the burst lands it all in one place at one
-    // moment and pierce can multiply it across a line of cars. The machinery is
-    // the SMG's (ENEMY_WEAPON_TYPES below), not a second burst implementation.
+    // A 0.35s SPRAY, THEN A 0.6s REST. Eight rounds at 22 is 176 damage a cycle
+    // against the cannon's ~256 over the same second — LOWER sustained damage,
+    // deliberately, because the burst lands it all in one place at one moment and
+    // pierce can multiply it across a line of cars. The machinery is the SMG's
+    // (ENEMY_WEAPON_TYPES below), not a second burst implementation.
     interval: 0.6,       // rest between bursts
     burstCount: 8,       // rounds per burst
     burstInterval: 0.05, // seconds between rounds within a burst
@@ -175,10 +172,8 @@ export const WEAPON_TYPES = [
     // heavy types — the round only continues if it actually killed, so a rig
     // (220 hull) stops it dead, and the rocket stays the answer to armour.
     pierce: 2,
-    // FINITE. DOUBLED from 60 with the retune above: rounds are now worth a
-    // third of what they were each, so the old magazine would have emptied in
-    // seven bursts. 120 is fifteen bursts — the same "running dry and dropping
-    // back to the cannon" arc the old figure was chosen for, at the new rate.
+    // FINITE: fifteen bursts, sized for a "running dry and dropping back to the
+    // cannon" arc rather than a magazine you can lean on.
     ammo: 120,
     color: PLAYER_THRUST,
     glow: PLAYER,
@@ -200,16 +195,12 @@ export const WEAPON_TYPES = [
     // quietly stopping being a one-shot weapon against the lightest thing on
     // the road.
     damage: 98, // +50% over the original 65
-    // ~2.86 shots/sec — still the slowest-firing of the three, but faster than
-    // the round's OWN flight time across the screen (still comfortably so
-    // after the burn retune below: the rocket spends its first ~0.3s barely
-    // clearing the player's nose). That
-    // relationship is what actually matters here, not the raw number: at the
-    // original 0.8s a rocket had already crossed off-screen by the time the
-    // next one fired, so however long you held the trigger only one was ever
-    // visible at once — which defeats the point of projectiles.js's dart
-    // render mode existing at all (see DART_BODY there: "several can be in
-    // the air at once"). This keeps two or more comfortably overlapping.
+    // ~2.86 shots/sec — the slowest-firing of the three, but deliberately faster
+    // than the round's OWN flight time across the screen. That relationship is
+    // what matters, not the raw number: a reload slower than the flight means
+    // only one rocket is ever visible at once, which defeats the point of
+    // projectiles.js's dart render mode (see DART_BODY: "several can be in the
+    // air at once"). This keeps two or more comfortably overlapping.
     interval: 0.35,
     // A LAUNCH, NOT A SHOT. It leaves the rail at less than half the cannon's
     // speed and then burns to well past it — so at point-blank range the rocket
@@ -256,19 +247,15 @@ export const WEAPON_TYPES = [
     // Detonates into a fireball (effects.js's drawFireballBurst) instead of the
     // ordinary spark — the one true fire-coloured explosion in the game.
     impact: "fireball",
-    // Splash, and the ONLY splash the player can aim. At the old 44 this
-    // quietly did nothing: the shortest car in the catalogue is 54 long, so a
-    // radius under half that almost never reached a second body, and the
-    // rocket's "clears a pack" billing was a comment rather than a mechanic.
-    // 90 reaches past the car it struck to the one alongside or behind it, and
-    // that is the whole point of carrying it into traffic.
+    // Splash, and the ONLY splash the player can aim. The radius has to clear a
+    // car's own length (the shortest in the catalogue is 54) or it never reaches
+    // a second body and "clears a pack" is a comment rather than a mechanic. 90
+    // reaches past the car it struck to the one alongside or behind it.
     //
-    // WIDEST ON THE ROAD, HARDEST STILL NOT. This now tops the obstacle
-    // catalogue's radii (26-66, obstacletypes.js) — deliberately, because a
-    // hand-aimed warhead should out-reach road furniture. What it must NOT do
-    // is out-HIT the mine: obstacletypes.js calls the mine's 150 "the single
-    // hardest hit anything on the road can deal", so blastDamage stays under
-    // it. The rocket is the widest blast in the game; the mine is the meanest.
+    // WIDEST ON THE ROAD, HARDEST STILL NOT. This tops the obstacle catalogue's
+    // radii (26-66, obstacletypes.js), because a hand-aimed warhead should
+    // out-reach road furniture — but blastDamage stays under the mine's 150,
+    // which obstacletypes.js calls the hardest hit anything on the road can deal.
     blastRadius: 90,
     blastDamage: 26,
   },
@@ -291,14 +278,11 @@ export const WEAPON_TYPES = [
     // mine, whoever laid it.
     payload: "caltrop",
     // SIX SECONDS, THREE ROUNDS is the enemy's own layer (armament.js). The
-    // player gets a much shorter rest and two more rounds: a held trigger
-    // there is an AI's rare tactical choice, but here it is a deliberate
-    // press every time, so the tighter enemy rationing would read as broken
-    // rather than scarce. CUT FROM AN INITIAL 3s, THEN 1.5s — the magazine
-    // (5 rounds) was already the thing rationing how often a player lays
-    // mines in a chase; the reload no longer needed to do that job too. FIRST
-    // PASS, like the rocket's own numbers above — retune once there is real
-    // road time to measure it against.
+    // player gets a much shorter rest and two more rounds: a held trigger there
+    // is an AI's rare tactical choice, but here it is a deliberate press every
+    // time, so the tighter enemy rationing would read as broken rather than
+    // scarce. The magazine, not the reload, is what rations this. FIRST PASS,
+    // like the rocket's numbers above — retune against real road time.
     interval: 1,
     ammo: 5,
     // HUD-only below this line — a mine never flies, so length/width/flight/
@@ -360,24 +344,14 @@ export const ENEMY_WEAPON_TYPES = [
   {
     id: "blaster",
     label: "BLASTER",
-    // DELIBERATELY CONSERVATIVE, AND NOT YET THE FINAL SETTING. The player has
-    // 100 hull and no way to repair it, so what decides whether being shot at is
-    // pressure or a countdown is not this hit — it is how much hull the WHOLE
-    // ROAD takes per minute, and that is a product of these two numbers and of
-    // HOW OFTEN A GUN BEARS.
+    // DELIBERATELY CONSERVATIVE. The player has 100 hull and no way to repair
+    // it, so what decides whether being shot at is pressure or a countdown is
+    // not this hit — it is how much hull the WHOLE ROAD takes per minute, which
+    // is a product of these two numbers and of HOW OFTEN A GUN BEARS.
     //
-    // The second half of that product does not exist yet. The hostile tactics
-    // (behaviours.js) still borrow their driving from `overtake`, so a hostile
-    // lines up on the player by coincidence — it is passing, not aiming. Once
-    // `pursue` and `block` genuinely tail the player, guns will bear far more
-    // often and this pair is what absorbs it. So it is set low on purpose and
-    // MUST be re-measured then, against the tactics rather than against traffic
-    // flowing past.
-    //
-    // Measured meanwhile, over twelve simulated minutes with the tactics as they
-    // stand: ~19 shots a minute across the whole road, well over a third of them
-    // missing. Missing is correct — a car that shoots only when it cannot miss
-    // is a car that never shoots.
+    // Measured over twelve simulated minutes: ~19 shots a minute across the whole
+    // road, well over a third of them missing. Missing is correct — a car that
+    // shoots only when it cannot miss is a car that never shoots.
     //
     // Retune by MEASURING the road, never by dividing 100 by the damage. The
     // single-gun figure is asserted in test/invariants.test.js only as a sanity

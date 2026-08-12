@@ -1,53 +1,38 @@
-// Phase 8 step 3's SECOND voice lifecycle, alongside sfx.js's one-shot
-// play(). Every sound before this step was a one-shot: allocate nodes,
-// schedule, return a duration, forget — see sfx.js's own header, and
-// context.js's voice limiter, both built entirely around that shape. This
-// step needed sounds that don't have a duration at all: a hiss that tracks
-// hull, a drone that lasts as long as a shield, a scrape that lasts as long
-// as contact continues. None of those fit the one-shot contract:
+// The SECOND voice lifecycle, alongside sfx.js's one-shot play(). Every other
+// sound is a one-shot: allocate nodes, schedule, return a duration, forget. This
+// is for sounds with no duration at all — a hiss that tracks hull, a drone that
+// lasts as long as a shield, a scrape that lasts as long as contact. Those don't
+// fit the one-shot contract:
 //
-//   - they have no duration, so commitVoiceDuration (context.js) is
-//     meaningless for them
-//   - they must NEVER be stolen by the one-shot voice limiter — a hiss that
-//     gets evicted mid-firefight and never returns is a bug that would be
-//     very hard to notice and very confusing to hear, since nothing about
-//     losing a voice slot LOOKS wrong on screen
-//   - they need LEVEL CHANGES over time, not retriggering — the whole point
-//     of hull_hiss is that it gets louder as hull falls, not that it replays
+//   - no duration, so context.js's commitVoiceDuration is meaningless for them
+//   - they must NEVER be stolen by the one-shot voice limiter: a hiss evicted
+//     mid-firefight and never returning is hard to notice and confusing to hear,
+//     since nothing about losing a voice slot LOOKS wrong on screen
+//   - they need LEVEL CHANGES over time, not retriggering — hull_hiss gets
+//     louder as hull falls, it does not replay
 //
-// THE FIX: build each sustained voice's Web Audio graph exactly ONCE, the
-// first time it's acquired, and leave it running (silently, at gain 0) for
-// the rest of the page's life. Web Audio sources are one-shot — an
-// OscillatorNode/AudioBufferSourceNode can only ever be started once, same
-// fact every one-shot generator in sfx.js already lives with — so the ONLY
-// way to make a sound "sustained" is to never stop its source at all and
-// move its GAIN instead. Going quiet is a ramp to zero, never a stop(): a
-// released-then-reacquired voice reuses the exact graph that was silently
-// running the whole time, which is what makes acquire() idempotent and
-// release()-then-acquire() free (no rebuild, ever — see acquire()'s own
-// comment).
+// THE FIX: build each sustained voice's graph exactly ONCE, the first time it is
+// acquired, and leave it running silently (gain 0) for the rest of the page's
+// life. Web Audio sources are one-shot — an Oscillator/AudioBufferSource can
+// only ever be started once — so the only way to make a sound sustained is to
+// never stop its source and move its GAIN instead. Going quiet is a ramp to
+// zero, never a stop(), which is what makes acquire() idempotent and
+// release()-then-acquire() free.
 //
-// WHY THIS IS A SEPARATE MODULE FROM CONTEXT.JS'S VOICE LIMITER, RATHER THAN
-// AN EXTENSION OF IT. The limiter exists to ration a scarce, self-expiring
-// resource — GLOBAL_VOICE_CAP one-shot slots — under contention from a
-// catalogue that keeps growing. A sustained voice is neither: there are
-// exactly three of them, fixed by sustainedtypes.js's own small catalogue,
-// and none of them ever expires on its own (a hiss doesn't have a
-// "duration" the way a gunshot does — it lasts as long as game STATE says
-// it should). Routing it through requestVoice()/commitVoiceDuration() would
-// mean teaching the limiter about a voice that doesn't age out, which is
-// exactly the thing its whole design (see context.js's own header) assumes
-// every voice does. A separate, much smaller registry — one gain node per
-// id, nothing to steal, nothing to expire — is simpler and cannot be
+// SEPARATE FROM CONTEXT.JS'S VOICE LIMITER rather than an extension of it. The
+// limiter rations a scarce, self-expiring resource (GLOBAL_VOICE_CAP one-shot
+// slots) under contention from a growing catalogue. A sustained voice is
+// neither: there are exactly three, fixed by sustainedtypes.js, and none expires
+// on its own. Routing them through requestVoice() would mean teaching the
+// limiter about voices that never age out — the one thing its design assumes.
+// This registry has nothing to steal and nothing to expire, and cannot be
 // starved by combat SFX however busy the fight gets.
 //
-// THE PURE/STATEFUL SPLIT below mirrors context.js's own planDuck()/duck()
-// and planVoiceRequest()/requestVoice(): plan*() functions are plain data in,
-// plain data out — no ctx, no Web Audio node, nothing that can only run in a
-// browser — so test/invariants.test.js can exercise the REGISTRY'S rules
-// (idempotent acquire, ramp-on-change, release reuses rather than rebuilds)
-// under plain Node. The acquire()/setLevel()/release() wrappers are the only
-// things here that ever touch a real AudioContext.
+// THE PURE/STATEFUL SPLIT mirrors context.js's planDuck()/duck(): plan*()
+// functions are plain data in, plain data out, so test/invariants.test.js can
+// exercise the registry's rules (idempotent acquire, ramp-on-change, release
+// reuses rather than rebuilds) under plain Node. acquire()/setLevel()/release()
+// are the only things here that touch a real AudioContext.
 //
 // SOUND-SPECIFIC GRAPHS (what hull_hiss/shield_drone/wall_scrape actually
 // sound like) live in sustainedfx.js, mirroring sfx.js/soundtypes.js's own

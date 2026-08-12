@@ -1,51 +1,34 @@
-// Links and pings (Phase 7e) — signals moving between the nodes 7d planted.
-// 7d gave the floor its facilities; this is what makes them mean something:
-// a conduit running off toward the rest of the network, a ping that says a
-// node is live right now, and — since this landed after the in-game SYS LOG
-// (engine/console.js) shipped — a callsign read out the instant a ping
-// starts. Without the console line these are two pretty circles; with it,
-// the floor is talking to the deck.
+// Links and pings — signals moving between the nodes on the city floor: a
+// conduit running off toward the rest of the network, a ping saying a node is
+// live right now, and a callsign read out to the SYS LOG (engine/console.js) the
+// instant a ping starts. Without the console line these are two pretty circles;
+// with it, the floor is talking to the deck.
 //
-// A CONDUIT ANCHORS AT ONE NODE, NOT TWO. The obvious reading of "a line
-// between two nodes" doesn't survive contact with citygrid.js's own
-// NODE_CHANCE (0.06 of street-adjacent plots — see its own comment): two
-// nodes on screen AT ONCE is uncommon, so a conduit that only exists in that
-// coincidence would almost never be drawn. Anchoring at one node and running
-// off along a heading derived from ITS OWN plot index, to a destination that
-// is usually off screen, is both more available (every visible node gets a
-// conduit, not just the rare pair) and better fiction — a signal heading
-// somewhere beyond the horizon reads as a city-wide network, where a closed
-// A-to-B line reads as two boxes with a wire between them. If two nodes
-// happen to be on screen and their headings point at each other, that's a
-// nice accident; nothing here engineers it.
+// A CONDUIT ANCHORS AT ONE NODE, NOT TWO. Two nodes on screen at once is
+// uncommon (citygrid.js's NODE_CHANCE is 0.06 of street-adjacent plots), so a
+// line between a pair would almost never be drawn. Anchoring at one node and
+// running off along a heading derived from ITS OWN plot index, to a destination
+// usually off screen, is both more available and better fiction — a signal
+// heading beyond the horizon reads as a city-wide network where a closed A-to-B
+// line reads as two boxes with a wire between them.
 //
-// EVERYTHING BUT THE CONSOLE VOICE IS A PURE FUNCTION OF (clock, node index)
-// — same rule as every other per-frame layer on this floor (scenery.js's
-// traffic dots, drones.js's own header). conduitField/pingField/announcement
-// below take plain data in and return plain data out, so
-// test/invariants.test.js can exercise the motion under plain Node with no
-// canvas anywhere in the call path; drawConduits/drawPings are the only
-// functions here that touch ctx.
+// EVERYTHING BUT THE CONSOLE VOICE IS A PURE FUNCTION OF (clock, node index),
+// the same rule every other per-frame layer on this floor follows.
+// conduitField/pingField/announcement take plain data and return plain data, so
+// test/invariants.test.js can exercise the motion under plain Node;
+// drawConduits/drawPings are the only functions here that touch ctx.
 //
-// THE CONSOLE VOICE IS THE ONE EXCEPTION, and it is the ONLY thing on this
-// floor that keeps state at all. Every other layer is a pure function of
-// position or time; "a ping just started" is inherently an EDGE, and an edge
-// needs memory to detect — see announce() below for what the design doc asks
-// to keep that memory to (one scalar: the identity of the last node
-// announced), and why.
+// THE CONSOLE VOICE IS THE ONE EXCEPTION, and the only thing on this floor that
+// keeps state: "a ping just started" is an EDGE, and an edge needs memory. See
+// announce() for how that memory is held to one scalar.
 //
-// COST. Genuinely per-frame paths, same as drones.js (7c actually got there
-// first — see the design doc's own correction). NO ctx.shadowBlur: the glow
-// is neonStroke's own overdraw, same trade drones.js makes and for the same
-// reason — a shadow on a path spanning much of the canvas was measured at
-// ~0.5ms/frame on its own (see scenery.js's grid-tile header). Batched by
-// colour: every conduit's dash in one path, every packet dot in one fill,
-// every ping arc gets its own stroke ONLY because pings need independent
-// fade alpha a shared path can't express — see drawPings' own comment for
-// why that's still "batched", just bounded a different way than the other
-// two. Bounded by the visible node walk (scenery.js's visibleNodes) — a
-// conduit or ping belonging to a node that isn't on screen costs nothing,
-// because it is never constructed in the first place.
+// COST. Genuinely per-frame paths. NO ctx.shadowBlur — the glow is neonStroke's
+// own overdraw, since a shadow on a path spanning much of the canvas measured
+// ~0.5ms/frame on its own. Batched by colour: every conduit's dash in one path,
+// every packet dot in one fill; ping arcs get their own strokes only because
+// they need independent fade alpha a shared path can't express. Bounded by the
+// visible node walk (scenery.js's visibleNodes), so anything off screen is never
+// constructed at all.
 
 import { clock, floorDist, visibleNodes } from "./scenery.js";
 import { neonStroke } from "../engine/neon.js";
