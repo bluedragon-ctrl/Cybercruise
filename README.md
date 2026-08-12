@@ -579,8 +579,9 @@ playable.
 Not every PR is phase work. Building a phase surfaces problems in what is
 already there — a barrier that doesn't fit its lane, cars pointing the wrong way
 through a bend, a renderer spending most of the frame on two layers that never
-change. Those get fixed as they turn up rather than deferred to Phase 9, so the
-history interleaves phase features with side-steps into earlier phases' code.
+change. Those get fixed as they turn up rather than deferred to the polish
+phase, so the history interleaves phase features with side-steps into earlier
+phases' code.
 
 - [x] **Phase 0** — Skeleton: neon car steering over a scrolling grid
 - [x] **Phase 1** — Road: infinite curving highway + barriers
@@ -589,8 +590,8 @@ history interleaves phase features with side-steps into earlier phases' code.
 - [x] **Phase 4** — Combat: shooting, explosions, enemy AI (shoot / mines)
 - [x] **Phase 5** — Weapons: multiple weapons + swap pickups
 - [x] **Phase 6** — Score/states: scoring, penalties, game-over, difficulty ramp
-- [ ] **Phase 7** — Surroundings B: richer lit / parallax city
-      — **in progress**, and split into sub-phases that each ship on their own.
+- [x] **Phase 7** — Surroundings B: richer lit / parallax city
+      — split into sub-phases that each shipped on their own.
       The floor is meant to read as a **tactical map** rather than as scenery —
       the driver is jacked into a deck, so the city is symbolic blocks, simplified
       streets, dot-sized cars and signal markers. Design and per-sub-phase notes:
@@ -616,5 +617,27 @@ history interleaves phase features with side-steps into earlier phases' code.
         leading-edge static scanline; rare deck glitches on a timer
         (superseded — the sector rescan already spends that vocabulary; see
         7f). Closes Phase 7 — see the design doc's own closing note
-- [ ] **Phase 8** — Audio & juice: wavesynth music, SFX, screen shake, scanlines
-- [ ] **Phase 9** — Polish: balance, high scores, performance
+- [x] **Phase 8** — Audio & juice: wavesynth music, SFX, screen shake, scanlines
+- [ ] **Phase 9** — Events: scripted crowds instead of the steady per-car
+      spawn drip — a traffic jam that walls the road off, a bike swarm that
+      converges from behind, a convoy, a roadwork gauntlet. An event owns the
+      spawner for its duration, announces itself on the deck, and hands the
+      road back afterwards
+- [ ] **Phase 10** — Bosses: named enemies at fixed distance milestones, each
+      with its own hull, arms and behaviour, an approach/fight/wreck sequence
+      and a payout worth the run
+- [ ] **Phase 11** — Car upgrades & upgrade shop: spend earnings between runs
+      on max speed, max hull, multi-attacks (firing more than one weapon at
+      once), shield duration, and so on — a catalogue in the same
+      data-file style as `cartypes.js`, plus the shop screen and the persisted
+      wallet/owned-upgrades state
+- [ ] **Phase 12** — Polish: balance, high scores, performance
+- [ ] **Phase 13** — Online server: put the game on a public URL. Static
+      hosting is enough for the no-build ES-module layout; the server side is
+      whatever the game wants beyond that — a shared high-score board being
+      the obvious first thing, which also means the score submission has to
+      be something the server can sanity-check
+- [ ] **Phase 14** — Advertisement: consider monetising via ads. Decide the
+      format first (an interstitial between runs and a rewarded spot in the
+      upgrade shop fit the loop; nothing mid-run), then whether it is worth
+      the load cost and the third-party script at all
