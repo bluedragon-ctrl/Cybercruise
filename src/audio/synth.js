@@ -179,6 +179,11 @@ function waitForTrackAvailability() {
 // JACK_IN_DURATION's budget rather than added on top: the first note still
 // lands at ctxTimeAtJackIn + JACK_IN_DURATION, flooring at 0 rather than going
 // negative in the worst case.
+//
+// THE VISUAL JACK-IN IS NOT TIMED AGAINST THIS. game/jackin.js runs its own,
+// longer ceremony (its CONNECT_DURATION, and its header says why), and it also
+// runs on RESTART, which this deliberately does not — so the two are kept
+// independent rather than one being handed the other's clock.
 function jackIn() {
   // THE SAME NO-THROW CONTRACT every other entry point in this layer honours
   // (see the module header, and context.js's own). Nothing below this line is

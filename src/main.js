@@ -18,6 +18,7 @@ import { pickupTypeById } from "./game/pickuptypes.js";
 import { ENEMY_FACTION } from "./game/cartypes.js";
 import { Explosions } from "./game/effects.js";
 import { Disconnect } from "./game/disconnect.js";
+import { JackIn } from "./game/jackin.js";
 import { Loadout } from "./game/weapons.js";
 import { createMenu } from "./game/menu.js";
 import { createMusic } from "./audio/synth.js";
@@ -52,6 +53,14 @@ initMouse(canvas);
 // to "paused" and back for the rest of the session — same menu.js screen
 // both times, see its header for how it tells the two apart.
 //
+// "connecting" is the run of the game/jackin.js boot sequence, and it is
+// "dying"'s exact mirror in every respect: the world is fully built and drawn
+// every frame, but frozen — nothing under "playing" runs — while the raster
+// boot resolves over the top of it. EVERY run starts here: START GAME enters
+// it from "menu", RESTART enters it from "gameover" (right after newGame()
+// rebuilds the world it is about to reveal). Only the AUDIO half of the
+// jack-in stays once-per-page — see the two call sites below.
+//
 // "dying" is the run of the game/disconnect.js death sequence (see the check
 // at the bottom of the "playing" branch below): the world is frozen — nothing
 // under "playing" runs — but still drawn, under the glitching car, for the
@@ -59,7 +68,7 @@ initMouse(canvas);
 // that beat is over; confirming its RESTART row calls newGame() and drops
 // straight back into "playing", the same way CONTINUE drops out of "paused".
 const menu = createMenu();
-let state = "menu"; // "menu" | "playing" | "paused" | "dying" | "gameover"
+let state = "menu"; // "menu" | "connecting" | "playing" | "paused" | "dying" | "gameover"
 
 // The edge-detector state for Phase 8 step 5's sector-transition audio (see
 // the "playing" branch's own comment on sectorGlitching below) — declared up
@@ -97,6 +106,11 @@ window.addEventListener("keydown", () => music.startContext(), { once: true });
 // restarts via reset() — see newGame() below — the same way `menu` itself is
 // one instance reused for start/pause/gameover.
 const disconnect = new Disconnect();
+
+// The START GAME sequence (game/jackin.js) — disconnect's opposite number, and
+// owned here the same way: one instance, reset() from newGame(), triggered
+// from the one place its event happens (the menu's confirm, below).
+const jackin = new JackIn();
 
 // Everything below is PER-RUN state: it all gets torn down and rebuilt by
 // newGame(), so it's declared with `let` rather than `const` even though
@@ -285,6 +299,7 @@ function newGame() {
   // mine.
   enemyShots = new Projectiles(explosions);
   disconnect.reset();
+  jackin.reset();
   gameConsole.reset();
   // Re-registered every newGame(), never stacked — reset() just cleared it
   // (see console.js's own onPush() header for why), and onPush() itself
@@ -343,8 +358,11 @@ function update(dt) {
     if (menuResult.moved) music.play(MENU_SOUND.move);
     if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
     if (menuResult.confirmed) {
-      state = "playing";
-      hint.innerHTML = PLAY_HINT;
+      // Into game/jackin.js's boot sequence, NOT straight into "playing" — see
+      // the `state` comment above. The hint bar stays empty for its duration,
+      // the same way it does while "dying": there is nothing to steer yet.
+      state = "connecting";
+      hint.innerHTML = "";
       // THE START GAME transition. The keypress that just confirmed this
       // row is also the user gesture AudioContext creation needs — see
       // synth.js's header — though in practice the context has usually
@@ -353,7 +371,10 @@ function update(dt) {
       // case where that happens to be the very same press. jackIn() plays
       // the descending riser and starts the music scheduler timed to land
       // its first downbeat right as the riser ends — see its own comment.
+      // ONCE PER PAGE, unlike the visual sequence on the line below, which
+      // RESTART runs again (see the "gameover" branch).
       music.jackIn();
+      jackin.trigger(player.x, player.y, player.w, player.h);
     }
     // Only pushed to the engine on an actual change (see musicVolume/
     // soundVolume above) — the MUSIC/SOUND rows can only have moved on the
@@ -404,6 +425,30 @@ function update(dt) {
     return;
   }
 
+  if (state === "connecting") {
+    // "dying" in reverse, and frozen for the same reason: the world is built
+    // and drawn (render() runs its whole world path below) but nothing under
+    // "playing" advances it, so the road, the traffic and the player's car all
+    // sit exactly where newGame() put them until the feed is up.
+    jackin.update(dt);
+    // The SYS LOG's own animation, though — the boot lines jackin.update()
+    // just pushed have to slide and fade like any other line, so this ONE
+    // system keeps ticking while everything else is held. It is presentation,
+    // not world state (engine/console.js).
+    gameConsole.update(dt);
+    // Drained every tick for exactly the reason the "dying" branch drains
+    // "fire": input.js holds an edge until something consumes it, so an ESC
+    // pressed during the boot would otherwise sit in `fresh` and open the
+    // pause menu on the first real gameplay tick, a screen the player never
+    // asked for. Nothing is steerable yet, so nothing else is read.
+    consumePress("pause");
+    if (jackin.done) {
+      state = "playing";
+      hint.innerHTML = PLAY_HINT;
+    }
+    return;
+  }
+
   if (state === "dying") {
     // The world is frozen — nothing below this branch runs, so the road,
     // traffic and the player's own last position all just sit exactly where
@@ -438,11 +483,21 @@ function update(dt) {
     if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
     if (menuResult.confirmed) {
       newGame();
-      state = "playing";
-      hint.innerHTML = PLAY_HINT;
+      // RESTART jacks in again, exactly like START GAME did — a run always
+      // begins with the rig coming up, and the game-over screen the player is
+      // confirming from has just told them the deck is REACQUIRING SIGNAL
+      // (game/disconnect.js's own readout), so cutting straight to a moving
+      // road would leave that sentence unanswered. newGame() FIRST: it resets
+      // this sequence and clears the SYS LOG, so the boot lines pushed from
+      // here on belong to the new run rather than being wiped by it.
+      state = "connecting";
+      hint.innerHTML = "";
+      jackin.trigger(player.x, player.y, player.w, player.h);
       // RESTART — same plain confirm tone as CONTINUE (see its own comment
       // above): the scheduler is already running, this is just resuming the
-      // GAME, not the deck jacking in a second time.
+      // GAME, not the deck jacking in a second time. So the boot above plays
+      // over music that never stopped, with no riser of its own — the riser
+      // and the backend start are once-per-page (synth.js's jackIn()).
       music.play(MENU_SOUND.confirm);
     }
     if (menu.musicVolume() !== musicVolume) {
@@ -877,6 +932,7 @@ function render(alpha) {
   // the road actually on screen. While "dying", the disconnect sequence draws
   // in the player's place instead — see game/disconnect.js's render().
   if (state === "dying") disconnect.render(ctx, W, H);
+  else if (state === "connecting" && !jackin.carSolid) jackin.renderCar(ctx);
   else player.render(ctx, alpha, road.headingAt(camY));
   ctx.restore();
 
@@ -888,8 +944,19 @@ function render(alpha) {
   // see sectors.js's own renderGlitch header.
   sectors.renderGlitch(ctx, canvas, W, H);
 
+  // Phase 8's START GAME boot (game/jackin.js): the raster sweep, the tearing
+  // and the chromatic split, over the just-composited world and the car
+  // assembling inside it, UNDER the HUD — the same world/chrome split
+  // sectors.renderGlitch above and "dying"'s shake already draw on. Takes the
+  // canvas element as well as the context because, like the rescan glitch, it
+  // draws the frame so far back onto itself.
+  if (state === "connecting") jackin.render(ctx, canvas, W, H);
+
   drawHud();
   if (state === "dying") disconnect.renderOverlay(ctx, W, H);
+  // Above the HUD, like disconnect's CONNECTION LOST — the readout reports on
+  // the feed, so it must not tear along with it.
+  if (state === "connecting") jackin.renderOverlay(ctx, W, H);
 }
 
 const loop = createLoop(update, render);
