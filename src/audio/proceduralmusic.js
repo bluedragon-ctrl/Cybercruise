@@ -1,13 +1,22 @@
-// Phase 8's procedural synthwave music loop — moved out of the old monolithic
-// synth.js verbatim (progression, voices, scheduler all unchanged) so that
-// context.js can own the bus graph and sfx.js can own one-shot SFX without
-// either dragging the other's ~250 lines along. Behaviour is byte-for-byte
-// the same as before the split: same chords, same drum pattern, same timing.
+// Phase 8's procedural synthwave music loop — originally moved out of the
+// old monolithic synth.js verbatim (progression, voices, scheduler all
+// unchanged). Now ONE OF TWO music backends behind the tiny interface
+// synth.js's facade already relied on before either backend was a separate
+// concept: start(delaySeconds) and disturb(amount) — see synth.js's own
+// header for the full split. Behaviour here is byte-for-byte the same as
+// before that split: same chords, same drum pattern, same timing.
 //
-// No audio files — every sound below is a Web Audio oscillator/noise burst
-// assembled at runtime, so the whole soundtrack ships as a few KB of JS
-// instead of an MP3, and never repeats identically because nothing is a
-// recording.
+// WHY THIS BACKEND IS KEPT, NOT DELETED, now that a recorded-track backend
+// (trackmusic.js) exists and is the one actually meant to play in normal
+// operation. This is the game's ONLY guarantee against total silence:
+// trackmusic.js depends on a directory listing fetch succeeding, at least
+// one file decoding, and (for anyone who clones the repo without copying
+// music in — the audio is deliberately NOT committed, see assets/music's
+// own README) very possibly an EMPTY directory. None of those are error
+// conditions synth.js treats as fatal — they're the normal, expected state
+// for a fresh checkout — so something has to be able to play regardless.
+// Every sound below is a Web Audio oscillator/noise burst assembled at
+// runtime, not a file on disk, so it can never be "missing".
 //
 // Timing uses the standard "lookahead scheduler" pattern (Chris Wilson's "A
 // Tale of Two Clocks"): a plain setInterval tick that peeks ~100ms into the

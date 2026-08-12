@@ -1,12 +1,13 @@
 // Phase 8's audio facade — the only file main.js imports from. Everything
 // this used to do directly (own the AudioContext, schedule the music loop,
-// play the one SFX) now lives in three focused modules this just wires
-// together, so a future call site never has to know the split happened:
+// play the one SFX) now lives in a handful of focused modules this just
+// wires together, so a future call site never has to know the split
+// happened:
 //
 //   context.js   the AudioContext + permanent bus graph, ducking, the voice
 //                limiter — see its header for the bus diagram
-//   music.js     the scheduled synthwave loop, plus Phase 8 step 3's
-//                disturb() seam for a heavy hit briefly souring the pad
+//   proceduralmusic.js + trackmusic.js   TWO interchangeable music
+//                backends — see "Music backend selection" below
 //   soundtypes.js + sfx.js   the SFX catalogue and its player, `play(id)`
 //   sustainedtypes.js + sustained.js + sustainedfx.js   Phase 8 step 3's
 //                second voice lifecycle — sustained voices (hull_hiss,
@@ -18,24 +19,84 @@
 // startContext() fires on the FIRST keydown of any kind, anywhere, so the
 // menu's own SOUND/MUSIC sliders can preview before a run has even begun;
 // jackIn() still only fires once, on START GAME's own confirm, and is what
-// actually starts music.js's scheduler. main.js also calls setVolume() /
-// setSfxVolume() to mirror menu.js's MUSIC and SOUND levels respectively.
-// This module never reads menu.js or localStorage itself — same wiring
-// pattern as fireShot/dropMine in main.js, where the owning module (menu.js)
-// stays ignorant of the system it's wired into.
+// actually starts the chosen music backend's scheduler/playback. main.js
+// also calls setVolume() / setSfxVolume() to mirror menu.js's MUSIC and
+// SOUND levels respectively. This module never reads menu.js or
+// localStorage itself — same wiring pattern as fireShot/dropMine in
+// main.js, where the owning module (menu.js) stays ignorant of the system
+// it's wired into.
 //
 // IMPORTANT BROWSER CONTRACT: an AudioContext is born (or stays) "suspended"
 // unless created/resumed inside the aftermath of a real user gesture — see
 // startContext()'s call site. Calling it from a keydown-driven handler (as
 // main.js does) satisfies that; calling it at module load would not, and the
 // whole engine would silently produce no sound. Nothing in context.js,
-// music.js, soundtypes.js or sfx.js constructs an AudioContext at import
-// time either — see context.js's own header on the same rule.
-
+// proceduralmusic.js, trackmusic.js, soundtypes.js or sfx.js constructs an
+// AudioContext at import time either — see context.js's own header on the
+// same rule.
+//
+// --- Music backend selection ------------------------------------------------
+//
+// Two backends implement the exact same interface this facade already
+// relied on before either existed as a separate concept — literally just
+// the two things any call site below ever asks "the music" to do:
+// start(delaySeconds) and disturb(amount). Nothing wider is assumed
+// anywhere in this file on purpose (see MUSIC_BACKEND_METHODS below), so a
+// future third backend, or a rewrite of either existing one, only ever has
+// to honour those two calls.
+//
+//   proceduralmusic.js   the original synthesized loop (Phase 8's own
+//                         music.js, renamed). ALWAYS available — nothing
+//                         about it can be "missing" the way a file can.
+//   trackmusic.js         recorded Ogg Vorbis tracks from assets/music/.
+//                         Depends on a directory listing fetch, a track
+//                         actually being present, and it successfully
+//                         decoding — none of which are guaranteed.
+//
+// Selection is resolved ONCE, lazily, by resolveBackend() below, the first
+// time anything asks the facade to actually start playing — and never
+// re-evaluated after that, even if a track finishes decoding moments later
+// or a later track in the playlist fails. WHY FROZEN: swapping backends
+// mid-run would mean the music instantaneously jumping from a recorded
+// track to the synth loop (or back) with no transition, which reads as a
+// bug no matter what triggers it. A run either got a working track backend
+// from the start or it didn't — see trackmusic.js's own isReady() for what
+// "working" means, and its header for why an empty/missing/failed music
+// directory is a normal state, not an error, that this fallback exists for.
 import * as context from "./context.js";
-import * as music from "./music.js";
+import * as proceduralmusic from "./proceduralmusic.js";
+import * as trackmusic from "./trackmusic.js";
 import { play as playSfx, JACK_IN_DURATION } from "./sfx.js";
 import * as sustainedfx from "./sustainedfx.js";
+
+// Documents the interface both backends implement — not enforced by the
+// language, just the two names every call site below (and the invariant
+// tests, which assert both backend modules actually export exactly these
+// as functions) agree to.
+export const MUSIC_BACKEND_METHODS = ["start", "disturb"];
+
+// Pure: the decision resolveBackend() makes on every call. `alreadySelected`
+// is null before the first decision this page life, or "track"/"procedural"
+// once frozen (see the header above); `trackReady` is trackmusic.js's own
+// isReady(). Exported for the invariant tests, which can't construct a real
+// trackmusic readiness state (that requires fetch + decodeAudioData,
+// unavailable under plain Node — see trackmusic.js's own header) but CAN
+// exercise this decision directly: track when ready, procedural when not
+// (which covers "listing failed", "directory empty", and "still decoding"
+// alike — trackmusic.js's isReady() collapses all three to the same
+// false), and — the important one — an ALREADY-frozen choice never changes
+// even if `trackReady` flips.
+export function chooseBackend(alreadySelected, trackReady) {
+  if (alreadySelected) return alreadySelected;
+  return trackReady ? "track" : "procedural";
+}
+
+let selectedBackendName = null; // null until resolveBackend()'s first call this page life — see chooseBackend()'s own header
+
+function resolveBackend() {
+  selectedBackendName = chooseBackend(selectedBackendName, trackmusic.isReady());
+  return selectedBackendName === "track" ? trackmusic : proceduralmusic;
+}
 
 // Phase 8 step 5, PROBLEM 1: the AudioContext and the music SCHEDULER now
 // start at two different moments, where the old combined start() (both, in
@@ -53,38 +114,77 @@ import * as sustainedfx from "./sustainedfx.js";
 //     audio silent for however long the player spent just moving the cursor
 //     first.
 //   - jackIn() (below) is what still only ever fires once, on START GAME's
-//     own confirm — it starts music.js's SCHEDULER, timed against the
-//     jack_in riser it also plays. See its own comment for why the two
+//     own confirm — it starts the chosen backend's playback, timed against
+//     the jack_in riser it also plays. See its own comment for why the two
 //     concerns don't collapse back into one function despite both now
 //     running from the very same keypress on a typical first-ever session.
+//
+// This is also the earliest legal moment to kick off trackmusic.js's own
+// preload() (fetch the listing, start decoding the first track) — a real
+// AudioContext has to exist first (decodeAudioData is one of its methods),
+// and starting any later would waste however long the player spends on the
+// menu screen before confirming START GAME. See trackmusic.js's own header
+// for why that head start matters: decoding is streamed one track ahead,
+// never all at once, so the FIRST track's decode is the one thing on the
+// critical path between "player presses START GAME" and "track backend is
+// ready" — everything after it happens in the background regardless.
+//
+// Returns preload()'s promise so a caller with no menu-screen idle time to
+// lean on (the SFX gallery, which goes straight from this call to
+// startMusicLoop() — see its own header on why) can `await` it first,
+// giving the track backend a real chance to be ready before resolveBackend()
+// makes its one-time decision. main.js ignores the return value entirely:
+// context.start() itself still runs synchronously, in the same gesture-
+// handling tick, which is all the browser's autoplay-gesture rule actually
+// requires (see the module header) — awaiting the rest is optional.
 function startContext() {
   context.start();
+  return trackmusic.preload();
 }
 
 // Used by the SFX gallery (src/demo/sfxgallery.js) — a dev tool with no
 // jack_in ceremony of its own, no menu screen, and no reason to delay the
-// scheduler's first downbeat against anything. Plain sugar for
-// music.js's own start() at its default offset, kept as a named facade
-// method rather than exporting music.js's start() directly so every call
-// site still only ever imports this one file (see the module header).
+// scheduler's first downbeat against anything. Resolves and starts whichever
+// backend won (see resolveBackend() above) at its default offset.
 function startMusicLoop() {
-  music.start();
+  resolveBackend().start();
 }
 
 // THE START GAME transition. Bundles two things that must never drift apart
-// (see soundtypes.js's own jack_in entry and music.js's start() header):
-// the jack_in riser, and the music scheduler's own first-step offset, both
-// keyed off the SAME sfx.js export (JACK_IN_DURATION) — so main.js's call
-// site is just `music.jackIn()`, with no number of its own to accidentally
-// mistype or let drift from the sound it's supposed to line up with. Only
-// ever called once per page life in practice: menu.js's "start" mode (see
-// its own header) only opens before the very first game, so this is the
-// ONE call site that ever starts the scheduler — CONTINUE (pause) and
-// RESTART (gameover) both resume a run against a scheduler that's already
-// been running continuously since this fired.
+// (see soundtypes.js's own jack_in entry and each backend's own start()
+// header): the jack_in riser, and the chosen backend's own first-note
+// offset, both keyed off the SAME sfx.js export (JACK_IN_DURATION) — so
+// main.js's call site is just `music.jackIn()`, with no number of its own
+// to accidentally mistype or let drift from the sound it's supposed to line
+// up with. Only ever called once per page life in practice: menu.js's
+// "start" mode (see its own header) only opens before the very first game,
+// so this is the ONE call site that ever starts either backend — CONTINUE
+// (pause) and RESTART (gameover) both resume a run against playback that's
+// already been going continuously since this fired. This is also the call
+// that FREEZES backend selection for the rest of the page life (see
+// resolveBackend()'s own header) — everything before this point (menu
+// previews, the preload triggered by startContext()) only ever reads
+// trackmusic.js's readiness, never commits to it.
 function jackIn() {
   playSfx("jack_in");
-  music.start(JACK_IN_DURATION);
+  resolveBackend().start(JACK_IN_DURATION);
+}
+
+// Dev-only override for the SFX gallery's A/B panel (src/demo/
+// sfxgallery.js) — main.js never calls this. Forces resolveBackend()'s
+// otherwise-automatic choice, so the comparison the design brief actually
+// asks for ("procedural and track can be A/B'd against the same SFX") can
+// be driven deliberately instead of left to whichever backend happened to
+// be ready first. Must be called before startMusicLoop()/jackIn() —
+// resolveBackend() only ever consults `selectedBackendName` once, same
+// frozen-per-run contract as the automatic path; forcing "track" when no
+// track has actually decoded just means trackmusic.start() finds itself
+// not ready and stays silent (see its own no-throw contract), which is
+// still an honest answer for a gallery auditioning what's actually available.
+function setBackendPreference(pref) {
+  if (pref === "track") selectedBackendName = "track";
+  else if (pref === "procedural") selectedBackendName = "procedural";
+  else selectedBackendName = null; // "auto" (or anything else) — let resolveBackend() decide normally
 }
 
 // Mirrors menu.js's MUSIC volume (0..1) — forwarded straight to context.js,
@@ -119,11 +219,17 @@ function play(id, opts) {
   playSfx(id, opts);
 }
 
-// Phase 8 step 3's music-disturbance seam (music.js's own disturb()) —
-// exposed here rather than main.js importing music.js directly, same reason
-// every other capability in this facade is forwarded one call at a time.
+// Phase 8 step 3's music-disturbance seam — exposed here rather than main.js
+// importing a backend module directly, same reason every other capability
+// in this facade is forwarded one call at a time. Forwards to WHICHEVER
+// backend is already selected (never resolveBackend() — see its own
+// header): if nothing has started playing yet there is nothing to
+// disturb, so this is a harmless no-op rather than a reason to prematurely
+// freeze the selection a moment before jackIn()/startMusicLoop() would have
+// anyway.
 function disturb(amount) {
-  music.disturb(amount);
+  if (selectedBackendName === "track") trackmusic.disturb(amount);
+  else if (selectedBackendName === "procedural") proceduralmusic.disturb(amount);
 }
 
 // Phase 8 step 5's sector-transition re-sync: the gong (soundtypes.js's
@@ -196,11 +302,23 @@ function resetForNewRun() {
   context.restoreMusicAfterDisconnect();
 }
 
+// Dev-only, alongside setBackendPreference() above — lets the SFX gallery
+// show which backend actually ended up playing ("auto" can resolve either
+// way depending on whether a track had finished decoding in time) and,
+// when it's the track backend, which file. main.js never calls either.
+function getSelectedBackendName() {
+  return selectedBackendName;
+}
+function currentTrackName() {
+  return trackmusic.currentTrackName();
+}
+
 export function createMusic() {
   return {
     startContext, startMusicLoop, jackIn, setVolume, setSfxVolume, playDisconnect, play, disturb,
     triggerSectorTransition,
     updateHullHiss, updateShieldDrone, updateWallScrape,
     updateDreadPulse, updateMusicCutoff, resetForNewRun,
+    setBackendPreference, getSelectedBackendName, currentTrackName,
   };
 }

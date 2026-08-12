@@ -22,6 +22,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { CAR_TYPES, FOCUS, pickCarType, typeAvailable, ENEMY_FACTION } from "../src/game/cartypes.js";
 import { CAR_SHAPES, carShapeExtent } from "../src/game/carshapes.js";
@@ -123,6 +126,14 @@ import {
   composeMusicCutoff, planSetMusicCutoff, planBeginSectorTransition,
   DISCONNECT_FADE,
 } from "../src/audio/context.js";
+import { chooseBackend, MUSIC_BACKEND_METHODS } from "../src/audio/synth.js";
+import * as proceduralmusic from "../src/audio/proceduralmusic.js";
+import * as trackmusic from "../src/audio/trackmusic.js";
+import {
+  shuffleOrder, nextIndex, shouldLoopSingleTrack, retainedTrackNames, nextPlayableIndex, runPreload,
+} from "../src/audio/trackmusic.js";
+import { MUSIC_DIR, MUSIC_LISTING_URL, TRACK_GAIN, trackGainFor, validateMusicConfig } from "../src/audio/musictypes.js";
+import { listMusicFiles } from "../tools/serve.js";
 
 // A fixture car. Traffic cars are built by traffic.js, which hands them the two
 // things behaviours.js reads that a plain object literal would not have: the
@@ -4373,4 +4384,249 @@ test("MENU_SOUND covers exactly MENU_ACTIONS, with no orphaned keys, and every m
     assert.ok(actions.has(key), `MENU_SOUND["${key}"] has no matching MENU_ACTIONS entry — an orphan`);
   }
   assert.equal(Object.keys(MENU_SOUND).length, MENU_ACTIONS.length, "MENU_SOUND must cover MENU_ACTIONS exactly, one entry each");
+});
+
+// --- The music track backend (audio/trackmusic.js, audio/musictypes.js, ---
+// --- audio/synth.js's backend selection, tools/serve.js's listing) --------
+//
+// Nothing below touches a real fetch, AudioContext or decodeAudioData —
+// those don't exist under plain Node (see the project's own testing
+// guidance: "measure with headless Node sims; browser import() serves
+// stale modules"). What's tested is exactly what CAN be exercised without
+// them: the pure playlist/shuffle/failure logic, runPreload()'s async
+// control flow driven with fake fetch/decode functions, the backend-choice
+// decision, and tools/serve.js's listing endpoint against a throwaway
+// fixture directory. Real playback (a track actually decoding and sounding,
+// disturb()'s bend, gapless single-track looping) was verified by hand
+// against assets/music/under_chrome.ogg — see the PR description.
+
+// A small seeded PRNG (mulberry32) so shuffleOrder's tests are
+// deterministic and reproducible — Math.random() itself is never used in a
+// test, only as shuffleOrder's own production default.
+function seededRng(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+test("shuffleOrder returns a permutation — every track appears exactly once, for several seeds", () => {
+  const names = ["a.ogg", "b.ogg", "c.ogg", "d.ogg", "e.ogg"];
+  for (const seed of [1, 2, 42, 1000]) {
+    const order = shuffleOrder(names, seededRng(seed));
+    assert.deepEqual([...order].sort(), [...names].sort(), `seed ${seed} did not produce a permutation of the input`);
+  }
+});
+
+test("shuffleOrder does not mutate its input array", () => {
+  const names = ["a.ogg", "b.ogg", "c.ogg"];
+  const copy = [...names];
+  shuffleOrder(names, seededRng(7));
+  assert.deepEqual(names, copy);
+});
+
+test("nextIndex wraps from the last entry back to 0, and is 0 for an empty order", () => {
+  assert.equal(nextIndex(["a", "b", "c"], 2), 0);
+  assert.equal(nextIndex(["a", "b", "c"], 0), 1);
+  assert.equal(nextIndex([], 0), 0);
+});
+
+test("a shuffled order never repeats the previous track on wrap, for more than one file", () => {
+  // The structural guarantee nextIndex()'s own header claims: order[last]
+  // and order[0] are two different elements of the same permutation, so
+  // cycling past the end can never immediately replay what just finished.
+  const names = ["a.ogg", "b.ogg", "c.ogg", "d.ogg"];
+  for (const seed of [3, 11, 99, 4242]) {
+    const order = shuffleOrder(names, seededRng(seed));
+    const wrapIndex = nextIndex(order, order.length - 1);
+    assert.equal(wrapIndex, 0);
+    assert.notEqual(order[order.length - 1], order[wrapIndex], `seed ${seed}: wrap must not repeat the previous track`);
+  }
+});
+
+test("shouldLoopSingleTrack is true only for a single-file directory", () => {
+  assert.equal(shouldLoopSingleTrack(["only.ogg"]), true);
+  assert.equal(shouldLoopSingleTrack(["a.ogg", "b.ogg"]), false);
+  assert.equal(shouldLoopSingleTrack([]), false);
+});
+
+test("retainedTrackNames keeps current and next, and drops a null next", () => {
+  assert.deepEqual(retainedTrackNames("a.ogg", "b.ogg"), new Set(["a.ogg", "b.ogg"]));
+  assert.deepEqual(retainedTrackNames("a.ogg", null), new Set(["a.ogg"]));
+});
+
+test("nextPlayableIndex finds the first non-failed track at or after fromIndex, wrapping", () => {
+  const order = ["a.ogg", "b.ogg", "c.ogg", "d.ogg"];
+  assert.equal(nextPlayableIndex(order, 0, new Set()), 0, "an empty failed set — the starting index itself is playable");
+  assert.equal(nextPlayableIndex(order, 0, new Set(["a.ogg"])), 1, "skips the failed entry at fromIndex");
+  assert.equal(nextPlayableIndex(order, 2, new Set(["c.ogg", "d.ogg"])), 0, "wraps past the end of the order");
+});
+
+test("nextPlayableIndex returns null once every track has failed", () => {
+  const order = ["a.ogg", "b.ogg"];
+  assert.equal(nextPlayableIndex(order, 0, new Set(["a.ogg", "b.ogg"])), null);
+});
+
+test("nextPlayableIndex returns null for an empty order regardless of fromIndex", () => {
+  assert.equal(nextPlayableIndex([], 0, new Set()), null);
+});
+
+test("runPreload falls back to an empty, not-ready result when the listing fetch throws", async () => {
+  const result = await runPreload({
+    fetchListing: async () => { throw new Error("network down"); },
+    decodeTrack: async () => { throw new Error("should never be called"); },
+  });
+  assert.deepEqual(result, { order: [], firstTrackReady: false });
+});
+
+test("runPreload falls back to an empty, not-ready result for an empty directory listing", async () => {
+  const result = await runPreload({
+    fetchListing: async () => [],
+    decodeTrack: async () => { throw new Error("should never be called"); },
+  });
+  assert.deepEqual(result, { order: [], firstTrackReady: false });
+});
+
+test("runPreload falls back to an empty, not-ready result for a malformed (non-array) listing", async () => {
+  const result = await runPreload({
+    fetchListing: async () => ({ oops: "not an array" }),
+    decodeTrack: async () => { throw new Error("should never be called"); },
+  });
+  assert.deepEqual(result, { order: [], firstTrackReady: false });
+});
+
+test("runPreload builds a shuffled order and reports NOT ready when the first track fails to decode", async () => {
+  const listing = [{ name: "a.ogg", size: 10 }, { name: "b.ogg", size: 20 }];
+  const result = await runPreload({
+    fetchListing: async () => listing,
+    decodeTrack: async () => { throw new Error("corrupt file"); },
+    rng: seededRng(5),
+  });
+  assert.equal(result.firstTrackReady, false, "a decode failure on the first track must not report ready");
+  assert.deepEqual([...result.order].sort(), ["a.ogg", "b.ogg"], "the order is still built from the listing even though decoding failed");
+});
+
+test("runPreload reports ready once the first track decodes successfully", async () => {
+  const listing = [{ name: "a.ogg", size: 10 }, { name: "b.ogg", size: 20 }, { name: "c.ogg", size: 30 }];
+  const decoded = [];
+  const result = await runPreload({
+    fetchListing: async () => listing,
+    decodeTrack: async (name) => { decoded.push(name); },
+    rng: seededRng(5),
+  });
+  assert.equal(result.firstTrackReady, true);
+  assert.equal(decoded.length, 1, "only the FIRST track is decoded during preload — see the module header on streaming one ahead, never the whole directory");
+  assert.equal(decoded[0], result.order[0]);
+});
+
+test("runPreload's onOrderReady fires synchronously, before decodeTrack is awaited", async () => {
+  // This ordering is what keeps trackmusic.js's own preload() correct — see
+  // its header on why decodeAndCache()'s evictStale() (which reads module
+  // state set by onOrderReady) must never run against a stale order.
+  const events = [];
+  await runPreload({
+    fetchListing: async () => [{ name: "a.ogg", size: 1 }],
+    onOrderReady: () => events.push("order"),
+    decodeTrack: async () => { events.push("decode"); },
+  });
+  assert.deepEqual(events, ["order", "decode"]);
+});
+
+// --- musictypes.js -----------------------------------------------------
+
+test("validateMusicConfig accepts the shipped configuration as-is", () => {
+  assert.deepEqual(validateMusicConfig(), []);
+});
+
+test("validateMusicConfig rejects a TRACK_GAIN outside 0..1", () => {
+  const errors = validateMusicConfig({ trackGain: 1.5 });
+  assert.ok(errors.some((e) => e.includes("TRACK_GAIN")), `expected a TRACK_GAIN error, got: ${errors}`);
+});
+
+test("validateMusicConfig rejects an empty MUSIC_DIR", () => {
+  const errors = validateMusicConfig({ musicDir: "" });
+  assert.ok(errors.some((e) => e.includes("MUSIC_DIR")), `expected a MUSIC_DIR error, got: ${errors}`);
+});
+
+test("validateMusicConfig rejects a MUSIC_LISTING_URL that isn't root-relative", () => {
+  const errors = validateMusicConfig({ listingUrl: "api/music" });
+  assert.ok(errors.some((e) => e.includes("MUSIC_LISTING_URL")), `expected a MUSIC_LISTING_URL error, got: ${errors}`);
+});
+
+test("validateMusicConfig rejects an out-of-range per-track override", () => {
+  const errors = validateMusicConfig({ overrides: { "loud.ogg": { gain: 3 } } });
+  assert.ok(errors.some((e) => e.includes("loud.ogg")), `expected a TRACK_OVERRIDES error naming the offending file, got: ${errors}`);
+});
+
+test("trackGainFor uses a per-track override when present, else the blanket TRACK_GAIN", () => {
+  assert.equal(trackGainFor("nonexistent-track.ogg"), TRACK_GAIN);
+});
+
+// --- Backend selection (audio/synth.js) ---------------------------------
+
+test("chooseBackend picks track when ready, procedural when not, before anything is frozen", () => {
+  assert.equal(chooseBackend(null, true), "track");
+  assert.equal(chooseBackend(null, false), "procedural");
+});
+
+test("chooseBackend never changes an already-frozen choice, even if readiness flips", () => {
+  assert.equal(chooseBackend("procedural", true), "procedural", "a run that already committed to procedural must not jump to track mid-run");
+  assert.equal(chooseBackend("track", false), "track", "a run that already committed to track must not fall back mid-run");
+});
+
+test("both music backends implement the same interface synth.js relies on", () => {
+  for (const name of MUSIC_BACKEND_METHODS) {
+    assert.equal(typeof proceduralmusic[name], "function", `proceduralmusic.js is missing "${name}"`);
+    assert.equal(typeof trackmusic[name], "function", `trackmusic.js is missing "${name}"`);
+  }
+});
+
+// --- tools/serve.js's music listing endpoint -----------------------------
+
+test("listMusicFiles returns only .ogg files, sorted, with sizes — including a spaced filename", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "cybercruise-music-"));
+  try {
+    await writeFile(path.join(dir, "b_track.ogg"), Buffer.alloc(100));
+    await writeFile(path.join(dir, "a track (live).ogg"), Buffer.alloc(50));
+    await writeFile(path.join(dir, "notes.txt"), "not audio");
+    await writeFile(path.join(dir, "sample.wav"), Buffer.alloc(10)); // a real format, just not the one this endpoint lists — see musictypes.js's header on why Ogg Vorbis specifically
+    const tracks = await listMusicFiles(dir);
+    assert.deepEqual(tracks, [
+      { name: "a track (live).ogg", size: 50 },
+      { name: "b_track.ogg", size: 100 },
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("listMusicFiles ignores subdirectories (no recursion)", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "cybercruise-music-"));
+  try {
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(path.join(dir, "nested"));
+    await writeFile(path.join(dir, "nested", "hidden.ogg"), Buffer.alloc(5));
+    await writeFile(path.join(dir, "top.ogg"), Buffer.alloc(5));
+    const tracks = await listMusicFiles(dir);
+    assert.deepEqual(tracks, [{ name: "top.ogg", size: 5 }]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("listMusicFiles returns an empty list for a missing directory rather than throwing", async () => {
+  const missing = path.join(tmpdir(), "cybercruise-music-does-not-exist-" + Date.now());
+  await assert.doesNotReject(async () => {
+    const tracks = await listMusicFiles(missing);
+    assert.deepEqual(tracks, []);
+  });
+});
+
+test("MUSIC_DIR and MUSIC_LISTING_URL are both non-empty, and the listing URL is root-relative", () => {
+  assert.ok(MUSIC_DIR.length > 0);
+  assert.ok(MUSIC_LISTING_URL.startsWith("/"));
 });
