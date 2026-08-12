@@ -632,3 +632,12 @@ phases' code.
       data-file style as `cartypes.js`, plus the shop screen and the persisted
       wallet/owned-upgrades state
 - [ ] **Phase 12** — Polish: balance, high scores, performance
+- [ ] **Phase 13** — Online server: put the game on a public URL. Static
+      hosting is enough for the no-build ES-module layout; the server side is
+      whatever the game wants beyond that — a shared high-score board being
+      the obvious first thing, which also means the score submission has to
+      be something the server can sanity-check
+- [ ] **Phase 14** — Advertisement: consider monetising via ads. Decide the
+      format first (an interstitial between runs and a rewarded spot in the
+      upgrade shop fit the loop; nothing mid-run), then whether it is worth
+      the load cost and the third-party script at all
