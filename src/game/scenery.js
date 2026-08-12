@@ -34,16 +34,13 @@ function mod(n, m) {
   return ((n % m) + m) % m;
 }
 
-// citygrid.js's sectorIndex() is an unbounded integer (see its own comment on
-// why: geometry there, palette count here). Wrapped to [0, SECTOR_COUNT) at
-// exactly this one call site — every cache key downstream that varies by
-// sector (this file's own floor-tile cache and drawBuildingVariant/
-// drawNodeVariant's keys, plus road.js's strip cache — see its own render())
-// uses the WRAPPED value, so none of those caches grow with how far the run
-// has actually gone. Exported so road.js can compute the SAME wrapped sector
-// its own strip cache needs to invalidate on, rather than a second copy of
-// this mod-by-SECTOR_COUNT arithmetic drifting from this one the way
-// isCrossStreetRow's own "+1" once drifted from the tile it describes.
+// citygrid.js's sectorIndex() is an unbounded integer (geometry there, palette
+// count here). Wrapped to [0, SECTOR_COUNT) at exactly this one call site: every
+// downstream cache key that varies by sector (this file's floor-tile cache,
+// drawBuildingVariant/drawNodeVariant's keys, road.js's strip cache) uses the
+// WRAPPED value, so none of them grow with how far the run has gone. Exported so
+// road.js invalidates on the same wrapped sector rather than a second copy of
+// this arithmetic.
 export function currentSector(fDist) {
   return mod(sectorIndex(fDist), SECTOR_COUNT);
 }
@@ -55,30 +52,19 @@ export const FLOOR_PARALLAX = 0.5;
 // THE ONE DERIVATION of floor-world distance from player distance. Every
 // per-frame consumer on this floor (drones.js, links.js, sectors.js, and
 // main.js's own road-sector pick) calls this rather than open-coding
-// Math.round(distance * FLOOR_PARALLAX) — that expression used to be
-// hand-copied at five call sites, correct at each one only by accident of
-// what its caller happened to pass in: four were fed main.js's pre-rounded
-// `camY` (see its "THE CAMERA IS QUANTISED" header), but sectors.js's own
-// update() runs in the simulation loop, where `camY` doesn't exist, and was
-// fed the raw `distance` instead. Single-step Math.round(distance *
-// FLOOR_PARALLAX) disagrees with Math.round(camY * FLOOR_PARALLAX) by 1 on
-// roughly 1 in 25 sector crossings, and on that tick, since
-// spritecache.js's Map has no eviction, the wrong sector's colour got baked
-// into a building or floor-tile cache entry with no way to ever self-correct.
+// Math.round(distance * FLOOR_PARALLAX).
 //
-// TWO-STEP ROUNDING, deliberately: round to whole pixels FIRST, then scale
-// and round again — mirroring main.js's own camY = Math.round(distance)
-// followed by a second Math.round(camY * FLOOR_PARALLAX), rather than the
-// single-step Math.round(distance * FLOOR_PARALLAX) that looks equivalent
-// and almost always IS.
+// TWO-STEP ROUNDING, deliberately: round to whole pixels FIRST, then scale and
+// round again, mirroring main.js's camY = Math.round(distance) followed by a
+// second Math.round(camY * FLOOR_PARALLAX). The single-step version looks
+// equivalent and almost always is — it disagrees by 1 on roughly 1 in 25 sector
+// crossings, and since spritecache.js's Map has no eviction, that bakes the
+// wrong sector's colour into a cache entry with no way to self-correct.
 //
-// IDEMPOTENT UNDER PRE-ROUNDING: Math.round(Math.round(d) * FLOOR_PARALLAX)
-// is the same value whether `d` is the simulation's raw float or already an
-// integer, because rounding an integer is a no-op. That property is the
-// whole fix — it's what makes this function safe to call from BOTH the
-// simulation loop (raw `distance` — sectors.js's own update()) and the
-// render loop (main.js's already-rounded `camY` — this file's own render(),
-// drones.render(), links.render()): there is no longer a wrong thing to pass.
+// IDEMPOTENT UNDER PRE-ROUNDING, which is the whole point: rounding an integer
+// is a no-op, so this is safe to call from BOTH the simulation loop (raw
+// `distance`, sectors.js) and the render loop (main.js's already-rounded
+// `camY`). There is no wrong thing to pass.
 export function floorDist(distance) {
   return Math.round(Math.round(distance) * FLOOR_PARALLAX);
 }
@@ -120,111 +106,68 @@ export function render(ctx, distance, playerY, W, H) {
   // header on why setSector() only ever runs in update()).
   const sector = currentSector(fDist);
   drawFloorGrid(ctx, fDist, playerY, W, H, sector);
-  // NODES BEFORE BUILDINGS, not interleaved into the far-to-near building
-  // walk — a node is flat ground texture, not a depth-sorted entity, so it is
-  // drawn once as a single pass. A building never SHARES a plot with a node
-  // (citygrid.js's reserve() claims the whole plot), but a NEIGHBOURING
-  // building's footprint or glow padding can still visually reach across the
-  // plot boundary — drawing every node first means any building nearer the
-  // camera that does reach that far is painted on top of it, which is what
-  // "a building standing nearer the camera should be able to overlap a node"
-  // (the design doc's own draw-order rule) actually requires in practice.
+  // NODES BEFORE BUILDINGS, not interleaved into the far-to-near building walk —
+  // a node is flat ground texture, not a depth-sorted entity. A building never
+  // SHARES a plot with a node (citygrid.js's reserve() claims the whole plot),
+  // but a neighbouring building's footprint or glow padding can reach across the
+  // boundary, and drawing nodes first is what lets a building nearer the camera
+  // overlap one.
   drawFloorNodes(ctx, fDist, playerY, W, H, sector);
   drawFloorBuildings(ctx, fDist, playerY, W, H, sector);
-  // AFTER the buildings, not before — a street plot never hosts one
-  // (citygrid.js's reserve() claims avenues/cross-streets before the building
-  // roll ever runs), so a dot is never actually occluded either way and this
-  // is a draw-order choice rather than a correctness one. Drawing last keeps
-  // every dot crisp on top of the far-to-near building walk instead of
-  // sharing a pixel at a street's edge with whatever variant a building drew
-  // there, and reads as the map's moving-marker layer sitting above its
-  // static one.
+  // After the buildings: a street plot never hosts one, so a dot is never
+  // actually occluded either way and this is presentation, not correctness.
+  // Drawing last keeps every dot crisp and reads as the map's moving-marker
+  // layer sitting above its static one.
   drawTrafficDots(ctx, trafficDots(clock, fDist, playerY, W, H));
 }
 
 // --- The floor grid, avenues and cross-streets are ONE pre-rendered tile ----
 //
-// WHY. The grid was profiled at 2.35ms/frame — 95% of all scenery work — and it
-// is pure lines: one batched neonStroke, not a single fill(). That is the same
-// line-overdraw cost the road pays (see road.js's strip cache), and the same fix
-// applies, only more cheaply: this layer does not even need a keyed cache.
-//
-// MEASURED, direct re-stroke against the blit, by the rAF-throughput method
-// road.js describes (and warns about): ~1500-2000us -> ~18us, i.e. ~100x. Which
-// is to say the grid stops being a cost the frame can notice.
+// WHY. The grid profiled at 2.35ms/frame — 95% of all scenery work — and it is
+// pure lines, the same line-overdraw cost the road pays (see road.js's strip
+// cache). Measured against the direct re-stroke: ~1500-2000us -> ~18us.
 //
 // The horizontals are world-anchored at every GRID_SPACING, so the grid is
-// exactly PERIODIC in y with that period. The verticals are fixed SCREEN
-// columns, so the grid is static in x. A periodic-and-static layer is one tile,
-// built once, and blitted once per frame at a phase offset — never rebuilt,
-// never keyed.
+// PERIODIC in y with that period; the verticals are fixed SCREEN columns, so it
+// is static in x. A periodic-and-static layer is one tile, built once and
+// blitted at a phase offset — never rebuilt, never keyed.
 //
-// Avenues and cross-streets (citygrid.js) share the SAME property: an avenue is
-// a fixed screen column, a cross-street is periodic in y — with period
-// ARTERIAL_PERIOD (a whole multiple of GRID_SPACING, since GRID_SPACING divides
-// CELL divides PLOT divides ARTERIAL_PERIOD). A period that's a multiple of
-// another period is still one period, so all three layers bake into ONE tile
-// rather than three, and the floor stays at exactly one drawImage per frame.
-// Concretely: the tile is built at ARTERIAL_PERIOD's phase, and because
-// GRID_SPACING divides that period, the fine lines it already contains land
-// correctly too — shifting a GRID_SPACING-periodic pattern by any whole number
-// of GRID_SPACINGs leaves it self-aligned, and ARTERIAL_PERIOD is exactly that
-// (PLOT * 4 = CELL * 8 = GRID_SPACING * 16).
+// Avenues and cross-streets (citygrid.js) share that property, at period
+// ARTERIAL_PERIOD — and GRID_SPACING divides CELL divides PLOT divides
+// ARTERIAL_PERIOD, so a period that is a multiple of another period is still one
+// period. All three layers bake into ONE tile and the floor stays at exactly one
+// drawImage per frame. That divisibility is the constraint on GRID_SUBDIV, and
+// why it is a SUBDIVISION rather than a free spacing.
 //
-// That divisibility is the constraint on GRID_SUBDIV, and the reason it is a
-// SUBDIVISION rather than a free spacing: halving keeps every one of those
-// divisions whole, so the one-tile argument above survives untouched.
-//
-// The tile is W x (H + ARTERIAL_PERIOD): one arterial period taller than the
-// screen, so that whatever the phase, a single blit at destY in
-// [-ARTERIAL_PERIOD, 0) still covers the bottom row — the same reasoning the
-// old H + CELL tile used, just at the coarser period now driving the blit.
-// 600x1312x4 = ~3.1MB, up from ~2MB when the tile only had to cover one CELL.
+// The tile is W x (H + ARTERIAL_PERIOD) — one period taller than the screen, so
+// whatever the phase, a single blit at destY in [-ARTERIAL_PERIOD, 0) still
+// covers the bottom row. ~3.1MB at 600x1312.
 //
 // EXACTNESS. The phase is (playerY + fDist) mod ARTERIAL_PERIOD and BOTH TERMS
-// MATTER: a line world-anchored at k*ARTERIAL_PERIOD (or any multiple of
-// GRID_SPACING, since it divides the period) lands at playerY + fDist - k*period, so
-// the whole set sits at that sum's residue. Dropping playerY (an easy thing to
-// talk yourself into, since it is a constant) misplaces the whole tile.
-//
-// Diffed against the direct re-stroke at integer fDist: mean 0.07-0.25/255, and
-// no single channel off by more than 4. Everything that differs is 8-bit rounding
-// — the tile composites a faint halo onto transparency and then onto the
-// background, where the direct render rounds once. Drop the playerY term and the
-// same diff jumps to a mean of 1.2 with channels off by 32, which is what says
-// the measurement can actually see a phase error rather than being blind to one.
+// MATTER: a line world-anchored at k*ARTERIAL_PERIOD lands at
+// playerY + fDist - k*period, so the whole set sits at that sum's residue.
+// Dropping playerY (easy to talk yourself into, since it is a constant)
+// misplaces the tile — diffed against the direct re-stroke, mean error goes from
+// 0.07-0.25/255 to 1.2 with channels off by 32.
 //
 // LOOK. Each street is a dim fill (FLOOR_STREET) plus a brighter dashed centre
 // line (FLOOR_STREET_LINE), and the fine grid is skipped — not merely painted
 // over — wherever it would cross the ribbon, so the street reads as open ground
 // rather than a brighter patch of grid.
 //
-// The ribbon is STREET_WIDTH, not the full plot it owns, and the grid is
-// GRID_SPACING, not CELL. Both are deliberate and they are the same decision
-// made twice: the floor is meant to read as a fine MAP MESH with routes through
-// it, and at plot-wide streets on cell-wide squares it read as a handful of big
-// tiles instead. Scale the two together if either is retuned — a ribbon several
-// grid squares wide goes back to looking like a gap in the mesh.
+// The ribbon is STREET_WIDTH not the full plot, the grid is GRID_SPACING not
+// CELL, and a building's footprint is sized to a LOT not a PLOT: the same
+// decision three times, because the floor is meant to read as a fine MAP MESH
+// with routes through it. Retune any one of the three without the others and it
+// goes back to reading as a handful of big tiles with boxes standing on them.
 //
-// A building's footprint (sprites.js's variantOpts, sited by citygrid.js's
-// LOT) is the THIRD term in that same sentence, even though it never touches
-// this tile: it is sized to a LOT rather than the PLOT a building used to have
-// to itself, for exactly the same reason the ribbon and the grid are scaled to
-// CELL rather than PLOT — a building several times the size of the block
-// beneath it reads as a box standing on a mesh, not as the thing the mesh is
-// a map OF. Retuning LOT_SUBDIV without rebalancing the footprint catalogue
-// (or vice versa) breaks the same read the ribbon/grid pair breaks if scaled
-// alone. None of this uses
-// ctx.shadowBlur: this whole tile is one canvas-spanning path, and a shadow on
-// a shape that size was measured at ~0.5ms/frame — a quarter of the whole
-// frame, from one draw call (see neonStroke's own header for the same trade
-// made for the road's barriers). The dashed centre lines get their glow the
-// same way the grid does — neonStroke's overdraw passes — with ctx.setLineDash
-// applied just around that one call.
+// No ctx.shadowBlur anywhere here: this tile is one canvas-spanning path, and a
+// shadow on a shape that size measured ~0.5ms/frame from a single draw call (see
+// neonStroke's header for the same trade on the road's barriers). The dashed
+// centre lines get their glow from neonStroke's overdraw passes instead.
 //
-// All of the above is a ONE-TIME cost (tile build, on first draw or a canvas
-// resize), not a per-frame one, so it can afford more draw calls than the
-// per-frame budget ever could.
+// All of this is a ONE-TIME cost (tile build, on first draw or canvas resize),
+// so it can afford more draw calls than the per-frame budget ever could.
 
 // A tiny FIFO cache bounded to `max` entries. Standalone (not folded into
 // floorGridTile below) so the test suite can assert the BOUND directly with
@@ -249,19 +192,13 @@ export function makeBoundedCache(max) {
   };
 }
 
-// Phase 7f: the tile now varies by SECTOR too (BUILDING_EDGE/FLOOR_GRID/etc.
-// are live bindings — see palette.js's setSector), so its key grows from
-// (W, H) to (W, H, sector) and a single slot is no longer enough to hold
-// "the tile on screen right now" across a crossing: the OLD sector's tile is
-// still needed for whatever hasn't scrolled past the boundary yet while the
-// NEW one gets built, or every frame straddling a boundary would rebuild.
-// Bounded to 2 anyway, by hand, rather than left to grow with SECTOR_COUNT —
-// this cache is module-local, not spritecache.js (which has no eviction at
-// all), so nothing stops it from holding a stale tile for a canvas size that
-// hasn't been on screen in an hour. 2 is also exactly what the design asks
-// for: "as short as it looks good rather than as long as a rebuild takes"
-// only works if the outgoing tile stays valid through the rescan, and no
-// crossing ever needs a THIRD sector's tile alive at once.
+// The tile varies by SECTOR (FLOOR_GRID and friends are live bindings — see
+// palette.js's setSector), so its key is (W, H, sector) and one slot is not
+// enough across a crossing: the OLD sector's tile is still needed for whatever
+// hasn't scrolled past the boundary while the NEW one is built, or every frame
+// straddling a boundary would rebuild. Bounded to 2 by hand rather than left to
+// grow with SECTOR_COUNT — this cache is module-local, not spritecache.js (which
+// has no eviction at all). No crossing ever needs a third sector's tile alive.
 const FLOOR_TILE_CACHE_MAX = 2;
 const floorTiles = makeBoundedCache(FLOOR_TILE_CACHE_MAX);
 
@@ -326,18 +263,14 @@ function neonDashedStroke(ctx, build, color, dash, width, spread) {
 export const TICK_LEN = 5;
 
 // TILE-LOCAL (pre-phase) centres of every registration tick the floor tile
-// bakes (Phase 7d) — every (avenue column, cross-street band) pairing within
-// the tile's own height, in the SAME tile-local coordinate space the ribbon
-// loops in floorGridTile() below use (y0 a multiple of ARTERIAL_PERIOD, bx an
-// avenue column — see isAvenueCol). Pulled out as its own pure function,
-// rather than a loop written inline in floorGridTile(), for exactly the
-// reason isAvenueCol/isCrossStreetRow are pure functions in citygrid.js
-// instead of being re-derived wherever they're needed: a SECOND copy of this
-// geometry is how the tile and citygrid.js's index math drifted a whole PLOT
-// apart once already (see isCrossStreetRow's own "+1" comment). The test
-// suite maps this tile-local list through gridPhase and cross-checks it
-// against crossStreetBands()/avenueCenters() — this file's SCREEN-space,
-// per-frame equivalent — rather than trusting this comment alone.
+// bakes — every (avenue column, cross-street band) pairing within the tile's own
+// height, in the same coordinate space floorGridTile()'s ribbon loops use.
+//
+// Its own pure function rather than a loop inline in floorGridTile(), because a
+// SECOND copy of this geometry is how the tile and citygrid.js's index math
+// drifted a whole PLOT apart once already (see isCrossStreetRow's "+1"). The
+// test suite maps this list through gridPhase and cross-checks it against
+// crossStreetBands()/avenueCenters(), the screen-space equivalent.
 export function tileIntersections(W, tileHeight) {
   const points = [];
   for (let y0 = 0; y0 <= tileHeight; y0 += ARTERIAL_PERIOD) {
@@ -405,30 +338,15 @@ function floorGridTile(W, H, sector) {
     );
   }
 
-  // Registration ticks (Phase 7d): a small, uniform mark baked at every
-  // avenue x cross-street INTERSECTION. Free — it's baked into this ONE-TIME
-  // tile build like everything else in this function (see the header above),
-  // so it costs literally nothing per frame. Deliberately UNIFORM, unlike a
-  // NODE (citygrid.js's reserve() claim, drawn separately by scenery.js's own
-  // drawFloorNodes): identical marks at every intersection read as a map's
-  // own registration grid — survey ticks, a radar bezel — which is the whole
-  // point, where a node instead has to be rare and distinguishable to read as
-  // a facility rather than more grid furniture.
+  // Registration ticks: a small, uniform mark at every avenue x cross-street
+  // INTERSECTION, baked into this one-time build so it costs nothing per frame.
+  // Deliberately UNIFORM, unlike a NODE: identical marks at every intersection
+  // read as a map's own registration grid, where a node has to be rare and
+  // distinguishable to read as a facility rather than more grid furniture.
   //
-  // Drawn as its own pass rather than folded into the two centre-line strokes
-  // above: those are DASHED, so whether a dash segment actually lands on a
-  // given crossing depends on the dash phase there, and a tick that only
-  // showed up where a dash happened to overlap would flicker in and out
-  // across the grid instead of marking every intersection alike.
-  //
-  // The point list comes from tileIntersections() above rather than a loop
-  // written out here, so there is exactly ONE place that says where a tile
-  // intersection falls — the test suite imports the same function and
-  // cross-checks it against crossStreetBands()/avenueCenters() (this file's
-  // own SCREEN-space, per-frame equivalent), rather than trusting a second
-  // copy of this loop to stay in step with the ribbon loops above by
-  // inspection. See citygrid.js's isCrossStreetRow "+1" comment for the bug
-  // this exact kind of duplication already produced once.
+  // Its own pass rather than folded into the centre-line strokes above, because
+  // those are DASHED: a tick that only appeared where a dash happened to overlap
+  // would flicker across the grid instead of marking every intersection alike.
   neonStroke(
     g,
     (c) => {
@@ -493,125 +411,70 @@ export function drawFloorGrid(ctx, fDist, playerY, W, H, sector) {
 // --- Materialisation (Phase 7g) ------------------------------------------
 //
 // Buildings and nodes wipe in bottom-up as they cross the screen's top edge,
-// instead of simply existing there the instant a frame's walk reaches that
-// far — the design doc's strongest "this world is being rendered for you"
-// cue, and nearly free: a `clip` rect around a blit that's already being
-// made (sprites.js's drawBuildingVariant/drawNodeVariant).
+// instead of simply existing there the instant a frame's walk reaches that far.
+// Nearly free: a `clip` rect around a blit already being made (sprites.js).
 //
-// SPANNED IN DISTANCE, NOT TIME. A time-based wipe needs an entry
-// timestamp — the tick a building first came on screen — and that's state,
-// the one thing every other layer on this floor goes out of its way not to
-// need. A distance-based wipe needs none: `sy`, the row's own screen-y
-// anchor (already computed below by visibleBuildings/visibleNodes), crosses
-// 0 exactly once as fDist grows, and how far past that crossing it is IS the
-// progress — a pure function of the row and the current fDist, recomputed
-// fresh every frame, nothing to store and nothing to reset on newGame(). It
-// also means a building materialises as the player APPROACHES it, which
-// this doc's own view is the more correct behaviour anyway, not just the
-// cheaper one.
+// SPANNED IN DISTANCE, NOT TIME. A time-based wipe needs an entry timestamp,
+// which is state — the one thing every other layer on this floor avoids needing.
+// `sy`, the row's own screen-y anchor, crosses 0 exactly once as fDist grows, and
+// how far past that crossing it is IS the progress: a pure function of (row,
+// fDist), nothing to store and nothing to reset on newGame(). It also means a
+// building materialises as the player APPROACHES it.
 //
-// WIPE_SPAN IS SHORT ON PURPOSE. At a crawl, fDist barely moves, so a wide
-// span would leave a building sitting part-drawn for a long time — reading
-// as a bug, not an effect. 60 (floor-world units — this plane has no further
-// projection, so that's also screen px) keeps it under LOT (64), which is
-// what guarantees AT MOST ONE lot row is ever mid-wipe at once: two adjacent
-// rows are exactly LOT apart in fDist (lotY's own spacing), so a span
-// shorter than that can never have two rows' wipes overlap. A stopped player
-// therefore always sees a single row resolving, never a band of
-// half-buildings. At a ~400 floor-world-units/s cruising pace (fDist moves
-// at FLOOR_PARALLAX x the player's own speed — see floorDist above), that
-// lands the wipe at 60/200 = 0.3s, matching the design doc's figure;
-// ~0.19s at the player's own top speed (620, floor speed 310), ~1.0s at the
-// low end of the throttle (120, floor speed 60) — long at a crawl, but
-// always confined to the one row.
+// WIPE_SPAN IS SHORT ON PURPOSE. At a crawl fDist barely moves, so a wide span
+// leaves a building part-drawn long enough to read as a bug. 60 (floor-world
+// units, which on this plane are screen px) keeps it under LOT (64), and that is
+// what guarantees AT MOST ONE lot row is ever mid-wipe: adjacent rows are exactly
+// LOT apart in fDist, so a shorter span can never have two overlap. At a ~400
+// units/s cruise that is 0.3s; ~0.19s at the player's top speed, ~1.0s at the
+// bottom of the throttle — long at a crawl, but always confined to one row.
 export const WIPE_SPAN = 60;
 
-// progress in [0, 1]. `sy` is the row's own screen-y anchor at THIS fDist —
-// sy <= 0 means the row hasn't crossed the top edge yet (0, nothing to
-// draw), sy >= WIPE_SPAN means it crossed at least WIPE_SPAN of floor
-// distance ago (1, fully materialised — the fast, unclipped blit path in
-// sprites.js). Monotonic in fDist for a fixed row, since sy only grows as
-// fDist grows (see visibleBuildings/visibleNodes below), which is what
-// makes "never un-materialises as you approach" a property of the formula
-// rather than something that has to be maintained by hand.
+// Progress in [0, 1]. `sy` is the row's screen-y anchor at THIS fDist: sy <= 0
+// means the row hasn't crossed the top edge yet, sy >= WIPE_SPAN means it did so
+// at least WIPE_SPAN of floor distance ago (fully materialised — the fast,
+// unclipped blit path in sprites.js). Monotonic in fDist for a fixed row, which
+// is what makes "never un-materialises as you approach" a property of the
+// formula rather than something maintained by hand.
 //
-// USED FOR THE FAST-PATH DECISION ONLY (progress >= 1?) — NOT for how much
-// of the sprite the clip actually reveals. A sprite (glow padding included)
-// is typically 100-170px tall, well over WIPE_SPAN (60): scaling the clip by
-// this fraction of the SPRITE's own height, instead of by WIPE_SPAN's own
-// px budget, was tried first and made the wipe invisible for most of its
-// span — the canvas's own top-edge clip is already hiding everything above
-// screen y=0, and a fraction-of-sprite-height clip catches up to (and
-// overtakes) that natural edge after only the first ~25-30% of the wipe, at
-// which point the explicit clip stops restricting anything a plain
-// unclipped blit wouldn't already show. sprites.js's drawBuildingVariant/
-// drawNodeVariant use the row's raw `sy` (passed alongside `progress`,
-// always in (0, WIPE_SPAN) whenever this is < 1) against the sprite's own
-// height instead — see their own comment for why that's what actually keeps
-// the wipe visible for its whole span.
+// USED FOR THE FAST-PATH DECISION ONLY (progress >= 1?) — NOT for how much of
+// the sprite the clip reveals. A sprite with its glow padding is typically
+// 100-170px tall, well over WIPE_SPAN (60), so scaling the clip by this fraction
+// of the SPRITE's height makes the wipe invisible for most of its span: the
+// canvas's own top-edge clip already hides everything above screen y=0, and the
+// explicit clip overtakes that natural edge within the first ~25-30%. sprites.js
+// uses the row's raw `sy` against the sprite's own height instead.
 export function materialiseProgress(sy) {
   if (sy <= 0) return 0;
   if (sy >= WIPE_SPAN) return 1;
   return sy / WIPE_SPAN;
 }
 
-// COST, MEASURED (rAF-saturation, real non-sandboxed browser, six warmed
-// samples, first discarded, median taken — this file's own established
-// method). Two numbers matter, not one: WIPE_SPAN (60) sits just under LOT
-// (64), so WIPE_SPAN/LOT = 60/64 of every LOT cycle has EXACTLY ONE row
-// materialising somewhere on screen — meaning "some row is mid-wipe" is the
-// REAL steady state a running game sees ~94% of the time, not a rare edge
-// case, even though "at most one row" still holds (see WIPE_SPAN's own
-// comment). scenery.render() measured ~0.41ms/frame with the materialising
-// row's few buildings/nodes paying the clip+scanline (spritecache.js's
-// blitSpriteMaterialising), against ~0.27ms/frame with fDist held in the
-// ~4-unit gap where nothing is (the fast-path-only figure — confirms the
-// unclipped branch itself hasn't moved). Both land inside this layer's own
-// pre-7g range (~0.36-0.5ms across 7d-7f) rather than opening a new one, so
-// the ~0.5ms whole-floor budget the design doc sets still holds without
-// culling. A first version of the scanline (one fillRect/globalAlpha change
-// per static fragment instead of batched paths) measured misleadingly high
-// under a poorly-warmed benchmark; see spritecache.js's own note on the
-// batching fix and the isolated per-call numbers that survived it.
+// Every building lot visible this frame, in far-to-near draw order, as plain
+// data — no canvas anywhere in this function, mirroring trafficDots below, which
+// is what lets test/invariants.test.js assert the walk's bound and row order
+// under plain Node instead of only by eye.
 //
-// Every building lot visible this frame, in the far-to-near draw order, as
-// plain data — no canvas anywhere in this function, mirroring trafficDots
-// below: it's what lets test/invariants.test.js assert the walk's bound and
-// its row order directly under plain Node instead of only by eye.
-//
-// Buildings sit on the floor's LOT grid (citygrid.js) — finer than the plot
-// grid streets are claimed on — walked ROW BY LOT ROW, far (top) to near
-// (bottom), so nearer footprints overlap farther ones. Subdividing plots into
-// lots means a block's four lots can now span the same screen row at
-// different depths only along y — never within a row, since a lot row is a
-// fixed floor-world y band exactly like a plot row was — so walking lot rows
-// in the same far-to-near order the old plot-row walk used is sufficient; get
-// the row order wrong (say, iterating plot rows and drawing all four lots
-// within one at once) and a near lot silently draws UNDER a far one, visible
-// only at certain scroll offsets since the two rows share screen space for
-// only part of a cycle.
+// Buildings sit on the floor's LOT grid (citygrid.js), finer than the plot grid
+// streets are claimed on, walked ROW BY LOT ROW far (top) to near (bottom) so
+// nearer footprints overlap farther ones. A lot row is a fixed floor-world y
+// band, so depth varies only ALONG y and never within a row — walking lot rows
+// in that order is sufficient. Get it wrong (iterating plot rows and drawing all
+// four lots at once) and a near lot silently draws UNDER a far one, visible only
+// at the scroll offsets where the two rows share screen space.
 //
 // This walks lots and asks citygrid.js what stands on each; it never decides
-// placement itself. Whatever else ends up owning lots later renders from the
-// same walk, and can't collide with a building.
+// placement itself.
 //
-// COST. Subdividing plots into lots roughly quadruples the walk (~40 plots at
-// 600x800 to ~160 lots — see invariants.test.js's own bound), and a second
-// pass (citygrid.js's BUILD_CHANCE, 0.325 -> 0.85) pushed the eligible-lot
-// fill rate to near-full to answer "the map still looks empty" — so this was
-// re-measured, not assumed to still be flat: ~70 buildings visible on an
-// average frame now (range 56-81, up from ~27 at the old chance, itself up
-// from 5-10 with one building per plot), and scenery.render() as a whole —
-// this walk, the grid blit and the traffic dots together — measured
-// ~0.36ms/frame by the rAF-saturation method (README's profiling-traps
-// section), up from ~0.25-0.26ms/frame at the old chance. Higher this time,
-// not flat — a sprite-cache blit (~1.3us per the README) is real cost, and
-// the extra ~40 buildings/frame are mostly actual blits rather than cheap
-// index checks on lots that turn out EMPTY, since EMPTY is now the rare
-// outcome. Still comfortably inside the design doc's ~0.5ms/frame budget for
-// the whole city layer, so the README's "the city has no culling" stays true
-// here, though with less headroom than before — a further density increase
-// should re-measure rather than assume the same margin holds.
+// COST, MEASURED (rAF-saturation — see the README's profiling-traps section).
+// ~70 buildings visible on an average frame (range 56-81), and scenery.render()
+// as a whole — this walk, the grid blit and the traffic dots — measures
+// ~0.36ms/frame, rising to ~0.41ms while a row is mid-wipe. Note that "some row
+// is mid-wipe" is the steady state ~94% of the time, since WIPE_SPAN (60) is
+// just under LOT (64). Both figures sit inside the design doc's ~0.5ms budget
+// for the whole city layer, so "the city has no culling" stays true — but with
+// less headroom than before, so a further density increase should re-measure
+// rather than assume the margin holds.
 export function visibleBuildings(fDist, playerY, W, H) {
   const rows = lotRows(fDist + playerY - H - 40, fDist + playerY + 200);
   const cols = lotColumns(W);
@@ -680,13 +543,10 @@ function drawFloorBuildings(ctx, fDist, playerY, W, H, sector) {
 // visibleBuildings (nodes never overlap each other — one per plot, plots don't
 // overlap), so this doesn't bother walking far-to-near.
 //
-// `bx`/`by` ride along with the screen position (Phase 7e, game/links.js):
-// a conduit's heading, a ping's phase and a console callsign all have to be
-// derived from the SAME plot index that made this a node in the first place
-// (citygrid.js's reserve()), not a second identity invented downstream —
-// exactly the reasoning plotAt itself already documents for staying a pure
-// function of (bx, by). Free to add: citygrid.js's own walk already has both
-// in scope, this just stops discarding them at the return.
+// `bx`/`by` ride along with the screen position (game/links.js): a conduit's
+// heading, a ping's phase and a console callsign must all derive from the SAME
+// plot index that made this a node (citygrid.js's reserve()), not a second
+// identity invented downstream. Free to add — the walk already has both in scope.
 export function visibleNodes(fDist, playerY, W, H) {
   const rows = plotRows(fDist + playerY - H - 40, fDist + playerY + 200);
   const cols = plotColumns(W);
@@ -724,27 +584,21 @@ function drawFloorNodes(ctx, fDist, playerY, W, H, sector) {
 // --- Traffic dots (Phase 7b) --------------------------------------------------
 //
 // THE ONE EXCEPTION TO "PURE FUNCTION OF POSITION". Every other layer on this
-// floor — the grid, the streets, the buildings — is identical at a given index
-// or screen position no matter WHEN you ask for it, which is what lets all of
-// it be pre-rendered once. A traffic dot is the one thing here that ALSO
-// depends on time. It is still not simulated: there is no car object, nothing
-// spawns or despawns, nothing is stored per-dot. A dot's position is a pure
-// function of (lane, dot index, clock) exactly the way a building's is a pure
-// function of (bx, by) — `update(dt)` below only advances what "now" means for
-// that function, on the same fixed step as every other per-run system (see
-// main.js's update()), so the dots freeze exactly when the rest of the world
-// does (paused, dying) instead of drifting on a clock of their own.
+// floor is identical at a given index no matter WHEN you ask for it, which is
+// what lets it be pre-rendered. A traffic dot also depends on time — but it is
+// still not simulated: there is no car object, nothing spawns or despawns,
+// nothing is stored per dot. A dot's position is a pure function of (lane, dot
+// index, clock), and `update(dt)` below only advances what "now" means, on the
+// same fixed step as every other per-run system, so the dots freeze when the
+// rest of the world does rather than drifting on a clock of their own.
 //
-// Two lanes per street, opposite directions, at different speeds of their
-// OWN — on top of, not instead of, the road's own scroll and this floor's
-// FLOOR_PARALLAX, which is what sells the depth (see the design doc's "why
-// the avenues matter most"). A cross-street's lanes slide in SCREEN X (the
-// street runs left-right, an axis the floor never scrolls on at all); an
-// avenue's lanes slide in SCREEN Y (the street runs top-to-bottom, the same
-// axis — and same direction — the floor itself scrolls on, so an avenue
-// lane's own speed has to be added to that scroll rather than measured
-// against the screen in place of it — see laneDotPositions' `carry`) — each
-// lane slides along its OWN street, never across it.
+// Lanes run in opposite directions at different speeds of their OWN, on top of
+// the road's scroll and this floor's FLOOR_PARALLAX, which is what sells the
+// depth. A cross-street's lanes slide in SCREEN X, an axis the floor never
+// scrolls on; an avenue's slide in SCREEN Y, the same axis the floor itself
+// scrolls on — so an avenue lane's speed must be ADDED to that scroll rather
+// than measured against the screen in place of it (see laneDotPositions'
+// `carry`). Each lane slides along its own street, never across it.
 
 // Exported as a live binding (not a getter) so game/drones.js can read "now"
 // off the SAME clock these dots run on, rather than keeping a second one —
@@ -801,30 +655,23 @@ export const DOT_LANE_PHASE = DOT_SPACING / 2;
 const DOT_LEN = 4; // long axis, along the direction of travel
 const DOT_WID = 2; // short axis, across it
 
-// Positions along ONE lane at a fixed spacing, shifted by `clockValue * speed
-// + phase + carry`, bounded to the visible span [lo, hi] — NOT to a lane
-// length. The design doc phrases this as `pos = (t*speed + offset) mod
-// laneLength`, but a lane has no natural length to mod against (a street
-// runs the full screen, forever), and inventing one risks a dot count that
-// depends on the invented number rather than on the screen. Walking the
-// index range that lands in [lo, hi] instead gives an infinite, evenly-spaced
-// sequence and just asks which of it is on screen right now — the count
-// stays bounded by (hi - lo) / spacing no matter how far `clockValue` has
-// run. `phase` is a fixed px offset (see DOT_LANE_PHASE) for staggering a
-// second lane running the same direction at the same speed, not something
-// that varies with time.
+// Positions along ONE lane at a fixed spacing, shifted by `clockValue * speed +
+// phase + carry`, bounded to the visible span [lo, hi] — NOT to a lane length. A
+// lane has no natural length to mod against (a street runs the full screen,
+// forever), and inventing one would make the dot count depend on the invented
+// number rather than on the screen. Walking the index range that lands in
+// [lo, hi] keeps the count bounded by (hi - lo) / spacing however far
+// `clockValue` has run.
 //
-// `carry`, unlike `phase`, DOES vary with time — it is trafficDots' own
-// `fDist` for an avenue lane (0 for a cross-street one; see the call sites
-// below for why only one of the two axes needs it). Without it a dot's
-// speed was measured against the SCREEN, not the WORLD, which is wrong the
-// moment the floor itself is also moving along that same axis — see
-// trafficDots' avenue loop for the failure that shipped without this term.
-// Exported so game/drones.js can place its own formations along a diagonal
-// flight line with the exact same "positions along a lane, bounded to the
-// visible span" arithmetic, rather than a second copy of it — the shape of
-// the problem (an infinite evenly-spaced sequence, walked only where it's on
-// screen) is identical, only the axis it's measured along differs.
+// `phase` is a fixed px offset (see DOT_LANE_PHASE) for staggering a second lane
+// at the same speed. `carry` DOES vary with time — it is trafficDots' own `fDist`
+// for an avenue lane, 0 for a cross-street one. Without it a dot's speed is
+// measured against the SCREEN rather than the WORLD, which is wrong whenever the
+// floor is also moving along that axis; see trafficDots' avenue loop.
+//
+// Exported so game/drones.js can place formations along a diagonal flight line
+// with the same arithmetic rather than a second copy — same problem, different
+// axis.
 export function laneDotPositions(spacing, speed, clockValue, lo, hi, phase = 0, carry = 0) {
   const shift = clockValue * speed + phase + carry;
   const iMin = Math.ceil((lo - shift) / spacing);
@@ -903,29 +750,18 @@ export function trafficDots(clockValue, fDist, playerY, W, H) {
     }
   }
 
-  // AVENUES RUN ALONG SCREEN Y — the one axis the floor itself is also
-  // scrolling on as the player drives (see render()'s fDist and
-  // drawFloorBuildings' sy, both playerY - (worldY - fDist)). A cross-street
-  // runs along screen x, which the floor never scrolls on at all (an avenue
-  // column is a FIXED screen position — see avenueCenters/insideAvenue) — so
-  // only this loop needs the fix below; the cross-street loop above is
-  // already correct as written.
+  // AVENUES RUN ALONG SCREEN Y — the one axis the floor itself scrolls on as the
+  // player drives. A cross-street runs along screen x, which the floor never
+  // scrolls on, so only this loop needs the `fDist` carry; the loop above is
+  // correct as written.
   //
-  // A dot's speed here is meant to be its OWN motion on top of the floor's,
-  // the same relative-motion relationship traffic.js's highway cars have to
-  // `distance` — so its position has to carry `fDist` exactly like every
-  // other thing on this floor does, or it is really being measured against
-  // the SCREEN rather than the WORLD the floor represents.
-  //
-  // Shipped without this term first, and the failure was visible only at
-  // speed: DOT_SPEED_A/B (55-70 px/s) is small next to how fast fDist itself
-  // can move (up toward ~310 px/s at the player's own top speed, halved by
-  // FLOOR_PARALLAX), so a dot's own contribution — the ONLY thing moving it,
-  // with no `carry` term — was swamped by the floor scrolling underneath it
-  // at a rate the dot knew nothing about. Every avenue dot read as being
-  // carried along AT the player's own pace rather than driving its own
-  // line — exactly backwards from the depth effect two independent speeds
-  // (DOT_SPEED_A/B) exist to sell in the first place.
+  // A dot's speed here is its OWN motion on top of the floor's, so its position
+  // has to carry `fDist` like everything else on this floor, or it is measured
+  // against the SCREEN rather than the WORLD. Without the term the failure shows
+  // only at speed: DOT_SPEED_A/B (55-70 px/s) is small next to fDist's own
+  // ~310 px/s, so every avenue dot reads as being carried along at the player's
+  // pace instead of driving its own line — backwards from the depth effect two
+  // independent speeds exist to sell.
   for (const cx of avenueCenters(W)) {
     const xInnerA = cx - DOT_LANE_OFFSET_INNER;
     const xOuterA = cx - DOT_LANE_OFFSET_OUTER;
@@ -948,22 +784,14 @@ export function trafficDots(clockValue, fDist, playerY, W, H) {
   return dots;
 }
 
-// Every dot in ONE fill() — the whole per-frame budget this layer gets (see
-// the README's third rendering rule and the design doc's cost section).
-// Multiple ctx.rect() calls between one beginPath()/fill() are one fill, not
-// one each. No ctx.shadowBlur: the layer's glow is FLOOR_TRAFFIC's own alpha —
-// a shadow across ~150 scattered small rects would cost far more than the
-// rects themselves (see neon.js's own header for the same trade made at
-// road-barrier scale, and the grid tile's header for it made at floor scale).
+// Every dot in ONE fill() — the whole per-frame budget this layer gets. Multiple
+// ctx.rect() calls between one beginPath()/fill() are one fill, not one each. No
+// ctx.shadowBlur: the glow is FLOOR_TRAFFIC's own alpha, since a shadow across
+// ~150 scattered small rects would cost far more than the rects themselves.
 //
-// MEASURED, trafficDots() + this function together, at 600x800 with a live
-// 118-156 dots (four lanes per street — see DOT_LANE_OFFSET_INNER/OUTER):
-// ~14us/frame — by the rAF-saturated-throughput method (README's own
-// profiling-traps section), i.e. running the pair thousands of times inside
-// one rAF callback until the callback's own elapsed time was many vsync
-// ticks, not one call timed inside a single frame (which floors at vsync and
-// reports nothing useful). Still comfortably inside the design doc's
-// ~0.03ms (30us) budget for this layer despite the doubled lane count.
+// MEASURED (rAF-saturation), trafficDots() + this together at 600x800 with a
+// live 118-156 dots: ~14us/frame, inside the design doc's ~30us budget for this
+// layer despite the doubled lane count.
 function drawTrafficDots(ctx, dots) {
   if (dots.length === 0) return;
   ctx.beginPath();
