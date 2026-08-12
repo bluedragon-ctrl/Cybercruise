@@ -393,24 +393,12 @@ registerGenerator("fire_enemy", generateFireEnemy);
 
 // --- The shared glass-shatter body ---------------------------------------
 //
-// ONE implementation, TWO catalogue entries (kill_enemy and kill_neutral —
-// see each generator below). Those two were previously a verbatim ~115-line
-// copy of each other, duplicated ON PURPOSE so either could be retuned
-// without the edit silently reaching the other. That freedom is worth
-// keeping and this keeps it — every number either entry might want to move
-// on its own is a field of the `cfg` it passes in (see GLASS_SHATTER_BASE),
-// so "make kill_neutral's shatter thinner / heavier / longer" is a one-line
-// override rather than an edit to a shared body.
-//
-// WHAT CHANGED, AND WHY IT'S NOT A REGRESSION OF THAT DECISION: duplication
-// protects against a DELIBERATE change reaching the wrong entry; it does
-// nothing about an ACCIDENTAL one-sided edit, which in two 115-line
-// look-alike bodies is both easy to make and invisible in review — and
-// nothing in the test suite compared them. A cfg split keeps intentional
-// divergence cheap while making accidental divergence impossible. If a
-// future retune of one entry is STRUCTURAL rather than numeric (a different
-// set of layers, not different numbers), forking this function at that point
-// is still exactly as available as it was before.
+// ONE implementation, TWO catalogue entries (kill_enemy and kill_neutral). Every
+// number either entry might want to move on its own is a field of the `cfg` it
+// passes in (see GLASS_SHATTER_BASE), so "make kill_neutral's shatter thinner /
+// heavier / longer" is a one-line override rather than an edit to a shared body.
+// If a future retune is STRUCTURAL rather than numeric — a different set of
+// layers, not different numbers — fork this function at that point.
 //
 // SIX LAYERS:
 //   1. a double-transient CRACK — two close noise clicks (12ms apart),
@@ -429,26 +417,18 @@ registerGenerator("fire_enemy", generateFireEnemy);
 //      to the game's own low-register identity
 //
 // Every shard is a couple of INHARMONIC SINE PARTIALS (a fundamental plus a
-// detuned overtone, each with its own independent decay) rather than the
-// bandpassed noise burst a first pass used — the same technique real
-// bell/glass-ping synthesis uses, and the one thing a reference example the
-// user supplied made obvious was missing: a genuine glass-break needs
-// BELL-LIKE RINGING shards, not flat clicks.
+// detuned overtone, each with its own independent decay) rather than a
+// bandpassed noise burst — the technique real bell/glass-ping synthesis uses.
+// A genuine glass-break needs BELL-LIKE RINGING shards, not flat clicks.
 //
-// DELIBERATE, BOUNDED DEPARTURE FROM THE CATALOGUE'S ~1.5kHz TONAL CEILING.
-// The shard partials run up to ~6-7kHz at their brightest — this is the ONE
-// place in the whole catalogue that happens, done at explicit review
-// direction after hearing the reference example, and pulled back from the
-// reference's own ~10-18kHz partials to stay closer to this game's
-// restrained register. Every other entry still obeys the ceiling.
+// DELIBERATE, BOUNDED DEPARTURE FROM THE CATALOGUE'S ~1.5kHz TONAL CEILING: the
+// shard partials run up to ~6-7kHz at their brightest. This is the ONE place in
+// the catalogue that happens; every other entry still obeys the ceiling.
 //
-// SCALED DOWN FROM THE REFERENCE FOR VOICE COUNT: the reference spawns 54
-// shards at 3 partials each (162 oscillators) plus a convolver reverb per
-// hit. kill_enemy's maxConcurrent (4) can all fire inside one tick during a
-// blast chain, so this uses 16 shards at 2 partials each (32 oscillators)
-// and no convolver — there's no shared reverb bus in context.js to route one
-// through, and building one is out of scope here; a touch of shimmer stands
-// in for it instead.
+// VOICE COUNT IS THE CONSTRAINT: kill_enemy's maxConcurrent (4) can all fire
+// inside one tick during a blast chain, so this uses 16 shards at 2 partials
+// each (32 oscillators) and no convolver — there is no shared reverb bus in
+// context.js to route one through, and the shimmer layer stands in for it.
 const GLASS_SHATTER_BASE = {
   shards: 10, // the primary spray
   shardBand: [900, 2200], // Hz — the primary spray's own fundamental range

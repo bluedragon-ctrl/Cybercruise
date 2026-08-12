@@ -456,40 +456,26 @@ export function updateWallScrape(contact) {
 // design brief's "peak gain low... this should register as unease before it
 // registers as a sound."
 //
-// TRIANGLE, NOT A BARE SINE, AND THAT CHANGE IS LOAD-BEARING RATHER THAN
-// COSMETIC. A first pass used a pure sine here — zero harmonics, the
-// "plainest" waveform available — and on real hardware it was reported
-// inaudible even with the threat slider pinned at maximum. That is not
-// mixing-too-quiet, it is physics: a great many speakers (laptop internals
-// especially) simply cannot MOVE AIR at 41Hz at all, whatever the gain, and
-// a pure sine gives the ear nothing else to latch onto — there is no
-// harmonic content anywhere else in the spectrum for a driver with a higher
-// bass rolloff to reproduce instead. A triangle at the same fundamental
-// keeps the same low, plain, "felt not heard" REGISTER (its harmonics fall
-// off fast, at 1/n², the softest-rolling-off wave short of a sine itself —
-// still nothing like wall_scrape's buzzy square or shield_drone's harsher
-// one) while putting faint energy at 123.6Hz, 206Hz and up: frequencies
-// ordinary speakers can actually move, which is what makes the PULSE
-// audible as a pulse rather than existing only in the AudioContext's own
-// arithmetic. See soundtypes.js's own catalogue header for why triangle is
-// this codebase's default choice for anything meant to read as soft rather
-// than aggressive (weapon_swap, mine_placed, every console tick below).
+// TRIANGLE, NOT A BARE SINE, AND THAT IS LOAD-BEARING. A pure sine here is
+// inaudible on real hardware even at maximum gain — not a mixing problem but
+// physics: many speakers (laptop internals especially) cannot move air at 41Hz
+// at all, and a sine has no harmonic content anywhere else in the spectrum for a
+// driver with a higher bass rolloff to reproduce instead. A triangle keeps the
+// same low, "felt not heard" register (harmonics falling off at 1/n², the
+// softest rolloff short of a sine, nothing like wall_scrape's buzzy square)
+// while putting faint energy at 123.6Hz, 206Hz and up — frequencies ordinary
+// speakers can actually move, which is what makes the pulse audible as a pulse.
 //
-// AMPLITUDE-PULSED BY A SINE LFO, SWUNG FULL DEPTH (0..1, not a PARTIAL
-// tremolo the way shield_drone's own 0.32-0.68 swing is) — see pulseGain
-// below. A full swing is what makes this read as discrete PULSES (near-total
-// silence between beats) rather than a wobbling texture, the same
-// distinction a heartbeat monitor's beep has from a synth's LFO-tremolo
-// pad. The LFO's own frequency is NOT fixed the way every other sustained
-// voice's modulation rate is (hull_hiss's flutter, shield_drone's tremolo,
-// wall_scrape's gate are all constant Hz) — updateDreadPulse() below retunes
-// it every "playing" tick from the current proximity, which is the one
-// thing that makes "the pulse rate scales with proximity" (the design
-// brief's own words) true. `dreadLfo` is stashed at module scope, once, at
-// build time — the same "capture the node you'll need to keep touching"
-// pattern proceduralmusic.js's own currentPadFilter uses for disturb(), and safe for
-// the same reason sustained.js's whole design rests on: this graph is built
-// exactly once, ever, and never rebuilt (see that file's header), so the
+// AMPLITUDE-PULSED BY A SINE LFO, SWUNG FULL DEPTH (0..1, not the partial
+// tremolo shield_drone's 0.32-0.68 swing gives) — see pulseGain below. The full
+// swing is what makes this read as discrete PULSES with near-silence between
+// beats rather than a wobbling texture: a heartbeat monitor, not a tremolo pad.
+//
+// The LFO's frequency is NOT fixed the way every other sustained voice's
+// modulation rate is — updateDreadPulse() retunes it every "playing" tick from
+// the current proximity, which is what makes the pulse rate scale with
+// proximity. `dreadLfo` is stashed at module scope at build time, safe because
+// this graph is built exactly once and never rebuilt (sustained.js), so the
 // reference never goes stale.
 let dreadLfo = null;
 

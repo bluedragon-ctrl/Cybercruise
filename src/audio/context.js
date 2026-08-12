@@ -44,50 +44,37 @@
 //     base+multiplicative-offset split, with a single pair of functions
 //     that ever calls cancelScheduledValues()/rampToValueAtTime() on it.
 //
-// musicDropGain is the music path's analogue of sfxDropGain, and exists for
-// exactly one reason: the disconnect fade (fadeMusicForDisconnect() /
-// restoreMusicAfterDisconnect() below) needs to ramp the whole music path to
-// silence and back WITHOUT fighting setMusicVolume() for musicGain's own
-// AudioParam. It used to ride musicGain directly, which meant the MUSIC
-// slider and the disconnect fade both called cancelScheduledValues() on the
-// same param and whichever ran last won outright — nudging the MUSIC bar on
-// the gameover screen (main.js's own menu handling) audibly pulled the music
-// back up out of the silence the disconnect had just faded it into. Its own
-// node means the fade never has to know or care what the MUSIC slider is
-// doing, exactly as sfxDropGain never has to know about the SOUND slider.
+// musicDropGain is the music path's analogue of sfxDropGain, and exists for one
+// reason: the disconnect fade (fadeMusicForDisconnect() /
+// restoreMusicAfterDisconnect()) must ramp the whole music path to silence and
+// back WITHOUT fighting setMusicVolume() for musicGain's own AudioParam. Riding
+// musicGain directly means the MUSIC slider and the fade both call
+// cancelScheduledValues() on the same param and whichever ran last wins — so
+// nudging the MUSIC bar on the gameover screen audibly pulls the music back out
+// of the silence the disconnect just faded it into.
 //
 // duckGain sits ONLY on the music path. Ducking sfx against itself would be
-// nonsense — the sound causing the duck would be dipping its own volume out
-// from under itself — so sfxGain never feeds duckGain; it gets its own
-// analogous stage, sfxDropGain, for exactly one purpose (see dropSfxBus()
-// below): Phase 8 step 3's hull_hiss dropout effect, a brief near-total cut
-// of the WHOLE sfx path standing in for "the deck's feed itself hiccups" at
-// critically low hull. Every sfx voice — one-shot (sfx.js) AND sustained
-// (audio/sustained.js) — connects to sfxGain first, so both ride this dip
-// together, which is the point: a dropout has to read as the FEED cutting
-// out, not as one quiet background texture stuttering.
+// nonsense — the sound causing the duck would dip its own volume out from under
+// itself — so sfxGain never feeds duckGain. It gets its own analogous stage,
+// sfxDropGain, for one purpose (see dropSfxBus()): the hull_hiss dropout, a
+// brief near-total cut of the WHOLE sfx path standing in for the deck's feed
+// hiccuping at critically low hull. Every sfx voice, one-shot and sustained
+// alike, connects to sfxGain first, so both ride the dip together — a dropout
+// has to read as the FEED cutting out, not one texture stuttering.
 //
-// The shared feedback delay (an echo unit, not a bus) taps off of and feeds
-// back into musicGain, exactly as the old synth.js's single masterGain did —
-// so echoes still ride the MUSIC slider and still get ducked along with
-// everything else in the music path. SFX reach it too (via each catalogue
-// entry's `delaySend`), but only as a SEND into the same shared unit; the
-// delay's own output routing doesn't change per sender. One echo unit shared
-// by everyone, the way one outboard delay pedal would be shared on a mixing
-// desk, rather than a private delay per sound.
+// The shared feedback delay (an echo unit, not a bus) taps off and feeds back
+// into musicGain, so echoes ride the MUSIC slider and get ducked with everything
+// else. SFX reach it via each catalogue entry's `delaySend`, but only as a SEND
+// into the same shared unit — one echo pedal on the desk, not one per sound.
 //
-// The DynamicsCompressor stays exactly where the old synth.js put it: the
-// final safety net after every bus has summed, not a creative effect — kick,
-// boom, bass, pad and any number of SFX can land on the same instant and this
-// is what stops that from clipping.
+// The DynamicsCompressor is the final safety net after every bus has summed, not
+// a creative effect: kick, boom, bass, pad and any number of SFX can land on the
+// same instant, and this is what stops that clipping.
 
-// Phase 8 step 4's speed-linked filter reads player.js's own speed range
-// rather than a second hand-picked band — the same "reuse the game's own
-// figure instead of a number that can quietly drift from it" reasoning
-// sustainedfx.js's SHIELD_DRONE_FADE_WINDOW already applies to
-// player.js's SHIELD_EXPIRING. A pure-data import of two constants, not a
-// live read of player state — this file still never touches a Player
-// instance, exactly as the rest of context.js never touches game state.
+// The speed-linked filter reads player.js's own speed range rather than a second
+// hand-picked band that could quietly drift from it. A pure-data import of two
+// constants, not a live read of player state — this file never touches a Player
+// instance.
 import { MIN_SPEED, MAX_SPEED } from "../game/player.js";
 
 const MASTER_VOLUME = 0.6; // overall mix level; every bus below is balanced against this, unchanged from the old synth.js

@@ -20,35 +20,26 @@
 // files exist, and the background decode has an entire track's playback
 // time (minutes) to finish before it's actually needed.
 //
-// --- Why backend selection can't be redone mid-run ------------------------
+// --- Two separate readiness questions --------------------------------------
 //
-// See synth.js's own header for the full reasoning (backend choice is
-// frozen there, once, for the whole page life). What THIS file is
-// responsible for is making sure synth.js's ONE-TIME decision has an honest
-// question to answer — and now that means TWO separate, honest booleans,
-// not one:
+// Backend choice is frozen once for the whole page life (synth.js). This file's
+// job is to give that one-time decision an honest question to answer, and that
+// takes TWO booleans, not one:
 //
-//   isReady()      true only once the FIRST track has actually finished
-//                   decoding, never "the fetch started" or "the listing
-//                   came back" — those can both succeed and still leave the
-//                   game with nothing playable if the decode itself fails
-//                   (a corrupt file, an unsupported codec despite the .ogg
-//                   extension). Unchanged from before; still what "fully
-//                   ready to play" means to any caller that asks.
-//   isAvailable()   true once the listing has come back with at least one
-//                   track not already known to have failed — answerable
-//                   from the small JSON listing fetch alone, with NO
-//                   dependency on decodeAudioData ever having run. THIS is
-//                   what synth.js's chooseBackend() now keys off, because
-//                   waiting for isReady() is exactly what used to lose the
-//                   race against a player who presses START GAME promptly:
-//                   the listing is typically resolved well before that
-//                   happens, but the first track's decode is not.
+//   isReady()      true only once the FIRST track has finished DECODING, never
+//                  "the fetch started" or "the listing came back" — both can
+//                  succeed and still leave nothing playable if the decode fails
+//                  (a corrupt file, an unsupported codec despite the extension).
+//   isAvailable()  true once the listing has come back with at least one track
+//                  not already known to have failed — answerable from the small
+//                  JSON fetch alone, with no dependency on decodeAudioData.
 //
-// A backend chosen on isAvailable() alone can still be committed to before
-// its first buffer exists — see start()/attemptStart() below for how that's
-// made safe (decode-in-progress is awaited via the SAME in-flight promise,
-// not re-fetched, and playback begins the moment it resolves).
+// synth.js's chooseBackend() keys off isAvailable(), because waiting for
+// isReady() loses the race against a player who presses START GAME promptly: the
+// listing usually resolves well before that, the first decode does not. A
+// backend committed to before its first buffer exists is still safe — see
+// start()/attemptStart(), which awaits the SAME in-flight decode promise rather
+// than re-fetching, and begins playback the moment it resolves.
 //
 // --- Percent-encoding -------------------------------------------------------
 //

@@ -6,27 +6,21 @@
 // and, if it needs new tactics, a behaviour function. Nothing in traffic.js knows
 // any type by name.
 //
-// ONE TYPE PER SILHOUETTE. The catalogue is a 1:1 map onto game/carshapes.js:
-// every shape in that file is exactly one type here, and the shape is what tells
-// them apart on the road. EVERY FACTION NOW SHARES ONE BASE CHASSIS COLOUR OF
-// ITS OWN — civilians all draw in NEUTRAL (the sedan's), hostiles all draw in
-// ENEMY_DEEP (the stocker's) — full stop. Each faction reads as one fleet of one
-// colour on the road, and only the silhouette tells one type from another within
-// it.
+// ONE TYPE PER SILHOUETTE. The catalogue is a 1:1 map onto game/carshapes.js,
+// and the shape is what tells types apart on the road: EVERY FACTION SHARES ONE
+// BASE CHASSIS COLOUR — civilians in NEUTRAL, hostiles in ENEMY_DEEP — so each
+// faction reads as one fleet and only the silhouette distinguishes within it.
 //
-// `accent` is the one exception, and it is a SIGNAL, not decoration: the
-// roadster names one because its driving profile is the one civilian that
-// gambles through light debris instead of always dodging (see driving.js's
-// NERVE section and the invariant test "the amber civilians always dodge").
-// The pale stripe and canopy are what tell the player that, without recolouring
-// the chassis itself — see carshapes.js's ROADSTER for where it's drawn. A type
-// with no reason to stand out simply omits `accent` and draws in one colour; no
-// hostile currently needs one, since nerve on the enemy side carries no such
-// readability rule (see driving.js's NERVE section).
+// `accent` is the one exception, and it is a SIGNAL rather than decoration: the
+// roadster names one because it is the one civilian whose profile gambles
+// through light debris instead of always dodging (driving.js's nerve section,
+// and the invariant test "the amber civilians always dodge"). A type with no
+// reason to stand out omits it. No hostile needs one — nerve on the enemy side
+// carries no such readability rule.
+//
 // The one shape shared with the player (SUPERCAR) is deliberately given to an
-// ENEMY: your own silhouette coming at you in the hostile shade reads instantly
-// as a rival, where a civilian copy of the player's car would just look like a
-// bug.
+// ENEMY: your own silhouette coming at you in the hostile shade reads as a
+// rival, where a civilian copy of the player's car would just look like a bug.
 //
 // THE SPEED BAND. The player runs 120..620 (player.js), and the catalogue is
 // pinned to both ends of that:
@@ -44,34 +38,28 @@
 // bottom, the enemy mid-field around 300-500, and the three genuine speed
 // machines (rival, hypercar, cycle) at or over the player's ceiling.
 //
-// WITHIN a type, no two cars drive alike, and none of it costs a sprite:
-//   - the range is ROLLED per spawn, so two sedans start out different;
-//   - each car then WANDERS ±4% around its roll on its own period, so a pair
-//     that happened to roll close together separates instead of locking into
-//     formation (traffic.js DRIFT);
-//   - an overtaker spends up to its profile's `passEffort` more while it is
-//     committed to a pass (driving.js), so passing reads as effort.
-// Civilian types carry the widest ranges, since a civilian type is a spread of
-// ordinary drivers; the speed machines are defined by their ceiling and stay
-// narrow. Both extras are CAPPED by speedMin/speedMax, so the band below is a
-// hard floor and ceiling and everything after this paragraph still holds.
+// WITHIN a type, no two cars drive alike, and none of it costs a sprite: the
+// range is ROLLED per spawn; each car then WANDERS ±4% around its roll on its own
+// period so a close-rolling pair separates instead of locking into formation
+// (traffic.js DRIFT); and an overtaker spends up to its profile's `passEffort`
+// more while committed to a pass. Civilian types carry the widest ranges, since a
+// civilian type is a spread of ordinary drivers; the speed machines are defined
+// by their ceiling and stay narrow. Both extras are CAPPED by speedMin/speedMax.
 //
 // The band's WIDTH is not free: traffic sheds speed at traffic.js's ACCEL, and
 // behaviours.js sizes a follower's gap from that rate. The largest closing speed
-// the catalogue can now produce is 730 - 120 = 610 units/sec, and ACCEL is set so
-// one second of closing rate still covers the road needed to match it. Widening
-// the band further means revisiting that pair — see driving.js's followReaction,
-// which is now sized PER PROFILE against the types that actually drive it.
+// the catalogue can produce is 730 - 120 = 610 units/sec, and ACCEL is set so one
+// second of closing rate still covers the road needed to match it. Widening the
+// band means revisiting that pair — see driving.js's followReaction, sized per
+// profile against the types that actually drive it.
 //
-// SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) combination is
-// a cache key in sprites.js, times WHEEL_FRAMES (8) wheel positions, plus one
-// more colour for the critical-hull blink: 11 types * 8 * 2 = 176 sprites at the
-// absolute worst, built lazily as each type first appears. That is the same order
-// as the city's building cache. Keeping the catalogue a small FIXED list is what
-// bounds it — so vary cars by ADDING A TYPE, never by rolling continuous
-// per-instance sizes or colours. Per-instance variety comes from
-// `speedMin`..`speedMax`, which costs nothing because speed doesn't affect the
-// artwork.
+// SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) is a cache key
+// in sprites.js, times WHEEL_FRAMES (8), plus one more colour for the
+// critical-hull blink: 11 types * 8 * 2 = 176 sprites at worst, built lazily.
+// Keeping the catalogue a small FIXED list is what bounds it — vary cars by
+// ADDING A TYPE, never by rolling continuous per-instance sizes or colours.
+// Per-instance variety comes from speedMin..speedMax, which costs nothing
+// because speed doesn't affect the artwork.
 
 import { carShapeIndex } from "./carshapes.js";
 import { DIST_UNITS } from "./road.js";
@@ -144,16 +132,9 @@ export const FOCUS = [];
 //   behaviour  the TACTIC — which manoeuvres this car knows (behaviours.js)
 //   driving    the PROFILE — how boldly it runs them (driving.js)
 //
-// That split is what makes a new type cheap. Before it, everything a driver
-// might feel about the road was hard-coded in behaviours.js, so two civilians
-// naming `overtake` drove identically and telling them apart meant writing a
-// second function. Now the sedan and the roadster share one tactic and differ
-// entirely in the table they point at — including `nerve`, which used to sit
-// here among the physical stats and is a disposition rather than a property of
-// the chassis. Nothing outside behaviours.js ever read it.
-//
-// A type that names no profile gets the commuter's, which is the sedan's: bland,
-// careful, and obviously so.
+// That split is what makes a new type cheap: the sedan and the roadster share
+// one tactic and differ entirely in the table they point at. A type that names
+// no profile gets the commuter's, which is the sedan's: bland and obviously so.
 
 // Fields:
 //   id          stable key (save data, spawn tables, debugging)
@@ -341,14 +322,9 @@ export const CAR_TYPES = [
     // heavy enough to be somewhere near a hazard the player wanted left standing,
     // and the AMBER cars dodging without exception is what makes one swerving
     // read as "there is something in that lane" rather than as one type's quirk.
-    // `cruise`, same as the van: it holds its lane and makes you go round.
-    //
-    // IT USED TO NAME `convoy`, a tactic row that resolved to plain `cruise`
-    // and carried a comment promising rigs paired nose-to-tail into a rolling
-    // roadblock. Nothing was ever behind it, so the catalogue claimed a
-    // behaviour this type did not have — see behaviours.js's tactics table for
-    // why that row is gone rather than kept. What actually makes a rig a rig is
-    // the line below and its 4 mass; when the roadblock ships, it earns a name.
+    // `cruise`, same as the van: it holds its lane and makes you go round. What
+    // makes a rig a rig is the profile below and its 4 mass — if the rolling
+    // nose-to-tail roadblock ever ships, it earns a tactic name of its own.
     behaviour: "cruise",
     driving: "juggernaut", // dead straight, brakes from a long way out, and
                            // expects to be given room rather than to ask for it
@@ -389,27 +365,15 @@ export const CAR_TYPES = [
     id: "muscle",
     label: "MUSCLE",
     shape: carShapeIndex("MUSCLE"),
-    // THE HOLE IN THE CIVILIAN ROAD, and it was a specific one: every heavy
-    // civilian was careful and the only reckless one was the frailest thing out
-    // here. The roadster is rude at mass 0.8 and 40 hull, so the player swats it
-    // aside for free and rudeness costs them nothing. Nothing on this side of the
-    // road leaned back.
-    //
-    // MOVED HERE FROM THE ENEMY, silhouette and stats intact. It was the hostile
-    // that blocked the player's lane from in front; the shape and the weight
-    // class were already right for a civilian brawler, and a car that is
-    // aggressive WITHOUT being out to get you is a different thing from an enemy
-    // — it is traffic that will not yield. The hostile role it vacated went to
-    // the stocker below, but with `trail` rather than a block-and-bottle-up
-    // tactic — driving.js's `enforcer` profile is still unclaimed and waiting
-    // for a hostile that actually wants it; the matching `block` tactic row in
-    // behaviours.js was deleted once it became clear nothing was going to.
+    // THE HEAVY, RECKLESS CIVILIAN, and it fills a specific hole: every other
+    // heavy civilian is careful, and the only other rude one is the roadster —
+    // frail at mass 0.8 and 40 hull, so the player swats it aside and its
+    // rudeness costs them nothing. This one leans back. A car that is aggressive
+    // WITHOUT being out to get you is a different thing from an enemy: it is
+    // traffic that will not yield.
     faction: NEUTRAL_FACTION,
-    // Base chassis matches every other civilian's now — the road's civilian
-    // traffic reads as ONE base colour, with only small per-type accents (an
-    // exhaust glow, a headlight tint) allowed to differ. Identity comes from
-    // the silhouette, exactly as it always did; colour no longer also carries
-    // weight class on top of it.
+    // Base chassis matches every other civilian's — identity comes from the
+    // silhouette, and colour carries faction rather than weight class.
     color: NEUTRAL,
     thrust: NEUTRAL_THRUST,
     w: 38,

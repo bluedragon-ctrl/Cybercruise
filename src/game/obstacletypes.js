@@ -12,33 +12,22 @@
 //   shape       index into OBSTACLE_SHAPES — looked up by name, for the same
 //               reason carTypes does: inserting a shape in the middle of that
 //               catalogue must not silently swap two obstacles' numbers
-//   health      hull points. Spent by GUNFIRE ONLY (see game/obstacles.js) — a
+//   health      hull points, spent by GUNFIRE ONLY (see game/obstacles.js). A
 //               ram always destroys an obstacle outright regardless of health,
-//               because the road only ever gives you one pass at a static
-//               object, so partial health surviving a hit you can't repeat
-//               would mean nothing. Health is what a player who'd rather shoot
-//               a hazard from a distance than touch it is spending rounds
-//               against, and it is what a mine's "minimum" is measured in: a
-//               mine takes exactly ONE hit, gunfire or contact, same as a car
-//               at zero hull
-//   mass        how much a ram costs a car's SPEED, relative units on the same
-//               scale as cartypes.js's `mass` (a sedan is 1, a rig — the
-//               catalogue's heaviest — is 4). An obstacle never moves —
-//               collisions.js's `ramSpeed` treats it as a body pinned in
-//               place, so this only ever costs the car something, never the
-//               hazard. Follows the same WEIGHT-CLASS LADDER as `health` and
-//               `blastDamage` below (light -> heavy: TRESTLE, BARRELS, TETRA):
-//               a folding trestle barely notices a bumper, a tank trap is
-//               close to a rig. The mine is the one exception, kept lowest of
-//               all — it is a small charge, not a wall, so what it does to a
-//               car is entirely in its blastDamage, not in the road it holds
+//               because the road gives you one pass at a static object and
+//               partial health surviving a hit you can't repeat would mean
+//               nothing. This is what a player who'd rather shoot a hazard than
+//               touch it spends rounds against
+//   mass        how much a ram costs a car's SPEED, on the same relative scale
+//               as cartypes.js's `mass` (sedan 1, rig 4). An obstacle never
+//               moves — collisions.js treats it as pinned in place — so this
+//               only ever costs the car. Follows the WEIGHT-CLASS LADDER below,
+//               except the mine, kept lowest of all: it is a small charge, not
+//               a wall, so what it does to a car is entirely its blastDamage
 //   blastRadius how far the destruction hurts, in px from the obstacle's BOX
-//               EDGE outward — the same measure Traffic uses for a car's death
-//               blast (see collisions the formula is shared with, in
-//               game/obstacles.js). A roadblock's radius is kept small
-//               deliberately: it should read as "only whoever hit it felt it",
-//               not as a wall-wide shockwave. A mine's is wide — it is the one
-//               obstacle that is a genuine area weapon
+//               EDGE outward — the same measure a car's death blast uses. A
+//               roadblock's is small deliberately ("only whoever hit it felt
+//               it"); a mine's is wide, being the one genuine area weapon here
 //   blastDamage hull taken at the centre of that blast, falling off linearly to
 //               nothing at the rim — same falloff Traffic gives a car's own
 //               death. The player has 100 hull; a TrafficCar's ranges 25..400
@@ -53,13 +42,10 @@
 //               the first of these: a strip is somebody's deliberate act, and
 //               one appearing on the road ahead by itself would read as the
 //               city having laid a trap for its own traffic
-//   threat      OPTIONAL, defaults to blastDamage. What driving into this
-//               COSTS, as the AI weighs it (behaviours.js compares it against
-//               a driver's nerve). Split out from blastDamage for the strip,
-//               which barely scratches a car and still must be feared — see
-//               its own note below, and RoadObstacle.threat in obstacles.js,
-//               which anticipated exactly this ("a later hazard that hurts by
-//               some other means than a blast")
+//   threat      OPTIONAL, defaults to blastDamage. What driving into this COSTS
+//               as the AI weighs it (behaviours.js compares it against a
+//               driver's nerve). Separate from blastDamage for the strip, which
+//               barely scratches a car and still must be feared
 //   effect      OPTIONAL. What CONTACT does, beyond the shared "break, shove
 //               and blast" every hazard has done until now. Omitted means
 //               exactly that shared behaviour. "spikes" instead punctures
@@ -70,12 +56,10 @@
 //   slowTime    ...and for how long
 //   minDistance how far the player must have driven before this type may spawn,
 //               in DIST-READOUT units — the same gate cartypes.js documents at
-//               length, and the same units the HUD counts in (road.js). Every
-//               hazard is currently 0: a roadblock is the CITY's, not the
-//               enemy's, so it belongs on the opening road alongside the traffic
-//               that has to swerve round it. The field is here so a type can be
-//               held back without new machinery — the caltrop is the obvious
-//               candidate the day the opening wants to be gentler still
+//               length. Every hazard is currently 0: a roadblock is the CITY's,
+//               not the enemy's, so it belongs on the opening road alongside the
+//               traffic that has to swerve round it. The field exists so a type
+//               can be held back without new machinery
 //
 // THE WEIGHT-CLASS LADDER. obstacleshapes.js already orders the three
 // roadblocks light -> heavy (TRESTLE, BARRELS, TETRA) by their SILHOUETTE and
