@@ -314,6 +314,56 @@ export const SOUND_TYPES = [
     maxConcurrent: 2,
     minInterval: 0.1,
   },
+
+  // --- Phase 8 step 4: console log ticks ----------------------------------
+  //
+  // engine/console.js's push() — one soft 40ms triangle tick per LINE, never
+  // per character (see console.js's own onPush() header for the subscriber
+  // seam this rides in on), severity picking the pitch. The severity -> id
+  // map, and the severity -> pitch table the three generators below actually
+  // read, both live in audio/consolesfx.js — see that file's own header for
+  // why LOWER reads as WORSE here, the inverse of the usual alarm convention.
+  //
+  // GENEROUS minInterval AND LOW priority, PER id, deliberately. links.js can
+  // push a burst of HINT lines within a couple of frames (its own
+  // announceCityLine), and the log itself scrolls at a pace (MAX_MESSAGES=5,
+  // LIFETIME=5s, console.js) far slower than that — so a tick dropped during
+  // a flood is correct behaviour: the LOG still shows every line, only the
+  // SOUND of a few of them is allowed to go missing, the same trade dry_fire's
+  // own held-trigger floor above already makes. priority sits at the very
+  // bottom of the whole catalogue — a log tick is the one sound in the game
+  // that should always lose a voice slot to something actually happening on
+  // the road.
+  {
+    id: "console_hint",
+    generator: null, // sfx.js's registerGenerator("console_hint", ...)
+    gain: 0.45,
+    duck: 0, // a log tick pumping the music would read as a mixing bug — same reasoning as weapon_swap's own duck:0
+    delaySend: 0,
+    priority: 2,
+    maxConcurrent: 2,
+    minInterval: 0.3,
+  },
+  {
+    id: "console_warn",
+    generator: null, // sfx.js's registerGenerator("console_warn", ...)
+    gain: 0.5,
+    duck: 0,
+    delaySend: 0,
+    priority: 2,
+    maxConcurrent: 2,
+    minInterval: 0.3,
+  },
+  {
+    id: "console_critical",
+    generator: null, // sfx.js's registerGenerator("console_critical", ...)
+    gain: 0.55,
+    duck: 0,
+    delaySend: 0,
+    priority: 3, // a shade above HINT/WARN — the one console tick worth surviving contention a beat longer
+    maxConcurrent: 2,
+    minInterval: 0.25,
+  },
 ];
 
 // One named sound type. Mirrors obstacletypes.js's obstacleTypeById /

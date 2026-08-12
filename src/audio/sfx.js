@@ -26,6 +26,7 @@ import {
   duck, requestVoice, commitVoiceDuration,
 } from "./context.js";
 import { soundTypeById, registerGenerator } from "./soundtypes.js";
+import { CONSOLE_SOUND, CONSOLE_PITCH } from "./consolesfx.js";
 
 // --- Generators ----------------------------------------------------------
 
@@ -899,6 +900,41 @@ function generatePickupShield(ctx, dest, t) {
 }
 
 registerGenerator("pickup_shield", generatePickupShield);
+
+// --- Phase 8 step 4: console log ticks ------------------------------------
+//
+// engine/console.js's push() — a single soft 40ms triangle blip, severity
+// picking the pitch (audio/consolesfx.js's CONSOLE_PITCH). ONE SHARED SHAPE,
+// THREE REGISTRATIONS: the three ids differ only in pitch — waveform,
+// envelope and duration are identical — so this is one parameterised builder
+// called once per severity, rather than three duplicated bodies (nothing
+// here is expected to diverge the way, say, kill_neutral might from
+// kill_enemy one day) or a single id taking a severity opt (soundtypes.js's
+// own entries want independent gain/priority per severity, which a shared id
+// can't express through that table).
+function generateConsoleTick(freq) {
+  return function (ctx, dest, t) {
+    const dur = 0.04;
+    const osc = ctx.createOscillator();
+    osc.type = "triangle";
+    osc.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.4, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g).connect(dest);
+    osc.start(t);
+    osc.stop(t + dur + 0.01);
+    return dur;
+  };
+}
+
+// Driven straight off CONSOLE_SOUND/CONSOLE_PITCH rather than three literal
+// calls, so the id a severity maps to and the pitch that id actually rings
+// can never drift apart — see consolesfx.js's own header.
+for (const severity of Object.keys(CONSOLE_SOUND)) {
+  registerGenerator(CONSOLE_SOUND[severity], generateConsoleTick(CONSOLE_PITCH[severity]));
+}
 
 // --- play() ----------------------------------------------------------------
 //

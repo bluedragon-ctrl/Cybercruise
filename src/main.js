@@ -23,6 +23,7 @@ import { createMenu } from "./game/menu.js";
 import { createMusic } from "./audio/synth.js";
 import { PLAYER_FIRE_SOUND, ENEMY_FIRE_SOUND } from "./audio/weaponsfx.js";
 import { PICKUP_SOUND } from "./audio/pickupsfx.js";
+import { CONSOLE_SOUND } from "./audio/consolesfx.js";
 import * as road from "./game/road.js";
 import * as scenery from "./game/scenery.js";
 import * as drones from "./game/drones.js";
@@ -156,6 +157,20 @@ function onPickupCollected(type) {
   music.play(PICKUP_SOUND[type.kind]);
 }
 
+// Phase 8 step 4's audio hook onto engine/console.js's subscriber seam
+// (onPush) — registered below, in newGame(), rather than here at module
+// scope. Every OTHER audio hook in this file (onCarDestroyed,
+// onPlayerDamage, onPickupCollected above) is handed to a per-run object's
+// constructor and never needs re-wiring; this one is different because
+// console.js's own reset() deliberately clears its subscriber (see that
+// function's own comment on why), so newGame() has to re-register it every
+// time, the same way it re-registers everything else PER-RUN below. See
+// console.js's own onPush() header for why the wiring lives here at all
+// rather than inside console.js.
+function onConsolePush(text, severity) {
+  music.play(CONSOLE_SOUND[severity]);
+}
+
 // Scratch target list for bullets: cars AND obstacles in one flat array, so a
 // shot resolves against whichever it actually crosses first regardless of
 // which system owns it (see projectiles.js's firstHit). Reused every tick
@@ -222,6 +237,12 @@ function newGame() {
   enemyShots = new Projectiles(explosions);
   disconnect.reset();
   gameConsole.reset();
+  // Re-registered every newGame(), never stacked — reset() just cleared it
+  // (see console.js's own onPush() header for why), and onPush() itself
+  // would simply overwrite a second registration even if this ran twice in
+  // a row, so there is no way for this to end up with two callbacks firing
+  // per push.
+  gameConsole.onPush(onConsolePush);
   links.reset();
   sectors.reset();
   // Phase 8 step 3: release every sustained voice (hull_hiss/shield_drone/
@@ -403,6 +424,10 @@ function update(dt) {
   music.updateHullHiss(dt, player.health / player.maxHealth, sectors.glitching());
   music.updateWallScrape(player.hitWall);
   music.updateShieldDrone(player.shieldTime);
+  // Speed-linked music filter (audio/context.js's musicFilter) — polled the
+  // same way as the three sustained voices above, off player.speed directly
+  // rather than anything traffic-related.
+  music.updateMusicCutoff(player.speed);
 
   // Shooting, BEFORE traffic: a bullet that kills a car this tick leaves that
   // car dead when traffic.update runs, so it detonates and scores in the same
@@ -494,6 +519,13 @@ function update(dt) {
   // player is NOT read-only here: traffic resolves ramming for every car and the
   // player together, which can shove and damage the player (collisions.js).
   traffic.update(dt, world);
+
+  // Phase 8 step 4's "dread_pulse" — polled AFTER traffic.update(), so
+  // tailThreat() reads this tick's own car positions rather than last
+  // tick's, exactly the way the sustained voices above read this tick's
+  // just-updated hull/shield/wall state. See traffic.js's own tailThreat()
+  // header for what it returns and why the query lives there.
+  music.updateDreadPulse(dt, traffic.tailThreat());
 
   // Hostile fire resolves AFTER traffic, not before it like the player's. Two
   // reasons, and they point the same way: the rounds fired during traffic.update

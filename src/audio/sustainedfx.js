@@ -429,15 +429,208 @@ export function updateWallScrape(contact) {
 }
 
 // ===========================================================================
+// dread_pulse — Phase 8 step 4's ambient layer: "you are hunted." A low sine
+// pulse that fades in when a hostile is behind the player and closing, with
+// its PULSE RATE — not just its level — scaling with proximity, so the
+// closer a hostile gets, the faster the player's own pulse seems to race.
+//
+// DELIBERATELY DUPLICATES NO EXISTING SIGNAL. hull_hiss (above) says "you
+// are hurt"; dread_pulse says "you are hunted" — two different facts about
+// the run that happen to both be true at once fairly often (a hostile on
+// your tail is exactly when you're also likely to be taking damage), so the
+// two have to read as clearly separate sounds when both are running: hiss is
+// BANDPASSED NOISE up around 1.4kHz, texture with no pitch of its own;
+// dread_pulse is a single low tone an octave-plus below wall_scrape's own
+// 70Hz, pulsing far slower than either of this file's other two voices'
+// modulation (hull_hiss's flutter is a few Hz of irregular wobble,
+// shield_drone's tremolo is a steady 9Hz, wall_scrape's gate is 20Hz) —
+// dread_pulse tops out at 4Hz even right on the player's tail. Different
+// register, different waveform, different rate: the three ways two
+// amplitude-modulated low tones can still be told apart at a glance.
+// ===========================================================================
+
+// --- The graph --------------------------------------------------------
+//
+// A single low tone at 41.2Hz (E1, half an octave under wall_scrape's 70Hz)
+// — the lowest fundamental in the whole catalogue, on purpose, per the
+// design brief's "peak gain low... this should register as unease before it
+// registers as a sound."
+//
+// TRIANGLE, NOT A BARE SINE, AND THAT CHANGE IS LOAD-BEARING RATHER THAN
+// COSMETIC. A first pass used a pure sine here — zero harmonics, the
+// "plainest" waveform available — and on real hardware it was reported
+// inaudible even with the threat slider pinned at maximum. That is not
+// mixing-too-quiet, it is physics: a great many speakers (laptop internals
+// especially) simply cannot MOVE AIR at 41Hz at all, whatever the gain, and
+// a pure sine gives the ear nothing else to latch onto — there is no
+// harmonic content anywhere else in the spectrum for a driver with a higher
+// bass rolloff to reproduce instead. A triangle at the same fundamental
+// keeps the same low, plain, "felt not heard" REGISTER (its harmonics fall
+// off fast, at 1/n², the softest-rolling-off wave short of a sine itself —
+// still nothing like wall_scrape's buzzy square or shield_drone's harsher
+// one) while putting faint energy at 123.6Hz, 206Hz and up: frequencies
+// ordinary speakers can actually move, which is what makes the PULSE
+// audible as a pulse rather than existing only in the AudioContext's own
+// arithmetic. See soundtypes.js's own catalogue header for why triangle is
+// this codebase's default choice for anything meant to read as soft rather
+// than aggressive (weapon_swap, mine_placed, every console tick below).
+//
+// AMPLITUDE-PULSED BY A SINE LFO, SWUNG FULL DEPTH (0..1, not a PARTIAL
+// tremolo the way shield_drone's own 0.32-0.68 swing is) — see pulseGain
+// below. A full swing is what makes this read as discrete PULSES (near-total
+// silence between beats) rather than a wobbling texture, the same
+// distinction a heartbeat monitor's beep has from a synth's LFO-tremolo
+// pad. The LFO's own frequency is NOT fixed the way every other sustained
+// voice's modulation rate is (hull_hiss's flutter, shield_drone's tremolo,
+// wall_scrape's gate are all constant Hz) — updateDreadPulse() below retunes
+// it every "playing" tick from the current proximity, which is the one
+// thing that makes "the pulse rate scales with proximity" (the design
+// brief's own words) true. `dreadLfo` is stashed at module scope, once, at
+// build time — the same "capture the node you'll need to keep touching"
+// pattern music.js's own currentPadFilter uses for disturb(), and safe for
+// the same reason sustained.js's whole design rests on: this graph is built
+// exactly once, ever, and never rebuilt (see that file's header), so the
+// reference never goes stale.
+let dreadLfo = null;
+
+function buildDreadPulse(ctx, dest) {
+  const osc = ctx.createOscillator();
+  osc.type = "triangle"; // see the header — a bare sine here measured inaudible on real speakers
+  osc.frequency.value = 41.2; // E1
+
+  const pulseGain = ctx.createGain();
+  pulseGain.gain.value = 0.5; // base the pulse swings around
+
+  const lfo = ctx.createOscillator();
+  lfo.type = "sine";
+  lfo.frequency.value = DREAD_RATE_MIN; // updateDreadPulse retunes this continuously; starts at the slowest rate so an unlucky first frame (before any update() call has run) is at least plausible
+  const lfoDepth = ctx.createGain();
+  lfoDepth.gain.value = 0.5; // pulseGain.gain swings 0..1 — a FULL pulse, see the header
+  lfo.connect(lfoDepth).connect(pulseGain.gain);
+  lfo.start();
+
+  osc.connect(pulseGain).connect(dest);
+  osc.start();
+
+  dreadLfo = lfo;
+}
+registerGenerator("dread_pulse", buildDreadPulse);
+
+// --- The threat curve (PURE) --------------------------------------------
+//
+// `gap` is world units of clear road between the hostile and the player
+// (traffic.js's tailThreat(), positive while it's behind), `closing` is
+// whether it's actually gaining (also tailThreat()'s own — see that
+// method's header for both definitions). Both hostile distance AND whether
+// it's closing feed into a single 0..1 proximity figure: a hostile that's
+// merely holding station off the player's tail is not what this layer is
+// for, whatever the gap.
+
+// The gap must close to this many world units before the pulse can switch
+// ON — and it's deliberately wider than behaviours.js's own TRAIL_ENGAGE
+// (260, the gap a shot actually becomes possible at): armament.js's own
+// visibleRoad puts roughly 300 world units of road behind the player on
+// screen at all (see TRAIL_ENGAGE's own comment), so 480 means the dread
+// starts building while the hostile closing on you is still OFF the visible
+// edge of the road — you can feel it coming before you can see it, which is
+// exactly the point of an unease layer rather than a combat cue.
+export const DREAD_RANGE_ON = 480;
+// ...and switches back OFF only once the gap opens past this — the same
+// hysteresis-gap reasoning HULL_HISS_ON/OFF's own comment gives: a hostile
+// sitting almost exactly at the threshold would otherwise flicker the layer
+// on and off as ordinary speed wander (traffic.js's own DRIFT) nudges the
+// gap a few units either side of one shared number.
+export const DREAD_RANGE_OFF = 520;
+// Gain once fully on the player's tail — low, per the design brief, but
+// RAISED FROM AN INITIAL 0.05 alongside the sine->triangle swap above: this
+// is the leanest source in the whole sustained catalogue (one oscillator,
+// no noise, no second tone the way shield_drone sums two), so it needs more
+// headroom than HULL_HISS_PEAK (0.08) or WALL_SCRAPE_LEVEL (0.09) to land
+// at a comparable perceived loudness, not less — a thin source and a low
+// peak were compounding the same problem rather than pulling in opposite
+// directions.
+export const DREAD_PEAK = 0.11;
+
+// 0..1: 0 at/beyond DREAD_RANGE_ON, rising to 1 as gap falls to zero.
+// Doubles as both the level curve and the rate curve's own input — see
+// dreadPulseLevel/dreadPulseRate below, which are just this scaled into two
+// different units. Pure and stateless: knows nothing about hysteresis or
+// closing, exactly the split hullHissLevel/hullHissActive already
+// establishes (that split is what lets each half be tested — and retuned —
+// independently).
+export function dreadProximity(gap) {
+  return Math.max(0, Math.min(1, (DREAD_RANGE_ON - gap) / DREAD_RANGE_ON));
+}
+
+export function dreadPulseLevel(gap) {
+  return DREAD_PEAK * dreadProximity(gap);
+}
+
+export const DREAD_RATE_MIN = 0.8; // Hz, at the edge of the threat range
+export const DREAD_RATE_MAX = 4; // Hz, right on the player's tail
+export function dreadPulseRate(gap) {
+  return DREAD_RATE_MIN + dreadProximity(gap) * (DREAD_RATE_MAX - DREAD_RATE_MIN);
+}
+
+// Whether the pulse should be considered ON this tick, given whether it WAS
+// on last tick — the same hysteresis state machine shape as hullHissActive
+// (see that function's own comment). `closing` gates this outright and has
+// no hysteresis of its own: a hostile that stops gaining is not a reason to
+// keep the pulse alive, whatever the gap was a moment ago — the ~1s fade
+// updateDreadPulse applies underneath this is what keeps a single flickering
+// frame of `closing` from being audible as a blink, so a second hysteresis
+// dimension here would be solving a problem the fade already solves.
+export function dreadPulseActive(gap, closing, wasActive) {
+  if (!closing) return false;
+  return wasActive ? gap < DREAD_RANGE_OFF : gap <= DREAD_RANGE_ON;
+}
+
+// --- The per-frame driver main.js calls (via synth.js's facade) ---------
+
+let dreadWasActive = false;
+const DREAD_FADE = 1.0; // seconds — "a slow fade (~1s) in both directions: this layer must never blink," per the design brief
+const DREAD_RATE_RAMP = 0.15; // seconds — short, so a rate change reads promptly rather than lagging behind the much slower level fade, but still a ramp rather than a snap so retuning the LFO's own frequency never zippers
+
+// Called every "playing" tick with traffic.js's own tailThreat() result — a
+// plain {gap, closing} pair, or null when nothing hostile is behind the
+// player at all. Never touches a car or the player directly, mirroring every
+// other update*() here (hull fraction, shieldTime, hitWall): the game layer
+// hands over a scalar (or, here, a small plain object), and the audio layer
+// never reaches back into game state to get it.
+export function updateDreadPulse(dt, tailThreat) {
+  const gap = tailThreat ? tailThreat.gap : Infinity;
+  const closing = tailThreat ? tailThreat.closing : false;
+  const active = dreadPulseActive(gap, closing, dreadWasActive);
+  dreadWasActive = active;
+
+  sustained.setLevel("dread_pulse", active ? dreadPulseLevel(gap) : 0, DREAD_FADE);
+
+  // Retune the LFO's own rate regardless of `active` — cheap while silent
+  // (the gain is 0, so a rate change is inaudible), and it means the pulse
+  // is already at the RIGHT rate the instant it next fades in, rather than
+  // starting at whatever rate it happened to be left at when it last faded
+  // out.
+  const ctx = getCtx();
+  if (ctx && dreadLfo) {
+    const rate = dreadPulseRate(gap);
+    const t = ctx.currentTime;
+    dreadLfo.frequency.cancelScheduledValues(t);
+    dreadLfo.frequency.setValueAtTime(dreadLfo.frequency.value, t);
+    dreadLfo.frequency.linearRampToValueAtTime(rate, t + DREAD_RATE_RAMP);
+  }
+}
+
+// ===========================================================================
 // reset() — called from main.js's newGame()
 // ===========================================================================
 //
 // Releases every sustained voice AND resets this file's own edge-detection
 // and scheduling state, so a fresh run never inherits an "already active"
-// hiss, a live dropout/crackle countdown mid-flight, or a half-open
-// shield/wall gate from the run that just ended. Per the design brief's own
-// warning: "a hiss surviving into a fresh run at full health is the most
-// likely bug in this change."
+// hiss, a live dropout/crackle countdown mid-flight, a half-open shield/wall
+// gate, or a dread pulse still racing, from the run that just ended. Per the
+// design brief's own warning: "a hiss surviving into a fresh run at full
+// health is the most likely bug in this change" — and, for this step, "a
+// dread pulse surviving into a fresh run" is the same bug with a new name.
 export function reset() {
   sustained.releaseAll();
   hissWasActive = false;
@@ -445,4 +638,5 @@ export function reset() {
   crackleTimer = CRACKLE_MIN_INTERVAL;
   shieldWasActive = false;
   wallWasActive = false;
+  dreadWasActive = false;
 }

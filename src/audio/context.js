@@ -17,8 +17,29 @@
 //
 // --- Bus graph -----------------------------------------------------------
 //
-//   music voices ──> musicGain ──> duckGain   ──> compressor ──> destination
-//   sfx voices   ──> sfxGain   ──> sfxDropGain ───────────^
+//   music voices ──> musicGain ──> musicFilter ──> duckGain   ──> compressor ──> destination
+//   sfx voices   ──> sfxGain   ────────────────────────────────> sfxDropGain ───────────^
+//
+// musicFilter (Phase 8 step 4) is a lowpass whose cutoff main.js's update
+// loop tracks against player speed — see setMusicCutoff()/speedToMusicCutoff()
+// below. It sits BETWEEN musicGain and duckGain deliberately, its own node,
+// touching only `.frequency` — never `.gain` — so it can never fight the two
+// existing users of this same bus for control of one AudioParam:
+//   - music.js's disturb() touches the CURRENTLY-SOUNDING PAD'S OWN filter
+//     (schedulePad's per-bar `currentPadFilter`, a completely different node
+//     from this one) plus that pad's own oscillator detune. A speed-driven
+//     cutoff here and a transient hit-driven dip on the pad's own filter
+//     compose by simple arithmetic — the pad's content passes through BOTH
+//     filters in series, each free to move on its own schedule, neither
+//     ever calling cancelScheduledValues() on the other's AudioParam.
+//   - a future sector-transition "collapse the whole bus" effect (Phase 8
+//     step 5) should follow sfxDropGain's own precedent — a dedicated GAIN
+//     stage of its own, inserted alongside duckGain rather than reusing
+//     musicFilter's `.frequency` or duckGain's `.gain` — for the exact
+//     reason sfxDropGain exists instead of overloading sfxGain: two effects
+//     driving the same AudioParam on the same schedule fight each other's
+//     cancelScheduledValues() calls, and a fresh node sidesteps that
+//     entirely rather than trying to merge two ramps into one.
 //
 // duckGain sits ONLY on the music path. Ducking sfx against itself would be
 // nonsense — the sound causing the duck would be dipping its own volume out
@@ -45,10 +66,20 @@
 // boom, bass, pad and any number of SFX can land on the same instant and this
 // is what stops that from clipping.
 
+// Phase 8 step 4's speed-linked filter reads player.js's own speed range
+// rather than a second hand-picked band — the same "reuse the game's own
+// figure instead of a number that can quietly drift from it" reasoning
+// sustainedfx.js's SHIELD_DRONE_FADE_WINDOW already applies to
+// player.js's SHIELD_EXPIRING. A pure-data import of two constants, not a
+// live read of player state — this file still never touches a Player
+// instance, exactly as the rest of context.js never touches game state.
+import { MIN_SPEED, MAX_SPEED } from "../game/player.js";
+
 const MASTER_VOLUME = 0.6; // overall mix level; every bus below is balanced against this, unchanged from the old synth.js
 
 let ctx = null;
 let musicGain = null;
+let musicFilter = null;
 let sfxGain = null;
 let sfxDropGain = null;
 let duckGain = null;
@@ -114,8 +145,20 @@ function buildGraph() {
   duckGain = ctx.createGain();
   duckGain.gain.value = 1; // undipped until the first duck() call
 
+  // Phase 8 step 4's speed-linked lowpass — see the header's bus diagram for
+  // why this is its own node, between musicGain and duckGain. Starts at
+  // MUSIC_CUTOFF_MAX (brightest) rather than MUSIC_CUTOFF_MIN: nothing has
+  // called setMusicCutoff() yet at this point (main.js's first "playing"
+  // tick does that), and defaulting bright means the music sounds exactly as
+  // it always did until the speed tracking actually engages, rather than
+  // opening every run artificially dulled for a frame or two.
+  musicFilter = ctx.createBiquadFilter();
+  musicFilter.type = "lowpass";
+  musicFilter.frequency.value = MUSIC_CUTOFF_MAX;
+
   const compressor = ctx.createDynamicsCompressor();
-  musicGain.connect(duckGain);
+  musicGain.connect(musicFilter);
+  musicFilter.connect(duckGain);
   duckGain.connect(compressor);
   sfxGain.connect(sfxDropGain);
   sfxDropGain.connect(compressor);
@@ -177,6 +220,56 @@ export function setSfxVolume(level) {
   sfxGain.gain.cancelScheduledValues(t);
   sfxGain.gain.setValueAtTime(sfxGain.gain.value, t);
   sfxGain.gain.linearRampToValueAtTime(MASTER_VOLUME * sfxVolume, t + 0.15);
+}
+
+// --- Speed-linked music filter -----------------------------------------
+//
+// "Slower means duller." Deliberately NARROW — the design brief is explicit
+// that this must be FELT, not heard as an effect ("if it is audible as a
+// filter sweep it is too wide") — and it stays well inside every source
+// voice's own headroom: music.js's pad rests at 900Hz, the bass at 350Hz,
+// the accent at 1400Hz, so MUSIC_CUTOFF_MIN sitting exactly at the pad's own
+// resting point means a dead crawl caps the WHOLE bus no darker than the pad
+// already always is, and MUSIC_CUTOFF_MAX stays comfortably under the
+// catalogue's ~5kHz noise rolloff. What actually moves across that ~1700Hz
+// span is the harmonic SHEEN a lowpass filter's own gentle rolloff always
+// leaves leaking above a source's nominal cutoff (a sawtooth's upper
+// partials, the accent's own upper harmonics) — real, audible "openness",
+// narrow enough not to read as a sweep.
+export const MUSIC_CUTOFF_MIN = 900; // Hz, at MIN_SPEED
+export const MUSIC_CUTOFF_MAX = 2600; // Hz, at MAX_SPEED
+
+// Pure: player speed (world units/sec, player.js's own MIN_SPEED..MAX_SPEED
+// band) -> lowpass cutoff (Hz). Clamped at both ends, so a caller never has
+// to clamp `speed` first — a value outside the band (nothing in the game
+// produces one, but a slider on the SFX gallery could) still returns a
+// cutoff inside [MUSIC_CUTOFF_MIN, MUSIC_CUTOFF_MAX] rather than
+// extrapolating past it. Exported for the invariant tests, which check the
+// mapping stays inside its stated range for every input, 0 and MAX_SPEED
+// included — the same "pure function first" split every other driver in
+// this audio layer (planDuck, hullHissLevel, dreadPulseRate, ...) already
+// follows.
+export function speedToMusicCutoff(speed) {
+  const t = Math.max(0, Math.min(1, (speed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED)));
+  return MUSIC_CUTOFF_MIN + t * (MUSIC_CUTOFF_MAX - MUSIC_CUTOFF_MIN);
+}
+
+const MUSIC_CUTOFF_RAMP = 0.25; // seconds — never snaps; see setMusicVolume's own ramp for the same reasoning (a sudden AudioParam jump reads as a click, not a change)
+
+// Called once per "playing" tick from main.js's update loop (via synth.js's
+// updateMusicCutoff facade), with whatever speedToMusicCutoff(player.speed)
+// comes out to. Ramps rather than snaps, and — mirroring sustained.js's own
+// setLevel() — is a no-op when `freq` matches the last target, so holding a
+// pinned speed (MAX_SPEED flat out, or MIN_SPEED stalled at a hazard) costs
+// nothing on the frames where nothing actually changed.
+let lastCutoffTarget = null;
+export function setMusicCutoff(freq) {
+  if (!ctx || freq === lastCutoffTarget) return;
+  lastCutoffTarget = freq;
+  const t = ctx.currentTime;
+  musicFilter.frequency.cancelScheduledValues(t);
+  musicFilter.frequency.setValueAtTime(musicFilter.frequency.value, t);
+  musicFilter.frequency.linearRampToValueAtTime(freq, t + MUSIC_CUTOFF_RAMP);
 }
 
 // --- Ducking ---------------------------------------------------------------

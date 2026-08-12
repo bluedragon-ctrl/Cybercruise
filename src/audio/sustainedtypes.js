@@ -35,6 +35,11 @@ export const SUSTAINED_TYPES = [
     generator: null,
     label: "WALL SCRAPE",
   },
+  {
+    id: "dread_pulse",
+    generator: null, // filled in by sustainedfx.js's registerGenerator("dread_pulse", ...)
+    label: "DREAD PULSE",
+  },
 ];
 
 // Mirrors soundtypes.js's soundTypeById exactly.
