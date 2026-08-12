@@ -43,9 +43,14 @@ export const TRACK_GAIN = 0.8;
 // on where percent-encoding happens and why it's never part of the key
 // here). Empty by default; a specific track that turns out too loud or
 // too quiet once auditioned gets one entry here rather than a re-export or
-// a special case in trackmusic.js.
+// a special case in trackmusic.js. `title`, alongside `gain`, is the same
+// idea applied to the SYS LOG announcement (main.js's onTrackChange, wired
+// through trackmusic.js's own onTrackChange seam — see that file's header):
+// trackDisplayName()'s automatic name derivation reads a raw filename
+// fine most of the time, but an awkward one can be given a proper name
+// here instead of renaming the file on disk.
 export const TRACK_OVERRIDES = {
-  // "under_chrome.ogg": { gain: 0.9 },
+  // "under_chrome.ogg": { gain: 0.9, title: "UNDER CHROME" },
 };
 
 // The gain trackmusic.js should actually use for `name` — its own override
@@ -53,6 +58,17 @@ export const TRACK_OVERRIDES = {
 export function trackGainFor(name) {
   const override = TRACK_OVERRIDES[name];
   return override?.gain ?? TRACK_GAIN;
+}
+
+// The SYS LOG display name for `name` — its own override title if one
+// exists, else the filename itself, stripped of its extension, with
+// underscores read as word breaks and everything upper-cased to match the
+// console's own all-caps register (engine/console.js's render, links.js's
+// callsigns): "under_chrome.ogg" -> "UNDER CHROME".
+export function trackDisplayName(name) {
+  const override = TRACK_OVERRIDES[name];
+  if (override?.title) return override.title;
+  return name.replace(/\.[^.]+$/, "").replace(/_/g, " ").toUpperCase();
 }
 
 // Defensive config validation, exercised by the invariant tests so a typo

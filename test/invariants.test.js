@@ -132,7 +132,7 @@ import * as trackmusic from "../src/audio/trackmusic.js";
 import {
   shuffleOrder, nextIndex, shouldLoopSingleTrack, retainedTrackNames, nextPlayableIndex, runPreload,
 } from "../src/audio/trackmusic.js";
-import { MUSIC_DIR, MUSIC_LISTING_URL, TRACK_GAIN, trackGainFor, validateMusicConfig } from "../src/audio/musictypes.js";
+import { MUSIC_DIR, MUSIC_LISTING_URL, TRACK_GAIN, trackGainFor, trackDisplayName, validateMusicConfig } from "../src/audio/musictypes.js";
 import { listMusicFiles } from "../tools/serve.js";
 
 // A fixture car. Traffic cars are built by traffic.js, which hands them the two
@@ -4564,6 +4564,15 @@ test("validateMusicConfig rejects an out-of-range per-track override", () => {
 
 test("trackGainFor uses a per-track override when present, else the blanket TRACK_GAIN", () => {
   assert.equal(trackGainFor("nonexistent-track.ogg"), TRACK_GAIN);
+});
+
+test("trackDisplayName strips the extension, reads underscores as word breaks, and upper-cases the result", () => {
+  assert.equal(trackDisplayName("under_chrome.ogg"), "UNDER CHROME");
+  assert.equal(trackDisplayName("a_long_track_name.ogg"), "A LONG TRACK NAME");
+});
+
+test("trackDisplayName falls back to the derived name for a track with no TRACK_OVERRIDES title", () => {
+  assert.equal(trackDisplayName("nonexistent-track.ogg"), "NONEXISTENT-TRACK");
 });
 
 // --- Backend selection (audio/synth.js) ---------------------------------

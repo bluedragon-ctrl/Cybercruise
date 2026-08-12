@@ -23,6 +23,7 @@ import { createMenu } from "./game/menu.js";
 import { createMusic } from "./audio/synth.js";
 import { PLAYER_FIRE_SOUND, ENEMY_FIRE_SOUND } from "./audio/weaponsfx.js";
 import { PICKUP_SOUND } from "./audio/pickupsfx.js";
+import { trackDisplayName } from "./audio/musictypes.js";
 import { CONSOLE_SOUND } from "./audio/consolesfx.js";
 import { MENU_SOUND } from "./audio/menusfx.js";
 import * as road from "./game/road.js";
@@ -192,6 +193,30 @@ function onPickupCollected(type) {
 function onConsolePush(text, severity) {
   music.play(CONSOLE_SOUND[severity]);
 }
+
+// The deck reporting its own audio feed — synth.js's own onTrackChange
+// facade, forwarding trackmusic.js's subscriber seam (see that file's
+// header). Registered ONCE, below, right after `music` exists, unlike
+// onConsolePush just above: there is no per-run reset to survive here
+// (trackmusic.js's subscriber isn't touched by newGame() or
+// gameConsole.reset()), and the track backend itself only ever starts once
+// per page life (synth.js's jackIn() header) — one subscription made now
+// covers the first track and every later handoff for the rest of the
+// session. Composing the actual SYS LOG line is main.js's job, not
+// trackmusic.js's or synth.js's, for the same reason CONSOLE_SOUND above
+// lives here rather than in console.js: the fiction (matching links.js's
+// own "//"-joined register) belongs with the module that already owns every
+// other console line's wording, not buried in the audio layer.
+//
+// Never fires before a run is underway: trackmusic.js only ever invokes its
+// subscriber from playIndex(), which nothing reaches before jackIn() commits
+// to the track backend (see trackmusic.js's own comment on that call site) —
+// so there's no way for this to write into a SYS LOG the player isn't even
+// looking at yet.
+function onTrackChange(name) {
+  gameConsole.push(`AUDIO FEED // ${trackDisplayName(name)}`, gameConsole.HINT);
+}
+music.onTrackChange(onTrackChange);
 
 // Scratch target list for bullets: cars AND obstacles in one flat array, so a
 // shot resolves against whichever it actually crosses first regardless of
