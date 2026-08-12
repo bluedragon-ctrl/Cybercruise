@@ -125,26 +125,34 @@ function scheduleBoom(ctx, musicGain, noiseBuffer, t) {
   osc.stop(t + 0.5);
 }
 
-// A faint high-passed tick, not a driving 8th-note pulse — see scheduleStep
+// A faint ticking texture, not a driving 8th-note pulse — see scheduleStep
 // for how sparingly this gets called. Constant hi-hat motion is what made the
 // old beat feel busy/upbeat; this is just enough texture to keep the bars
 // from feeling frozen.
 //
-// KNOWN OFF-BRIEF, LEFT ALONE: the 9kHz highpass here sits well above this
-// project's ~5kHz noise rolloff / ~1.5kHz tonal ceiling (see synth.js's
-// header). Retuning it is explicitly OUT OF SCOPE for this split — it's
-// listed here only so the next pass doesn't mistake the omission for an
-// oversight.
+// PHASE 8 STEP 5 MIX PASS: retuned from a 9kHz HIGHPASS to a ~4kHz BANDPASS —
+// the one element in the whole soundtrack that contradicted the project's own
+// "no tonal content above ~1.5kHz, noise rolled off above ~5kHz" rule (see
+// synth.js's header), left deliberately unfixed since step 1 pending this
+// pass. Two options were on the table: cut the tick entirely and let the open
+// beats (2 and 4, see scheduleStep) stay silent, or bring it inside the
+// ~5kHz noise ceiling. Kept, bandpassed, because a pure kick+boom+silence
+// pattern read as too empty in practice — the tick is what stops the open
+// beats feeling like a dropout rather than a deliberate half-time groove — and
+// a TIGHT bandpass (Q2.5, not a wide highpass shelf) means it still sits
+// comfortably under 5kHz with very little energy leaking past it, unlike the
+// old highpass which let everything above 9kHz through unbounded.
 function scheduleHat(ctx, musicGain, noiseBuffer, t) {
   const src = ctx.createBufferSource();
   src.buffer = noiseBuffer;
-  const high = ctx.createBiquadFilter();
-  high.type = "highpass";
-  high.frequency.value = 9000;
+  const band = ctx.createBiquadFilter();
+  band.type = "bandpass";
+  band.frequency.value = 4000;
+  band.Q.value = 2.5;
   const gain = ctx.createGain();
   gain.gain.setValueAtTime(0.07, t);
   gain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
-  src.connect(high).connect(gain).connect(musicGain);
+  src.connect(band).connect(gain).connect(musicGain);
   src.start(t);
   src.stop(t + 0.05);
 }
@@ -327,11 +335,22 @@ function scheduler() {
 // Call once, after context.js's start() has built the bus graph (see
 // synth.js's facade, which sequences the two). A second call is a no-op —
 // the loop this starts runs for the rest of the page life.
-export function start() {
+//
+// `delaySeconds` is when the FIRST step fires, relative to ctx.currentTime —
+// defaulted to a bare 0.1s head start (just enough lookahead for the
+// scheduler's own SCHEDULE_AHEAD_TIME to have somewhere to write) for every
+// caller that doesn't care exactly when the loop's first downbeat lands
+// (the SFX gallery's own "just start everything" button). Phase 8 step 5's
+// jack_in transition DOES care — synth.js's jackIn() facade passes
+// sfx.js's own JACK_IN_DURATION here, so the loop's first step — and with it
+// the bar 0 kick/boom on scheduleStep's stepInBar===0 — lands exactly when
+// the riser sound finishes, which is what makes the two read as one gesture
+// rather than a sound effect followed, a beat later, by music starting.
+export function start(delaySeconds = 0.1) {
   if (started) return;
   started = true;
   const ctx = getCtx();
-  nextStepTime = ctx.currentTime + 0.1;
+  nextStepTime = ctx.currentTime + delaySeconds;
   currentStep = 0;
   timerId = setInterval(scheduler, LOOKAHEAD_MS);
 }

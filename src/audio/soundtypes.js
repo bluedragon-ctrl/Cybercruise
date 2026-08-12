@@ -364,6 +364,104 @@ export const SOUND_TYPES = [
     maxConcurrent: 2,
     minInterval: 0.25,
   },
+
+  // --- Phase 8 step 5: menu ----------------------------------------------
+  //
+  // Pure interface, per the design brief: dry (delaySend 0 across all four —
+  // a UI tick trailing into the shared echo would read as the DECK replying,
+  // not a click), short, low gain. main.js is what decides WHEN each of
+  // these plays (menu.js itself never touches audio — see its own header —
+  // audio/menusfx.js's MENU_SOUND is the id table main.js reads off menu.js's
+  // update() result); this catalogue only says what each one sounds like.
+  //
+  // PRIORITY, LOWEST OF THE WHOLE CATALOGUE (menu_adjust) UP TO A UI-TIER
+  // MIDPOINT (menu_confirm) — a menu click should never survive a voice
+  // steal over anything actually happening in the game, but menu_confirm in
+  // particular has to win over menu_move/menu_adjust if a cursor step and a
+  // confirm somehow land the same tick (they can't today — consumePress is
+  // edge-triggered per action — but the ordering costs nothing to get right
+  // regardless).
+  {
+    id: "menu_move",
+    generator: null, // sfx.js's registerGenerator("menu_move", ...)
+    gain: 0.35,
+    duck: 0,
+    delaySend: 0,
+    priority: 2,
+    maxConcurrent: 2,
+    minInterval: 0.04, // a defensive floor under a held up/down auto-repeat (input.js filters real key auto-repeat, but a fast double-tap shouldn't machine-gun this)
+  },
+  {
+    id: "menu_confirm",
+    generator: null, // sfx.js's registerGenerator("menu_confirm", ...)
+    gain: 0.6,
+    duck: 0,
+    delaySend: 0,
+    priority: 5,
+    maxConcurrent: 1,
+    minInterval: 0.15,
+  },
+  {
+    id: "menu_back",
+    generator: null, // sfx.js's registerGenerator("menu_back", ...)
+    gain: 0.45,
+    duck: 0,
+    delaySend: 0,
+    priority: 4,
+    maxConcurrent: 1,
+    minInterval: 0.15,
+  },
+  {
+    id: "menu_adjust",
+    generator: null, // sfx.js's registerGenerator("menu_adjust", ...)
+    gain: 0.25, // "very quiet" per the design brief — this is a tick riding under a slider drag, not an event
+    duck: 0,
+    delaySend: 0,
+    priority: 1, // the lowest tier in the whole catalogue — losing a steal to literally anything else is correct
+    maxConcurrent: 2,
+    // TIGHT ON PURPOSE — "the bar can be held" (design brief): main.js plays
+    // this every tick the SOUND row's volume is actually changing, whether
+    // by a keyboard step or a mouse drag held down across many frames, and
+    // it's this floor (not any throttling in menu.js itself) that turns a
+    // held drag into an audible TICK RATE rather than a single continuous
+    // buzz — the same "floor turns a per-frame call into a texture" trick
+    // dread_pulse's own rate curve and the console ticks' own minInterval
+    // both already lean on.
+    minInterval: 0.06,
+  },
+
+  // --- Phase 8 step 5: transitions -----------------------------------------
+  //
+  // Two singular moments, not part of the menu/combat/pickup families above:
+  // jack_in (main.js's synth.js facade jackIn(), fired once, on the very
+  // first START GAME confirm — see synth.js's own header on why it's the
+  // ONE call site that also starts music.js's scheduler) and sector_shift
+  // (main.js's own edge-detector on sectors.glitching(), fired on every
+  // sector crossing for the rest of the run).
+  {
+    id: "jack_in",
+    generator: null, // sfx.js's registerGenerator("jack_in", ...)
+    gain: 1, // the single most important audio moment in the whole game — the run beginning
+    // ZERO: nothing is sounding on the music bus yet when this fires (see
+    // synth.js's jackIn() — the music scheduler starts AT this same instant,
+    // timed to resolve its first downbeat only once this riser finishes), so
+    // there is nothing here to duck out of the way of it.
+    duck: 0,
+    delaySend: 0, // a descending riser trailing into the echo would blur its own sub sweep — the wash inside the generator already supplies the texture a delay send would otherwise be standing in for
+    priority: 10, // ties disconnect for the top of the catalogue — this is the other run-defining transition
+    maxConcurrent: 1,
+    minInterval: 0, // fires once per page life in practice (menu.js's "start" mode only ever opens once — see its own header)
+  },
+  {
+    id: "sector_shift",
+    generator: null, // sfx.js's registerGenerator("sector_shift", ...)
+    gain: 0.75,
+    duck: 0.15, // a light poke — the filter collapse (context.js's beginSectorTransition, fired alongside this) already carves room for it by darkening everything else on the bus
+    delaySend: 0.6, // HIGH, per the design brief — "so it rings out", the one thing that sells this as a gong rather than a knock
+    priority: 7, // sits with the kills tier — a sector crossing is a genuine event, not background texture
+    maxConcurrent: 1,
+    minInterval: 0.5, // defensive only — sectors.js's own edge-detector can't itself refire inside one crossing, this just guards against a future double-call
+  },
 ];
 
 // One named sound type. Mirrors obstacletypes.js's obstacleTypeById /

@@ -103,26 +103,39 @@ export function createMenu() {
     draggingRow = null;
   }
 
-  // Returns true on the ONE tick row 0 (START GAME or CONTINUE) is
-  // confirmed. consumePress, not isDown, for both nav and confirm — a held
-  // key must move the cursor (or confirm) once, not every frame it's down.
+  // Returns { confirmed, moved, soundAdjusted } — main.js reads all three
+  // to decide which Phase 8 step 5 menu SFX (audio/menusfx.js's MENU_SOUND)
+  // to play; this module still never touches audio itself (see the header).
+  // `confirmed` is true on the ONE tick row 0 (START GAME/CONTINUE/RESTART)
+  // is confirmed — the same signal main.js's state machine has always read,
+  // just no longer the return value's ENTIRE shape. `moved` is true the tick
+  // the keyboard cursor actually stepped (up/down); `soundAdjusted` is true
+  // the tick the SOUND row specifically changed (keyboard step or an active
+  // mouse drag) — MUSIC-row changes are deliberately NOT reported here, since
+  // the music itself is that slider's own preview (see the design brief) and
+  // menu_adjust doubling it would be redundant. consumePress, not isDown, for
+  // both nav and confirm — a held key must move the cursor (or confirm) once,
+  // not every frame it's down.
   //
   // `W` is only needed to hit-test the mouse against the SOUND/MUSIC rows'
   // volume bars (barRect) — everything else here is keyboard-only and
   // doesn't care about screen size.
   function update(W) {
-    if (consumePress("up")) selected = (selected + ROW_COUNT - 1) % ROW_COUNT;
-    if (consumePress("down")) selected = (selected + 1) % ROW_COUNT;
+    let moved = false;
+    let soundAdjusted = false;
 
-    if (consumePress("fire") && selected === 0) return true;
+    if (consumePress("up")) { selected = (selected + ROW_COUNT - 1) % ROW_COUNT; moved = true; }
+    if (consumePress("down")) { selected = (selected + 1) % ROW_COUNT; moved = true; }
+
+    if (consumePress("fire") && selected === 0) return { confirmed: true, moved, soundAdjusted };
 
     // SOUND/MUSIC rows: Left/Right step the volume — the same keys steerAxis
     // reads during play (input.js), safe to reuse here since the menu only
     // ever runs while the world itself is frozen (state "menu"/"paused" in
     // main.js).
     if (selected === SOUND_ROW) {
-      if (consumePress("left")) setSoundVolume(soundLevel - VOLUME_STEP);
-      if (consumePress("right")) setSoundVolume(soundLevel + VOLUME_STEP);
+      if (consumePress("left")) { setSoundVolume(soundLevel - VOLUME_STEP); soundAdjusted = true; }
+      if (consumePress("right")) { setSoundVolume(soundLevel + VOLUME_STEP); soundAdjusted = true; }
     }
     if (selected === MUSIC_ROW) {
       if (consumePress("left")) setMusicVolume(volume - VOLUME_STEP);
@@ -151,11 +164,12 @@ export function createMenu() {
           // pointer stay inside it — past either edge just pins to 0%/100%,
           // the usual slider behaviour.
           setter((x - bar.x) / bar.w);
+          if (row === SOUND_ROW) soundAdjusted = true;
         }
       }
     }
 
-    return false;
+    return { confirmed: false, moved, soundAdjusted };
   }
 
   function render(ctx, W, H) {

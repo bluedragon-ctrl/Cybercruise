@@ -32,14 +32,17 @@
 //     compose by simple arithmetic — the pad's content passes through BOTH
 //     filters in series, each free to move on its own schedule, neither
 //     ever calling cancelScheduledValues() on the other's AudioParam.
-//   - a future sector-transition "collapse the whole bus" effect (Phase 8
-//     step 5) should follow sfxDropGain's own precedent — a dedicated GAIN
-//     stage of its own, inserted alongside duckGain rather than reusing
-//     musicFilter's `.frequency` or duckGain's `.gain` — for the exact
-//     reason sfxDropGain exists instead of overloading sfxGain: two effects
-//     driving the same AudioParam on the same schedule fight each other's
-//     cancelScheduledValues() calls, and a fresh node sidesteps that
-//     entirely rather than trying to merge two ramps into one.
+//   - Phase 8 step 5's sector-transition re-sync DOES reuse musicFilter's own
+//     `.frequency` — a deliberate departure from the "give every effect its
+//     own node" precedent sfxDropGain sets, because the task brief is
+//     explicit that this one has to COMPOSE with the speed mapping rather
+//     than sit in series with it: "collapse the cutoff" only means something
+//     relative to wherever the speed mapping currently has it, not a fixed
+//     absolute target. See the "Cutoff composition" section below (composeMusicCutoff /
+//     planSetMusicCutoff / planBeginSectorTransition) for how the two stay
+//     out of each other's way on the ONE shared AudioParam instead: a
+//     base+multiplicative-offset split, with a single pair of functions
+//     that ever calls cancelScheduledValues()/rampToValueAtTime() on it.
 //
 // duckGain sits ONLY on the music path. Ducking sfx against itself would be
 // nonsense — the sound causing the duck would be dipping its own volume out
@@ -256,20 +259,189 @@ export function speedToMusicCutoff(speed) {
 
 const MUSIC_CUTOFF_RAMP = 0.25; // seconds — never snaps; see setMusicVolume's own ramp for the same reasoning (a sudden AudioParam jump reads as a click, not a change)
 
+// --- Cutoff composition: base (speed) x offset (sector transition) --------
+//
+// Phase 8 step 5 gives a SECOND system a reason to move musicFilter.frequency:
+// a sector crossing (main.js's own edge-detector on sectors.glitching())
+// wants to collapse the filter to a dull ~300Hz over ~300ms and reopen it
+// over ~1.5s, "a re-sync". If that transition and the speed mapping below
+// both called cancelScheduledValues()/rampToValueAtTime() on the SAME
+// AudioParam independently, whichever ran last would win outright — main.js
+// polls updateMusicCutoff() every "playing" tick, so a single such poll
+// landing mid-transition would silently cut the reopen ramp short.
+//
+// THE FIX, the same shape context.js's own duck accumulator already uses
+// for an analogous "many callers, one shared node" problem (see planDuck's
+// own header): the speed mapping becomes a BASE value (Hz, what
+// speedToMusicCutoff already produces), the transition becomes a
+// MULTIPLICATIVE OFFSET (0..1, 1 = fully released/no effect) applied on top,
+// and exactly one pair of functions below (planSetMusicCutoff /
+// planBeginSectorTransition, plus their stateful wrappers setMusicCutoff /
+// beginSectorTransition) ever calls into the AudioParam. While a transition
+// is in flight, an incoming speed update updates the TRACKED base but is not
+// written to the node at all — the transition's own scheduled ramp is left
+// completely alone, and the freshest base takes over smoothly the moment the
+// transition's reopen ramp finishes.
+//
+// MULTIPLICATIVE, NOT A SECOND ABSOLUTE TARGET, and NOT CLAMPED to
+// [MUSIC_CUTOFF_MIN, MUSIC_CUTOFF_MAX] the way speedToMusicCutoff's own
+// output is — that band exists to bound the SPEED mapping specifically (see
+// its own comment above), and the whole point of a sector transition is to
+// read as darker than the music ever gets in ordinary play, which requires
+// going below MUSIC_CUTOFF_MIN on purpose. composeMusicCutoff instead floors
+// at MUSIC_CUTOFF_FLOOR, a much lower, purely defensive bound (matching
+// music.js's own disturb() floor on the pad's unrelated filter) that exists
+// only to stop a BiquadFilter's frequency from ever being driven to
+// something degenerate, not to preserve the speed band's own headroom.
+export const MUSIC_CUTOFF_FLOOR = 150; // Hz — an absolute safety floor, well under any speed-linked base or transition target either system produces
+export const SECTOR_COLLAPSE_OFFSET = 300 / MUSIC_CUTOFF_MIN; // ~0.33 — anchored to MUSIC_CUTOFF_MIN (900) so a collapse starting from the darkest the speed base ever gets lands at the design's own "~300Hz" target; a collapse starting from a brighter base (higher speed) lands proportionally brighter than 300Hz but still reads as a hard collapse relative to wherever it started — a FIXED absolute 300Hz target would instead mean two collapses at different speeds sound like two different DEPTHS of collapse, which is the wrong thing to vary with player speed
+export const SECTOR_COLLAPSE_ATTACK = 0.3; // seconds — collapse time, per the design brief
+export const SECTOR_COLLAPSE_RELEASE = 1.5; // seconds — reopen time, per the design brief
+
+// Pure: composes a base cutoff (Hz) with a multiplicative offset (0..1) and
+// floors the result. Exported for the invariant tests, which check this
+// stays sane (never negative, never absurd) across the full range of bases
+// and offsets either caller can produce — see context.js's header on why the
+// floor is MUSIC_CUTOFF_FLOOR rather than MUSIC_CUTOFF_MIN.
+export function composeMusicCutoff(base, offset) {
+  return Math.max(MUSIC_CUTOFF_FLOOR, base * offset);
+}
+
+// Pure: the decision setMusicCutoff() below has to make on every call —
+// whether this speed update is allowed to touch the AudioParam right now, or
+// must instead just update the tracked base for whenever the transition (if
+// any) releases. `state` is { cutoffBase, lastCutoffTarget, transitionEndTime }
+// (transitionEndTime is 0 when no transition has ever run). `now` is
+// ctx.currentTime. Exported for the invariant tests — see context.js's
+// header for why this mirrors planDuck/planVoiceRequest's own pure/stateful
+// split.
+export function planSetMusicCutoff(state, freq, now) {
+  const withBase = { ...state, cutoffBase: freq };
+  if (now < state.transitionEndTime) {
+    // The transition currently owns the node — remember the new base (so
+    // whatever ramp runs next uses it) but request no write. This is the
+    // one branch that makes "a speed update mid-transition does not cancel
+    // the transition" true: no cancelScheduledValues() call is ever reached
+    // for a suppressed write, because the stateful wrapper below only calls
+    // it when `write` is true.
+    return { state: withBase, write: false };
+  }
+  if (freq === state.lastCutoffTarget) {
+    return { state, write: false }; // unchanged target, no transition in the way — the ordinary "nothing to do" no-op setMusicCutoff always had
+  }
+  return { state: { ...withBase, lastCutoffTarget: freq }, write: true, target: freq };
+}
+
+// Pure: the decision beginSectorTransition() below makes once, at the
+// instant a crossing fires. Captures the CURRENT base as the reopen target —
+// deliberately a snapshot taken now, not a live read repeated when the
+// reopen ramp itself starts 300ms later, because Web Audio's own
+// linearRampToValueAtTime() has no way to re-target a ramp that's already
+// scheduled; retargeting the reopen to a base that moves DURING the collapse
+// would require a second JS-timer-scheduled call partway through, adding
+// exactly the kind of scheduling jitter this whole scheme exists to avoid.
+// The practical effect: the music reopens to "whatever speed the player was
+// doing at the moment of the crossing", which reads fine and is still well
+// within the design brief's own requirement — the transition survives a
+// mid-flight speed update without being cancelled, it just doesn't chase a
+// SECOND speed change that happens while it's already reopening.
+export function planBeginSectorTransition(state, now) {
+  const collapseTarget = composeMusicCutoff(state.cutoffBase, SECTOR_COLLAPSE_OFFSET);
+  const transitionEndTime = now + SECTOR_COLLAPSE_ATTACK + SECTOR_COLLAPSE_RELEASE;
+  return {
+    state: { ...state, transitionEndTime, lastCutoffTarget: state.cutoffBase },
+    collapseTarget,
+    reopenTarget: state.cutoffBase,
+    collapseAt: now + SECTOR_COLLAPSE_ATTACK,
+    transitionEndTime,
+  };
+}
+
+let cutoffState = { cutoffBase: MUSIC_CUTOFF_MAX, lastCutoffTarget: null, transitionEndTime: 0 }; // cutoffBase mirrors musicFilter's own build-time default (see buildGraph)
+
 // Called once per "playing" tick from main.js's update loop (via synth.js's
 // updateMusicCutoff facade), with whatever speedToMusicCutoff(player.speed)
-// comes out to. Ramps rather than snaps, and — mirroring sustained.js's own
-// setLevel() — is a no-op when `freq` matches the last target, so holding a
-// pinned speed (MAX_SPEED flat out, or MIN_SPEED stalled at a hazard) costs
-// nothing on the frames where nothing actually changed.
-let lastCutoffTarget = null;
+// comes out to. Ramps rather than snaps, and is a no-op when `freq` matches
+// the last WRITTEN target or a sector transition currently owns the node —
+// see planSetMusicCutoff above for the actual decision.
 export function setMusicCutoff(freq) {
-  if (!ctx || freq === lastCutoffTarget) return;
-  lastCutoffTarget = freq;
+  if (!ctx) return;
   const t = ctx.currentTime;
+  const plan = planSetMusicCutoff(cutoffState, freq, t);
+  cutoffState = plan.state;
+  if (!plan.write) return;
   musicFilter.frequency.cancelScheduledValues(t);
   musicFilter.frequency.setValueAtTime(musicFilter.frequency.value, t);
-  musicFilter.frequency.linearRampToValueAtTime(freq, t + MUSIC_CUTOFF_RAMP);
+  musicFilter.frequency.linearRampToValueAtTime(plan.target, t + MUSIC_CUTOFF_RAMP);
+}
+
+// Called once per sector crossing (synth.js's triggerSectorTransition facade,
+// itself called from main.js's edge-detector on sectors.glitching()).
+// Schedules BOTH legs of the re-sync as one pair of ramps — the collapse and
+// the reopen — up front, so nothing in between (including a same-tick
+// setMusicCutoff() call, which planSetMusicCutoff will now suppress writing
+// for the transition's own duration) can interrupt them.
+export function beginSectorTransition() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const plan = planBeginSectorTransition(cutoffState, t);
+  cutoffState = plan.state;
+  musicFilter.frequency.cancelScheduledValues(t);
+  musicFilter.frequency.setValueAtTime(musicFilter.frequency.value, t);
+  musicFilter.frequency.linearRampToValueAtTime(plan.collapseTarget, t + SECTOR_COLLAPSE_ATTACK);
+  musicFilter.frequency.linearRampToValueAtTime(plan.reopenTarget, plan.transitionEndTime);
+}
+
+// Called from main.js's newGame() (via synth.js's resetForNewRun facade) —
+// a fresh run must never inherit a collapse still reopening from a sector
+// crossing the LAST run happened to die during. Cancels whatever ramp is in
+// flight and snaps the tracked state back to "released", so the very next
+// setMusicCutoff() call (main.js's first "playing" tick) writes a fresh,
+// un-suppressed ramp rather than finding a stale transitionEndTime still in
+// its future.
+export function resetMusicCutoffTransition() {
+  cutoffState = { cutoffBase: MUSIC_CUTOFF_MAX, lastCutoffTarget: null, transitionEndTime: 0 };
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  musicFilter.frequency.cancelScheduledValues(t);
+  musicFilter.frequency.setValueAtTime(MUSIC_CUTOFF_MAX, t);
+}
+
+// --- Disconnect polish: the music bus fades to silence ahead of the SFX ---
+//
+// "Cut the music to silence ~200ms before the static begins, so the drop
+// lands in a hole" (design brief). Implemented as a head start rather than a
+// real setTimeout: fadeMusicForDisconnect() ramps musicGain toward silence
+// starting NOW, and synth.js's playDisconnect() schedules generateDisconnect
+// itself DISCONNECT_FADE seconds into the future (sfx.js's play() opts.startDelay)
+// — both scheduled off the SAME ctx.currentTime instant, so the two can never
+// drift apart the way two independently-timed calls could.
+//
+// A RAMP ON musicGain, never a stop of anything — music.js's scheduler keeps
+// scheduling notes into the silence the whole time (see the module header's
+// own "going quiet is a volume ramp, never a teardown"); restoreMusicAfterDisconnect()
+// below just raises the SAME gain node back up, so whatever the loop already
+// scheduled is simply audible again, no restart, no seam.
+export const DISCONNECT_FADE = 0.2; // seconds — the head start; sfx.js's generateDisconnect is delayed to start exactly this far into the future
+
+export function fadeMusicForDisconnect() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  musicGain.gain.cancelScheduledValues(t);
+  musicGain.gain.setValueAtTime(musicGain.gain.value, t);
+  musicGain.gain.linearRampToValueAtTime(0.0001, t + DISCONNECT_FADE);
+}
+
+// Called from main.js's newGame() (via synth.js's resetForNewRun facade) —
+// "music restored from the disconnect silence" per the design brief. Ramps
+// musicGain back to the current MUSIC slider level, the same shape
+// setMusicVolume() itself already uses to move this exact node.
+export function restoreMusicAfterDisconnect() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  musicGain.gain.cancelScheduledValues(t);
+  musicGain.gain.setValueAtTime(musicGain.gain.value, t);
+  musicGain.gain.linearRampToValueAtTime(MASTER_VOLUME * musicVolume, t + 0.15);
 }
 
 // --- Ducking ---------------------------------------------------------------

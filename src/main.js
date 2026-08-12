@@ -24,6 +24,7 @@ import { createMusic } from "./audio/synth.js";
 import { PLAYER_FIRE_SOUND, ENEMY_FIRE_SOUND } from "./audio/weaponsfx.js";
 import { PICKUP_SOUND } from "./audio/pickupsfx.js";
 import { CONSOLE_SOUND } from "./audio/consolesfx.js";
+import { MENU_SOUND } from "./audio/menusfx.js";
 import * as road from "./game/road.js";
 import * as scenery from "./game/scenery.js";
 import * as drones from "./game/drones.js";
@@ -59,16 +60,37 @@ initMouse(canvas);
 const menu = createMenu();
 let state = "menu"; // "menu" | "playing" | "paused" | "dying" | "gameover"
 
+// The edge-detector state for Phase 8 step 5's sector-transition audio (see
+// the "playing" branch's own comment on sectorGlitching below) — declared up
+// here alongside `state` rather than as per-run state, since sectors.js's
+// own glitch timer already survives exactly one tick past a newGame() reset
+// before self-correcting (sectors.reset() zeroes glitchTimer, so the very
+// next "playing" tick reads glitching() as false regardless of what this was
+// left at), so there is nothing here that needs its own reset.
+let wasSectorGlitching = false;
+
 // Phase 8's first slice: procedural synthwave music (src/audio/synth.js).
-// `music.start()` is only ever called below, from inside the "fire" press
-// that confirms START GAME — see synth.js's header for why it must follow a
-// real user gesture. `musicVolume`/`soundVolume` mirror menu.js's MUSIC and
-// SOUND levels so setVolume()/setSfxVolume() only fire on an actual change
-// rather than every frame the menu is open (that would retrigger their ramps
-// 60x/sec — see setVolume).
+// `musicVolume`/`soundVolume` mirror menu.js's MUSIC and SOUND levels so
+// setVolume()/setSfxVolume() only fire on an actual change rather than every
+// frame the menu is open (that would retrigger their ramps 60x/sec — see
+// setVolume).
 const music = createMusic();
 let musicVolume = menu.musicVolume();
 let soundVolume = menu.soundVolume();
+
+// Phase 8 step 5, PROBLEM 1: the AudioContext has to exist before the menu's
+// own SOUND/MUSIC sliders can preview anything (menu_adjust), which happens
+// well before START GAME is ever confirmed — so this builds the bus graph on
+// the very FIRST keydown of any kind, anywhere, rather than waiting for that
+// confirm (see synth.js's own startContext() header for the full reasoning).
+// `{ once: true }` removes this listener after it fires, so a page loaded
+// and left untouched never creates a context (nothing ever calls this), and
+// a second keypress simply finds nothing left registered — belt and braces
+// alongside context.js's own start(), which is independently idempotent
+// (`if (ctx) return`) regardless. music.jackIn() (below, on START GAME's own
+// confirm) is the separate, still-once-only call that starts the music
+// SCHEDULER — see its own comment for why the two stay split.
+window.addEventListener("keydown", () => music.startContext(), { once: true });
 
 // The death sequence (game/disconnect.js). One instance, reused across
 // restarts via reset() — see newGame() below — the same way `menu` itself is
@@ -245,12 +267,14 @@ function newGame() {
   gameConsole.onPush(onConsolePush);
   links.reset();
   sectors.reset();
-  // Phase 8 step 3: release every sustained voice (hull_hiss/shield_drone/
-  // wall_scrape) so a fresh run never inherits one still ramping down from
-  // the run that just ended — see sustainedfx.js's own reset() header. A
-  // silent no-op before music.start() has ever run (the very first newGame()
-  // call, at module load), same contract every audio entry point here has.
-  music.resetSustained();
+  // Every per-run audio concern that must not leak into a fresh run: the
+  // sustained voices (hull_hiss/shield_drone/wall_scrape), a sector-transition
+  // filter collapse still mid-flight, and the music bus's own disconnect
+  // fade — see synth.js's own resetForNewRun() header for why all three are
+  // bundled into this one call. A silent no-op before music.startContext()
+  // has ever run (the very first newGame() call, at module load), same
+  // contract every audio entry point here has.
+  music.resetForNewRun();
 }
 newGame();
 
@@ -283,12 +307,26 @@ function dropMine(car, type) {
 
 function update(dt) {
   if (state === "menu") {
-    if (menu.update(W)) {
+    const menuResult = menu.update(W);
+    // Phase 8 step 5's menu SFX — see audio/menusfx.js's own header for why
+    // this table, not menu.js itself, decides which id each gesture plays.
+    // "confirm" is handled separately below: START GAME gets jack_in
+    // instead of the plain menu_confirm tone (see music.jackIn()'s own
+    // comment for why the two never both fire for the same confirm).
+    if (menuResult.moved) music.play(MENU_SOUND.move);
+    if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
+    if (menuResult.confirmed) {
       state = "playing";
       hint.innerHTML = PLAY_HINT;
-      // The keypress that just confirmed START GAME is the user gesture
-      // AudioContext creation needs — see synth.js's header.
-      music.start();
+      // THE START GAME transition. The keypress that just confirmed this
+      // row is also the user gesture AudioContext creation needs — see
+      // synth.js's header — though in practice the context has usually
+      // already been built by the FIRST keypress of the session (see the
+      // startContext() listener above), START GAME just being the common
+      // case where that happens to be the very same press. jackIn() plays
+      // the descending riser and starts the music scheduler timed to land
+      // its first downbeat right as the riser ends — see its own comment.
+      music.jackIn();
     }
     // Only pushed to the engine on an actual change (see musicVolume/
     // soundVolume above) — the MUSIC/SOUND rows can only have moved on the
@@ -311,11 +349,22 @@ function update(dt) {
     if (consumePress("pause")) {
       state = "playing";
       hint.innerHTML = PLAY_HINT;
+      // Backing out of the menu WITHOUT confirming a row — the one place
+      // menu_back plays; see audio/menusfx.js's own header.
+      music.play(MENU_SOUND.back);
       return;
     }
-    if (menu.update(W)) {
+    const menuResult = menu.update(W);
+    if (menuResult.moved) music.play(MENU_SOUND.move);
+    if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
+    if (menuResult.confirmed) {
       state = "playing";
       hint.innerHTML = PLAY_HINT;
+      // CONTINUE resumes a run whose music has been playing the whole
+      // time it was paused (the scheduler never stops — see music.js's own
+      // header) — a plain confirm tone, not jack_in, which is reserved for
+      // the one moment the scheduler itself actually starts.
+      music.play(MENU_SOUND.confirm);
     }
     if (menu.musicVolume() !== musicVolume) {
       musicVolume = menu.musicVolume();
@@ -357,10 +406,17 @@ function update(dt) {
     // Same screen, same interaction as "paused" above — RESTART is row 0's
     // label here (menu.js's ROW0_LABEL) the way CONTINUE is there — except
     // confirming it starts a fresh run instead of resuming a frozen one.
-    if (menu.update(W)) {
+    const menuResult = menu.update(W);
+    if (menuResult.moved) music.play(MENU_SOUND.move);
+    if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
+    if (menuResult.confirmed) {
       newGame();
       state = "playing";
       hint.innerHTML = PLAY_HINT;
+      // RESTART — same plain confirm tone as CONTINUE (see its own comment
+      // above): the scheduler is already running, this is just resuming the
+      // GAME, not the deck jacking in a second time.
+      music.play(MENU_SOUND.confirm);
     }
     if (menu.musicVolume() !== musicVolume) {
       musicVolume = menu.musicVolume();
@@ -414,6 +470,21 @@ function update(dt) {
   // kicks off the rescan glitch and its own SYS LOG line. Before render()
   // reads any of that, same ordering links.announce() above relies on.
   sectors.update(dt, scenery.clock, distance);
+
+  // Phase 8 step 5's sector-transition audio: sectors.js exposes only
+  // glitching() (a level, "is a rescan live right now"), with no edge of its
+  // own to hook — per its own header and the design brief, audio stays OUT
+  // of sectors.js entirely, main.js wires it, same as every other system
+  // here. So this is the edge detector, the same "an edge needs memory"
+  // pattern sectors.js's own lastSector/links.js's own lastAnnouncedId
+  // already use, just kept here instead: a crossing is the tick glitching()
+  // goes from false to true. music.triggerSectorTransition() fires the gong
+  // (soundtypes.js's sector_shift) and the musicFilter collapse/reopen
+  // (context.js's beginSectorTransition) together — see its own comment —
+  // so the audio hiccups on the exact same tick the visual rescan does.
+  const sectorGlitching = sectors.glitching();
+  if (sectorGlitching && !wasSectorGlitching) music.triggerSectorTransition();
+  wasSectorGlitching = sectorGlitching;
 
   // Phase 8 step 3's sustained voices, polled every "playing" tick — see
   // sustainedfx.js's own header on why this is POLLED (not pushed from a
