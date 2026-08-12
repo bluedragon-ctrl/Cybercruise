@@ -19,6 +19,7 @@ import { SOUND_TYPES } from "../audio/soundtypes.js";
 import { SUSTAINED_TYPES } from "../audio/sustainedtypes.js";
 import { DREAD_RANGE_ON } from "../audio/sustainedfx.js";
 import { MIN_SPEED, MAX_SPEED } from "../game/player.js";
+import { MUSIC_LISTING_URL } from "../audio/musictypes.js";
 
 const music = createMusic();
 
@@ -58,6 +59,38 @@ speedSlider.min = MIN_SPEED;
 speedSlider.max = MAX_SPEED;
 speedSlider.addEventListener("input", () => setSpeed(Number(speedSlider.value)));
 
+// --- Music backend A/B panel -------------------------------------------
+//
+// "procedural and track can be A/B'd against the same SFX" — the design
+// brief's own phrase for why this panel exists. Three pieces:
+//   - a radio row forcing synth.js's resolveBackend() choice via
+//     setBackendPreference(), instead of leaving it to whichever backend
+//     happened to be ready first (see synth.js's own header on that);
+//   - a plain listing of whatever tools/serve.js's GET /api/music reports,
+//     fetched directly (not through the facade — this is read-only
+//     display, not a control, so there's no reason to widen synth.js's own
+//     surface for it) so it's visible from this page whether a track was
+//     even found before pressing START AUDIO;
+//   - a status line ticking the ACTUAL resolved backend + currently
+//     playing track name, because "auto" can resolve either way depending
+//     on timing, and this page is exactly where that needs to be visible.
+const trackListEl = document.getElementById("trackList");
+const statusEl = document.getElementById("status");
+const disturbTestBtn = document.getElementById("disturbTest");
+
+fetch(MUSIC_LISTING_URL)
+  .then((res) => res.json())
+  .then((tracks) => {
+    trackListEl.textContent = tracks.length === 0
+      ? "tracks: none found in assets/music/ (procedural will play if TRACK/AUTO is selected)"
+      : `tracks (${tracks.length}): ` + tracks.map((t) => `${t.name} (${(t.size / 1024).toFixed(0)}KB)`).join(", ");
+  })
+  .catch(() => {
+    trackListEl.textContent = "tracks: listing fetch failed (server not running the /api/music endpoint?)";
+  });
+
+disturbTestBtn.addEventListener("click", () => music.disturb(1));
+
 // Before start, music.play()/setVolume()/setSfxVolume()/updateMusicCutoff()
 // are all silent no-ops (see synth.js/context.js's own contract) — so the
 // sliders can be dragged freely before the button is pressed, they just have
@@ -69,15 +102,32 @@ speedSlider.addEventListener("input", () => setSpeed(Number(speedSlider.value)))
 // see synth.js's own header on why jackIn() is reserved for main.js's START
 // GAME confirm specifically. Both calls together are what the old combined
 // start() used to do in one step.
-startBtn.addEventListener("click", () => {
+//
+// AWAITS startContext() here specifically (main.js never does — see that
+// function's own header) — this page has no menu screen's worth of idle
+// time between "context exists" and "start playing" the way a real run
+// does, so without waiting, a TRACK/AUTO preference would almost always
+// lose the race and silently fall back to procedural, defeating the whole
+// point of this panel.
+startBtn.addEventListener("click", async () => {
   if (startBtn.disabled) return;
-  music.startContext();
+  startBtn.disabled = true;
+  startBtn.textContent = "LOADING…";
+  const pref = document.querySelector('input[name="backend"]:checked')?.value ?? "auto";
+  music.setBackendPreference(pref);
+  for (const radio of document.querySelectorAll('input[name="backend"]')) radio.disabled = true; // the choice is about to freeze — see synth.js's resolveBackend()
+  await music.startContext();
   music.startMusicLoop();
   setSoundLevel(Number(soundSlider.value));
   setMusicLevel(Number(musicSlider.value));
   setSpeed(Number(speedSlider.value));
   startBtn.textContent = "AUDIO STARTED";
-  startBtn.disabled = true;
+
+  setInterval(() => {
+    const backend = music.getSelectedBackendName() ?? "?";
+    const track = music.currentTrackName();
+    statusEl.textContent = track ? `backend: ${backend} — playing: ${track}` : `backend: ${backend}`;
+  }, 500);
 });
 
 // One key per catalogue entry, in catalogue order — 1-9 then 0, which is

@@ -1,0 +1,6 @@
+# Music files themselves are deliberately not committed — see README.md in
+# this directory for why, and the PR that introduced it for the open
+# question of whether that should change.
+*.ogg
+*.wav
+*.mp3
