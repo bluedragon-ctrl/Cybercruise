@@ -60,9 +60,29 @@
 // mid-run would mean the music instantaneously jumping from a recorded
 // track to the synth loop (or back) with no transition, which reads as a
 // bug no matter what triggers it. A run either got a working track backend
-// from the start or it didn't — see trackmusic.js's own isReady() for what
-// "working" means, and its header for why an empty/missing/failed music
-// directory is a normal state, not an error, that this fallback exists for.
+// from the start or it didn't — see trackmusic.js's own isAvailable() for
+// what "working" means, and its header for why an empty/missing/failed
+// music directory is a normal state, not an error, that this fallback
+// exists for.
+//
+// AVAILABILITY, NOT READINESS. resolveBackend() keys the choice off
+// trackmusic.js's isAvailable() (a soundtrack EXISTS — the directory
+// listing came back with at least one track), not its isReady() (a track
+// has actually finished decoding). Those used to be the same question here
+// and shouldn't have been: the listing is a small JSON fetch, typically
+// long resolved before the player has finished navigating the menu, but
+// decoding several MB of Ogg is not — a player who presses START GAME
+// promptly was losing that race and getting the procedural loop for the
+// whole session despite a perfectly good soundtrack sitting on disk. See
+// trackmusic.js's own header for the isReady()/isAvailable() split this
+// fixed, and jackIn() below for how a "track" choice made before the first
+// buffer exists is still made safe (trackmusic.js's start() awaits the
+// SAME in-flight decode rather than assuming it's already done).
+//
+// Availability itself can take a moment to be KNOWN, even though it's fast
+// once known — see jackIn()'s own comment on the bounded wait that covers
+// the (rare) case where the listing hasn't resolved yet when START GAME is
+// confirmed.
 import * as context from "./context.js";
 import * as proceduralmusic from "./proceduralmusic.js";
 import * as trackmusic from "./trackmusic.js";
@@ -77,26 +97,55 @@ export const MUSIC_BACKEND_METHODS = ["start", "disturb"];
 
 // Pure: the decision resolveBackend() makes on every call. `alreadySelected`
 // is null before the first decision this page life, or "track"/"procedural"
-// once frozen (see the header above); `trackReady` is trackmusic.js's own
-// isReady(). Exported for the invariant tests, which can't construct a real
-// trackmusic readiness state (that requires fetch + decodeAudioData,
+// once frozen (see the header above); `available` is trackmusic.js's own
+// isAvailable() — a soundtrack EXISTS, not necessarily that it has finished
+// decoding yet (see trackmusic.js's header on the isReady()/isAvailable()
+// split, and its start()/attemptStart() for why committing to "track" ahead
+// of the decode is safe). Exported for the invariant tests, which can't
+// construct a real trackmusic state (that requires fetch + decodeAudioData,
 // unavailable under plain Node — see trackmusic.js's own header) but CAN
-// exercise this decision directly: track when ready, procedural when not
-// (which covers "listing failed", "directory empty", and "still decoding"
-// alike — trackmusic.js's isReady() collapses all three to the same
-// false), and — the important one — an ALREADY-frozen choice never changes
-// even if `trackReady` flips.
-export function chooseBackend(alreadySelected, trackReady) {
+// exercise this decision directly: track when available, procedural when
+// not (which covers "listing failed" and "directory empty" alike —
+// trackmusic.js's isAvailable() collapses both to the same false), and —
+// the important one — an ALREADY-frozen choice never changes even if
+// `available` flips. Note this now resolves to "track" for the THIRD state
+// the old trackReady boolean used to collapse into "procedural": a listing
+// that came back with tracks but whose first one hasn't decoded yet —
+// see the invariant tests below for that case made explicit.
+export function chooseBackend(alreadySelected, available) {
   if (alreadySelected) return alreadySelected;
-  return trackReady ? "track" : "procedural";
+  return available ? "track" : "procedural";
 }
 
 let selectedBackendName = null; // null until resolveBackend()'s first call this page life — see chooseBackend()'s own header
 
 function resolveBackend() {
-  selectedBackendName = chooseBackend(selectedBackendName, trackmusic.isReady());
+  selectedBackendName = chooseBackend(selectedBackendName, trackmusic.isAvailable());
   return selectedBackendName === "track" ? trackmusic : proceduralmusic;
 }
+
+// The last-resort guard for trackmusic.js's one truly-fatal case: EVERY
+// track in the directory failing to decode, discovered only after start()
+// already committed to the track backend (see resolveBackend() above and
+// trackmusic.js's own attemptStart()). Registered ONCE, here, at module
+// scope — not per-run — because backend selection itself is a once-per-
+// page-life decision (see the module header); there's nothing to re-arm.
+//
+// Why this doesn't violate the freeze contract: that contract is about an
+// AUDIBLE mid-run swap (see the module header's own reasoning) — this fires
+// strictly before trackmusic.js has ever played a single sample this run
+// (attemptStart() only reaches the exhaustion branch when it found nothing
+// playable, ever), so there is no "already sounding thing" for procedural
+// to audibly replace. Flipping selectedBackendName here reflects that: the
+// run genuinely ends up on procedural, and getSelectedBackendName() (the
+// SFX gallery's own introspection) should say so.
+trackmusic.onExhausted(() => {
+  console.error(
+    "[audio] every track in assets/music/ failed to decode — falling back to procedural music (nothing had played yet this run, so this is not a mid-run swap)"
+  );
+  selectedBackendName = "procedural";
+  proceduralmusic.start(0); // no riser to line up with any more — this fires well after jackIn()'s own timing budget has already been spent walking the playlist, so start as soon as possible rather than trying to reconstruct a delay against a moment now in the past
+});
 
 // Phase 8 step 5, PROBLEM 1: the AudioContext and the music SCHEDULER now
 // start at two different moments, where the old combined start() (both, in
@@ -150,6 +199,44 @@ function startMusicLoop() {
   resolveBackend().start();
 }
 
+// How long jackIn() (below) will wait for trackmusic.js's listing fetch to
+// settle before giving up and treating a soundtrack as unavailable. Bounded
+// deliberately, not a round number: the listing endpoint (tools/serve.js's
+// GET /api/music) does one readdir() over a local directory and returns a
+// tiny JSON array — on a loopback HTTP connection that's a low-single-digit-
+// millisecond round trip in the normal case, no disk latency worth
+// measuring for a folder of a handful of files. 300ms is roughly two orders
+// of magnitude of headroom above that for a slow first request (TCP
+// handshake, an unusually loaded machine), while still leaving well over a
+// second of JACK_IN_DURATION's 1.5s budget for the chosen backend to start
+// against — see waitForTrackAvailability() and jackIn() below for how that
+// remaining budget is preserved rather than silently shortened.
+const TRACK_LISTING_TIMEOUT_MS = 300;
+
+// Resolves once trackmusic.js's listing question is answered — either
+// because whenListingSettled() actually settled, or because
+// TRACK_LISTING_TIMEOUT_MS ran out first, whichever comes first. Resolves
+// to `true` when the timeout won that race (so jackIn() knows to log the
+// malfunction — a listing fetch that never comes back is not the normal
+// "empty music folder" state trackmusic.js's own header documents staying
+// silent about, see resolveBackend()'s "AVAILABILITY, NOT READINESS" note),
+// `false` when the listing genuinely settled in time.
+function waitForTrackAvailability() {
+  return new Promise((resolve) => {
+    let settled = false;
+    trackmusic.whenListingSettled().then(() => {
+      if (settled) return;
+      settled = true;
+      resolve(false);
+    });
+    setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(true);
+    }, TRACK_LISTING_TIMEOUT_MS);
+  });
+}
+
 // THE START GAME transition. Bundles two things that must never drift apart
 // (see soundtypes.js's own jack_in entry and each backend's own start()
 // header): the jack_in riser, and the chosen backend's own first-note
@@ -164,10 +251,37 @@ function startMusicLoop() {
 // that FREEZES backend selection for the rest of the page life (see
 // resolveBackend()'s own header) — everything before this point (menu
 // previews, the preload triggered by startContext()) only ever reads
-// trackmusic.js's readiness, never commits to it.
+// trackmusic.js's availability, never commits to it.
+//
+// THE RISER MUST STILL FIRE SYNCHRONOUSLY, in this same gesture-handling
+// tick — see the module's own BROWSER CONTRACT note. That's why
+// playSfx("jack_in") runs before anything else here, with no `await` ahead
+// of it: what follows (waiting, possibly, for the listing) is a `.then()`
+// continuation, not a blocking await, so jackIn() itself still returns
+// immediately after queuing the riser.
+//
+// The wait exists because availability can genuinely be UNKNOWN at this
+// exact moment (a very fast player, or a slow first fetch) — see
+// resolveBackend()'s own header on why guessing either way here would be
+// wrong. `ctxTimeAtJackIn` captures ctx.currentTime BEFORE any waiting, so
+// that whatever the wait costs is subtracted from JACK_IN_DURATION's own
+// budget rather than added on top of it: the backend's first note still
+// lands at ctxTimeAtJackIn + JACK_IN_DURATION, same as if there'd been no
+// wait at all, right up until TRACK_LISTING_TIMEOUT_MS itself would exceed
+// that budget (it doesn't, by design — see its own comment), at which
+// point the remaining delay simply floors at 0 rather than going negative.
 function jackIn() {
   playSfx("jack_in");
-  resolveBackend().start(JACK_IN_DURATION);
+  const ctxTimeAtJackIn = context.getCtx().currentTime;
+  waitForTrackAvailability().then((timedOut) => {
+    if (timedOut) {
+      console.warn(
+        `[audio] track listing didn't resolve within ${TRACK_LISTING_TIMEOUT_MS}ms of START GAME — falling back to procedural music this run`
+      );
+    }
+    const remaining = Math.max(0, JACK_IN_DURATION - (context.getCtx().currentTime - ctxTimeAtJackIn));
+    resolveBackend().start(remaining);
+  });
 }
 
 // The SYS LOG track announcement's seam — forwards straight to
@@ -195,12 +309,16 @@ function onTrackChange(fn) {
 // otherwise-automatic choice, so the comparison the design brief actually
 // asks for ("procedural and track can be A/B'd against the same SFX") can
 // be driven deliberately instead of left to whichever backend happened to
-// be ready first. Must be called before startMusicLoop()/jackIn() —
+// be available first. Must be called before startMusicLoop()/jackIn() —
 // resolveBackend() only ever consults `selectedBackendName` once, same
-// frozen-per-run contract as the automatic path; forcing "track" when no
-// track has actually decoded just means trackmusic.start() finds itself
-// not ready and stays silent (see its own no-throw contract), which is
-// still an honest answer for a gallery auditioning what's actually available.
+// frozen-per-run contract as the automatic path; forcing "track" when
+// there's genuinely nothing to play (an empty assets/music/, the common
+// case for anyone who cloned the repo without copying music in) now means
+// trackmusic.js's own attemptStart() finds the playlist empty, reports
+// itself exhausted, and this facade's onExhausted handler (above) starts
+// procedural instead and logs why — no longer the silent no-op this used
+// to be back when the backend was only ever chosen after isReady() was
+// already true.
 function setBackendPreference(pref) {
   if (pref === "track") selectedBackendName = "track";
   else if (pref === "procedural") selectedBackendName = "procedural";
