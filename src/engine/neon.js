@@ -84,21 +84,37 @@ export function neonStroke(ctx, build, color, width = 2, spread = 4, halo = 0.13
   ctx.restore();
 }
 
-// A glowing ring made of dashes, genuinely rotating via an animated dash
-// offset rather than a squashed ellipse faking it — the shield buff
-// (game/player.js) draws two of these, spinning opposite ways, around the car.
-export function glowDashedRing(ctx, cx, cy, r, color, dashOffset, width = 2, blur = 11, dash = [8, 10]) {
+// A soft, blurred ball of light: a radial gradient from a bright middle out
+// to nothing at `r`. Drawn ADDITIVELY ("lighter"), which is what keeps it
+// reading as light around an object rather than as a translucent grey disc
+// laid over it — the player's shield (game/player.js) wraps the whole car in
+// one of these and breathes it in and out.
+//
+// `color` must be a "#rrggbb" hex, since the gradient needs the same colour at
+// two different alphas; `alpha` scales the whole orb, so a caller can pulse or
+// fade it without rewriting the stops.
+export function glowOrb(ctx, cx, cy, r, color, alpha = 1) {
+  if (alpha <= 0 || r <= 0) return;
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  // Dimmer in the very middle than at 0.6: the car itself sits in the middle,
+  // and a hot core there would wash the wireframe out instead of haloing it.
+  g.addColorStop(0, rgba(color, alpha * 0.45));
+  g.addColorStop(0.6, rgba(color, alpha));
+  g.addColorStop(1, rgba(color, 0));
   ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = blur;
-  ctx.setLineDash(dash);
-  ctx.lineDashOffset = dashOffset;
+  ctx.globalCompositeOperation = "lighter";
+  ctx.fillStyle = g;
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.stroke();
+  ctx.fill();
   ctx.restore();
+}
+
+// "#rrggbb" + alpha -> "rgba(...)". Gradient stops cannot carry a separate
+// globalAlpha, so the alpha has to live inside the colour string itself.
+function rgba(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
 // Glowing text. `bold` only changes the font weight — every other knob

@@ -864,11 +864,11 @@ function drawHud() {
 
   glowText(ctx, "HULL", bx, by - 16, GREEN_PALE, 12, "left", 6);
 
-  // SHIELD, only while active — same "about to lose it" flicker the rings
-  // around the car give in their last second (player.js's renderShield),
+  // SHIELD, only while active — same "about to lose it" flicker the halo
+  // around the car gives in its last second (player.js's renderShield),
   // read off the same clock so the HUD and the car agree on when that is.
   if (player.shieldTime > 0) {
-    const expiring = player.shieldTime < 1 && Math.sin(player.shieldSpin * 26) > 0;
+    const expiring = player.shieldTime < 1 && Math.sin(player.shieldPhase * 26) > 0;
     glowText(
       ctx, `SHIELD ${player.shieldTime.toFixed(1)}s`, bx + bw, by - 16,
       expiring ? SHIELD_FLICKER : PLAYER, 12, "right", 8,

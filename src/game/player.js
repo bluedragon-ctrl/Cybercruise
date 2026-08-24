@@ -5,7 +5,7 @@
 
 import { drawCarCached } from "./sprites.js";
 import { Exhaust } from "./exhaust.js";
-import { glowDashedRing } from "../engine/neon.js";
+import { glowOrb } from "../engine/neon.js";
 import { steerAxis, throttleAxis } from "../engine/input.js";
 import { PLAYER, PLAYER_THRUST, HAZARD, SHIELD_FLICKER } from "../engine/palette.js";
 import * as gameConsole from "../engine/console.js";
@@ -66,15 +66,19 @@ const DAMAGE_THRESHOLDS = [
   { frac: 0.25, text: "HULL DAMAGE 75%", severity: gameConsole.CRITICAL },
 ];
 
-// The shield buff (game/pickuptypes.js's SHIELD entry activates this). Two
-// dashed rings, spun in opposite directions by an animated dash offset (see
-// engine/neon.js's glowDashedRing) — a genuine rotation, not a squashed
-// ellipse standing in for one. Sized in px/sec of dash travel rather than
-// rad/sec, since setLineDash works in the stroke's own units.
-const SHIELD_RING_A_SPEED = 46; // outer ring
-const SHIELD_RING_B_SPEED = -62; // inner ring, opposite direction
-const SHIELD_RING_A_R = 30;
-const SHIELD_RING_B_R = 23;
+// The shield buff (game/pickuptypes.js's SHIELD entry activates this). ONE
+// blurred ball of light wrapped around the whole car (engine/neon.js's
+// glowOrb), breathing in and out — it replaced a pair of counter-rotating
+// dashed rings, which drew the eye to the rings' own motion instead of to the
+// car being protected. A halo that just pulses stays legible at speed and
+// still reads as "this thing is wrapped in something".
+//
+// The radius spans the car with room to spare (the body is 34x64), so the
+// glow's bright band sits just outside the wireframe rather than on top of it.
+const SHIELD_ORB_R = 44; // radius at the top of the breath
+const SHIELD_ORB_PULSE = 7; // px the radius shrinks by at the bottom of it
+const SHIELD_PULSE_RATE = 4.2; // rad/sec — roughly a breath every 1.5s
+const SHIELD_ORB_ALPHA = 0.3; // peak alpha; halved at the bottom of the breath
 // The last stretch of the window flickers toward SHIELD_FLICKER — the same
 // "about to lose it" tell CRITICAL_FLASH gives a dying car (traffic.js),
 // moved into the player's own family. Kept short: a flicker that ran the
@@ -122,7 +126,7 @@ export class Player {
     this.exhaust = new Exhaust();
 
     this.shieldTime = 0; // seconds of invulnerability left (game/pickuptypes.js's SHIELD)
-    this.shieldSpin = 0; // accumulated only while shielded — drives the ring animation
+    this.shieldPhase = 0; // accumulated only while shielded — drives the pulse and the flicker
 
     this.healthWarned = DAMAGE_THRESHOLDS.map(() => false);
   }
@@ -252,10 +256,11 @@ export class Player {
 
     if (this.shieldTime > 0) {
       this.shieldTime = Math.max(0, this.shieldTime - dt);
-      this.shieldSpin += dt;
+      this.shieldPhase += dt;
     } else {
-      this.shieldSpin = 0; // reset so a later shield's rings start clean, not
-                            // mid-rotation from a run that ended a while ago
+      this.shieldPhase = 0; // reset so a later shield's glow starts at the
+                            // bottom of a breath, not mid-pulse from a run
+                            // that ended a while ago
     }
   }
 
@@ -288,15 +293,19 @@ export class Player {
     if (this.shieldTime > 0) this.renderShield(ctx, x);
   }
 
-  // Two dashed rings, genuinely rotating (animated dash offset — see
-  // engine/neon.js's glowDashedRing) in opposite directions around the car.
-  // Drawn OVER the car (after drawCarCached above), same as the flash colour
-  // reads as a layer on top of the sprite rather than a recolour of it.
+  // One blurred, pulsing halo around the car. Drawn OVER the car (after
+  // drawCarCached above) but ADDITIVELY (see glowOrb), so it brightens the
+  // wireframe underneath instead of veiling it — the same "a layer on top"
+  // logic the hit-flash colour follows.
   renderShield(ctx, x) {
     const expiring = this.shieldTime < SHIELD_EXPIRING;
-    const flicker = expiring && Math.sin(this.shieldSpin * SHIELD_FLICKER_RATE) > 0;
+    const flicker = expiring && Math.sin(this.shieldPhase * SHIELD_FLICKER_RATE) > 0;
     const color = flicker ? SHIELD_FLICKER : PLAYER;
-    glowDashedRing(ctx, x, this.y, SHIELD_RING_A_R, color, this.shieldSpin * SHIELD_RING_A_SPEED);
-    glowDashedRing(ctx, x, this.y, SHIELD_RING_B_R, color, this.shieldSpin * SHIELD_RING_B_SPEED);
+    // One sine drives both radius and brightness, so the halo swells as it
+    // brightens — two out-of-step curves would read as a wobble, not a breath.
+    const breath = (Math.sin(this.shieldPhase * SHIELD_PULSE_RATE) + 1) / 2; // 0..1
+    const r = SHIELD_ORB_R - SHIELD_ORB_PULSE * (1 - breath);
+    const alpha = SHIELD_ORB_ALPHA * (0.5 + 0.5 * breath);
+    glowOrb(ctx, x, this.y, r, color, alpha);
   }
 }
