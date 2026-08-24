@@ -66,7 +66,7 @@
 
 import { pingingNodes, nodeId, nodeValue, callsign, announceCityLine } from "./links.js";
 import { edgesAt, centerXAt } from "./road.js";
-import { glowText } from "../engine/neon.js";
+import { glowText, neonStroke } from "../engine/neon.js";
 import { GREEN_PALE, GREEN_BRIGHT, HAZARD } from "../engine/palette.js";
 import * as gameConsole from "../engine/console.js";
 
@@ -153,7 +153,13 @@ const MAX_AWARD_MARKS = 5;
 // behind to arrive. Retune this before retuning the time: how SLOW is what
 // the player feels, how LONG is just how long they feel it for.
 const UPLINK_MAX_SPEED = 200;
-const UPLINK_TIME = 2.6;   // seconds held before it pays
+// The hold, seconds — the download runs half again as fast as it first
+// shipped (2.6s), because the crawl itself was carrying the cost and the extra
+// second on top of it was just dead air: a player who has already given up
+// their speed has made the decision, and holding them there longer only
+// punishes a choice they committed to. The ceiling above is untouched, so the
+// route still costs exactly what it always did — it just stops overcharging.
+const UPLINK_TIME = 1.75;  // seconds held before it pays
 
 // What the uplink route actually pays, as a fraction of the node's value.
 //
@@ -174,6 +180,41 @@ const UPLINK_FRACTION = 0.5;
 // attempt. Faster than it fills, so a hold that is mostly broken never
 // completes by accident.
 const UPLINK_DECAY = 1.5;
+
+// THE DISH: the marker on the car itself that says an uplink is running.
+//
+// WHY THE CAR NEEDS ONE AT ALL, given the node already grows a fill bar. The
+// bar is the instrument — how far along, to the pixel — and it lives out on
+// the floor, on the thing being drained. What it cannot say is that the CAR is
+// the other end of that link, and "am I currently downloading?" is a question
+// the player asks with their eyes on their own car, in the middle of traffic,
+// while paying for the answer in speed. So: a small dish on the flank, aimed
+// at the node, with the link drawn between them.
+//
+// AIMED, and that is the part that teaches. The dish swings to the side the
+// money is on, so the affordance answers "which way" as well as "yes" — the
+// same job the SLOW prompt does for speed, done for direction.
+//
+// It hangs off the flank rather than sitting on the roof because the car is
+// 34px wide: anything drawn on top of the wireframe competes with it, while
+// anything on the outside edge is against empty tarmac. The offset clears the
+// body, so the link never crosses the car it comes from.
+const DISH_MAST = 9;    // px from the car's flank out to the dish's middle
+const DISH_R = 6;       // the dish's own radius
+
+// The link itself: dashes that march FROM THE NODE TOWARD THE CAR, because
+// that is the direction the data is going and a beam that ran the other way
+// would quietly say the player is uploading something. Speed is in px/sec of
+// dash travel — brisk enough to read as flow at a glance, slow enough not to
+// strobe.
+const LINK_DASH = 7;
+const LINK_GAP = 6;
+const LINK_MARCH = 34;
+
+// Both parts brighten as the hold fills, from "connecting" to "about to pay".
+// The floor's bar is still the precise reading; this is the glance version, so
+// it only has to get louder in the right direction.
+const LINK_MIN_ALPHA = 0.3;
 
 // Nodes UNDER the road pay nothing, however close they are. The city floor
 // runs beneath the elevated road ribbon and the road paints an opaque surface
@@ -556,9 +597,10 @@ export class Wallet {
     return this.hinted;
   }
 
-  // Draws the markers over the city floor. The ONLY function in this file that
-  // touches a canvas, kept at the bottom behind the same wall links.js puts
-  // between its own pure fields and its two draw calls.
+  // Draws the markers over the city floor. One of the two functions in this
+  // file that touch a canvas — this one and renderUplink() below, kept at the
+  // bottom behind the same wall links.js puts between its own pure fields and
+  // its two draw calls.
   //
   // Cost is bounded by what hints() returns, which the range rule holds to
   // "the odd node beside the player" — nowhere near the per-frame node walk
@@ -617,6 +659,98 @@ export class Wallet {
       glowText(ctx, `${m.value >= 0 ? "+" : ""}${m.value}CR`, x, y, m.value >= 0 ? GREEN_BRIGHT : HAZARD, 13, "center", 12, true);
       ctx.restore();
     }
+  }
+
+  // WHERE THE LINK RUNS THIS FRAME, or null when nothing is being uplinked:
+  // the node end, the car end, and how far along the hold is. Pure, and split
+  // out of the drawing below for the same reason hints() is split out of
+  // renderHints() — the geometry is checkable without a canvas, and the only
+  // thing left in the render method is ink.
+  //
+  // `carX` is the car's INTERPOLATED position (player.renderX), not player.x:
+  // the dish is bolted to a car being drawn between two logic steps, and a
+  // dish that used the logic position would swim against its own car.
+  //
+  // The node is looked up in the list the floor just drew rather than being
+  // remembered when the hold started, so the link is always attached to where
+  // that node actually is on screen — it scrolls down the floor plane while
+  // the hold runs, and a cached position would leave the beam pointing at a
+  // spot the node had already left.
+  uplinkLink(nodes, player, carX) {
+    if (!this.uplink) return null;
+    const node = nodes.find((n) => nodeId(n.bx, n.by) === this.uplink.id);
+    if (!node) return null;
+
+    const dx = node.cx - carX;
+    const dy = node.sy - player.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) return null; // degenerate; nothing sane to aim at
+
+    // Which flank the dish rides: the node's side, always, since that is the
+    // half of the answer the floor's own meter cannot give.
+    const side = dx >= 0 ? 1 : -1;
+    const ax = carX + side * (player.w / 2);
+    const ux = dx / len, uy = dy / len;
+    return {
+      // The mast's foot on the car's flank, and the dish's middle out past it.
+      ax, ay: player.y,
+      dx: ax + ux * DISH_MAST, dy: player.y + uy * DISH_MAST,
+      // The far end: the node itself.
+      nx: node.cx, ny: node.sy,
+      // Unit vector from car to node — the direction the dish faces and the
+      // line the dashes travel along.
+      ux, uy,
+      progress: Math.min(1, this.uplink.held / UPLINK_TIME),
+    };
+  }
+
+  // THE DISH AND ITS LINK. Drawn from main.js immediately AFTER the car, so
+  // the dish sits on the car rather than under it — and drawn in two
+  // neonStrokes rather than a dozen (see neon.js on why the path is batched):
+  // one for the link's dashes, one for the dish and its mast.
+  //
+  // The second function in this file that touches a canvas, and the only one
+  // that draws in the CAR's layer rather than on the city floor — which is
+  // exactly the point of it (see THE DISH above).
+  renderUplink(ctx, clockValue, nodes, player, carX) {
+    const link = this.uplinkLink(nodes, player, carX);
+    if (!link) return;
+
+    // Faint at the moment the link takes, bright as it comes good.
+    const alpha = LINK_MIN_ALPHA + (1 - LINK_MIN_ALPHA) * link.progress;
+
+    // THE LINK: dashes marching node -> car. `clockValue` drives the march, so
+    // it keeps step with the same floor clock the nodes' own pings run on and
+    // stops dead when the game does.
+    const start = DISH_MAST + DISH_R;                       // clear of the dish's mouth
+    const span = Math.hypot(link.nx - link.ax, link.ny - link.ay) - start;
+    if (span > 0) {
+      const period = LINK_DASH + LINK_GAP;
+      // Subtracted, not added: the pattern slides back down the beam toward
+      // the car, which is the direction the credits are going.
+      const phase = (clockValue * LINK_MARCH) % period;
+      neonStroke(ctx, (c) => {
+        for (let d = span - phase; d > 0; d -= period) {
+          const from = Math.max(0, d - LINK_DASH);
+          c.moveTo(link.ax + link.ux * (start + from), link.ay + link.uy * (start + from));
+          c.lineTo(link.ax + link.ux * (start + d), link.ay + link.uy * (start + d));
+        }
+      }, GREEN_BRIGHT, 1.5, 3.5, 0.12, alpha * 0.8);
+    }
+
+    // THE DISH: a mast off the flank, a half-circle whose OPEN side faces the
+    // node (the bulge points back at the car, the way a real dish's does), and
+    // a stub feed horn standing in its mouth.
+    const theta = Math.atan2(link.uy, link.ux);
+    neonStroke(ctx, (c) => {
+      c.moveTo(link.ax, link.ay);
+      c.lineTo(link.dx, link.dy);
+      c.moveTo(link.dx + Math.cos(theta + Math.PI / 2) * DISH_R,
+               link.dy + Math.sin(theta + Math.PI / 2) * DISH_R);
+      c.arc(link.dx, link.dy, DISH_R, theta + Math.PI / 2, theta + Math.PI * 1.5);
+      c.moveTo(link.dx, link.dy);
+      c.lineTo(link.dx + link.ux * DISH_R * 0.8, link.dy + link.uy * DISH_R * 0.8);
+    }, GREEN_BRIGHT, 1.5, 3.5, 0.14, alpha);
   }
 
   // 0..1 while an award is still worth drawing, 0 once it has faded — same

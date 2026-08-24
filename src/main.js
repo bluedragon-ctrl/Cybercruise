@@ -981,12 +981,13 @@ function render(alpha) {
   // the same layer and is covered by the road's own opaque surface — a node
   // the road is hiding is one that pays nothing anyway, and the marker
   // disappearing under the tarmac says exactly that.
+  // Gathered once and kept: the same list feeds the floor's own markers here
+  // and the uplink dish drawn on the car further down, and walking the floor
+  // twice for two views of one fact would be paying for it twice.
+  let floorNodes = null;
   if (state !== "menu") {
-    wallet.renderHints(
-      ctx, scenery.clock,
-      scenery.visibleNodes(scenery.floorDist(camY), player.y, W, H),
-      player, camY, W
-    );
+    floorNodes = scenery.visibleNodes(scenery.floorDist(camY), player.y, W, H);
+    wallet.renderHints(ctx, scenery.clock, floorNodes, player, camY, W);
   }
   // Air traffic (Phase 7c): between the floor and the road, so it draws after
   // the whole scenery layer (grid, buildings, floor traffic) and before the
@@ -1022,7 +1023,17 @@ function render(alpha) {
   // in the player's place instead — see game/disconnect.js's render().
   if (state === "dying") disconnect.render(ctx, W, H);
   else if (state === "connecting" && !jackin.carSolid) jackin.renderCar(ctx);
-  else player.render(ctx, alpha, road.headingAt(camY));
+  else {
+    player.render(ctx, alpha, road.headingAt(camY));
+    // The uplink's dish, on the car and aimed at the node it is draining, with
+    // the link drawn between the two (game/wallet.js). AFTER the car, so the
+    // dish reads as bolted to it rather than buried under it — and only in the
+    // branch where there IS a car, since a dish on a wreck would be the HUD
+    // reporting on a link that died with it. Draws nothing unless a hold is
+    // actually running, and shares the car's interpolated x so the two never
+    // drift apart between logic steps.
+    if (floorNodes) wallet.renderUplink(ctx, scenery.clock, floorNodes, player, player.renderX(alpha));
+  }
   ctx.restore();
 
   // Phase 7f's rescan glitch: a full-screen tear over the just-composited
