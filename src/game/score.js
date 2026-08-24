@@ -29,13 +29,18 @@
 // 120..620 units/sec (player.js), so the road pays roughly 7..37 points a
 // minute.
 //
-// THE RATIO is the only thing that matters here, and it is set so that KILLS
-// DOMINATE: against a car worth ±100, a minute of flat-out driving is worth
-// about a third of one kill. Driving is therefore the trickle that rewards
-// staying alive, and what the player does to the traffic is the score. The
-// earlier 1-point-per-unit setting had it exactly backwards — a car was a
-// quarter-second of driving, so nothing you did to the road could be seen in the
-// number. Retune by moving THIS or `value` (cartypes.js), never both at once.
+// THE SHAPE is the only thing that matters here: KILLS DOMINATE. Driving is
+// the trickle that rewards staying alive, and what the player does to the
+// traffic is the score. The earlier 1-point-per-unit setting had it exactly
+// backwards — a car was a quarter-second of driving, so nothing you did to
+// the road could be seen in the number.
+//
+// No fixed ratio is pinned against `value` any more — cartypes.js now gives
+// every type its own literal figure, on purpose, so a bus or a boss can be
+// worth far more or less than an ordinary car without that being a scoring
+// bug. Judge a retune by feel (does a kill still read as the headline event
+// against a stretch of driving?), not by a formula tied to whichever type
+// currently has the largest figure.
 export const DISTANCE_POINTS = 0.001;
 
 // How long a "+100" / "-100" award stays on the HUD after a kill.

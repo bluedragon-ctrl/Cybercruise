@@ -241,6 +241,49 @@ export const CAR_SHAPES = [
   },
 
   {
+    name: "BUS",
+    size: [46, 104],
+    // Boxy and flat-fronted — a low-floor transit bus, the widest civilian
+    // short of the rig. Unlike every other shape, its whole passenger cabin
+    // is drawn as glazing rather than an opaque roof: three separate window
+    // bays down the centreline, the same "raised, opaque, palest fill" trick
+    // every canopy already uses, just stretched into a row. That row is the
+    // whole point — it is what tells the player "this one is full of people"
+    // before the colour or the size does, and it is why the shape carries a
+    // heavy destruction penalty in cartypes.js.
+    profile: [
+      [0, -1.00], [0.50, -0.98], [1.00, -0.80], [1.00, 0.78], [0.58, 0.98], [0, 1.00],
+    ],
+    wheels: [[-0.62], [0.62]],
+    // A single centred vent rather than the usual twin: `ex` of 0 puts both of
+    // drawCarShape's exhaust lines at x=0, which draws the same centred glow
+    // twice rather than once each side. Deliberate — a rear-engined transit
+    // bus reads differently from everything else's twin pipes, at no cost to
+    // the shared drawing code.
+    exhaust: [0, 0.90, 0.98],
+    flat({ line }, c, thrust, headlight) {
+      line(-0.30, -0.86, 0.30, -0.86, headlight, 1.5, 8); // destination board
+    },
+    raised({ solid }, c) {
+      solid([[-0.30, -0.66], [-0.06, -0.66], [-0.06, -0.50], [-0.30, -0.50]], c); // roof AC pod
+      solid([[0.06, -0.66], [0.30, -0.66], [0.30, -0.50], [0.06, -0.50]], c);     // roof AC pod
+      // Three glazed bays, palest fill in the height ramp so the row reads as
+      // glass rather than another body panel.
+      solid([[-0.66, -0.40], [0.66, -0.40], [0.66, -0.12], [-0.66, -0.12]], c, CAR_FILL_HIGH);
+      solid([[-0.66, 0.00], [0.66, 0.00], [0.66, 0.28], [-0.66, 0.28]], c, CAR_FILL_HIGH);
+      solid([[-0.66, 0.40], [0.66, 0.40], [0.66, 0.74], [-0.66, 0.74]], c, CAR_FILL_HIGH);
+    },
+    top({ line }, c) {
+      // Seat-row mullions inside each bay, and the pillars framing the row.
+      for (const y of [-0.32, -0.24, -0.16, 0.08, 0.16, 0.48, 0.56, 0.64]) {
+        line(-0.66, y, 0.66, y, c);
+      }
+      line(-0.66, -0.40, -0.66, 0.74, c);
+      line(0.66, -0.40, 0.66, 0.74, c);
+    },
+  },
+
+  {
     name: "INTERCEPTOR",
     size: [34, 62],
     // A pursuit coupe, not a jet: a single smooth taper to a wide rear haunch

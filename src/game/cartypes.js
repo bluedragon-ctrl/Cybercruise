@@ -55,7 +55,7 @@
 //
 // SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) is a cache key
 // in sprites.js, times WHEEL_FRAMES (8), plus one more colour for the
-// critical-hull blink: 11 types * 8 * 2 = 176 sprites at worst, built lazily.
+// critical-hull blink: 12 types * 8 * 2 = 192 sprites at worst, built lazily.
 // Keeping the catalogue a small FIXED list is what bounds it — vary cars by
 // ADDING A TYPE, never by rolling continuous per-instance sizes or colours.
 // Per-instance variety comes from speedMin..speedMax, which costs nothing
@@ -333,6 +333,60 @@ export const CAR_TYPES = [
     driving: "juggernaut", // dead straight, brakes from a long way out, and
                            // expects to be given room rather than to ask for it
     weight: 0.8,
+  },
+  {
+    id: "bus",
+    label: "BUS",
+    shape: carShapeIndex("BUS"),
+    // THE HIGH-PENALTY CIVILIAN. Every other civilian's `value` still reads
+    // the flat -100 every neutral type launched with; this is the first to
+    // actually use the per-type `value` PR97 put on every entry — it is
+    // full of passengers (carshapes.js's BUS draws the whole cabin as
+    // glazing rather than an opaque roof, precisely so that reads before the
+    // stat does), and killing one costs three times what killing anything
+    // else on the civilian side costs.
+    color: NEUTRAL,
+    thrust: NEUTRAL_DEEP, // the deep exhaust glow the rig also carries — the
+                          // other heavy hauler on the road
+    w: 46,
+    h: 104,
+    // Between the muscle's 110 and the rig's 220: heavier and tougher than
+    // any ordinary civilian, but the rig stays the one thing on the road
+    // built to shrug off everything.
+    health: 190,
+    mass: 2.8,
+    // Slow and deliberate, like the rig and van it shares the outer lane
+    // with — a city bus keeps to stops, it does not race. Kept clearly under
+    // the van's 265 ceiling so the civilian speed gradient (see driving.js)
+    // still puts it on the barrier side of the road.
+    speedMin: 190,
+    speedMax: 230,
+    // Matches the van's exactly, and not by accident: it drives the SAME
+    // `hauler` profile below, and that profile's `contact` ceiling is priced
+    // off the van's own steerSpeed against collisions.js's DAMAGE_FLOOR of
+    // 40 (see driving.js's comment on `hauler`). Sharing the figure keeps
+    // that pricing true for the bus too, instead of quietly drifting once a
+    // second type points at the same table.
+    steerSpeed: 60,
+    // Big, but deliberately short of the rig's 72/46 — the rig stays the
+    // single biggest explosion on the road (see its own comment above); the
+    // bus is the second-biggest, not a replacement for it.
+    blastRadius: 64,
+    blastDamage: 36,
+    // THE POINT OF THIS ENTRY. Three times the flat civilian fine: not a
+    // rounding tweak, a stated policy that this one is worse to hit than the
+    // rest of the traffic put together.
+    value: -300,
+    minDistance: 0, // the city's own traffic: on the road from the first metre
+    behaviour: "cruise", // holds its lane exactly like the van and the rig —
+                         // it does not overtake, it makes you go round
+    driving: "hauler",   // the van's own profile: cautious, out of the way,
+                         // but it will lean on something smaller than itself
+    // A QUARTER of the rig's own weight (0.8 / 4 = 0.2) — rarer than every
+    // other civilian on the road, on purpose: a bus should feel like a
+    // genuine event to meet, the same way the rig's own low weight already
+    // makes it one.
+    weight: 0.2,
   },
   {
     id: "hypercar",

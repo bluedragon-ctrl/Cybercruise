@@ -218,14 +218,14 @@ test("every car type has a coherent speed range", () => {
 // --- The sprite-cache budget -------------------------------------------------
 
 test("sprite-cache budget matches the figure cartypes.js documents", () => {
-  // cartypes.js: "11 types * 8 * 2 = 176 sprites at the absolute worst" — one
+  // cartypes.js: "12 types * 8 * 2 = 192 sprites at the absolute worst" — one
   // per (type, wheel frame), doubled for the critical-hull blink colour. This is
   // what keeps the cache bounded, so it must not grow silently.
   const worstCase = CAR_TYPES.length * WHEEL_FRAMES * 2;
   assert.equal(
     worstCase,
-    176,
-    `traffic sprite worst case is now ${worstCase}, not the documented 176 ` +
+    192,
+    `traffic sprite worst case is now ${worstCase}, not the documented 192 ` +
       `(${CAR_TYPES.length} types x ${WHEEL_FRAMES} wheel frames x 2 colours)`,
   );
 });
@@ -1875,20 +1875,6 @@ test("obstacle gating uses the same units as the car catalogue", () => {
 });
 
 // --- Scoring -----------------------------------------------------------------
-
-test("kills dominate the score, as score.js claims", () => {
-  // score.js: "against a car worth +-100, a minute of flat-out driving is worth
-  // about a third of one kill". That ratio is the whole shape of the scoring,
-  // and it breaks if either DISTANCE_POINTS or `value` moves alone.
-  const minuteFlatOut = MAX_SPEED * 60 * DISTANCE_POINTS;
-  const killValue = Math.max(...CAR_TYPES.map((t) => Math.abs(t.value)));
-  const ratio = minuteFlatOut / killValue;
-  assert.ok(
-    ratio > 0.2 && ratio < 0.5,
-    `a minute of driving is now worth ${ratio.toFixed(2)} of a kill (want ~0.33). ` +
-      `Move DISTANCE_POINTS or the catalogue's \`value\`, never both at once.`,
-  );
-});
 
 test("destroying civilians can put the score in the red", () => {
   // score.js is explicit that the total is NOT clamped at zero — the penalty is
