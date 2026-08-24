@@ -5234,3 +5234,28 @@ test("an uplink in progress shows its own meter", () => {
   const mid = w.hints(quiet, [node], player, distance, TEST_W)[0].uplink;
   assert.ok(mid > 0 && mid < 1, `meter reads ${mid}`);
 });
+
+// The draw call itself, exercised once with a road-anchored receipt alive —
+// the one thing in wallet.js that a pure-data test can't reach. A throw here
+// is not a cosmetic bug: render() runs inside the rAF callback (engine/loop.js)
+// and takes the next frame down with it, so the whole game stops on the frame
+// after a kill, half-drawn, with only the city floor on screen.
+test("a wreck's receipt draws without taking the frame down with it", () => {
+  const distance = 4000;
+  const w = new Wallet(null);
+  w.award(100); // something for the bounty to land on top of
+  w.destroyed({ bounty: 25 }, distance + 40, 30);
+  assert.equal(w.marks.length, 1, "the wreck left no marker to draw");
+
+  // Records every call rather than asserting on the pixels: what is under test
+  // is that the function completes, and that the receipt was actually emitted
+  // (an early return would pass a "did not throw" check trivially).
+  const drawn = [];
+  const ctx = new Proxy({}, {
+    get: (_t, k) => (k === "measureText" ? () => ({ width: 10 }) : (...args) => drawn.push([k, ...args])),
+    set: () => true,
+  });
+
+  w.renderHints(ctx, 0, [], { x: 0, y: 400, speed: 150 }, distance, TEST_W);
+  assert.ok(drawn.some(([k]) => k === "fillText"), "the receipt never reached the canvas");
+});

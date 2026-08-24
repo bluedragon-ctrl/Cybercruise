@@ -396,6 +396,11 @@ export const CAR_TYPES = [
     // rounding tweak, a stated policy that this one is worse to hit than the
     // rest of the traffic put together.
     value: -300,
+    // ...and the same policy in credits: three times the -15 every other
+    // civilian costs. The bus predates the wallet (it arrived a phase earlier),
+    // and a catalogue entry with no `bounty` pays nothing at all — which would
+    // have made the worst car on the road the one kill money never noticed.
+    bounty: -45,
     minDistance: 0, // the city's own traffic: on the road from the first metre
     behaviour: "cruise", // holds its lane exactly like the van and the rig —
                          // it does not overtake, it makes you go round

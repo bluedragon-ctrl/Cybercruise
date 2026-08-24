@@ -606,7 +606,9 @@ export class Wallet {
       // Where it sits this frame — see mark() on why the road plane has to be
       // re-projected while the floor plane does not.
       const x = m.kind === "road" ? centerXAt(m.worldY, W) + m.offset : m.x;
-      const y = (m.kind === "road" ? playerY - (m.worldY - distance) : m.y) - (1 - frac) * AWARD_MARK_RISE;
+      // `player.y` is the screen row the car is drawn at — the same projection
+      // every entity on the road plane uses in main.js's render.
+      const y = (m.kind === "road" ? player.y - (m.worldY - distance) : m.y) - (1 - frac) * AWARD_MARK_RISE;
       ctx.save();
       ctx.globalAlpha = frac;
       // Red for a fine, in the same HAZARD the HUD's own award uses — the one
