@@ -122,16 +122,19 @@ cell("PLAYER CAR", (ctx, size, phase) =>
 // Traffic, straight from the catalogue — a new car type in cartypes.js shows up
 // here on its own, at exactly the size and colours the game will drive it with.
 //
-// The caption carries BOTH AXES a type names — its tactic and its driving
-// profile — because the gallery is where you go to ask "which one is that?" and
-// half the answer is now how it drives. Two cars can share a silhouette family
-// and a colour and still be opposites (roadster vs hypercar), and reading
-// `overtake/hustler` beside `overtake/showpiece` is the shortest way to see it.
-// Derived, never hand-written, so a retune in cartypes.js can't leave a stale
-// caption behind.
+// The caption carries every axis a type names — its tactic, its driving
+// profile, and its score `value` — because the gallery is where you go to ask
+// "which one is that?" and half the answer is now how it drives and what it's
+// worth. Two cars can share a silhouette family and a colour and still be
+// opposites (roadster vs hypercar), and reading `overtake/hustler` beside
+// `overtake/showpiece` is the shortest way to see it. The value is what makes
+// a one-off retune (a boss, a special civilian) visible at a glance instead of
+// requiring a trip back into cartypes.js to check. Derived, never hand-written,
+// so a retune in cartypes.js can't leave a stale caption behind.
 CAR_TYPES.forEach((t) => {
   const drives = `${t.behaviour}/${t.driving ?? "commuter"}`;
-  cell(`${t.faction === ENEMY_FACTION ? "ENEMY" : "CIVIL"} · ${t.label} · ${drives}`, (ctx, size, phase) =>
+  const value = t.value >= 0 ? `+${t.value}` : `${t.value}`;
+  cell(`${t.faction === ENEMY_FACTION ? "ENEMY" : "CIVIL"} · ${t.label} · ${drives} · ${value}`, (ctx, size, phase) =>
     drawCar(ctx, size / 2, size / 2, {
       shape: t.shape, color: t.color, thrust: t.thrust, accent: t.accent, w: t.w, h: t.h, wheelPhase: phase,
     }),

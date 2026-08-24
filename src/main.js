@@ -718,8 +718,12 @@ function drawHud() {
   glowText(ctx, "CYBERCRUISE", 12, 12, GREEN, 18, "left", 12);
 
   // Score gets the biggest readout on screen — it's the thing being played for.
-  // DIST/SPD drop below it as instrumentation.
-  glowText(ctx, `${score.points}`, W - 12, 10, GREEN_BRIGHT, 22, "right", 14);
+  // A small "SCORE" header (same device HULL uses over the health bar, below)
+  // names the number, and the number itself is bold on top of its own glow so
+  // it still reads as the HUD's centrepiece next to DIST/SPD's plain instrument
+  // readouts.
+  glowText(ctx, "SCORE", W - 12, 8, GREEN_PALE, 11, "right", 6);
+  glowText(ctx, `${score.points}`, W - 12, 20, GREEN_BRIGHT, 22, "right", 14, true);
 
   // The last kill's award, fading out under the total, so the player can see
   // WHY the number jumped — red for a fine, green for a bounty. Presentation
@@ -730,15 +734,15 @@ function drawHud() {
     const text = `${award >= 0 ? "+" : ""}${award}`;
     ctx.save();
     ctx.globalAlpha = alpha;
-    glowText(ctx, text, W - 12, 36, award >= 0 ? GREEN_BRIGHT : HAZARD, 16, "right", 10);
+    glowText(ctx, text, W - 12, 48, award >= 0 ? GREEN_BRIGHT : HAZARD, 16, "right", 10);
     ctx.restore();
   }
 
   // Shown in DIST_UNITS, not raw world units — see road.js. The same scale the
   // catalogues' `minDistance` gates are written in, so a player who sees DIST 100
   // is seeing exactly the moment the enemy is allowed on the road.
-  glowText(ctx, `DIST ${Math.floor(distance / road.DIST_UNITS)}`, W - 12, 58, GREEN_PALE, 13, "right");
-  glowText(ctx, `SPD ${Math.round(player.speed)}`, W - 12, 76, GREEN_PALE, 13, "right");
+  glowText(ctx, `DIST ${Math.floor(distance / road.DIST_UNITS)}`, W - 12, 70, GREEN_PALE, 13, "right");
+  glowText(ctx, `SPD ${Math.round(player.speed)}`, W - 12, 88, GREEN_PALE, 13, "right");
 
   const weapon = loadout.current;
 

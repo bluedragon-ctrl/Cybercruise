@@ -1389,10 +1389,20 @@ test("floorDist agrees with the sector index and the floor tile's own phase, che
   const OVERSHOOT_BOUND = 15;
   let crossings = 0;
 
+  // TICKS is sized off the SLOWEST speed swept (120): citygrid.js's
+  // SECTOR_PERIOD is ~100,352 world units at the shipped 98x multiplier
+  // (see its own header), so covering it at 120 units/s takes ~836s of
+  // simulated driving, or ~50,176 ticks at this STEP. 110,000 comfortably
+  // clears two crossings even at that slowest speed, and every faster speed
+  // in the sweep crosses more often still — this loop cost is pure
+  // arithmetic, so the larger budget stays cheap for a test that must run
+  // whenever SECTOR_PERIOD_MULT is retuned.
+  const TICKS = 110000;
+
   for (let speed = 120; speed <= 700; speed += 11) {
     let distance = 0;
     let lastSector = sectorIndex(floorDist(distance));
-    for (let tick = 0; tick < 3000; tick++) {
+    for (let tick = 0; tick < TICKS; tick++) {
       distance += speed * STEP;
       const fDist = floorDist(distance);
       const sector = sectorIndex(fDist);
@@ -1590,12 +1600,13 @@ test("every sector crossing pushes a HINT-severity line through the shared city-
   const busy = () => false;
 
   const STEP = 1 / 60;
-  const SPEED = 400; // px/s of simulated `distance`, comfortably crossing
-                      // several SECTOR_PERIOD boundaries over SPAN seconds
-                      // at SECTOR_PERIOD's shipped 6x multiplier (a boundary
-                      // every ~15.4s at this speed — see citygrid.js's own
-                      // SECTOR_PERIOD_MULT comment for the tuning behind it)
-  const SPAN = 70; // seconds
+  const SPEED = 700; // px/s of simulated `distance` — the player's top speed
+                      // (player.js's MAX_SPEED), so this reaches a crossing
+                      // in the fewest simulated seconds the game itself ever
+                      // could. SECTOR_PERIOD's shipped 98x multiplier puts a
+                      // boundary every ~143.4s at this speed (citygrid.js's
+                      // own SECTOR_PERIOD_MULT comment has the full derivation)
+  const SPAN = 600; // seconds — comfortably several crossings at SPEED above
   let distance = 0;
   let clockValue = 0;
   for (let t = 0; t < SPAN; t += STEP) {

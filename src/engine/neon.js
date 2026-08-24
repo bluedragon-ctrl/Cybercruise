@@ -101,10 +101,12 @@ export function glowDashedRing(ctx, cx, cy, r, color, dashOffset, width = 2, blu
   ctx.restore();
 }
 
-// Glowing text.
-export function glowText(ctx, text, x, y, color, size = 16, align = "left", blur = 10) {
+// Glowing text. `bold` only changes the font weight — every other knob
+// (color, blur) still does the actual glow, so a bold call reads as "this
+// number matters more" rather than as a different style of text.
+export function glowText(ctx, text, x, y, color, size = 16, align = "left", blur = 10, bold = false) {
   ctx.save();
-  ctx.font = `${size}px "Courier New", monospace`;
+  ctx.font = `${bold ? "bold " : ""}${size}px "Courier New", monospace`;
   ctx.textAlign = align;
   ctx.textBaseline = "top";
   ctx.fillStyle = color;
