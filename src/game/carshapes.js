@@ -13,14 +13,31 @@
 // LAYERING. Parts are drawn strictly bottom-up, which is what makes a flat
 // wireframe read as a solid object:
 //
+//   shadow    the ground blot a FLYING hull casts, below everything
 //   low()     ground-level parts the chassis overlaps (splitters)
 //   wheels    UNDER the chassis, so only the tyre past the bodywork shows
+//   tracks    same slot as wheels, but one long tread band instead of a tyre
 //   body      the chassis itself, opaque
 //   flat()    markings painted ON the chassis (stripes, panel lines)
 //   raised()  parts standing proud of it, each OPAQUE
 //   wing      opaque, above its own supports
 //   top()     markings on raised parts
-//   exhaust   glow, always last
+//   exhaust   glow
+//   rotors    spinning discs, ABOVE everything -- a rotor turns over its own hull
+//
+// GROUND CONTACT IS OPTIONAL. `wheels` may be omitted entirely: a hovercraft or
+// a drone has no axles, and the cue that replaces the tyres is `hover` (a ground
+// shadow offset down-screen, so the hull reads as flying rather than as a car
+// with its wheels forgotten). Every shape must carry ONE of the three -- wheels,
+// tracks, or hover -- or it will look like it is sliding on its belly.
+//
+// `hover: { blot: false }` is the one way to fly without the shadow, and it
+// exists for exactly one situation: a hull that flies directly over something
+// the player needs to SEE. The blot is drawn first and opaque, so on a cargo
+// drone carrying the player car it would be painted straight over the car. The
+// flag says "this flies, and the shadow is deliberately off" -- which is a very
+// different claim from a shape that simply forgot to say how it meets the road,
+// and test/invariants.test.js can tell the two apart because of it.
 //
 // The three fills form a height ramp (see palette.js), the same trick
 // drawBuilding uses for its three faces: the higher a surface sits off the road,
@@ -57,15 +74,17 @@ function halfWidthAt(parts, y) {
   return best;
 }
 
-// A single wheel: a small slab with horizontal tread bands that scroll along its
-// length to fake rotation. `phase` is the distance the car has "rolled" (px);
-// increasing it moves the tread backward, which reads as spinning forward.
-function drawWheel(ctx, x, y, color, phase, ww, wl) {
-  const top = y - wl + 2;
-  const bot = y + wl - 2;
+// A stretch of scrolling tread: a slab from `top` to `bot` with horizontal bands
+// marching along it to fake rotation. `phase` is the distance rolled (px);
+// increasing it moves the bands backward, which reads as turning forward.
+//
+// A WHEEL AND A TANK TRACK ARE THE SAME DRAWING. A track is just a very long
+// tread with its bands spaced further apart -- writing it as one function is what
+// keeps a tracked boss rolling in lockstep with the traffic around it instead of
+// inventing a second, subtly different animation for the same idea.
+function drawTread(ctx, x, top, bot, color, phase, ww, spacing = 4) {
   glowPoly(ctx, [[x - ww, top], [x + ww, top], [x + ww, bot], [x - ww, bot]], color, 1.5, 7);
 
-  const spacing = 4;
   const off = ((phase % spacing) + spacing) % spacing; // wrapped scroll offset
   ctx.save();
   ctx.beginPath();
@@ -81,6 +100,70 @@ function drawWheel(ctx, x, y, color, phase, ww, wl) {
     ctx.moveTo(x - ww, yy);
     ctx.lineTo(x + ww, yy);
   }
+  ctx.stroke();
+  ctx.restore();
+}
+
+// A single wheel: a short tread slab centred on its axle.
+function drawWheel(ctx, x, y, color, phase, ww, wl) {
+  drawTread(ctx, x, y - wl + 2, y + wl - 2, color, phase, ww);
+}
+
+// A rotor: an opaque duct ring with blades sweeping inside it. The blades are
+// drawn faint and few rather than as a solid disc -- a neon wireframe cannot show
+// motion blur, so the readable cue is "spokes at an angle that keeps changing".
+// Rotors are the LAST thing drawn, because a rotor genuinely passes over its own
+// airframe and reading it any other way makes the drone look flat.
+function drawRotor(ctx, x, y, r, color, phase, blades = 3) {
+  const TAU = Math.PI * 2;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = CAR_FILL_RAISED;
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 9;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+
+  const a0 = phase * 0.05; // px travelled reused as an angle -- free, and never resets
+  ctx.globalAlpha = 0.55;
+  ctx.lineWidth = 1.2;
+  ctx.shadowBlur = 3;
+  ctx.beginPath();
+  for (let i = 0; i < blades; i++) {
+    const a = a0 + (i * TAU) / blades;
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(a) * (r - 2), y + Math.sin(a) * (r - 2));
+  }
+  ctx.stroke();
+
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 6;
+  ctx.beginPath();
+  ctx.arc(x, y, 2.2, 0, TAU);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// The ground blot under a flying hull, offset DOWN-SCREEN from it. This is the
+// same one-object-two-heights depth trick drones.js already uses for its air
+// traffic (its DRONE_SHADOW), brought up to the road plane: the gap between hull
+// and blot is the only thing saying "this is above you", so it has to be big
+// enough to survive the glow -- a few px of offset just looks like a printing
+// error. Drawn first, and translucent black rather than a fill colour, so it
+// DIMS the road and grid beneath instead of painting a second body over them.
+function drawHoverShadow(ctx, cx, cy, hw, hh, color, drop, scale) {
+  ctx.save();
+  ctx.translate(cx, cy + drop);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, hw * scale, hh * scale, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fill();
+  ctx.globalAlpha = 0.18;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
   ctx.stroke();
   ctx.restore();
 }
@@ -483,9 +566,22 @@ const WHEEL_W = 4;
 const WHEEL_L = 10;
 const WHEEL_EXPOSE = 7; // px of tyre that must clear the bodywork
 
+// Tracks run wider and stand further out than a tyre: a track is meant to be a
+// visible part of the silhouette, not a detail peeking past the bodywork.
+const TRACK_W = 7;
+const TRACK_EXPOSE = 12;
+
 // Draws shape `index` centred at (cx, cy), pointing "up" (toward smaller y).
 export function drawCarShape(ctx, cx, cy, index, opts = {}) {
-  const shape = CAR_SHAPES[index] ?? CAR_SHAPES[0];
+  drawShapeObject(ctx, cx, cy, CAR_SHAPES[index] ?? CAR_SHAPES[0], opts);
+}
+
+// The same drawing, given the shape OBJECT rather than an index into the
+// catalogue above. This is what lets a shape be drawn before it is a car type --
+// the boss candidates in bossshapes.js live in their own list precisely so that
+// trying looks out costs nothing in sprites.js's cache budget or in cartypes.js.
+// drawCarShape is a one-line wrapper over it, so the two can never drift.
+export function drawShapeObject(ctx, cx, cy, shape, opts = {}) {
   const {
     color,
     thrust,
@@ -503,16 +599,33 @@ export function drawCarShape(ctx, cx, cy, index, opts = {}) {
   const tools = makeTools(ctx, cx, cy, hw, hh);
   const parts = shape.parts ?? [shape.profile];
 
+  // 0. The ground blot, if this hull flies. Below everything, including the
+  //    road markings it dims.
+  if (shape.hover && shape.hover.blot !== false) {
+    drawHoverShadow(ctx, cx, cy, hw, hh, color,
+      shape.hover.drop ?? hh * 0.5, shape.hover.scale ?? 0.9);
+  }
+
   // 1. Ground-level parts, which the chassis then overlaps.
   if (shape.low) shape.low(tools, color, thrust, headlight, accent);
 
   // 2. Wheels, UNDER the chassis: the body fill covers the inner half of each
   //    tyre, leaving only the part that genuinely pokes past the bodywork. The x
   //    position is derived so every shape shows the same amount of tyre.
-  for (const [y, ww = WHEEL_W, wl = WHEEL_L, expose = WHEEL_EXPOSE] of shape.wheels) {
+  //    Omitted entirely by anything that flies -- see the header.
+  for (const [y, ww = WHEEL_W, wl = WHEEL_L, expose = WHEEL_EXPOSE] of shape.wheels ?? []) {
     const wx = halfWidthAt(parts, y) * hw + expose - ww;
     drawWheel(ctx, cx - wx, cy + y * hh, color, wheelPhase, ww, wl);
     drawWheel(ctx, cx + wx, cy + y * hh, color, wheelPhase, ww, wl);
+  }
+
+  // 2b. Tracks, in the same slot and derived the same way: x comes from the
+  //     hull's own half-width at the track's MIDPOINT, so a track hugs the
+  //     flank it belongs to rather than being hand-placed per shape.
+  for (const [y1, y2, ww = TRACK_W, expose = TRACK_EXPOSE] of shape.tracks ?? []) {
+    const tx = halfWidthAt(parts, (y1 + y2) / 2) * hw + expose - ww;
+    drawTread(ctx, cx - tx, cy + y1 * hh, cy + y2 * hh, color, wheelPhase, ww, 7);
+    drawTread(ctx, cx + tx, cy + y1 * hh, cy + y2 * hh, color, wheelPhase, ww, 7);
   }
 
   // 3. The chassis, opaque so the road and grid don't show through.
@@ -545,6 +658,11 @@ export function drawCarShape(ctx, cx, cy, index, opts = {}) {
     const width = shape.quad ? 2.5 : shape.thrustWide ? 4 : 3;
     for (const x of xs) tools.line(x, y1, x, y2, thrust, width, 10);
   }
+
+  // 9. Rotors, above absolutely everything -- a rotor sweeps over its own hull.
+  for (const [fx, fy, r, blades = 3] of shape.rotors ?? []) {
+    drawRotor(ctx, cx + fx * hw, cy + fy * hh, r, color, wheelPhase, blades);
+  }
 }
 
 // The shape's closed outline(s) as px offsets from the car's centre — one loop
@@ -552,7 +670,12 @@ export function drawCarShape(ctx, cx, cy, index, opts = {}) {
 // use this to break a car apart along its OWN edges (see game/effects.js), which
 // is why it returns geometry rather than drawing anything.
 export function carShapeOutline(index, w, h) {
-  const shape = CAR_SHAPES[index] ?? CAR_SHAPES[0];
+  return shapeOutline(CAR_SHAPES[index] ?? CAR_SHAPES[0], w, h);
+}
+
+// As above, given the shape object -- the bossshapes.js counterpart, same reason
+// drawShapeObject exists.
+export function shapeOutline(shape, w, h) {
   const hw = w / 2;
   const hh = h / 2;
   return (shape.parts ?? [shape.profile]).map((p) => fracLoop(p, 0, 0, hw, hh));
@@ -563,7 +686,11 @@ export function carShapeOutline(index, w, h) {
 // accounted for — a fixed fraction of `w` would clip the rig's trailer bogie and
 // the hypercar's wing.
 export function carShapeExtent(index, w, h) {
-  const shape = CAR_SHAPES[index] ?? CAR_SHAPES[0];
+  return shapeExtent(CAR_SHAPES[index] ?? CAR_SHAPES[0], w, h);
+}
+
+// As above, given the shape object.
+export function shapeExtent(shape, w, h) {
   const hw = w / 2;
   const hh = h / 2;
   const parts = shape.parts ?? [shape.profile];
@@ -579,10 +706,26 @@ export function carShapeExtent(index, w, h) {
       down = Math.max(down, fy * hh);
     }
   }
-  for (const [y, ww = WHEEL_W, wl = WHEEL_L, expose = WHEEL_EXPOSE] of shape.wheels) {
+  for (const [y, ww = WHEEL_W, wl = WHEEL_L, expose = WHEEL_EXPOSE] of shape.wheels ?? []) {
     x = Math.max(x, halfWidthAt(parts, y) * hw + expose);
     up = Math.max(up, -(y * hh - wl));
     down = Math.max(down, y * hh + wl);
+  }
+  for (const [y1, y2, ww = TRACK_W, expose = TRACK_EXPOSE] of shape.tracks ?? []) {
+    x = Math.max(x, halfWidthAt(parts, (y1 + y2) / 2) * hw + expose);
+    up = Math.max(up, -y1 * hh);
+    down = Math.max(down, y2 * hh);
+  }
+  for (const [fx, fy, r] of shape.rotors ?? []) {
+    x = Math.max(x, Math.abs(fx) * hw + r);
+    up = Math.max(up, -(fy * hh - r));
+    down = Math.max(down, fy * hh + r);
+  }
+  if (shape.hover && shape.hover.blot !== false) {
+    const drop = shape.hover.drop ?? hh * 0.5;
+    const scale = shape.hover.scale ?? 0.9;
+    x = Math.max(x, hw * scale);
+    down = Math.max(down, drop + hh * scale);
   }
   if (shape.wing) {
     x = Math.max(x, shape.wing * hw);
