@@ -100,21 +100,24 @@ export const ARTERIAL_PERIOD = PLOT * CROSS_STREET_ROWS; // 512
 // reason — changing ARTERIAL_PERIOD can never accidentally reintroduce a seam
 // here the way an independently-chosen constant could.
 //
-// 6x is a FEEL call, not a calculation, checked against both ends of the
-// plausible 4-8x range. At 4x a crossing lands every ~6.6s at the player's top
-// speed (620, player.js's MAX_SPEED) — close to reading as a strobe. At 8x it
-// stretches to ~13.2s, long enough that a normal run sees only a couple and the
-// feature risks going unnoticed. 6x lands one roughly every ~9.9s at 620, or
-// ~15.4s at a more typical ~400: long enough that a sector reads as somewhere
-// you have been driving THROUGH, short enough that a several-minute run crosses
-// a double-digit number. Retune by ear if MAX_SPEED or typical run length moves.
+// 98x is a FEEL call tuned to land close to ONE DIST-READOUT THOUSAND per
+// crossing (road.js's DIST_UNITS = 100 world units per readout tick, and
+// scenery.js's FLOOR_PARALLAX = 0.5 between floor-world and player distance):
+// 512 * 98 floor-world units is 100,352 player-distance units, or ~1003 on
+// the odometer — "approximately 1000 distance" between city changes, so a
+// sector reads as a whole leg of a run rather than something you cross every
+// few seconds. At the player's top speed (620, player.js's MAX_SPEED) that's
+// ~162s between crossings; at a more typical ~400 it's ~251s. The earlier 6x
+// (one crossing roughly every 10-15s) was tuned before "how often" had a
+// concrete target and turned out far too frequent once measured against the
+// odometer the player actually watches.
 //
 // The period this multiplies is in FLOOR-WORLD units, not player distance —
 // scenery.js's floorDist() is the one place that conversion happens (see its
 // own header for why it's a function and not just `* FLOOR_PARALLAX`), so
 // this file never expresses SECTOR_PERIOD in distance units itself and there
 // is only one number here to get right.
-const SECTOR_PERIOD_MULT = 6;
+const SECTOR_PERIOD_MULT = 98;
 export const SECTOR_PERIOD = ARTERIAL_PERIOD * SECTOR_PERIOD_MULT;
 
 // Which sector floor-world position `fDist` falls in. An UNBOUNDED integer —

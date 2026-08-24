@@ -80,14 +80,14 @@ import {
 export const NEUTRAL_FACTION = "neutral";
 export const ENEMY_FACTION = "enemy";
 
-// Starting point for `value`, below: one flat figure for the enemy and its
-// mirror image for the city's traffic. Deliberately UNIFORM for now — the point
-// of putting the number on every type separately is that it can be spread out
-// later (a rig worth more than a sedan, a rival worth more than an interceptor)
-// without touching score.js. Tune the entries, not these two constants, once
-// there is a reason to tell types apart.
-const ENEMY_VALUE = 100;
-const CIVILIAN_VALUE = -100;
+// `value`, below, is written as a LITERAL on every entry — not a reference to
+// a shared constant — precisely so it is already the field to edit when a type
+// needs to diverge (a rig worth more than a sedan, a rival worth more than an
+// interceptor, a boss worth a windfall) without touching score.js or any other
+// entry. Every entry happens to read 100 or -100 today: deliberately UNIFORM
+// FOR NOW, one flat figure for the enemy and its mirror image for the city's
+// own traffic, but that's a starting VALUE, not a starting STRUCTURE — the
+// scaffolding for telling types apart is already in place.
 
 // THE OPENING ROAD IS CIVILIAN. Every hostile type is held back until the player
 // has covered this much road, measured in the DIST readout's units (road.js), so
@@ -100,10 +100,11 @@ const CIVILIAN_VALUE = -100;
 // minute and a half at the player's minimum, so dawdling buys a longer quiet
 // spell. That is deliberate: speed is what asks for the trouble.
 //
-// One figure for the whole faction for now, exactly as ENEMY_VALUE is — the
-// point of putting `minDistance` on every type separately is that the enemy can
-// later be STAGED (interceptors early, a rival only much later) without touching
-// a line of traffic.js. Spread the entries when there is a reason to; leave this
+// One figure for the whole faction for now, exactly as every hostile's own
+// literal `value` (below) currently reads the same 100 — the point of putting
+// `minDistance` on every type separately is that the enemy can later be
+// STAGED (interceptors early, a rival only much later) without touching a
+// line of traffic.js. Spread the entries when there is a reason to; leave this
 // constant as the faction's floor.
 const ENEMY_MIN_DISTANCE = 100;
 
@@ -162,10 +163,13 @@ export const FOCUS = [];
 //               along its own length). Lane width is 65px for scale
 //   blastDamage hull taken at the centre of that blast, falling off linearly to
 //               nothing at the rim. The player has 100 hull
-//   value       points scored for DESTROYING this car (score.js). Positive for
-//               the enemy, negative for the city's own traffic — killing a
-//               civilian is a fine, not a reward. Paid however the car died,
-//               including a chain reaction the player only lit the fuse for
+//   value       points scored for DESTROYING this car (score.js). A LITERAL on
+//               every entry, not a shared constant, so a type can be given its
+//               own figure at any time (a boss, a special civilian) by editing
+//               only this line. Positive for the enemy, negative for the
+//               city's own traffic — killing a civilian is a fine, not a
+//               reward. Paid however the car died, including a chain reaction
+//               the player only lit the fuse for
 //   behaviour   key into behaviours.js — the TACTIC. The nimble types `overtake`
 //               — they pull out and pass whatever is holding them up, the player
 //               included; the heavy ones `cruise`, so sitting in front of a rig
@@ -210,7 +214,7 @@ export const CAR_TYPES = [
     steerSpeed: 90,
     blastRadius: 36,
     blastDamage: 14,
-    value: CIVILIAN_VALUE,
+    value: -100,
     minDistance: 0, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     weight: 3, // the backbone of the road
@@ -242,7 +246,7 @@ export const CAR_TYPES = [
     steerSpeed: 60,
     blastRadius: 42,
     blastDamage: 18,
-    value: CIVILIAN_VALUE,
+    value: -100,
     minDistance: 0, // the city's own traffic: on the road from the first metre
     behaviour: "cruise", // slow and wide: it holds its lane and makes you go round
     driving: "hauler",   // out of the way, and it will lean on a small car
@@ -275,7 +279,7 @@ export const CAR_TYPES = [
     steerSpeed: 140,
     blastRadius: 30,
     blastDamage: 9,
-    value: CIVILIAN_VALUE,
+    value: -100,
     minDistance: 200, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     // The road's impatient civilian, and the reason driving.js exists: the same
@@ -315,7 +319,7 @@ export const CAR_TYPES = [
     // third of the player's hull if they are alongside when it goes.
     blastRadius: 72,
     blastDamage: 46,
-    value: CIVILIAN_VALUE,
+    value: -100,
     minDistance: 0, // the city's own traffic: on the road from the first metre
     // Even the rolling wall dodges — `juggernaut` keeps nerve at 0. A rig
     // ploughing a trestle is tempting flavour, but it is also the one civilian
@@ -350,7 +354,7 @@ export const CAR_TYPES = [
     steerSpeed: 160,
     blastRadius: 32,
     blastDamage: 10,
-    value: CIVILIAN_VALUE,
+    value: -100,
     minDistance: 700, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     // The other pale civilian, and the deliberate opposite of the roadster: same
@@ -393,7 +397,7 @@ export const CAR_TYPES = [
     steerSpeed: 85,
     blastRadius: 44,
     blastDamage: 24,
-    value: CIVILIAN_VALUE, // killing one is a fine, like any other civilian
+    value: -100, // killing one is a fine, like any other civilian
     minDistance: 500,        // the city's own traffic: on the road from the first metre
     behaviour: "overtake", // it does not block for anyone; it just goes past
     driving: "brawler",    // heavy, impatient, and it will lean on you
@@ -423,7 +427,7 @@ export const CAR_TYPES = [
     steerSpeed: 130,
     blastRadius: 38,
     blastDamage: 16,
-    value: ENEMY_VALUE,
+    value: 100,
     minDistance: 300,
     behaviour: "pursue", // real: chases the player down and never gives up —
                          // see behaviours.js's `pursue`
@@ -471,7 +475,7 @@ export const CAR_TYPES = [
     steerSpeed: 100, // quicker across the road than any other heavy
     blastRadius: 46,
     blastDamage: 26,
-    value: ENEMY_VALUE,
+    value: 100,
     minDistance: ENEMY_MIN_DISTANCE,
     behaviour: "trail",    // hangs off your back bumper and fires forward — see
                            // behaviours.js's `trail`. It never tries to get
@@ -513,7 +517,7 @@ export const CAR_TYPES = [
     steerSpeed: 180, // the nimblest thing on the road, by a wide margin
     blastRadius: 24,
     blastDamage: 7,
-    value: ENEMY_VALUE,
+    value: 100,
     minDistance: ENEMY_MIN_DISTANCE,
     behaviour: "raid",
     // NO GUN. It fights entirely by forcing its way past and dropping one
@@ -549,7 +553,7 @@ export const CAR_TYPES = [
     steerSpeed: 70,
     blastRadius: 52,
     blastDamage: 32,
-    value: ENEMY_VALUE,
+    value: 100,
     minDistance: ENEMY_MIN_DISTANCE,
     // REAL: closes on the player from behind or alongside to hit them, or
     // sits in their lane going deliberately slower once it's past — see
@@ -589,7 +593,7 @@ export const CAR_TYPES = [
     steerSpeed: 150,
     blastRadius: 40,
     blastDamage: 20,
-    value: ENEMY_VALUE,
+    value: 100,
     minDistance: 1000,
     // REAL, and the one hostile that fights like both the cycle and the
     // interceptor in the same encounter — see behaviours.js's `duel`. It
