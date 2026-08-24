@@ -235,8 +235,59 @@ export function announcement(bx, by) {
 // factor of 1024 leaves by all the room it could plausibly reach over a run
 // (by grows with distance driven; even hours of continuous play stays many
 // orders of magnitude under it) with no collision.
-function nodeId(bx, by) {
+//
+// EXPORTED for game/wallet.js, which needs the same identity this file's own
+// edge detector uses — "have I already siphoned this node" is the same
+// question as "is this the same node as last frame", asked over a run instead
+// of over a frame. Two id schemes for one node would be exactly the "second
+// identity invented downstream" scenery.js's visibleNodes header warns off.
+// MONOTONIC IN `by` by construction (bx < 1024), which is what lets the
+// wallet prune its own memory by a row watermark rather than growing forever.
+export function nodeId(bx, by) {
   return by * 1024 + bx;
+}
+
+// --- What a node is WORTH ----------------------------------------------------
+
+// Credits paid for siphoning a node, floor..ceiling. A range rather than one
+// flat figure so nodes have a bit of character — the callsign already makes a
+// node recognisable across a run, and a node that is always worth the same
+// amount as well makes it recognisable as a PLACE ("GRID-K42 is the good
+// one") rather than as interchangeable scenery.
+//
+// SCALE, against the other side of the economy (cartypes.js's `bounty`, 25 a
+// kill): a node runs from a fifth of a kill to a hair over one. Deliberately
+// the same order of magnitude — the point of the shoulder-hugging detour
+// (wallet.js's HARVEST_RADIUS) is that it competes with staying centred and
+// shooting, and a node worth a tenth of a kill would never be worth the
+// swerve while a node worth ten would make the guns pointless.
+const NODE_VALUE_MIN = 5;
+const NODE_VALUE_MAX = 25;
+
+function valueSeed(bx, by) {
+  return bx * 79493 + by * 31153 + 7013; // own seed space again, distinct from
+                                          // the conduit/ping/callsign/status
+                                          // rolls above
+}
+
+// A node's stable worth, derived from its plot index exactly the way
+// callsign() derives its stable name — same (bx, by) in, same credits out,
+// forever, with nothing stored anywhere. Integer, so the HUD and the SYS LOG
+// never have to round a payout they are quoting.
+export function nodeValue(bx, by) {
+  return NODE_VALUE_MIN + Math.floor(hash(valueSeed(bx, by)) * (NODE_VALUE_MAX - NODE_VALUE_MIN + 1));
+}
+
+// EVERY node currently mid-ping, not just the first — activePing() below
+// answers "what should the log say", which only ever needs one, while the
+// wallet has to pay out each node the player is actually parked next to.
+// Same pure-function-of (clock, index) rule as everything else on this floor.
+export function pingingNodes(nodes, clockValue) {
+  const live = [];
+  for (const n of nodes) {
+    if (pingState(n.bx, n.by, clockValue)) live.push(n);
+  }
+  return live;
 }
 
 // Minimum gap, in clock seconds, between two city lines — the hard ceiling

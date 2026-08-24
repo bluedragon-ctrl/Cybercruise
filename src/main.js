@@ -10,6 +10,9 @@ import { GREEN, GREEN_BRIGHT, GREEN_PALE, HAZARD, PLAYER, SHIELD_FLICKER } from 
 import { Player } from "./game/player.js";
 import { Projectiles } from "./game/projectiles.js";
 import { Score } from "./game/score.js";
+// Credits — the persisted currency the Phase 11 shop will spend. Separate from
+// Score on purpose; see wallet.js's own header for the whole argument.
+import { Wallet } from "./game/wallet.js";
 import { Traffic } from "./game/traffic.js";
 import { Obstacles } from "./game/obstacles.js";
 import { obstacleTypeById } from "./game/obstacletypes.js";
@@ -121,6 +124,7 @@ const jackin = new JackIn();
 // closure was created.
 let player;
 let score;
+let wallet;
 let explosions;
 let obstacles;
 let pickups;
@@ -142,6 +146,13 @@ let distance = 0;
 const ENEMY_FIX_DROP_CHANCE = 0.2;
 function onCarDestroyed(car) {
   score.destroyed(car.type);
+  // Money, alongside the points, off the SAME catalogue entry and the same
+  // event — but a separate field (`bounty`, cartypes.js) and a separate total,
+  // so a type can be worth points and no money at all (see wallet.js).
+  // The wreck's own position rides along so the payout can be shown WHERE IT
+  // HAPPENED, not just in the HUD corner — with a chain reaction taking three
+  // cars in one tick, the corner alone can't say which of them paid.
+  wallet.destroyed(car.type, car.worldY, car.offset);
   // Mirrors score.js's OWN enemy/civilian split (`value >= 0` is a kill,
   // negative is a fine) rather than reading car.type.faction directly here
   // — score.js's header is explicit that scoring "never asks what faction a
@@ -263,6 +274,10 @@ function newGame() {
   // that blows up, main.js reports the road covered (see update). Traffic
   // itself knows nothing about points — see score.js.
   score = new Score();
+  // The wallet is per-run like everything else here, but it reads the BANK out
+  // of localStorage as it is built, so credits earned in earlier runs survive
+  // the rebuild — see wallet.js's constructor.
+  wallet = new Wallet();
   // One explosion pool shared by traffic (car wrecks) and the road obstacles
   // (mine blasts, roadblock rubble) — see effects.js's Explosions header and
   // game/obstacles.js for why they must not each get their own.
@@ -538,6 +553,9 @@ function update(dt) {
   distance += travelled;
   score.travel(travelled);
   score.update(dt);
+  // The wallet has no distance term at all (wallet.js's header) — this only
+  // ages its own HUD flash, on the same tick the scoreboard ages its.
+  wallet.update(dt);
 
   // The console voice for Phase 7e's nodes (game/links.js): re-derives which
   // node, if any, is currently mid-ping among the ones on screen and pushes
@@ -545,6 +563,21 @@ function update(dt) {
   // (see links.js's header) and this tick's just-updated `distance`/
   // `player.y`, the same pair render() will use a moment later.
   links.announce(scenery.clock, distance, player.y, W, H);
+
+  // SIPHONING (Phase 11 groundwork): the same nodes the log is talking about
+  // pay CREDITS when the player drives up alongside one while it pings — which
+  // is what finally gives the city floor's nodes a use beyond atmosphere. The
+  // node list is built here, once, and handed in: links.announce above and
+  // links.render below each derive their own (they are one cheap row walk),
+  // but the wallet's rule needs the nodes AND the player's position together,
+  // so the walk that feeds it belongs at the call site that has both.
+  const nodes = scenery.visibleNodes(scenery.floorDist(distance), player.y, W, H);
+  wallet.harvest(dt, scenery.clock, nodes, player, distance, W);
+  // ...and, ONCE a run, a SYS LOG line saying what those markers on the floor
+  // mean, the first time one is actually within reach. Asked here rather than
+  // inside harvest() because it is about a node the player has NOT collected —
+  // it fires on the approach, which is the only moment the advice is useful.
+  wallet.hint(scenery.clock, wallet.hints(scenery.clock, nodes, player, distance, W).length > 0);
 
   // Phase 7f's sectors: re-derives which sector this tick's distance falls
   // in, re-points palette.js's live bindings at it (every tick, not only on
@@ -700,6 +733,12 @@ function update(dt) {
   // and nothing under "playing" runs again until newGame() resets it.
   if (player.health <= 0) {
     state = "dying";
+    // BANK THE RUN AT THE MOMENT OF DEATH, not when the game-over screen opens
+    // a couple of seconds later: a player who closes the tab while the
+    // disconnect sequence plays out has still finished their run, and should
+    // still keep what they earned. Idempotent, and nothing under "playing"
+    // runs again to earn more (see the branch this sits in).
+    wallet.bank();
     disconnect.trigger(player.x, player.y, player.w, player.h);
     // UNCONDITIONAL, deliberately — this call does TWO things (see synth.js's
     // playDisconnect()): it plays the static AND fades the music bus into the
@@ -743,6 +782,33 @@ function drawHud() {
   // is seeing exactly the moment the enemy is allowed on the road.
   glowText(ctx, `DIST ${Math.floor(distance / road.DIST_UNITS)}`, W - 12, 70, GREEN_PALE, 13, "right");
   glowText(ctx, `SPD ${Math.round(player.speed)}`, W - 12, 88, GREEN_PALE, 13, "right");
+
+  // CREDITS: the wallet's total — this run's earnings on top of whatever
+  // earlier runs banked, i.e. exactly what the Phase 11 shop will have to
+  // spend. An instrument readout like DIST/SPD rather than a second
+  // centrepiece: the score is still the thing being played for, and money is
+  // a fact about the run, not the point of it.
+  //
+  // GREEN, not gold. Amber and red are FACTION colours in this game
+  // (palette.js's header) — a yellow number in the HUD corner would read as
+  // "neutral car" to the same half-second glance the whole colour discipline
+  // exists to protect. The `CR` label does the work a colour would.
+  glowText(ctx, `CR ${wallet.credits}`, W - 12, 106, GREEN_PALE, 13, "right");
+
+  // The last payout, fading under the total, same device the score's own
+  // award uses above — and deliberately on its own line rather than sharing
+  // the score's, since one kill can flash BOTH (points and credits) and two
+  // numbers landing on top of each other would be unreadable. A fine shows
+  // what was actually taken, which is not always what the car was worth (see
+  // Wallet.award: a fine can only empty the run, never overdraw it).
+  const credAlpha = wallet.awardAlpha;
+  if (credAlpha > 0 && wallet.lastAward !== 0) {
+    const cr = wallet.lastAward;
+    ctx.save();
+    ctx.globalAlpha = credAlpha;
+    glowText(ctx, `${cr >= 0 ? "+" : ""}${cr}CR`, W - 12, 124, cr >= 0 ? GREEN_BRIGHT : HAZARD, 13, "right", 8);
+    ctx.restore();
+  }
 
   const weapon = loadout.current;
 
@@ -859,7 +925,13 @@ function render(alpha) {
     // world state, so it's main.js's job to draw it, not menu.open()'s to
     // have been handed it. Placed above the RESTART row rather than fighting
     // menu.js's own layout for space inside it.
-    if (state === "gameover") glowText(ctx, `FINAL SCORE ${score.points}`, W / 2, 350, GREEN_BRIGHT, 18, "center", 10);
+    if (state === "gameover") {
+      glowText(ctx, `FINAL SCORE ${score.points}`, W / 2, 350, GREEN_BRIGHT, 18, "center", 10);
+      // What the run was worth in CREDITS, and what the bank now holds. Reads
+      // lastRunEarnings rather than `earned`, which the death-time bank() has
+      // already zeroed by the time this screen exists — see Wallet.bank().
+      glowText(ctx, `CREDITS +${wallet.lastRunEarnings} · BANK ${wallet.banked}`, W / 2, 376, GREEN_PALE, 13, "center", 8);
+    }
     return;
   }
 
@@ -903,6 +975,19 @@ function render(alpha) {
   // scenery.render() just drew, so it draws immediately after that layer and
   // before the sky band (drones) or the road's own opaque foreground.
   links.render(ctx, camY, player.y, W, H);
+  // The money markers over those same nodes: what a live node is worth, and
+  // whether the car is close enough to be taking it (game/wallet.js). Ground-
+  // plane annotation like the conduits and pings it draws over, so it sits in
+  // the same layer and is covered by the road's own opaque surface — a node
+  // the road is hiding is one that pays nothing anyway, and the marker
+  // disappearing under the tarmac says exactly that.
+  if (state !== "menu") {
+    wallet.renderHints(
+      ctx, scenery.clock,
+      scenery.visibleNodes(scenery.floorDist(camY), player.y, W, H),
+      player, camY, W
+    );
+  }
   // Air traffic (Phase 7c): between the floor and the road, so it draws after
   // the whole scenery layer (grid, buildings, floor traffic) and before the
   // road ribbon paints its own opaque foreground over everything below it.

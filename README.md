@@ -568,8 +568,58 @@ src/
   audio/            wavesynth synth (later phase)
 tools/
   drivesim.js       headless driving-profile measurement (see npm run sim)
+  econsim.js        headless credit-economy measurement (see npm run econ)
   car-editor/       browser UI for tuning enemy hull/speed/behavior — see below
 ```
+
+## Money
+
+Two numbers, deliberately kept apart:
+
+| | Score (`src/game/score.js`) | Credits (`src/game/wallet.js`) |
+|---|---|---|
+| lasts | one run | across runs (`localStorage`) |
+| floor | none — a massacre goes negative | 0, always |
+| earned by | distance + every destroyed car | bounties + siphoned nodes |
+| spent on | nothing, it *is* the reward | the Phase 11 upgrade shop |
+
+**Bounties.** Every car type carries a `bounty` alongside its score `value`
+(`src/game/cartypes.js`). Enemies pay, civilians fine — and a type with **no
+`bounty` field at all pays nothing**, which is how "not every enemy is worth
+money" will be expressed for Phase 10's bosses and minions: by editing the
+catalogue, not the wallet.
+
+**Siphoning.** The nodes on the city floor (`src/game/links.js`) are worth
+credits — 5 to 25, hash-derived from the plot index exactly like the callsign,
+so a node's name *and* its price are both stable facts about that place. There
+are two ways to take one, and both cost something:
+
+- **Grab** — be within the siphon radius while the node is pinging. Instant,
+  full price, any speed. The radius is deliberately *smaller than the road's own
+  half-width*, so a car on the centre-line can never earn a credit no matter how
+  the road bends: money lives out at the shoulders, next to the barrier, where
+  there is nowhere to dodge to.
+- **Uplink** — nodes sit on a fixed column grid while the road wanders across
+  it, so some are simply too far out for the shoulder to reach. Those can still
+  be taken by holding station on that side of the road under ~200 u/s for a
+  couple of seconds, lit or not — at **half price**. Slowing down on this road
+  is the real cost: the traffic behind you arrives, the score's distance term
+  stalls, and everything hostile on screen gets longer to work on you.
+
+The affordance for all of this is on the floor rather than in a tutorial: a
+node in reach wears the price *it would actually pay you* faintly, brightens
+when it goes live, prints `SLOW` when the throttle is the only thing standing
+between you and it, and grows a fill meter while an uplink is running. Every
+payout — a siphon, a bounty, a fine — leaves a floating `+25CR` over the exact
+spot it came from, and the SYS LOG names the node it just paid out.
+
+Fines can empty a run's earnings but never touch credits banked from earlier
+runs, and the run is banked at the moment of death rather than when the
+game-over screen appears.
+
+`npm run econ` measures the whole thing headlessly — credits per minute for a
+player who hugs the shoulders, one who hunts nodes, and one who never leaves
+the middle (that last one should always read zero).
 
 ## Development roadmap
 
@@ -630,7 +680,9 @@ phases' code.
       on max speed, max hull, multi-attacks (firing more than one weapon at
       once), shield duration, and so on — a catalogue in the same
       data-file style as `cartypes.js`, plus the shop screen and the persisted
-      wallet/owned-upgrades state
+      wallet/owned-upgrades state. **The currency itself is already in**
+      (`src/game/wallet.js` — see Money above): bounties, node siphoning, the
+      persisted bank, and `Wallet.spend()` waiting for a shop to call it
 - [ ] **Phase 12** — Polish: balance, high scores, performance
 - [ ] **Phase 13** — Online server: put the game on a public URL. Static
       hosting is enough for the no-build ES-module layout; the server side is
