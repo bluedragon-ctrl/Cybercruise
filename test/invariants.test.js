@@ -5112,7 +5112,9 @@ test("a fine with nothing left to take leaves no marker at all", () => {
 function beside(node, distance, speed) {
   const center = centerXAt(distance, TEST_W);
   const side = Math.sign(node.cx - center) || -1;
-  return { x: center + side * (ROAD_HALF_WIDTH - 17), y: node.sy, speed };
+  // `w` because the uplink's dish is measured off the car's flank
+  // (wallet.js's uplinkLink); everything else here only needs a point.
+  return { x: center + side * (ROAD_HALF_WIDTH - 17), y: node.sy, speed, w: 34 };
 }
 
 // Runs `seconds` of ticks against one node, at 60Hz, exactly as main.js does.
@@ -5258,4 +5260,61 @@ test("a wreck's receipt draws without taking the frame down with it", () => {
 
   w.renderHints(ctx, 0, [], { x: 0, y: 400, speed: 150 }, distance, TEST_W);
   assert.ok(drawn.some(([k]) => k === "fillText"), "the receipt never reached the canvas");
+});
+
+// --- The dish: the same fact, drawn on the car -------------------------------
+
+test("no hold, no dish — the car only wears one while it is actually taking something", () => {
+  const distance = 4000;
+  const node = nodeBeside(distance, { offRoadBy: 200 });
+  const w = new Wallet(null);
+  const player = beside(node, distance, 150);
+  assert.equal(w.uplinkLink([node], player, player.x), null);
+});
+
+test("the dish rides the flank the node is on, clear of the car's own body", () => {
+  const distance = 4000;
+  const node = nodeBeside(distance, { offRoadBy: 200 });
+  const w = new Wallet(null);
+  const player = beside(node, distance, 150);
+  hold(w, node, player, distance, 1);
+
+  const link = w.uplinkLink([node], player, player.x);
+  assert.ok(link, "a running hold drew no dish");
+  // The whole point of the marker: it says WHICH WAY the money is.
+  assert.equal(Math.sign(link.ax - player.x), Math.sign(node.cx - player.x));
+  // Off the edge of the body, never on top of the wireframe.
+  assert.ok(Math.abs(link.ax - player.x) >= player.w / 2);
+  assert.ok(Math.abs(link.dx - player.x) > Math.abs(link.ax - player.x));
+  // And it is aimed at the node it is draining, not at the road ahead.
+  assert.ok(Math.sign(link.ux) === Math.sign(node.cx - player.x));
+});
+
+test("the dish brightens with the hold it is reporting, and lands on the node", () => {
+  const distance = 4000;
+  const node = nodeBeside(distance, { offRoadBy: 200 });
+  const w = new Wallet(null);
+  const player = beside(node, distance, 150);
+
+  hold(w, node, player, distance, 0.3);
+  const early = w.uplinkLink([node], player, player.x);
+  hold(w, node, player, distance, 0.6);
+  const later = w.uplinkLink([node], player, player.x);
+  assert.ok(later.progress > early.progress, "progress went backwards");
+  assert.ok(later.progress < 1, "the meter filled before the hold did");
+  // The far end is the node itself — the link is between two real things.
+  assert.equal(later.nx, node.cx);
+  assert.equal(later.ny, node.sy);
+});
+
+test("a node the floor is no longer drawing takes its dish with it", () => {
+  // uplinkLink reads the node out of the list actually on screen, so a hold on
+  // something that has scrolled away draws nothing rather than a beam into an
+  // empty patch of city.
+  const distance = 4000;
+  const node = nodeBeside(distance, { offRoadBy: 200 });
+  const w = new Wallet(null);
+  const player = beside(node, distance, 150);
+  hold(w, node, player, distance, 1);
+  assert.equal(w.uplinkLink([], player, player.x), null);
 });

@@ -268,9 +268,18 @@ export class Player {
   // since the player is pinned to worldY === distance). Passed in rather than
   // derived here for the same reason `bounds` is: this class knows about steering
   // and damage, not about the shape of the road.
+  // Where the car is being DRAWN this frame, as opposed to where the logic
+  // step left it: x interpolated between the last two steps. Public because
+  // anything that has to touch the car's on-screen position — the uplink dish
+  // wallet.js hangs off its flank — has to use the same number render() does,
+  // or it rides a frame behind the car it is attached to.
+  renderX(alpha) {
+    return this.prevX + (this.x - this.prevX) * alpha;
+  }
+
   render(ctx, alpha, angle = 0) {
     // Interpolate x between the last two logic steps for smooth motion.
-    const x = this.prevX + (this.x - this.prevX) * alpha;
+    const x = this.renderX(alpha);
 
     // Flash red while grinding a barrier or just after a ram, else the usual
     // cyan. Both use the same colour, so the cache gains one extra key, not two.
