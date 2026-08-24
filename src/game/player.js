@@ -4,6 +4,7 @@
 // (screen x).
 
 import { drawCarCached } from "./sprites.js";
+import { Exhaust } from "./exhaust.js";
 import { glowDashedRing } from "../engine/neon.js";
 import { steerAxis, throttleAxis } from "../engine/input.js";
 import { PLAYER, PLAYER_THRUST, HAZARD, SHIELD_FLICKER } from "../engine/palette.js";
@@ -115,6 +116,11 @@ export class Player {
     this.vLateral = 0; // sideways velocity from ramming (see collisions.js)
     this.flash = 0; // counts down after a hit; flashes the car red
 
+    // The speed tell: a plume off the tail pipes that grows with speed. Drawn
+    // live rather than baked into the car sprite — see exhaust.js's header for
+    // why the sprite cache forbids the obvious alternative.
+    this.exhaust = new Exhaust();
+
     this.shieldTime = 0; // seconds of invulnerability left (game/pickuptypes.js's SHIELD)
     this.shieldSpin = 0; // accumulated only while shielded — drives the ring animation
 
@@ -197,7 +203,8 @@ export class Player {
     this.vLateral -= this.vLateral * Math.min(1, SHOVE_DAMP * dt);
 
     // Speed control.
-    this.speed += throttleAxis() * ACCEL * dt;
+    const throttle = throttleAxis();
+    this.speed += throttle * ACCEL * dt;
     if (this.speed < MIN_SPEED) this.speed = MIN_SPEED;
     if (this.speed > MAX_SPEED) this.speed = MAX_SPEED;
 
@@ -235,6 +242,12 @@ export class Player {
       }
     }
 
+    // Fed AFTER the wall scrub above, so grinding a barrier visibly chokes the
+    // plume on the same frame it costs speed. The throttle axis goes across
+    // too, so the flame answers the key rather than the momentum — see the
+    // flare constants in exhaust.js.
+    this.exhaust.update(dt, (this.speed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED), throttle);
+
     if (this.flash > 0) this.flash -= dt;
 
     if (this.shieldTime > 0) {
@@ -257,6 +270,11 @@ export class Player {
     // Flash red while grinding a barrier or just after a ram, else the usual
     // cyan. Both use the same colour, so the cache gains one extra key, not two.
     const color = this.hitWall || this.flash > 0 ? HAZARD : this.color;
+
+    // Under the car: the chassis fill is opaque, so drawing the body over the
+    // plume is what buries its root in the tail and leaves only the flame that
+    // escapes the pipes.
+    this.exhaust.render(ctx, x, this.y, angle);
 
     drawCarCached(ctx, x, this.y, {
       color,
