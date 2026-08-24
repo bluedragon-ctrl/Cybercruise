@@ -170,6 +170,21 @@ export const FOCUS = [];
 //               city's own traffic — killing a civilian is a fine, not a
 //               reward. Paid however the car died, including a chain reaction
 //               the player only lit the fuse for
+//   bounty      CREDITS paid for destroying this car (game/wallet.js) — money,
+//               not points, and a separate field from `value` precisely so the
+//               two can diverge. OMITTING IT ENTIRELY means the car is worth
+//               nothing financially, which is the shape "not every enemy pays"
+//               takes: a Phase 10 boss gets a windfall here, a swarm minion
+//               gets no `bounty` line at all, and neither needs a word of code
+//               in wallet.js. Flat across the whole catalogue today (25 for the
+//               enemy, -15 for the city's own traffic) for the same reason
+//               `value` is: a starting VALUE, not a starting STRUCTURE.
+//               NEGATIVE IS A FINE, and it is deliberately gentler than
+//               `value`'s own -100 relative to the reward — a civilian kill
+//               can empty the run's earnings but never digs into credits
+//               banked from earlier runs (wallet.js's header), so the score is
+//               where carelessness is punished hard and the wallet is where it
+//               is punished honestly
 //   behaviour   key into behaviours.js — the TACTIC. The nimble types `overtake`
 //               — they pull out and pass whatever is holding them up, the player
 //               included; the heavy ones `cruise`, so sitting in front of a rig
@@ -215,6 +230,7 @@ export const CAR_TYPES = [
     blastRadius: 36,
     blastDamage: 14,
     value: -100,
+    bounty: -15,
     minDistance: 0, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     weight: 3, // the backbone of the road
@@ -247,6 +263,7 @@ export const CAR_TYPES = [
     blastRadius: 42,
     blastDamage: 18,
     value: -100,
+    bounty: -15,
     minDistance: 0, // the city's own traffic: on the road from the first metre
     behaviour: "cruise", // slow and wide: it holds its lane and makes you go round
     driving: "hauler",   // out of the way, and it will lean on a small car
@@ -280,6 +297,7 @@ export const CAR_TYPES = [
     blastRadius: 30,
     blastDamage: 9,
     value: -100,
+    bounty: -15,
     minDistance: 200, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     // The road's impatient civilian, and the reason driving.js exists: the same
@@ -320,6 +338,7 @@ export const CAR_TYPES = [
     blastRadius: 72,
     blastDamage: 46,
     value: -100,
+    bounty: -15,
     minDistance: 0, // the city's own traffic: on the road from the first metre
     // Even the rolling wall dodges — `juggernaut` keeps nerve at 0. A rig
     // ploughing a trestle is tempting flavour, but it is also the one civilian
@@ -355,6 +374,7 @@ export const CAR_TYPES = [
     blastRadius: 32,
     blastDamage: 10,
     value: -100,
+    bounty: -15,
     minDistance: 700, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     // The other pale civilian, and the deliberate opposite of the roadster: same
@@ -398,6 +418,7 @@ export const CAR_TYPES = [
     blastRadius: 44,
     blastDamage: 24,
     value: -100, // killing one is a fine, like any other civilian
+    bounty: -15,
     minDistance: 500,        // the city's own traffic: on the road from the first metre
     behaviour: "overtake", // it does not block for anyone; it just goes past
     driving: "brawler",    // heavy, impatient, and it will lean on you
@@ -428,6 +449,7 @@ export const CAR_TYPES = [
     blastRadius: 38,
     blastDamage: 16,
     value: 100,
+    bounty: 25,
     minDistance: 300,
     behaviour: "pursue", // real: chases the player down and never gives up —
                          // see behaviours.js's `pursue`
@@ -476,6 +498,7 @@ export const CAR_TYPES = [
     blastRadius: 46,
     blastDamage: 26,
     value: 100,
+    bounty: 25,
     minDistance: ENEMY_MIN_DISTANCE,
     behaviour: "trail",    // hangs off your back bumper and fires forward — see
                            // behaviours.js's `trail`. It never tries to get
@@ -518,6 +541,7 @@ export const CAR_TYPES = [
     blastRadius: 24,
     blastDamage: 7,
     value: 100,
+    bounty: 25,
     minDistance: ENEMY_MIN_DISTANCE,
     behaviour: "raid",
     // NO GUN. It fights entirely by forcing its way past and dropping one
@@ -554,6 +578,7 @@ export const CAR_TYPES = [
     blastRadius: 52,
     blastDamage: 32,
     value: 100,
+    bounty: 25,
     minDistance: ENEMY_MIN_DISTANCE,
     // REAL: closes on the player from behind or alongside to hit them, or
     // sits in their lane going deliberately slower once it's past — see
@@ -594,6 +619,7 @@ export const CAR_TYPES = [
     blastRadius: 40,
     blastDamage: 20,
     value: 100,
+    bounty: 25,
     minDistance: 1000,
     // REAL, and the one hostile that fights like both the cycle and the
     // interceptor in the same encounter — see behaviours.js's `duel`. It
