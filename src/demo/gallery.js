@@ -7,7 +7,8 @@
 import { clear, glowLine } from "../engine/neon.js";
 import { drawCar, drawBuilding, drawObstacle } from "../game/sprites.js";
 import { drawShape, SHAPE_NAMES } from "../game/buildingshapes.js";
-import { CAR_SHAPES } from "../game/carshapes.js";
+import { CAR_SHAPES, drawShapeObject } from "../game/carshapes.js";
+import { bossGroups } from "../game/bossshapes.js";
 import { OBSTACLE_SHAPES, obstacleShapeIndex, BLOCK } from "../game/obstacleshapes.js";
 import {
   drawWreck,
@@ -53,17 +54,17 @@ const animatedCells = [];
 // Create one labelled cell. `draw(ctx, size, phase)` renders the asset; the
 // origin is the canvas top-left, so use size/2 for the centre. Pass
 // `{ animate: true }` to have the cell redrawn each frame with a rising phase.
-function cell(label, draw, { grid = true, animate = false } = {}) {
+function cell(label, draw, { grid = true, animate = false, size = SIZE, note = "" } = {}) {
   const fig = document.createElement("figure");
   const canvas = document.createElement("canvas");
-  canvas.width = SIZE;
-  canvas.height = SIZE;
+  canvas.width = size;
+  canvas.height = size;
   const ctx = canvas.getContext("2d");
 
   const paint = (phase) => {
     clear(ctx, "#05060a");
-    if (grid) gridBackdrop(ctx, SIZE);
-    draw(ctx, SIZE, phase);
+    if (grid) gridBackdrop(ctx, size);
+    draw(ctx, size, phase);
   };
   paint(0);
   if (animate) animatedCells.push(paint);
@@ -71,7 +72,32 @@ function cell(label, draw, { grid = true, animate = false } = {}) {
   const caption = document.createElement("figcaption");
   caption.textContent = label;
   fig.append(canvas, caption);
+  // An optional second line, dimmer and left-aligned: used by the boss
+  // candidates, where the WHOLE point of the cell is the argument for that
+  // variant and a bare name would tell you nothing.
+  if (note) {
+    const sub = document.createElement("figcaption");
+    sub.className = "note";
+    sub.textContent = note;
+    fig.append(sub);
+  }
   gallery.append(fig);
+}
+
+// A full-width divider inside the grid, so a run of related cells reads as one
+// section rather than as more of the same stream.
+function section(title, blurb = "") {
+  const head = document.createElement("div");
+  head.className = "section";
+  const h = document.createElement("h2");
+  h.textContent = title;
+  head.append(h);
+  if (blurb) {
+    const p = document.createElement("p");
+    p.textContent = blurb;
+    head.append(p);
+  }
+  gallery.append(head);
 }
 
 // Single animation loop for every animated cell. Phase advances at a steady
@@ -152,6 +178,43 @@ CAR_SHAPES.forEach((s, i) => {
     }),
     { animate: true });
 });
+
+// Phase 10 boss hulls, straight from bossshapes.js. Drawn bigger than the rest
+// of the gallery (the road train is 180px long) and in the hostile red rather
+// than the shape catalogue's cyan, because unlike a silhouette study these are
+// meant to be read as ENEMIES.
+//
+// These have no cartypes.js record yet and deliberately will not until the boss
+// phase — see bossshapes.js's header — so this section is the ONLY place they
+// are visible at all. That makes it load-bearing rather than a nicety: without
+// it the artwork is unreachable until something spawns it.
+//
+// The cargo-drone cell draws the PLAYER'S CAR underneath the hull before the
+// hull itself. That is not decoration: the whole brief for that vehicle is that
+// it picks the player up, so "can you still see the car once it has you?" is the
+// question the cell exists to answer, and it cannot be answered without the car
+// in the frame.
+const BOSS_CELL = 220;
+for (const group of bossGroups()) {
+  section(`BOSS HULL — ${group.name}`,
+    group.name === "CARGO DRONE"
+      ? "player car drawn underneath, since the test is whether it stays visible while carried"
+      : "");
+  for (const s of group.shapes) {
+    cell(s.name, (ctx, size, phase) => {
+      if (group.name === "CARGO DRONE") {
+        drawCar(ctx, size / 2, size / 2, {
+          color: pal.PLAYER, thrust: pal.PLAYER_THRUST, wheelPhase: phase,
+        });
+      }
+      drawShapeObject(ctx, size / 2, size / 2, s, {
+        color: pal.ENEMY, thrust: pal.ENEMY_THRUST, wheelPhase: phase,
+      });
+    }, { animate: true, size: BOSS_CELL, note: `${s.size[0]}x${s.size[1]} · ${s.pitch}` });
+  }
+}
+
+section("REST OF THE GALLERY");
 
 // Road obstacles, straight from their catalogue — the three amber roadblocks
 // and the mine. `phase` is px travelled, so dividing by the cruising speed gives

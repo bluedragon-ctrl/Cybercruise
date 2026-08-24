@@ -27,7 +27,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { CAR_TYPES, FOCUS, pickCarType, typeAvailable, ENEMY_FACTION } from "../src/game/cartypes.js";
-import { CAR_SHAPES, carShapeExtent } from "../src/game/carshapes.js";
+import { CAR_SHAPES, carShapeExtent, shapeExtent } from "../src/game/carshapes.js";
+import { BOSS_SHAPES } from "../src/game/bossshapes.js";
 import {
   ACCEL as TRAFFIC_ACCEL,
   RETIRE_MARGIN as TRAFFIC_RETIRE_MARGIN,
@@ -256,6 +257,53 @@ test("carShapeExtent bounds every point of every shape", () => {
         assert.ok(fy * (h / 2) <= ext.down, `${shape.name}: down extent clips the profile`);
       }
     }
+  }
+});
+
+test("shapeExtent bounds every point of every boss hull", () => {
+  // The same guard the traffic catalogue gets above, applied to bossshapes.js.
+  // These hulls have no car type yet, so nothing else in the game draws them and
+  // nothing else would notice a clipped sprite until the boss phase spawns one.
+  for (const shape of BOSS_SHAPES) {
+    const [w, h] = shape.size;
+    const ext = shapeExtent(shape, w, h);
+    for (const profile of shape.parts ?? [shape.profile]) {
+      for (const [fx, fy] of profile) {
+        assert.ok(Math.abs(fx * (w / 2)) <= ext.x, `${shape.name}: x extent clips the profile`);
+        assert.ok(-fy * (h / 2) <= ext.up, `${shape.name}: up extent clips the profile`);
+        assert.ok(fy * (h / 2) <= ext.down, `${shape.name}: down extent clips the profile`);
+      }
+    }
+  }
+});
+
+test("every boss hull says how it meets the ground", () => {
+  // carshapes.js's header: a shape must carry wheels, tracks or hover, or it
+  // reads as sliding along on its belly. The traffic catalogue can't get this
+  // wrong (every entry has wheels); the boss catalogue is the first place where
+  // omitting all three is even possible, which is exactly why it is checked.
+  //
+  // A hull that flies with its blot switched off (`hover: { blot: false }`, the
+  // cargo drone) still passes: it HAS said how it meets the ground. That is the
+  // whole reason the flag exists rather than the field just being left out --
+  // silence here is a mistake, and this test has to be able to see the
+  // difference.
+  for (const shape of BOSS_SHAPES) {
+    assert.ok(shape.wheels || shape.tracks || shape.hover,
+      `${shape.name} has no wheels, tracks or hover`);
+  }
+});
+
+test("boss hulls are not in the traffic catalogue", () => {
+  // bossshapes.js's header: these stay out of CAR_SHAPES until they have a
+  // cartypes.js record, because "one car type per silhouette" above would fail
+  // the moment one lands there without one. Copying a hull across and forgetting
+  // its type should break HERE, with a name in the message, rather than as a
+  // count mismatch two tests up.
+  const names = new Set(CAR_SHAPES.map((s) => s.name));
+  for (const shape of BOSS_SHAPES) {
+    assert.ok(!names.has(shape.name),
+      `${shape.name} is in CAR_SHAPES — it needs a cartypes.js record, or it does not belong there`);
   }
 });
 
