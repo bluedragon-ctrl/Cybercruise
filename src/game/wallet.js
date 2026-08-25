@@ -4,9 +4,24 @@
 // animals and keeping them apart is what lets each stay honest about itself:
 //
 //                score.js                     wallet.js
-//   lifetime     one run                      persists across runs
+//   lifetime     one run                      persists across runs*
 //   floor        none — a massacre goes red    0, always
 //   spent on     nothing, it IS the reward     the Phase 11 upgrade shop
+//
+// * THE ASTERISK, AND IT IS CURRENTLY LOAD-BEARING: everything in this file
+// about a bank surviving into the next run is TRUE OF THIS MODULE and NOT of
+// the running game. main.js builds its Wallet with a null store, so nothing is
+// ever loaded or saved and `banked` is always 0 — credits live and die with a
+// single run. The reason is not technical: a localStorage bank belongs to a
+// browser rather than to a player, and until the game keeps records per player
+// (README's Phase 13) that is a balance people lose by changing device. See
+// main.js's CREDIT_STORE, which is the whole switch and the whole explanation.
+//
+// NOTHING HERE WAS TORN OUT for that, and nothing here should be: the bank,
+// loadBanked/saveBanked and their tests all still work, and turning them back
+// on is passing a real store at that one call site. So read the rest of this
+// header as the design of the currency, with "persists" meaning "will persist,
+// and does whenever a store is supplied".
 //
 // score.js's header is explicit that its total is deliberately unclamped and
 // that distance is its metronome. A persisted, floored, shop-facing currency
