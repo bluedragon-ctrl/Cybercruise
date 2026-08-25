@@ -3,6 +3,7 @@
 // parallax city, sharing the road with other traffic — and shooting at it.
 
 import { createLoop } from "./engine/loop.js";
+import { LOGICAL_W, LOGICAL_H, initViewport, applyTransform, snapToDevice } from "./engine/viewport.js";
 import { initInput, isDown, consumePress } from "./engine/input.js";
 import { initMouse } from "./engine/mouse.js";
 import { clear, glowText } from "./engine/neon.js";
@@ -50,8 +51,26 @@ import * as gameConsole from "./engine/console.js";
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-const W = canvas.width;
-const H = canvas.height;
+
+// The playfield is 600x800 FOREVER — a game constant, not a window measurement.
+// Only the raster resolution behind it follows the screen; see
+// engine/viewport.js for why the world's dimensions must not, and for what
+// `scale` is. Every W/H below (and every module they are threaded into) keeps
+// meaning exactly what it meant when the canvas element carried these numbers.
+const W = LOGICAL_W;
+const H = LOGICAL_H;
+
+// Size the canvas to the window and keep it sized. The second argument fires
+// when the RASTER scale moves and every pre-rasterised layer has to be rebuilt
+// at the new device resolution — but there is deliberately nothing to do in it:
+// the sprite cache compares the scale itself, and the road strips and floor grid
+// carry it in their own cache keys. It stays here, empty, because this is the
+// one place a reader will come looking to check that invalidation is handled.
+//
+// The third argument is the cabinet element, which the viewport measures to find
+// the chrome around the canvas (bezel padding plus the hint bar) so the WHOLE
+// frame stays inside the window, not just the playfield.
+initViewport(canvas, () => {}, document.getElementById("frame"));
 const hint = document.getElementById("hint");
 
 const MENU_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm";
@@ -1135,6 +1154,10 @@ function drawHud() {
 }
 
 function render(alpha) {
+  // Reinstalled every frame, not once at startup: any assignment to
+  // canvas.width/height (which a resize does) resets the context state
+  // wholesale, transform included.
+  applyTransform(ctx);
   clear(ctx);
 
   // "gameover" reuses the exact same full-screen menu as "menu"/"paused" (see
@@ -1191,7 +1214,10 @@ function render(alpha) {
   // NOT the simulation's `distance` — only the value rendering reads. The
   // odometer and the distance term of the score run off the real float (see
   // update), and rounding that would slowly bleed travelled road away.
-  const camY = Math.round(distance);
+  // snapToDevice, not Math.round: the tile blits have to land on whole DEVICE
+  // pixels, and at a fractional render scale a whole LOGICAL pixel is not one.
+  // See engine/viewport.js's SCALE_STEP. At scale 1 this IS Math.round.
+  const camY = snapToDevice(distance);
 
   // While "dying", game/disconnect.js's shake() desyncs the WHOLE scene by a
   // screen-space offset — a feed losing sync, not a physical jolt (see its

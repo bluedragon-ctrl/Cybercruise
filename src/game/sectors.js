@@ -17,6 +17,7 @@
 // alone, kick off the two things a lookup can't: a transient glitch timer and
 // one SYS LOG line.
 
+import { blitScreenBand } from "../engine/viewport.js";
 import { floorDist } from "./scenery.js";
 import { sectorIndex } from "./citygrid.js";
 import { setSector } from "../engine/palette.js";
@@ -161,7 +162,7 @@ export function renderGlitch(ctx, canvasEl, W, H) {
     if (h <= 0) continue;
     const dx = Math.round((Math.random() - 0.5) * 2 * GLITCH_MAX_SHIFT * frac);
     if (dx === 0) continue;
-    ctx.drawImage(canvasEl, 0, y, W, h, dx, y, W, h);
+    blitScreenBand(ctx, canvasEl, y, h, dx, W);
   }
 
   // A brief near-white flash on top, fading with the same `frac` — the

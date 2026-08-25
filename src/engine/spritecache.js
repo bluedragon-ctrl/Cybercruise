@@ -11,7 +11,18 @@
 // that changes the asset's pixels, and callers must keep the number of distinct
 // keys bounded (quantise continuous parameters — see sprites.js).
 
+import { renderScale, createSurface } from "./viewport.js";
+
 const cache = new Map();
+
+// The raster scale every live entry was built at. Sprites are rasterised at the
+// SAME device resolution as the main canvas (see engine/viewport.js), so a
+// window move that changes that scale makes every cached bitmap the wrong
+// resolution at once — blitting them would resample and undo the sharpness the
+// rescale was for. Checked here rather than folded into each caller's key
+// because the whole cache turns over together anyway, and a full clear costs
+// nothing next to keeping five stale generations of the car catalogue alive.
+let cacheScale = 1;
 
 // Blends a "#rrggbb" colour toward white by `amount` (0 = unchanged, 1 =
 // white) — used to derive the entry-wipe scanline's colour from a sprite's
@@ -51,18 +62,29 @@ const SCAN_LIGHTEN = 0.55;
 // offset, resampling twice and visibly softening the artwork. Callers get the
 // integer back via the returned sprite, so placement stays consistent.
 export function getSprite(key, width, height, originX, originY, draw) {
+  const scale = renderScale();
+  if (scale !== cacheScale) {
+    cache.clear();
+    cacheScale = scale;
+  }
+
   const hit = cache.get(key);
   if (hit) return hit;
 
   const ox = Math.round(originX);
   const oy = Math.round(originY);
-  const canvas = document.createElement("canvas");
   // +1 absorbs the rounding so snapping the anchor can never clip the artwork.
-  canvas.width = Math.ceil(width) + 1;
-  canvas.height = Math.ceil(height) + 1;
+  // These are LOGICAL dimensions; the surface's own backing store is `scale`
+  // times larger, and its context is pre-transformed so `draw` never finds out.
+  const w = Math.ceil(width) + 1;
+  const h = Math.ceil(height) + 1;
+  const canvas = createSurface(w, h);
   draw(canvas.getContext("2d"), ox, oy);
 
-  const sprite = { canvas, originX: ox, originY: oy };
+  // `w`/`h` are carried on the sprite because every blit below positions and
+  // clips in logical space, where canvas.width/height are the wrong numbers by
+  // exactly `scale`.
+  const sprite = { canvas, w, h, originX: ox, originY: oy };
   cache.set(key, sprite);
   return sprite;
 }
@@ -71,7 +93,10 @@ export function getSprite(key, width, height, originX, originY, draw) {
 // Subpixel positions are kept (not rounded) so motion stays smooth; the bilinear
 // resample that costs is negligible next to re-rendering the glow.
 export function blitSprite(ctx, sprite, cx, cy) {
-  ctx.drawImage(sprite.canvas, cx - sprite.originX, cy - sprite.originY);
+  // The explicit destination size is not optional: without it the sprite would
+  // be drawn at its DEVICE dimensions read as logical ones. With it, source and
+  // destination cover the same device pixels and the copy stays 1:1.
+  ctx.drawImage(sprite.canvas, cx - sprite.originX, cy - sprite.originY, sprite.w, sprite.h);
 }
 
 // Blit a cached sprite showing only the bottom `progress` fraction of it
@@ -128,18 +153,18 @@ const STATIC_FLECK_SPREAD = 10; // px above the scan boundary a fleck can land
 export function blitSpriteMaterialising(ctx, sprite, cx, cy, progress, color, margin = 0) {
   const x = cx - sprite.originX;
   const y = cy - sprite.originY;
-  const h = sprite.canvas.height;
+  const h = sprite.h;
   const clipTop = y + h * (1 - progress);
   ctx.save();
   ctx.beginPath();
-  ctx.rect(x, clipTop, sprite.canvas.width, y + h - clipTop);
+  ctx.rect(x, clipTop, sprite.w, y + h - clipTop);
   ctx.clip();
-  ctx.drawImage(sprite.canvas, x, y);
+  ctx.drawImage(sprite.canvas, x, y, sprite.w, h);
   ctx.restore();
 
   const scanColor = lighten(color, SCAN_LIGHTEN);
   const barX = x + margin;
-  const width = sprite.canvas.width - margin * 2;
+  const width = sprite.w - margin * 2;
 
   // The boundary itself: broken segments, not one continuous bar — but ONE
   // path, ONE fill, ONE shadowBlur setup for however many segments land.
@@ -203,6 +228,6 @@ export function blitSpriteRotated(ctx, sprite, cx, cy, angle) {
   ctx.rotate(angle);
   // Anchor is now the origin, so the sprite hangs off it by the same vector the
   // unrotated blit subtracts — the rotation carries it round for free.
-  ctx.drawImage(sprite.canvas, -sprite.originX, -sprite.originY);
+  ctx.drawImage(sprite.canvas, -sprite.originX, -sprite.originY, sprite.w, sprite.h);
   ctx.restore();
 }

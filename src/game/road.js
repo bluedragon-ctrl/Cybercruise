@@ -22,6 +22,7 @@
 // re-stroked every frame — see "Strip cache" near the bottom of this file.
 
 import { neonStroke } from "../engine/neon.js";
+import { renderScale, createSurface, blitSurface } from "../engine/viewport.js";
 import {
   ROAD_EDGE, ROAD_EDGE_DIM, ROAD_CENTERLINE, ROAD_SURFACE, WALL_FILL,
 } from "../engine/palette.js";
@@ -466,6 +467,7 @@ const EVICT_MARGIN = 2;
 const tiles = new Map(); // block index -> canvas
 let tilesW = 0; // canvas width the live tiles were built for
 let tilesSector = 0; // sector (Phase 7f) the live tiles were painted in
+let tilesScale = 0; // raster scale (engine/viewport.js) the live tiles were built at
 
 // Build (or fetch) block `k`'s tile.
 //
@@ -476,9 +478,11 @@ function roadTile(k, W) {
   const hit = tiles.get(k);
   if (hit) return hit;
 
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = TILE_STRIDE;
+  // A viewport SURFACE, not a bare canvas: its backing store is `renderScale()`
+  // times larger than W x TILE_STRIDE and its context is pre-transformed, so
+  // paintRoad below still works in plain logical units while the strip
+  // rasterises at the same device resolution as the screen it blits onto.
+  const canvas = createSurface(W, TILE_STRIDE);
 
   // Painting with distance = (k+1)*S and playerY = 0 makes paintRoad's screen
   // formula collapse to exactly blockLocalY, so the tile IS the block. The y
@@ -511,16 +515,24 @@ export function render(ctx, distance, playerY, W, H, sector = 0) {
   // the floor's single, much larger tile, and the whole visible set
   // rebuilding over the next few frames hides under the same rescan glitch
   // cover the floor's own rebuild does (see game/sectors.js).
-  if (W !== tilesW || sector !== tilesSector) {
+  //
+  // A RASTER SCALE change (window moved to a bigger screen or a different-DPI
+  // monitor) invalidates them for a third, purely physical reason: the strips
+  // hold device pixels, and after a rescale they hold the wrong NUMBER of them.
+  // Blitting on would resample every strip and soften the road — precisely the
+  // artefact the rescale exists to remove.
+  const scale = renderScale();
+  if (W !== tilesW || sector !== tilesSector || scale !== tilesScale) {
     tiles.clear();
     tilesW = W;
     tilesSector = sector;
+    tilesScale = scale;
   }
 
   const kMin = blockOf(distance + playerY - H); // block at the bottom of the screen
   const kMax = blockOf(distance + playerY); // block at the top
   for (let k = kMin; k <= kMax; k++) {
-    ctx.drawImage(roadTile(k, W), 0, blockDestY(k, distance, playerY));
+    blitSurface(ctx, roadTile(k, W), 0, blockDestY(k, distance, playerY));
   }
 
   // Drop anything that has scrolled away. Deleting during iteration is defined

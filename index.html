@@ -8,6 +8,10 @@
 </head>
 <body>
   <div id="frame">
+    <!-- These attributes are the pre-script fallback only. src/engine/viewport.js
+         overwrites both on load, sizing the backing store from the window and the
+         device pixel ratio; 600x800 is the game's LOGICAL playfield, which never
+         changes. See that file for the fit/scale/dpr split. -->
     <canvas id="game" width="600" height="800"></canvas>
     <div id="hint">&uarr;/&darr; select &middot; &larr;/&rarr; adjust &middot; SPACE/ENTER confirm</div>
   </div>

@@ -1,9 +1,23 @@
 // Neon drawing helpers: glowing strokes/shapes on a dark background.
 // All helpers save/restore context state so callers stay clean.
 
+import { renderScale } from "./viewport.js";
+
 export function clear(ctx, color = "#05060a") {
   ctx.fillStyle = color;
-  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  // The canvas's own width/height are DEVICE pixels while this context draws in
+  // logical units (engine/viewport.js), so the rect is derived by dividing the
+  // backing store back down rather than read off it — otherwise the clear would
+  // cover `scale` times the screen and pay fill-rate for the excess.
+  //
+  // renderScale(), NOT ctx.getTransform(): getTransform ALLOCATES a DOMMatrix,
+  // and this runs once per frame on the hot path. Reading the module's own
+  // number is free and gives the identical value. The division also keeps this
+  // correct for offscreen surfaces, whose backing store is likewise `scale`
+  // times their logical size, and for the untransformed canvases the asset
+  // gallery builds (scale is 1 there, so it reduces to the raw size).
+  const s = renderScale();
+  ctx.fillRect(0, 0, ctx.canvas.width / s, ctx.canvas.height / s);
 }
 
 // A single glowing line segment.

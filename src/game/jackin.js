@@ -46,6 +46,7 @@
 // exception is the ghost canvas the chromatic split needs (see ghostCanvas
 // below), which is allocated once and reused.
 
+import { renderScale, blitScreenBand } from "../engine/viewport.js";
 import { neonStroke, glowLine, glowText } from "../engine/neon.js";
 import { rng, drawChromaticSplit } from "./effects.js";
 import { PLAYER, PLAYER_THRUST, GREEN_PALE, GREEN_BRIGHT } from "../engine/palette.js";
@@ -135,11 +136,18 @@ const BEATS = [
 let ghost = null;
 let ghostCtx = null;
 
+// Sized in DEVICE pixels and left UNTRANSFORMED, unlike every other offscreen
+// canvas in the codebase. It is a pixel-for-pixel copy of the display canvas,
+// never a surface something draws logical geometry into, so matching the backing
+// store exactly is what keeps the copy 1:1 and unresampled. Its callers hand the
+// logical size back at blit time instead (see the two drawImage calls in render).
 function ghostCanvas(W, H) {
-  if (!ghost || ghost.width !== W || ghost.height !== H) {
+  const dw = Math.round(W * renderScale());
+  const dh = Math.round(H * renderScale());
+  if (!ghost || ghost.width !== dw || ghost.height !== dh) {
     ghost = document.createElement("canvas");
-    ghost.width = W;
-    ghost.height = H;
+    ghost.width = dw;
+    ghost.height = dh;
     ghostCtx = ghost.getContext("2d");
   }
   return ghost;
@@ -154,11 +162,11 @@ function ghostCanvas(W, H) {
 function tintedCopy(source, color, W, H) {
   const g = ghostCanvas(W, H);
   ghostCtx.globalCompositeOperation = "source-over";
-  ghostCtx.clearRect(0, 0, W, H);
+  ghostCtx.clearRect(0, 0, g.width, g.height);
   ghostCtx.drawImage(source, 0, 0);
   ghostCtx.globalCompositeOperation = "multiply";
   ghostCtx.fillStyle = color;
-  ghostCtx.fillRect(0, 0, W, H);
+  ghostCtx.fillRect(0, 0, g.width, g.height);
   ghostCtx.globalCompositeOperation = "source-over";
   return g;
 }
@@ -316,7 +324,7 @@ export class JackIn {
         if (bandH <= 0) continue;
         const dx = Math.round((rand() - 0.5) * 2 * TEAR_MAX * k);
         if (dx === 0) continue;
-        ctx.drawImage(canvasEl, 0, y, W, bandH, dx, y, W, bandH);
+        blitScreenBand(ctx, canvasEl, y, bandH, dx, W);
       }
       // Scanline wash over the resolved region: alternating dark rows, fading
       // out with the tearing. Cheap, and it's what stops a torn-but-otherwise-
@@ -341,8 +349,10 @@ export class JackIn {
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
       ctx.globalAlpha = 0.55 * k;
-      ctx.drawImage(tintedCopy(canvasEl, PLAYER, W, H), -dx, 0);
-      ctx.drawImage(tintedCopy(canvasEl, PLAYER_THRUST, W, H), dx, 0);
+      // Explicit destination size: the ghost is device-sized (see ghostCanvas)
+      // and this context is in logical units.
+      ctx.drawImage(tintedCopy(canvasEl, PLAYER, W, H), -dx, 0, W, H);
+      ctx.drawImage(tintedCopy(canvasEl, PLAYER_THRUST, W, H), dx, 0, W, H);
       ctx.restore();
     }
 
