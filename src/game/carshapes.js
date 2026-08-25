@@ -675,7 +675,7 @@ export function carShapeOutline(index, w, h) {
 
 // As above, given the shape object -- the bossshapes.js counterpart, same reason
 // drawShapeObject exists.
-export function shapeOutline(shape, w, h) {
+function shapeOutline(shape, w, h) {
   const hw = w / 2;
   const hh = h / 2;
   return (shape.parts ?? [shape.profile]).map((p) => fracLoop(p, 0, 0, hw, hh));

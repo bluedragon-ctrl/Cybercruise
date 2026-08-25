@@ -262,8 +262,12 @@ function traceEdge(ctx, edgeX, dx = 0, dy = 0) {
 //
 // THE ONE PLACE THE ROAD IS ACTUALLY DRAWN. Both callers below go through here:
 // renderDirect() paints a whole screen, and the strip cache paints one tile. They
-// differ only in the y range they cover, which is why they cannot drift apart —
-// the pixel-identity of the cache against the direct render depends on that.
+// differ only in the y range they cover, so neither can grow geometry the other
+// lacks — that shared body is the whole reason the cache tracks the direct
+// render. It does NOT make the two pixel-identical: sampling is on a fixed
+// SAMPLE_STEP grid in the DESTINATION's coordinates, and a tile's grid is offset
+// from the screen's by destY % SAMPLE_STEP, so the same analytic curve is
+// sampled at slightly different rows. The measured residual is below.
 //
 // `yFrom`/`yTo` bound the rows painted, in the destination canvas's own
 // coordinates. Rows outside the destination are fine and expected: the tile
@@ -312,10 +316,17 @@ function paintRoad(ctx, distance, playerY, W, yFrom, yTo) {
   );
 }
 
-// Paint a whole screen of road directly, with no cache. This is the REFERENCE
-// IMPLEMENTATION the strip cache is diffed against, and it is what render()
-// used to be; keeping it exported means the cache can be proved pixel-identical
-// rather than merely believed to be.
+// Paint a whole screen of road directly, with no cache. This is what render()
+// used to be, kept as the REFERENCE the strip cache is compared against when the
+// cache is suspected of drifting.
+//
+// NOT COVERED BY THE TEST SUITE, and it cannot be: the comparison is a pixel
+// diff, the suite runs under plain Node with no canvas, and this project takes
+// no dependencies. A command-stream diff would not substitute — per paintRoad's
+// header the two paths legitimately sample at different rows, so their draw
+// calls differ even when the output is right. Use it from the browser: render
+// both to two canvases and diff getImageData. Expect a small nonzero residual
+// (~0.0146/255 mean), not zero.
 export function renderDirect(ctx, distance, playerY, W, H) {
   // Overscan by one sample step top and bottom so the glowing edges run
   // off-screen rather than stopping short with a visible round cap.
@@ -483,10 +494,9 @@ function roadTile(k, W) {
 //
 // `distance` and `playerY` must be WHOLE PIXELS (main.js rounds the camera once
 // per frame) or the blits resample and the road softens. `sector` (Phase 7f,
-// default 0 so every existing caller — the test suite's renderDirect() path,
-// anything not yet updated — keeps working) is a plain int main.js already
-// has in hand (scenery.currentSector) — see this file's own header on why it
-// arrives as a parameter instead of an import.
+// default 0 so any caller that predates sectors keeps working) is a plain int
+// main.js already has in hand (scenery.currentSector) — see this file's own
+// header on why it arrives as a parameter instead of an import.
 export function render(ctx, distance, playerY, W, H, sector = 0) {
   // A resize invalidates every tile: the road's screen x is measured from the
   // canvas centre, so nothing built for the old width is reusable.
@@ -518,10 +528,4 @@ export function render(ctx, distance, playerY, W, H, sector = 0) {
   for (const k of tiles.keys()) {
     if (k < kMin - EVICT_MARGIN || k > kMax + EVICT_MARGIN) tiles.delete(k);
   }
-}
-
-// How many strips are live — the same dev-time sanity hook spriteCacheSize() is,
-// for asserting the cache is bounded rather than quietly growing forever.
-export function roadTileCount() {
-  return tiles.size;
 }

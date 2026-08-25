@@ -451,8 +451,6 @@ export const OBSTACLE_SHAPES = [
   },
 ];
 
-export const OBSTACLE_SHAPE_NAMES = OBSTACLE_SHAPES.map((s) => s.name);
-
 // Look an obstacle up by name. Callers select through this rather than by
 // writing a bare index, for the reason carShapeIndex documents: inserting an
 // entry in the middle of the catalogue must not silently turn every mine on the
@@ -461,12 +459,6 @@ export function obstacleShapeIndex(name) {
   const i = OBSTACLE_SHAPES.findIndex((s) => s.name === name);
   if (i === -1) throw new Error(`unknown obstacle shape: ${name}`);
   return i;
-}
-
-// Indices of every entry in a family — what a placement pass wants when it has
-// decided "put a roadblock here" and now needs to pick which one.
-export function obstaclesOfFamily(family) {
-  return OBSTACLE_SHAPES.reduce((acc, s, i) => (s.family === family ? acc.concat(i) : acc), []);
 }
 
 // Draw obstacle `index` centred at (cx, cy). `pulse` (0..1) drives the mine's

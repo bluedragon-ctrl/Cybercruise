@@ -206,9 +206,3 @@ export function blitSpriteRotated(ctx, sprite, cx, cy, angle) {
   ctx.drawImage(sprite.canvas, -sprite.originX, -sprite.originY);
   ctx.restore();
 }
-
-// Number of distinct sprites currently held — handy for asserting in dev that a
-// cache key hasn't accidentally become unbounded.
-export function spriteCacheSize() {
-  return cache.size;
-}

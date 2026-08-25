@@ -260,7 +260,7 @@ function neonDashedStroke(ctx, build, color, dash, width, spread) {
 // small enough to read as texture, not a shape (that's what a NODE's corner
 // brackets + glyph are for). Exported alongside tileIntersections below so a
 // test can size its own on-screen tolerance against the actual drawn mark.
-export const TICK_LEN = 5;
+const TICK_LEN = 5;
 
 // TILE-LOCAL (pre-phase) centres of every registration tick the floor tile
 // bakes — every (avenue column, cross-street band) pairing within the tile's own

@@ -136,14 +136,14 @@ export const DROPOUT_MIN_INTERVAL = 3; // seconds — "averaging every 3-6s" per
 export const DROPOUT_MAX_INTERVAL = 6;
 export const DROPOUT_MIN_HOLD = 0.03; // seconds — "30-60ms" per the brief
 export const DROPOUT_MAX_HOLD = 0.06;
-export const DROPOUT_GAIN = 0.03; // near-zero, not a hard 0 — true silence can click on the ramp back up
+const DROPOUT_GAIN = 0.03; // near-zero, not a hard 0 — true silence can click on the ramp back up
 
 export const CRACKLE_HULL_THRESHOLD = 0.1;
 export const CRACKLE_MIN_INTERVAL = 0.15; // seconds — "a few per second" baseline
 export const CRACKLE_MAX_INTERVAL = 0.45;
-export const CRACKLE_CLUSTER_MIN = 0.04; // an occasional much-shorter gap — see the header below
-export const CRACKLE_CLUSTER_MAX = 0.12;
-export const CRACKLE_CLUSTER_CHANCE = 0.3;
+const CRACKLE_CLUSTER_MIN = 0.04; // an occasional much-shorter gap — see the header below
+const CRACKLE_CLUSTER_MAX = 0.12;
+const CRACKLE_CLUSTER_CHANCE = 0.3;
 
 // One scheduling tick for the dropout timer: counts `timer` down by `dt`
 // while `active`; once it crosses zero, fires and re-rolls a fresh interval
@@ -535,7 +535,7 @@ export const DREAD_RANGE_OFF = 520;
 // at a comparable perceived loudness, not less — a thin source and a low
 // peak were compounding the same problem rather than pulling in opposite
 // directions.
-export const DREAD_PEAK = 0.11;
+const DREAD_PEAK = 0.11;
 
 // 0..1: 0 at/beyond DREAD_RANGE_ON, rising to 1 as gap falls to zero.
 // Doubles as both the level curve and the rate curve's own input — see

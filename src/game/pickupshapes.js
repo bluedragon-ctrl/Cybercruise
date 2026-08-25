@@ -272,8 +272,6 @@ export const PICKUP_SHAPES = [
   },
 ];
 
-export const PICKUP_SHAPE_NAMES = PICKUP_SHAPES.map((s) => s.name);
-
 // Look a pickup shape up by name — see obstacleShapeIndex for why this is a
 // throw rather than a silent fallback: reordering the catalogue must not
 // quietly turn a rocket crate into a shield crate.
@@ -298,9 +296,4 @@ export function drawPickupShape(ctx, cx, cy, index, pulse = 1, phase = 0, angle 
   ctx.rotate(angle);
   shape.draw(ctx, 0, 0, pulse, phase);
   ctx.restore();
-}
-
-// Half-extents of the ARTWORK, in px from the centre.
-export function pickupShapeExtent(index) {
-  return (PICKUP_SHAPES[index] ?? PICKUP_SHAPES[0]).extent;
 }
