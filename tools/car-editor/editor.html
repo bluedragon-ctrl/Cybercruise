@@ -2,91 +2,43 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Cybercruise — Car Editor</title>
+  <title>Cybercruise — Tuning Editor</title>
   <link rel="stylesheet" href="/editor.css" />
 </head>
 <body>
   <header>
-    <h1>Car Editor</h1>
-    <p class="subtitle">Tune hull, speed, spawn distance and driving behavior for the whole roster — hostile and civilian — plus spawn chance and distance for obstacles and pickups, how much ammo, healing or shield time each pickup grants, and the upgrade shop's own prices and tier increases, then open a pull request.</p>
+    <h1>Tuning Editor</h1>
+    <p class="subtitle">Every tunable number in the game, in one place: the car roster's hull, speed, wreck, reward, spawn and driving behaviour; hazard and pickup payloads; the player's and the hostiles' weapons; the shop's prices and tiers; and the world itself — the stock car, traffic density, the shape of the road, and how a run is paced. Change what you like, review the diff, open a pull request.</p>
   </header>
 
+  <!-- The tab strip. Six screens rather than one very long list, because
+       "which weapon" and "which car" are different questions and answering
+       them in the same scrolling column was the main thing making this hard
+       to find your way around. Built by editor.js from its own TABS table. -->
+  <nav id="tabs" class="tabs" role="tablist" aria-label="Sections"></nav>
+
   <main>
-    <nav id="car-list" aria-label="Cars, obstacles and pickups"></nav>
+    <nav id="entry-list" aria-label="Items in this section"></nav>
 
-    <div>
-      <section id="car-form" hidden>
-        <h2 id="car-form-title"></h2>
+    <div id="pane">
+      <p id="form-empty">Pick something on the left to tune it.</p>
 
-        <fieldset>
-          <legend>Hull</legend>
-          <div id="hull-fields"></div>
-        </fieldset>
-
-        <fieldset>
-          <legend>Speed</legend>
-          <div id="speed-fields"></div>
-        </fieldset>
-
-        <fieldset>
-          <legend>Spawn</legend>
-          <div id="spawn-fields"></div>
-        </fieldset>
-
-        <fieldset>
-          <legend>Behavior</legend>
-          <div id="behavior-fields"></div>
-        </fieldset>
+      <section id="form" hidden>
+        <h2 id="form-title"></h2>
+        <p id="form-subtitle" class="form-subtitle" hidden></p>
+        <div id="form-sections"></div>
       </section>
 
-      <section id="obstacle-form" hidden>
-        <h2 id="obstacle-form-title"></h2>
-
-        <fieldset>
-          <legend>Spawn</legend>
-          <div id="obstacle-spawn-fields"></div>
-        </fieldset>
-      </section>
-
-      <section id="pickup-form" hidden>
-        <h2 id="pickup-form-title"></h2>
-
-        <fieldset>
-          <legend>Effect</legend>
-          <div id="pickup-effect-fields"></div>
-        </fieldset>
-
-        <fieldset>
-          <legend>Spawn</legend>
-          <div id="pickup-spawn-fields"></div>
-        </fieldset>
-      </section>
-
-      <section id="upgrade-consumable-form" hidden>
-        <h2 id="upgrade-consumable-form-title"></h2>
-
-        <fieldset>
-          <legend>Price &amp; effect</legend>
-          <div id="upgrade-consumable-fields"></div>
-        </fieldset>
-      </section>
-
-      <section id="upgrade-stat-form" hidden>
-        <h2 id="upgrade-stat-form-title"></h2>
-
-        <fieldset>
-          <legend>Price &amp; tier increase</legend>
-          <div id="upgrade-stat-fields"></div>
-        </fieldset>
-      </section>
-
-      <button id="review-button">Review changes</button>
+      <div class="actions">
+        <button id="review-button">Review changes</button>
+        <button id="discard-button" class="secondary" hidden>Discard all changes</button>
+      </div>
 
       <section id="review" hidden>
         <h2>Review changes</h2>
         <table id="review-table">
           <thead>
-            <tr><th>Item</th><th>Field</th><th>Before</th><th>After</th><th>Note</th></tr>
+            <tr><th>Section</th><th>Item</th><th>Field</th><th>Before</th><th>After</th><th>Note</th></tr>
           </thead>
           <tbody></tbody>
         </table>

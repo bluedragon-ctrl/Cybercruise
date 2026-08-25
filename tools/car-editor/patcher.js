@@ -123,9 +123,25 @@ const INSERT_INDENT = "    ";
 // in driving.js.
 export function patchDrivingProfile(sourceText, profileName, changes) {
   const marker = `${profileName}: profile({`;
-  const markerIndex = sourceText.indexOf(marker);
+  let markerIndex = sourceText.indexOf(marker);
   if (markerIndex === -1) {
-    throw new Error(`patchDrivingProfile: no "${profileName}: profile({" found`);
+    // A profile that takes the defaults wholesale is written `profile()`, with
+    // no argument object at all — the commuter reference is exactly that, and
+    // it's the profile the sedan (and every unnamed car) drives. There is no
+    // `{` there to patch into, so give it an empty one and fall through to the
+    // ordinary insertion path below, which then adds the field as it would to
+    // any other profile that doesn't override it yet.
+    const bare = `${profileName}: profile()`;
+    const bareIndex = sourceText.indexOf(bare);
+    if (bareIndex === -1) {
+      throw new Error(`patchDrivingProfile: no "${profileName}: profile({" found`);
+    }
+    sourceText =
+      sourceText.slice(0, bareIndex) +
+      `${profileName}: profile({
+  })` +
+      sourceText.slice(bareIndex + bare.length);
+    markerIndex = sourceText.indexOf(marker);
   }
 
   const objStart = markerIndex + marker.length - 1; // index of the '{'
@@ -156,3 +172,77 @@ export function patchDrivingProfile(sourceText, profileName, changes) {
 
   return sourceText.slice(0, objStart + 1) + inner + sourceText.slice(objEnd);
 }
+
+// Patches numeric fields on a WEAPON_TYPES or ENEMY_WEAPON_TYPES entry in
+// game/weapons.js. Both arrays live in one file and both are flat objects with
+// `id` first, exactly like the four catalogues above, so one function covers
+// the player's kit and the hostiles' alike — the same reasoning that lets the
+// shop's two shelves share patchUpgradeEntry.
+export function patchWeaponType(sourceText, weaponId, changes) {
+  return patchTypeEntry(sourceText, weaponId, changes, "patchWeaponType");
+}
+
+// --- Bare module constants --------------------------------------------------
+//
+// Not everything worth tuning lives in a catalogue array. The player's own
+// figures (player.js), how busy the road is (traffic.js), the road's shape
+// (tuning.js) and the run's pacing (hauler.js, score.js) are all plain
+// `const NAME = <number>;` declarations, and the entity patchers above cannot
+// reach them — there is no `id: "..."` to anchor on.
+//
+// Anchored to the start of a line, which is where a declaration always sits;
+// that is also what keeps this from matching the same name mentioned inside
+// one of these files' (very long) explanatory comments. `export` is optional
+// because several of the most useful figures — traffic.js's MAX_CARS and
+// SPAWN_INTERVAL, player.js's STEER_SPEED — are module-private, read only by
+// the file that declares them.
+export function patchConstant(sourceText, name, value) {
+  // String.raw so the backslashes below reach the RegExp constructor intact —
+  // a plain template literal eats `\[` down to `[`, which silently turns the
+  // pattern into something that matches nothing.
+  const re = new RegExp(
+    String.raw`^([ 	]*(?:export[ 	]+)?const[ 	]+${name}(?![A-Za-z0-9_$])[ 	]*=[ 	]*)` +
+      String.raw`(?:-?[0-9.]+(?:[eE]-?[0-9]+)?|[A-Za-z_$][A-Za-z0-9_$]*)`,
+    "m"
+  );
+  if (!re.test(sourceText)) {
+    throw new Error(`patchConstant: no "const ${name} = <number>" declaration found`);
+  }
+  return sourceText.replace(re, `$1${value}`);
+}
+
+// One element of a `const NAME = [a, b, c];` array literal, by index. Only
+// upgrades.js's TIER_PRICES needs this today — the shop's price ladder is an
+// array rather than three separate constants, and tiers 2 and 3 are the two
+// numbers in it that are actually a balance decision.
+export function patchArrayConstantElement(sourceText, name, index, value) {
+  const re = new RegExp(
+    String.raw`^([ 	]*(?:export[ 	]+)?const[ 	]+${name}(?![A-Za-z0-9_$])[ 	]*=[ 	]*\[)([^\]]*)(\])`,
+    "m"
+  );
+  const match = sourceText.match(re);
+  if (!match) {
+    throw new Error(`patchArrayConstantElement: no "const ${name} = [...]" declaration found`);
+  }
+  const elements = match[2].split(",");
+  if (index < 0 || index >= elements.length) {
+    throw new Error(
+      `patchArrayConstantElement: ${name} has ${elements.length} elements, no index ${index}`
+    );
+  }
+  // Rewrite only the one element, preserving whatever spacing the others use.
+  const rewritten = elements[index].replace(
+    /(^\s*)(?:-?[0-9.]+(?:[eE]-?[0-9]+)?|[A-Za-z_$][A-Za-z0-9_$]*)(\s*$)/,
+    `$1${value}$2`
+  );
+  if (rewritten === elements[index]) {
+    throw new Error(`patchArrayConstantElement: ${name}[${index}] is not a plain value`);
+  }
+  elements[index] = rewritten;
+  return (
+    sourceText.slice(0, match.index) +
+    match[1] + elements.join(",") + match[3] +
+    sourceText.slice(match.index + match[0].length)
+  );
+}
+

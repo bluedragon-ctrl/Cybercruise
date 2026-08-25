@@ -1,5 +1,5 @@
 @echo off
-REM Cybercruise — enemy car editor.
+REM Cybercruise — tuning editor.
 REM
 REM Starts the local editor server (server.js, in this folder) and opens the
 REM editor UI once it is actually accepting connections. Requires Node.js;
@@ -29,7 +29,7 @@ if not %errorlevel%==0 (
   exit /b 1
 )
 
-echo Starting the car editor on http://localhost:%PORT%/  ^(Ctrl+C to stop^)
+echo Starting the tuning editor on http://localhost:%PORT%/  ^(Ctrl+C to stop^)
 start "" /b "%~f0" --open %PORT%
 call node server.js
 exit /b %errorlevel%

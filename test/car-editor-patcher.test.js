@@ -8,6 +8,7 @@ import {
   patchObstacleType,
   patchPickupType,
   patchUpgradeEntry,
+  patchWeaponType,
 } from "../tools/car-editor/patcher.js";
 import { CAR_TYPES } from "../src/game/cartypes.js";
 import { OBSTACLE_TYPES } from "../src/game/obstacletypes.js";
@@ -430,5 +431,109 @@ test("patchUpgradeEntry throws for a field not present on the entry", () => {
   assert.throws(
     () => patchUpgradeEntry(realSource, "engine", { blastDamage: 10 }),
     /field "blastDamage" not found/
+  );
+});
+
+// --- `profile()` with no argument object -----------------------------------
+//
+// The commuter reference is written `commuter: profile(),` — it takes every
+// default, so there is no `{ ... }` to patch a field into. It is also the
+// profile the sedan and every car without a `driving` key actually drives,
+// so this is not an exotic case: it is the whole civilian baseline.
+
+test("patchDrivingProfile gives a bare profile() an argument object and inserts into it", () => {
+  const source = `export const DRIVING_PROFILES = {
+  commuter: profile(),
+
+  hustler: profile({ nerve: 4 }),
+};
+`;
+  const result = patchDrivingProfile(source, "commuter", { followGap: 33 });
+  assert.match(result, /commuter: profile\(\{\n {4}followGap: 33,\n {2}\}\),/);
+  // The neighbouring profile is untouched.
+  assert.match(result, /hustler: profile\(\{ nerve: 4 \}\)/);
+});
+
+test("patchDrivingProfile inserts several fields, string and numeric, into a bare profile()", () => {
+  const source = `export const DRIVING_PROFILES = {
+  commuter: profile(),
+};
+`;
+  const result = patchDrivingProfile(source, "commuter", { followGap: 33, laneHome: "inner" });
+  assert.match(result, /followGap: 33,/);
+  assert.match(result, /laneHome: "inner",/);
+});
+
+test("patching a bare profile() twice replaces rather than duplicates the field", () => {
+  const source = `export const DRIVING_PROFILES = {
+  commuter: profile(),
+};
+`;
+  const once = patchDrivingProfile(source, "commuter", { followGap: 33 });
+  const twice = patchDrivingProfile(once, "commuter", { followGap: 44 });
+  assert.equal(twice.match(/followGap:/g).length, 1);
+  assert.match(twice, /followGap: 44,/);
+});
+
+test("patchDrivingProfile produces parseable JS when it fills in the real commuter profile", () => {
+  const realSource = readFileSync(
+    new URL("../src/game/driving.js", import.meta.url),
+    "utf8"
+  );
+  const result = patchDrivingProfile(realSource, "commuter", { followGap: 33 });
+  assert.match(result, /commuter: profile\(\{\n {4}followGap: 33,\n {2}\}\),/);
+  // The insertion has to be valid JS, not just the right-looking text — a
+  // missing comma or brace here would break the game, and the editor writes
+  // this file straight to disk before the test run that would catch it.
+  assert.doesNotThrow(() => new Function(result.replace(/^export /gm, "")));
+});
+
+// --- Weapons ---------------------------------------------------------------
+//
+// weapons.js holds TWO arrays in one file, the player's kit and the hostiles'.
+// patchWeaponType finds an entry by id across the whole file, so these check
+// that reaching into one array never disturbs the other.
+
+test("patchWeaponType patches a player weapon in the real src/game/weapons.js", () => {
+  const realSource = readFileSync(new URL("../src/game/weapons.js", import.meta.url), "utf8");
+  const result = patchWeaponType(realSource, "rocket", { damage: 120, ammo: 40 });
+  assert.match(result, /damage: 120,/);
+  assert.match(result, /ammo: 40,/);
+});
+
+test("patchWeaponType patches a hostile weapon without touching the player's kit", () => {
+  const realSource = readFileSync(new URL("../src/game/weapons.js", import.meta.url), "utf8");
+  const result = patchWeaponType(realSource, "blaster", { damage: 9 });
+  assert.match(result, /damage: 9,/);
+  // The cannon's own damage figure is untouched — same length delta as one
+  // number going from "5" to "9".
+  assert.equal(result.length, realSource.length);
+  assert.match(result, /damage: 41,/);
+});
+
+test("two weapon patches fold onto one another rather than overwriting", () => {
+  // Both arrays live in one file, so a session touching a player weapon AND a
+  // hostile one must apply both to the same running text — patching twice
+  // against the ORIGINAL text is how the second edit silently wins.
+  const realSource = readFileSync(new URL("../src/game/weapons.js", import.meta.url), "utf8");
+  const once = patchWeaponType(realSource, "rocket", { damage: 120 });
+  const twice = patchWeaponType(once, "blaster", { damage: 9 });
+  assert.match(twice, /damage: 120,/);
+  assert.match(twice, /damage: 9,/);
+});
+
+test("patchWeaponType throws for a field the entry does not have", () => {
+  const realSource = readFileSync(new URL("../src/game/weapons.js", import.meta.url), "utf8");
+  assert.throws(
+    () => patchWeaponType(realSource, "cannon", { turnRate: 100 }),
+    /field "turnRate" not found on entry "cannon"/
+  );
+});
+
+test("patchWeaponType throws for a weapon id that is in neither array", () => {
+  const realSource = readFileSync(new URL("../src/game/weapons.js", import.meta.url), "utf8");
+  assert.throws(
+    () => patchWeaponType(realSource, "raygun", { damage: 1 }),
+    /no entry with id "raygun" found/
   );
 });
