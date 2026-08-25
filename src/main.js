@@ -23,6 +23,11 @@ import { ENEMY_FACTION } from "./game/cartypes.js";
 import { Explosions } from "./game/effects.js";
 import { Disconnect } from "./game/disconnect.js";
 import { JackIn } from "./game/jackin.js";
+// The shopping interlude: the cargo drone that lifts the car off the road every
+// SHOP_INTERVAL, and the placeholder screen it delivers it to. See hauler.js's
+// header for the three phases and shop.js's for what is deliberately a mockup.
+import { Hauler } from "./game/hauler.js";
+import { createShop } from "./game/shop.js";
 import { Loadout } from "./game/weapons.js";
 import { createMenu } from "./game/menu.js";
 import { createMusic } from "./audio/synth.js";
@@ -47,6 +52,10 @@ const hint = document.getElementById("hint");
 const MENU_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm";
 const PAUSE_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm &middot; ESC resume";
 const PLAY_HINT = "&larr;/&rarr; or A/D steer &middot; &uarr;/&darr; speed &middot; SPACE fire &middot; TAB weapon &middot; CTRL deploy &middot; E select &middot; ESC pause";
+// The shop screen's own bar. The lift and lower sequences either side of it
+// leave the bar EMPTY, the way "connecting" and "dying" do — there is nothing
+// to press while the car is in the air.
+const SHOP_HINT = "SPACE/ESC undock";
 
 initInput();
 initMouse(canvas);
@@ -71,8 +80,19 @@ initMouse(canvas);
 // beat the sequence takes. "gameover" is menu.js's screen a third time, once
 // that beat is over; confirming its RESTART row calls newGame() and drops
 // straight back into "playing", the same way CONTINUE drops out of "paused".
+// "lifting", "shopping" and "lowering" are the shopping interlude, and the
+// first and third are "connecting" and "dying" all over again: the world is
+// fully built and drawn every frame but frozen — nothing under "playing" runs —
+// while game/hauler.js's cargo drone carries the car off the road and, later,
+// brings it back. "shopping" is the screen between them (game/shop.js), which
+// covers the world entirely the way "paused" does.
+//
+// THE APPROACH IS NOT A STATE. The drone's arrival happens under "playing"
+// with the world still live, on purpose — see hauler.js's phase list. Only the
+// grab itself freezes anything.
 const menu = createMenu();
 let state = "menu"; // "menu" | "connecting" | "playing" | "paused" | "dying" | "gameover"
+                    //   | "lifting" | "shopping" | "lowering"
 
 // The edge-detector state for Phase 8 step 5's sector-transition audio (see
 // the "playing" branch's own comment on sectorGlitching below) — declared up
@@ -130,6 +150,38 @@ const disconnect = new Disconnect();
 // owned here the same way: one instance, reset() from newGame(), triggered
 // from the one place its event happens (the menu's confirm, below).
 const jackin = new JackIn();
+
+// CREDITS DO NOT PERSIST BETWEEN RUNS — YET. wallet.js has a working, tested,
+// localStorage-backed bank (loadBanked/saveBanked, and the whole "banked
+// survives into the next run" half of test/economy.test.js), and this one null
+// is what holds it switched off: the Wallet's `store` is injectable, a null
+// store reads as "no storage", and everything downstream of that already
+// behaves correctly with a bank that is always 0 (see wallet.js's storage()
+// comment, which was written for the browser-with-storage-disabled case and
+// covers this one unchanged).
+//
+// WHY OFF. A bank in localStorage is a bank on ONE BROWSER ON ONE MACHINE,
+// with nothing tying it to a player. Until the game has accounts and keeps
+// records per player (README's Phase 13, the online server), a persisted
+// balance is not progress the player owns — it is progress they lose by
+// switching device or clearing site data, and that nobody can carry anywhere.
+// Money that lives and dies with a single run makes an honest promise instead:
+// what you earn this run is what the shop has to spend this run.
+//
+// TURNING IT BACK ON is this line, once player records exist: pass a real
+// store — localStorage, or whatever the server hands back for a signed-in
+// player. Nothing else in main.js or wallet.js has to change, which is exactly
+// why the switch is here at the injection seam rather than carved through the
+// money code.
+const CREDIT_STORE = null;
+
+// The shopping interlude's two halves, owned exactly the way `disconnect` and
+// `jackin` above are: one instance each, reset() from newGame(), never rebuilt.
+// The hauler needs the canvas height to know how far off the top of the frame
+// it has to carry the car; the shop screen holds no state at all yet, and is
+// still built here rather than at its call site so the real one can.
+const hauler = new Hauler(H);
+const shop = createShop();
 
 // Everything below is PER-RUN state: it all gets torn down and rebuilt by
 // newGame(), so it's declared with `let` rather than `const` even though
@@ -280,20 +332,16 @@ const enemyTargets = [];
 // (Re)builds every per-run system fresh: called once below for the initial
 // game, and again from the "gameover" screen's RESTART row. Everything it
 // touches is declared `let` above for exactly this reason.
-function newGame() {
-  distance = 0;
-  // Player sits around mid-screen (Spy Hunter framing) so traffic catching up
-  // from behind is visible below before it draws level. onPlayerDamage is
-  // Phase 8 step 3's audio hook — see its own comment above.
-  player = new Player(W / 2, H * 0.62, onPlayerDamage);
-  // The scoreboard, and the wiring that feeds it: traffic reports every car
-  // that blows up, main.js reports the road covered (see update). Traffic
-  // itself knows nothing about points — see score.js.
-  score = new Score();
-  // The wallet is per-run like everything else here, but it reads the BANK out
-  // of localStorage as it is built, so credits earned in earlier runs survive
-  // the rebuild — see wallet.js's constructor.
-  wallet = new Wallet();
+// EVERYTHING ON THE ROAD, torn down and rebuilt. Called by newGame() below for
+// a fresh run, and on its own by a shop visit — the cargo drone flies the
+// player somewhere, so the traffic, hazards and crates it left behind are not
+// waiting where it dropped them (see updateShopping's own comment).
+//
+// WHAT IT DELIBERATELY LEAVES ALONE is the whole point of it being separate
+// from newGame(): the player (hull, speed, shield, lane), the score, the
+// wallet, the loadout and `distance` all survive it untouched. A shop visit
+// interrupts the run; it does not restart it.
+function respawnWorld() {
   // One explosion pool shared by traffic (car wrecks) and the road obstacles
   // (mine blasts, roadblock rubble) — see effects.js's Explosions header and
   // game/obstacles.js for why they must not each get their own.
@@ -305,12 +353,10 @@ function newGame() {
   // onPickupCollected is Phase 8 step 3's audio hook — see its own comment.
   pickups = new Pickups(explosions, onPickupCollected);
   traffic = new Traffic(onCarDestroyed, explosions);
+  // Re-pointed every rebuild, not just on a new run: `traffic` is a NEW object
+  // now, so the slot still holding the old one's playerBody would be aiming
+  // every hostile round on the road at a body nothing updates any more.
   enemyTargets[0] = traffic.playerBody;
-  // The guns, and the bullets they put in the air. The player holds a Loadout
-  // (each weapon's cooldown and ammo — weapons.js); the world holds the shots
-  // (projectiles.js). Every armed enemy car holds an Armament of the same
-  // Weapon class (game/armament.js).
-  loadout = new Loadout();
   // Shares the explosion pool above, so a rocket's fireball (weapons.js's
   // ROCKET, effects.js's drawFireballBurst) competes for the same slot budget
   // as every other detonation on the road — see projectiles.js's `impact`.
@@ -329,6 +375,32 @@ function newGame() {
   // design mines around. The same goes for a hostile round setting off a
   // mine.
   enemyShots = new Projectiles(explosions);
+}
+
+function newGame() {
+  distance = 0;
+  // Player sits around mid-screen (Spy Hunter framing) so traffic catching up
+  // from behind is visible below before it draws level. onPlayerDamage is
+  // Phase 8 step 3's audio hook — see its own comment above.
+  player = new Player(W / 2, H * 0.62, onPlayerDamage);
+  // The scoreboard, and the wiring that feeds it: traffic reports every car
+  // that blows up, main.js reports the road covered (see update). Traffic
+  // itself knows nothing about points — see score.js.
+  score = new Score();
+  // The wallet, built WITHOUT a backing store — so credits live and die with
+  // one run. See CREDIT_STORE above for why, and for the one line that turns
+  // the persisted bank back on.
+  wallet = new Wallet(CREDIT_STORE);
+  // Everything ON the road — see respawnWorld() below, which a shop visit also
+  // calls on its own to hand the player back a clear stretch of tarmac.
+  respawnWorld();
+  // The guns. The player holds a Loadout (each weapon's cooldown and ammo —
+  // weapons.js); the world holds the shots the Loadout puts in the air, and
+  // those are respawnWorld()'s, not this line's. NOT rebuilt by a shop visit:
+  // ammo and the selected weapon are the player's, and are exactly the kind of
+  // progress an interlude must not quietly take away.
+  loadout = new Loadout();
+  hauler.reset();
   disconnect.reset();
   jackin.reset();
   gameConsole.reset();
@@ -389,6 +461,9 @@ function update(dt) {
     case "connecting": return updateConnecting(dt);
     case "dying": return updateDying(dt);
     case "gameover": return updateGameOver();
+    case "lifting": return updateLifting(dt);
+    case "shopping": return updateShopping();
+    case "lowering": return updateLowering(dt);
     default: return updatePlaying(dt);
   }
 }
@@ -533,6 +608,66 @@ function updateGameOver() {
   syncVolumes();
 }
 
+// THE FROZEN HALVES of the shopping interlude, and they are updateConnecting()
+// almost line for line — same freeze, same reasons, same two exceptions. The
+// world is built and drawn (render() runs its whole world path) but nothing
+// under "playing" advances it, so the road, the traffic and the car all sit
+// where they were while the drone does its work over the top.
+//
+// `player.x` is handed to hauler.update() so the drone keeps tracking the lane
+// the car is in — the car is not moving any more, so this is really just the
+// smoothing finishing its converge on a value that has stopped changing (see
+// hauler.js's update()).
+function updateLifting(dt) {
+  hauler.update(dt, player.x);
+  // The SYS LOG's own animation, the one system that keeps ticking through a
+  // freeze because it is presentation rather than world state — updateConnecting
+  // and updateDying make the same exception for the same reason.
+  gameConsole.update(dt);
+  // Drained every tick, exactly as the boot and death sequences drain theirs:
+  // input.js holds an edge until something consumes it, so a key pressed while
+  // the car is in the air would otherwise sit in `fresh` and be read as the
+  // shop screen's own undock the instant it opened — skipping a screen the
+  // player never saw. Nothing is steerable here, so nothing else is read.
+  consumePress("pause");
+  consumePress("fire");
+  if (hauler.done) {
+    state = "shopping";
+    hint.innerHTML = SHOP_HINT;
+  }
+}
+
+function updateShopping() {
+  // The SYS LOG is frozen too here, unlike the two sequences either side of it:
+  // the shop covers the world completely (see render()), so there is no console
+  // on screen for an animation to be visible in.
+  if (!shop.update()) return;
+
+  // THE ROAD IS REBUILT BEFORE THE RETURN TRIP, not after it — so the lowering
+  // sequence descends onto the clear tarmac the player is about to be driving
+  // on, rather than showing them the old traffic for a beat and then swapping
+  // it out under the car. See respawnWorld() for what this does and does not
+  // touch.
+  respawnWorld();
+  hauler.lower(player.x, player.y);
+  state = "lowering";
+  hint.innerHTML = "";
+  // Same plain confirm tone CONTINUE and RESTART get: undocking is leaving a
+  // screen, not a ceremony of its own.
+  music.play(MENU_SOUND.confirm);
+}
+
+function updateLowering(dt) {
+  hauler.update(dt, player.x);
+  gameConsole.update(dt);
+  consumePress("pause");
+  consumePress("fire");
+  if (hauler.done) {
+    state = "playing";
+    hint.innerHTML = PLAY_HINT;
+  }
+}
+
 function updatePlaying(dt) {
   if (consumePress("pause")) {
     state = "paused";
@@ -606,6 +741,47 @@ function updatePlaying(dt) {
   const sectorGlitching = sectors.glitching();
   if (sectorGlitching && !wasSectorGlitching) music.triggerSectorTransition();
   wasSectorGlitching = sectorGlitching;
+
+  // THE SHOPPING INTERLUDE'S TRIGGER, sitting beside the sector edge above
+  // because it is the same kind of thing: a milestone in `distance` that fires
+  // once and then has to remember it did. The memory lives in the hauler
+  // itself (its `milestone` counter) rather than as another `wasX` up beside
+  // wasSectorGlitching — a shop visit spans several states and several
+  // seconds, so the thing that survives all of that is the right place for it.
+  //
+  // Runs on the JUST-UPDATED distance, like every other consumer this tick, so
+  // the drone appears on the same tick the odometer rolls past the milestone.
+  if (hauler.crossedMilestone(distance, road.DIST_UNITS)) {
+    hauler.approach(player.x, player.y);
+  }
+
+  // ...and the approach ITSELF runs here, under "playing", with the whole world
+  // still live around it — that is the entire point of the phase (hauler.js's
+  // header). The player keeps driving, steering and shooting while the drone
+  // comes down; only the grab at the end of it freezes anything.
+  hauler.update(dt, player.x);
+  if (hauler.grabbed) {
+    // NOTHING IS BANKED HERE, deliberately. Committing the run's earnings at
+    // the grab would make sense if there were a bank to commit them TO — it
+    // was how an earlier draft of this handed the shop a settled balance. With
+    // credits scoped to a single run (see CREDIT_STORE above) there is no such
+    // bank: bank() would only move the money from `earned` to a `banked` that
+    // dies with the same run, and the one thing it WOULD change is
+    // lastRunEarnings, which would then quote the last leg instead of the run
+    // on the game-over screen. The shop spends wallet.credits directly, which
+    // is the same money either way.
+    hauler.lift();
+    state = "lifting";
+    // Nothing is steerable from here until the car is back on the road.
+    hint.innerHTML = "";
+    // The gong sectors already spend on a crossing — a grab is punctuation of
+    // exactly that size, and it costs no new sound type. A voice of its own is
+    // work for the phase that gives the shop content.
+    music.play("sector_shift");
+    return; // frozen the instant the jaws close — no further world update this
+            // tick, the same early-out the ESC branch at the top of this
+            // function takes
+  }
 
   // Phase 8 step 3's sustained voices, polled every "playing" tick — see
   // sustainedfx.js's own header on why this is POLLED (not pushed from a
@@ -934,11 +1110,27 @@ function render(alpha) {
     // menu.js's own layout for space inside it.
     if (state === "gameover") {
       glowText(ctx, `FINAL SCORE ${score.points}`, W / 2, 350, GREEN_BRIGHT, 18, "center", 10);
-      // What the run was worth in CREDITS, and what the bank now holds. Reads
-      // lastRunEarnings rather than `earned`, which the death-time bank() has
-      // already zeroed by the time this screen exists — see Wallet.bank().
-      glowText(ctx, `CREDITS +${wallet.lastRunEarnings} · BANK ${wallet.banked}`, W / 2, 376, GREEN_PALE, 13, "center", 8);
+      // What the run was worth in CREDITS. Reads lastRunEarnings rather than
+      // `earned`, which the death-time bank() has already zeroed by the time
+      // this screen exists — see Wallet.bank().
+      //
+      // NO "BANK" HALF ANY MORE: this line used to quote the running total
+      // alongside, and that total is now always exactly this run's earnings
+      // (see CREDIT_STORE) — the same number printed twice under two labels,
+      // the second of which promised a persistence the game no longer claims.
+      // The word comes back with the balance, when players have records to
+      // hold one.
+      glowText(ctx, `CREDITS EARNED ${wallet.lastRunEarnings}`, W / 2, 376, GREEN_PALE, 13, "center", 8);
     }
+    return;
+  }
+
+  // The shop (game/shop.js) covers the world entirely, exactly as the menu
+  // above does and for the same reason: the car is not on the road at all
+  // while this is up, so there is no world worth showing behind it. Reads the
+  // wallet rather than being handed a total, and cannot spend — see shop.js.
+  if (state === "shopping") {
+    shop.render(ctx, W, H, wallet, hauler.milestone);
     return;
   }
 
@@ -1035,7 +1227,17 @@ function render(alpha) {
   if (state === "dying") disconnect.render(ctx, W, H);
   else if (state === "connecting" && !jackin.carSolid) jackin.renderCar(ctx);
   else {
+    // THE CAR RIDES THE DRONE, and this one translate is the whole of how. The
+    // hauler owns the motion but not the car (see its header on why): it hands
+    // back a screen-space y offset, and player.render() below draws exactly the
+    // car it always draws — thruster, damage flash, shield and all — just
+    // somewhere else. Zero on the road and through the whole approach, so on
+    // the overwhelming majority of frames this is a translate by nothing.
+    const lift = hauler.carOffsetY();
+    ctx.save();
+    ctx.translate(0, lift);
     player.render(ctx, alpha, road.headingAt(camY));
+    ctx.restore();
     // The link's dish, on the car and aimed at the node it is draining, with
     // the link drawn between the two (game/wallet.js). AFTER the car, so the
     // dish reads as bolted to it rather than buried under it — and only in the
@@ -1043,10 +1245,22 @@ function render(alpha) {
     // reporting on a link that died with it. Draws nothing unless a hold is
     // actually running, and shares the car's interpolated x so the two never
     // drift apart between logic steps.
-    if (floorNodes) {
+    //
+    // NOT while the car is off the road: a siphon link is a dish on the car
+    // aimed at a node on the city floor, and the geometry stops meaning
+    // anything the moment the car is hanging under a drone thirty metres above
+    // it. `lift` is exactly the "is the car still on the tarmac" test, and it
+    // is already computed above.
+    if (floorNodes && lift === 0) {
       renderUplink(ctx, scenery.clock, wallet.linkGeometry(floorNodes, player, player.renderX(alpha)));
     }
   }
+
+  // THE DRONE, last of everything in the world block — above the car, which is
+  // what the CLAW LIFTER's open middle is designed to survive (bossshapes.js),
+  // and inside the block so it rides the same frozen scene the car does. Draws
+  // nothing at all while idle, which is every frame outside an interlude.
+  hauler.render(ctx);
   ctx.restore();
 
   // Phase 7f's rescan glitch: a full-screen tear over the just-composited
@@ -1070,6 +1284,11 @@ function render(alpha) {
   // Above the HUD, like disconnect's CONNECTION LOST — the readout reports on
   // the feed, so it must not tear along with it.
   if (state === "connecting") jackin.renderOverlay(ctx, W, H);
+  // The hand-over flash at each end of the shopping interlude, above the HUD
+  // for the same reason jackin's readout is: it is covering a CUT, and a cut
+  // the HUD shows straight through is not covered. Returns immediately when
+  // idle or mid-sequence — see hauler.js's renderOverlay.
+  hauler.renderOverlay(ctx, W, H);
 }
 
 const loop = createLoop(update, render);
