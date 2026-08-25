@@ -845,8 +845,21 @@ async function createPullRequest() {
   }
 
   if (!commitData.testsPassed) {
+    // Lead with the tests that actually broke. The full run is thousands of
+    // lines and burying the three that matter in it is how a real failure —
+    // the shop and the crate it mirrors drifting apart, say — reads as noise.
+    const failures = commitData.testFailures ?? [];
+    const headline = failures.length
+      ? `${failures.length} test${failures.length === 1 ? "" : "s"} failed on branch ` +
+        `<code>${escapeHtml(commitData.branch)}</code>:` +
+        `<pre>${escapeHtml(failures.join("\n\n"))}</pre>`
+      : `The test run did not pass on branch <code>${escapeHtml(commitData.branch)}</code>, ` +
+        `and reported no individual failing test — see the full output below.`;
     showStatusHtml(
-      `Tests failed on branch <code>${escapeHtml(commitData.branch)}</code>:<pre>${escapeHtml(commitData.testOutput)}</pre>` +
+      headline +
+        `<details><summary>Full test output</summary><pre>${escapeHtml(commitData.testOutput)}</pre></details>` +
+        `<p>Your changes are committed on that branch either way. "Cancel" throws the branch away; ` +
+        `"Push anyway" keeps it and opens the pull request.</p>` +
         `<button id="cancel-btn">Cancel</button> <button id="push-anyway-btn">Push anyway</button>`,
       "error"
     );
