@@ -326,7 +326,7 @@ export const WEAPON_TYPES = [
 ];
 
 // The default loadout: what the player starts every run holding.
-export const DEFAULT_WEAPON = WEAPON_TYPES[0];
+const DEFAULT_WEAPON = WEAPON_TYPES[0];
 
 // --- Hostile hardware --------------------------------------------------------
 //
@@ -354,7 +354,7 @@ export const ENEMY_WEAPON_TYPES = [
     // shoots only when it cannot miss is a car that never shoots.
     //
     // Retune by MEASURING the road, never by dividing 100 by the damage. The
-    // single-gun figure is asserted in test/invariants.test.js only as a sanity
+    // single-gun figure is asserted in test/combat.test.js only as a sanity
     // band, not as the design target.
     damage: 5,
     interval: 1.5,
@@ -364,7 +364,7 @@ export const ENEMY_WEAPON_TYPES = [
     // (projectiles.js's `dir`), and a rearward shot only travels backwards while
     // this exceeds the shooter's own speed. Drop it below the catalogue's
     // ceiling and the quickest hostiles quietly stop being able to shoot behind
-    // them at all. Asserted in test/invariants.test.js.
+    // them at all. Asserted in test/combat.test.js.
     muzzleSpeed: 760,
     // TRACKING, unlike the player's default gun. Two reasons, both about the
     // player rather than about the enemy: a hostile round that drifted into the

@@ -57,6 +57,21 @@ const PASSES = 4;
 // ticks so the solver allocates nothing. See resolveCollisions.
 const lateralV = [];
 
+// AABB overlap between two boxes exposing {worldY, offset, w, h}.
+//
+// The STATIC test, and deliberately only that: it answers "may these two
+// occupy the same patch of road?" and nothing more. Obstacles and pickups
+// never move under a rammed shove the way TrafficCar does, so their spawners
+// (obstacles.js, pickups.js — which each kept an identical private copy of
+// this before it lived here) need no separation pass on either side. Cars go
+// through resolveCollisions below instead.
+export function overlaps(a, b) {
+  return (
+    Math.abs(a.worldY - b.worldY) < (a.h + b.h) / 2 &&
+    Math.abs(a.offset - b.offset) < (a.w + b.w) / 2
+  );
+}
+
 // Resolve every overlap in `bodies`. Mutates positions, speeds and health.
 export function resolveCollisions(bodies, dt) {
   // Lateral speed has to be MEASURED (the player steers positionally, so it has

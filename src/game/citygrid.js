@@ -64,7 +64,7 @@ export const LOT = PLOT / LOT_SUBDIV; // 64
 // instead of floating a few px short of it. A visible sidewalk gap still
 // exists: it's STREET_INSET (32) on the NEIGHBOURING plot, between that
 // boundary and the actual painted ribbon (see the siting-never-crosses-a-
-// ribbon test in invariants.test.js) — this constant would only add a SECOND,
+// ribbon test in city-floor.test.js) — this constant would only add a SECOND,
 // grid-unaligned gap on top of that one. Non-zero was tried first and
 // rejected for exactly that reason.
 const LOT_MARGIN = 0;
@@ -137,7 +137,7 @@ export function sectorIndex(fDist) {
 // streets, not naturalistic vacancy — a real city block doesn't have empty lots
 // for texture, and anything sparser reads as "few buildings between highways".
 //
-// MEASURED (test/invariants.test.js samples lotAt directly rather than trusting
+// MEASURED (test/city-floor.test.js samples lotAt directly rather than trusting
 // this comment): eligible-lot fraction 0.4854, realized-build fraction 0.4123,
 // and scenery.js's visibleBuildings averages ~65/frame at 600x800 (range 52-83).
 // Streets and NODE claims are what remove ground before this roll runs — a NODE
@@ -171,9 +171,9 @@ export function isAvenueCol(bx) {
 // CROSS_STREET_ROWS) rather than by ≡ 0: the tile's phase formula anchors
 // n = 0's ribbon one whole PLOT short of by = 0, a discrepancy found by
 // checking crossStreetBands' actual screen output against this function
-// directly (invariants.test.js's own "isCrossStreetRow agrees with where the
-// ribbon is actually painted" test) rather than by trusting the two modules'
-// prose comments to still agree with each other. Dropping the +1 puts
+// directly (city-floor.test.js's own "isCrossStreetRow/isAvenueCol agree with
+// where the ribbon is actually painted" test) rather than by trusting the two
+// modules' prose comments to still agree with each other. Dropping the +1 puts
 // buildings back to being sited flush against a plot boundary that ISN'T
 // where the painted ribbon is — quiet with the single centred building a
 // plot used to hold, glaring once lots push footprints against it.
@@ -218,7 +218,7 @@ function frontsStreet(by) {
 // linking a few. The target was ONE OR TWO ON SCREEN AT ONCE at 600x800 — the
 // eye should find a node, not wade through them — not a density figure.
 //
-// 0.06 measured (test/invariants.test.js samples visibleNodes directly, the
+// 0.06 measured (test/city-floor.test.js samples visibleNodes directly, the
 // same way BUILD_CHANCE's own comment is checked against lotAt): mean ~0.9-1.2
 // nodes/frame across a wide sweep of scroll positions and screen widths
 // (400-700px), 0 on roughly a third of frames, max observed 5 (vanishingly

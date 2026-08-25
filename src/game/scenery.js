@@ -260,7 +260,7 @@ function neonDashedStroke(ctx, build, color, dash, width, spread) {
 // small enough to read as texture, not a shape (that's what a NODE's corner
 // brackets + glyph are for). Exported alongside tileIntersections below so a
 // test can size its own on-screen tolerance against the actual drawn mark.
-export const TICK_LEN = 5;
+const TICK_LEN = 5;
 
 // TILE-LOCAL (pre-phase) centres of every registration tick the floor tile
 // bakes — every (avenue column, cross-street band) pairing within the tile's own
@@ -452,7 +452,7 @@ export function materialiseProgress(sy) {
 
 // Every building lot visible this frame, in far-to-near draw order, as plain
 // data — no canvas anywhere in this function, mirroring trafficDots below, which
-// is what lets test/invariants.test.js assert the walk's bound and row order
+// is what lets test/city-floor.test.js assert the walk's bound and row order
 // under plain Node instead of only by eye.
 //
 // Buildings sit on the floor's LOT grid (citygrid.js), finer than the plot grid
@@ -501,7 +501,7 @@ export function visibleBuildings(fDist, playerY, W, H) {
       // header), but dy is a FLOOR-WORLD y offset, and sy is already screen
       // space, where growing world-y maps to SHRINKING screen-y (see `sy`
       // above) — so it subtracts here rather than adding. `ly` rides along
-      // only so test/invariants.test.js can assert the walk is far-to-near BY
+      // only so test/city-floor.test.js can assert the walk is far-to-near BY
       // ROW without being tripped up by same-row siting jitter in `sy` (two
       // buildings sharing a row can differ in `sy` by their own dy, which is
       // not a depth difference — see that test's own comment).
@@ -538,7 +538,7 @@ function drawFloorBuildings(ctx, fDist, playerY, W, H, sector) {
 // LOT_SUBDIV x LOT_SUBDIV times and draw the same marker stacked on itself.
 //
 // Every visible node this frame, as plain data — no canvas anywhere in this
-// function, mirroring visibleBuildings so test/invariants.test.js can assert
+// function, mirroring visibleBuildings so test/city-floor.test.js can assert
 // the walk directly under plain Node. Order doesn't matter the way it does for
 // visibleBuildings (nodes never overlap each other — one per plot, plots don't
 // overlap), so this doesn't bother walking far-to-near.
@@ -626,7 +626,7 @@ export function update(dt) {
 // Exported (with DOT_SPEED_A/B and DOT_LANE_PHASE below) so the test suite
 // can assert an avenue dot's position against its own lane's speed and phase
 // directly, rather than trusting the carry fix by eye — see
-// test/invariants.test.js's "avenue traffic lanes carry the floor's own
+// test/city-floor.test.js's "avenue traffic lanes carry the floor's own
 // scroll" test.
 export const DOT_SPACING = 75;
 export const DOT_SPEED_A = 70;  // one direction's lanes
@@ -717,7 +717,7 @@ export function avenueCenters(W) {
 }
 
 // Every dot visible this frame, as plain data — no canvas anywhere in this
-// function, which is what lets test/invariants.test.js exercise lane
+// function, which is what lets test/city-floor.test.js exercise lane
 // placement, the gridPhase relation and the count bound directly under plain
 // Node. `alongX` says which way the dot's long axis should be drawn (see
 // drawTrafficDots): true on a cross-street, where travel runs along screen x;

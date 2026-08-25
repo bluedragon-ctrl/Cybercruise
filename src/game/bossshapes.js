@@ -3,7 +3,7 @@
 // that gives them behaviour.
 //
 // NO CAR TYPES YET, ON PURPOSE. carshapes.js's CAR_SHAPES is 1:1 with cartypes.js
-// and that pairing is enforced by test/invariants.test.js's "one car type per
+// and that pairing is enforced by test/road-and-caches.test.js's "one car type per
 // silhouette" — a shape in that catalogue with no type is a broken invariant,
 // not a work in progress. So the finished ARTWORK lives here and the TYPES get
 // written in the boss session, at which point each entry moves across to
@@ -46,6 +46,7 @@
 // join, which is why it is allowed there and nowhere else.
 
 import { CAR_FILL, CAR_FILL_HIGH } from "../engine/palette.js";
+import { polygon } from "./polygon.js";
 
 // ---------------------------------------------------------------------------
 // Small geometry helpers. These build EXPLICIT point lists for solid(), which
@@ -56,14 +57,7 @@ import { CAR_FILL, CAR_FILL_HIGH } from "../engine/palette.js";
 // A closed ring of points at radius `r` (in hw/hh fractions). Only circular when
 // the shape's w and h are equal; on a rectangular shape it comes out elliptical,
 // which is what the hovercraft skirt wants anyway.
-function ring(r, n = 20, phase = 0) {
-  const pts = [];
-  for (let i = 0; i < n; i++) {
-    const a = phase + (i / n) * Math.PI * 2;
-    pts.push([Math.cos(a) * r, Math.sin(a) * r]);
-  }
-  return pts;
-}
+const ring = (r, n = 20, phase = 0) => polygon(0, 0, r, r, n, phase);
 
 // An annulus as a single keyhole polygon: out along the outer rim, back along
 // the inner one. Fills with a genuine hole in the middle (nonzero winding), at

@@ -13,7 +13,7 @@
 // A DRONE IS A PHASE, NOT AN ENTITY — same rule as scenery.js's traffic dots.
 // Nothing here is spawned, freed or stored per-frame; droneField() below is a
 // pure function of (clock, distance, playerY, W, H) that returns plain data,
-// mirroring trafficDots/visibleBuildings so test/invariants.test.js can
+// mirroring trafficDots/visibleBuildings so test/city-floor.test.js can
 // exercise the motion under plain Node with no canvas anywhere in the call
 // path. drawDrones() is the only function that touches ctx.
 //

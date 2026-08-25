@@ -28,6 +28,7 @@
 // obstacleAvailable/pickObstacleType exactly) so tightening the spawn later is
 // a catalogue edit, not new machinery.
 import { pickupShapeIndex } from "./pickupshapes.js";
+import { pickWeighted } from "./weightedpick.js";
 import { ROCKET, PLAYER_THRUST, ENEMY, GREEN_BRIGHT, PLAYER } from "../engine/palette.js";
 
 export const AMMO = "ammo";
@@ -128,25 +129,10 @@ export function pickupAvailable(type, distance) {
 }
 
 // A random pickup type the player has driven far enough to meet, honouring
-// `weight`. Mirrors obstacletypes.js's pickObstacleType/cartypes.js's
-// pickCarType: eligible types are REWEIGHTED rather than re-rolled, and null
-// means nothing is unlocked yet.
+// `weight`. The draw itself is weightedpick.js's, shared with pickObstacleType
+// and pickCarType; only the gate above is this catalogue's own.
 export function pickPickupType(distance = Infinity) {
-  let total = 0;
-  for (const type of PICKUP_TYPES) {
-    if (pickupAvailable(type, distance)) total += type.weight;
-  }
-  if (total <= 0) return null;
-
-  let roll = Math.random() * total;
-  let last = null;
-  for (const type of PICKUP_TYPES) {
-    if (!pickupAvailable(type, distance)) continue;
-    last = type;
-    roll -= type.weight;
-    if (roll <= 0) return type;
-  }
-  return last;
+  return pickWeighted(PICKUP_TYPES, (type) => pickupAvailable(type, distance));
 }
 
 // One named pickup type. Mirrors obstacletypes.js's obstacleTypeById.

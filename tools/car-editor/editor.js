@@ -297,7 +297,12 @@ function makeField(carId, field) {
   return wrapper;
 }
 
-function makeObstacleField(obstacleId, field) {
+// Obstacles and pickups both edit plain numbers with no per-field special
+// cases, so the two builders that used to spell this out separately now differ
+// only in where the value comes from and where a change goes. makeField above
+// stays its own function: a car field can be an enum (laneHome) and can carry
+// an "(overridden)" tag, neither of which belongs here.
+function makeNumberField(field, value, description, onChange) {
   const wrapper = document.createElement("div");
   wrapper.className = "field";
 
@@ -308,39 +313,8 @@ function makeObstacleField(obstacleId, field) {
   const input = document.createElement("input");
   input.type = "number";
   input.step = "any";
-  input.value = currentObstacleValue(obstacleId, field);
-  input.addEventListener("change", () => {
-    setObstacleChange(obstacleId, field, Number(input.value));
-  });
-  wrapper.appendChild(input);
-
-  const description = document.createElement("div");
-  description.className = "description";
-  description.textContent = OBSTACLE_FIELD_DESCRIPTIONS[field];
-  wrapper.appendChild(description);
-
-  return wrapper;
-}
-
-// `description` is passed in rather than looked up by field name because
-// "amount" means something different per pickup kind (see
-// PICKUP_EFFECT_DESCRIPTIONS) — unlike weight/minDistance, whose meaning is
-// the same for every pickup and can be looked up in PICKUP_FIELD_DESCRIPTIONS.
-function makePickupField(pickupId, field, description) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "field";
-
-  const label = document.createElement("label");
-  label.textContent = field;
-  wrapper.appendChild(label);
-
-  const input = document.createElement("input");
-  input.type = "number";
-  input.step = "any";
-  input.value = currentPickupValue(pickupId, field);
-  input.addEventListener("change", () => {
-    setPickupChange(pickupId, field, Number(input.value));
-  });
+  input.value = value;
+  input.addEventListener("change", () => onChange(Number(input.value)));
   wrapper.appendChild(input);
 
   const descriptionEl = document.createElement("div");
@@ -349,6 +323,28 @@ function makePickupField(pickupId, field, description) {
   wrapper.appendChild(descriptionEl);
 
   return wrapper;
+}
+
+function makeObstacleField(obstacleId, field) {
+  return makeNumberField(
+    field,
+    currentObstacleValue(obstacleId, field),
+    OBSTACLE_FIELD_DESCRIPTIONS[field],
+    (value) => setObstacleChange(obstacleId, field, value),
+  );
+}
+
+// `description` is passed in rather than looked up by field name because
+// "amount" means something different per pickup kind (see
+// PICKUP_EFFECT_DESCRIPTIONS) — unlike weight/minDistance, whose meaning is
+// the same for every pickup and can be looked up in PICKUP_FIELD_DESCRIPTIONS.
+function makePickupField(pickupId, field, description) {
+  return makeNumberField(
+    field,
+    currentPickupValue(pickupId, field),
+    description,
+    (value) => setPickupChange(pickupId, field, value),
+  );
 }
 
 function renderForm() {

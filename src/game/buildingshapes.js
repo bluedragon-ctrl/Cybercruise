@@ -36,6 +36,7 @@
 // what a shape costs to draw only affects the single frame it first appears on.
 
 import { glowLine, glowPoly } from "../engine/neon.js";
+import { polygon } from "./polygon.js";
 import {
   BUILDING_EDGE,
   BUILDING_EDGE_DIM,
@@ -58,14 +59,10 @@ function rect(w, d) {
 
 // A regular n-gon stretched to fill w x d. `rot` in turns; the default puts a
 // flat edge at the front for even n, which faces the camera squarely.
-function ngon(w, d, n, rot = 0) {
-  const pts = [];
-  for (let i = 0; i < n; i++) {
-    const a = (i / n + rot) * TAU;
-    pts.push([Math.cos(a) * (w / 2), Math.sin(a) * (d / 2)]);
-  }
-  return pts;
-}
+// NOTE `rot` is in TURNS here, not radians — the footprint table below reads far
+// better as `ngon(w, d, 6, 0.5)` than with a TAU on every row. polygon() takes
+// radians, so the conversion lives here, once.
+const ngon = (w, d, n, rot = 0) => polygon(0, 0, w / 2, d / 2, n, rot * TAU);
 
 // Shifts a footprint sideways/forward — used to place towers side by side.
 function at(pts, dx, dy) {

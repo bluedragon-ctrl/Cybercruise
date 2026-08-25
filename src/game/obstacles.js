@@ -56,7 +56,7 @@ import {
 } from "./obstacletypes.js";
 import { OBSTACLE_SHAPES, MINE } from "./obstacleshapes.js";
 import { CAR_TYPES } from "./cartypes.js";
-import { ramSpeed } from "./collisions.js";
+import { ramSpeed, overlaps } from "./collisions.js";
 import { PLAYER_MASS } from "./player.js";
 import { centerXAt, headingAt, laneOffset, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 
@@ -100,7 +100,7 @@ const SPAWN_INTERVAL = 2.2;   // seconds between spawn attempts — rarer than t
 // its own hazards before the player ever saw one, and the failures were
 // dominated by exactly the type this bound is sized against.
 //
-// Exported and asserted in test/invariants.test.js, since the relation is
+// Exported and asserted in test/hazards.test.js, since the relation is
 // between three numbers in three different files.
 export const SPAWN_MARGIN = 1500; // world units past the player an obstacle appears at
 const RETIRE_MARGIN = 220;    // how far behind the player before it's dropped
@@ -131,7 +131,7 @@ const CLUSTER_WINDOW = 130;
 //
 // Sized against the CATALOGUE rather than picked: the widest car has to fit, or
 // the rule guarantees a way through that the rig cannot use. Asserted in
-// test/invariants.test.js, since it is a relation between two files.
+// test/hazards.test.js, since it is a relation between two files.
 const WIDEST_CAR = Math.max(...CAR_TYPES.map((t) => t.w));
 const PASSAGE_CLEARANCE = 6;  // px of daylight either side, so the gap is drivable
                               // rather than exactly car-shaped
@@ -256,7 +256,7 @@ function placementOffsets(placement, w) {
     // clamped by `limit` — a lane centre is a lane centre, and nudging a hazard
     // off it to make it fit would quietly turn "in the middle of a lane" into
     // "near a lane". A type too wide for a lane is a mistake in the CATALOGUE,
-    // caught by test/invariants.test.js, not something to paper over here.
+    // caught by test/hazards.test.js, not something to paper over here.
     default: {
       const start = Math.floor(Math.random() * LANE_COUNT);
       const spots = [];
@@ -264,16 +264,6 @@ function placementOffsets(placement, w) {
       return spots;
     }
   }
-}
-
-// AABB overlap between two boxes exposing {worldY, offset, w, h}. Obstacles
-// never move under a rammed shove the way TrafficCar does, so this is the
-// whole test — no resolveCollisions-style separation is needed on either side.
-function overlaps(a, b) {
-  return (
-    Math.abs(a.worldY - b.worldY) < (a.h + b.h) / 2 &&
-    Math.abs(a.offset - b.offset) < (a.w + b.w) / 2
-  );
 }
 
 export class Obstacles {

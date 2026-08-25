@@ -13,6 +13,7 @@ import { Score } from "./game/score.js";
 // Credits — the persisted currency the Phase 11 shop will spend. Separate from
 // Score on purpose; see wallet.js's own header for the whole argument.
 import { Wallet } from "./game/wallet.js";
+import { renderNodeHints, renderAwardMarks, renderUplink } from "./game/walletrender.js";
 import { Traffic } from "./game/traffic.js";
 import { Obstacles } from "./game/obstacles.js";
 import { obstacleTypeById } from "./game/obstacletypes.js";
@@ -90,6 +91,21 @@ let wasSectorGlitching = false;
 const music = createMusic();
 let musicVolume = menu.musicVolume();
 let soundVolume = menu.soundVolume();
+
+// Push the menu's levels into the engine, but ONLY where they actually moved.
+// Called from every state that leaves the menu's sliders reachable (menu,
+// paused, gameover) — it was three copies of this pair of ifs before, one per
+// state, which is three places to remember the "only on a change" rule.
+function syncVolumes() {
+  if (menu.musicVolume() !== musicVolume) {
+    musicVolume = menu.musicVolume();
+    music.setVolume(musicVolume);
+  }
+  if (menu.soundVolume() !== soundVolume) {
+    soundVolume = menu.soundVolume();
+    music.setSfxVolume(soundVolume);
+  }
+}
 
 // Phase 8 step 5, PROBLEM 1: the AudioContext has to exist before the menu's
 // own SOUND/MUSIC sliders can preview anything (menu_adjust), which happens
@@ -362,172 +378,162 @@ function dropMine(car, type) {
   return placed;
 }
 
+// The fixed-step tick. Each game state owns a function below and the dispatch
+// stays here, so the shape of the state machine is visible in one screen
+// instead of being spelled out as six sequential early-return branches inside
+// one 400-line function.
 function update(dt) {
-  if (state === "menu") {
-    const menuResult = menu.update(W);
-    // Phase 8 step 5's menu SFX — see audio/menusfx.js's own header for why
-    // this table, not menu.js itself, decides which id each gesture plays.
-    // "confirm" is handled separately below: START GAME gets jack_in
-    // instead of the plain menu_confirm tone (see music.jackIn()'s own
-    // comment for why the two never both fire for the same confirm).
-    if (menuResult.moved) music.play(MENU_SOUND.move);
-    if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
-    if (menuResult.confirmed) {
-      // Into game/jackin.js's boot sequence, NOT straight into "playing" — see
-      // the `state` comment above. The hint bar stays empty for its duration,
-      // the same way it does while "dying": there is nothing to steer yet.
-      state = "connecting";
-      hint.innerHTML = "";
-      // THE START GAME transition. The keypress that just confirmed this
-      // row is also the user gesture AudioContext creation needs — see
-      // synth.js's header — though in practice the context has usually
-      // already been built by the FIRST keypress of the session (see the
-      // startContext() listener above), START GAME just being the common
-      // case where that happens to be the very same press. jackIn() plays
-      // the descending riser and starts the music scheduler timed to land
-      // its first downbeat right as the riser ends — see its own comment.
-      // ONCE PER PAGE, unlike the visual sequence on the line below, which
-      // RESTART runs again (see the "gameover" branch).
-      music.jackIn();
-      jackin.trigger(player.x, player.y, player.w, player.h);
-    }
-    // Only pushed to the engine on an actual change (see musicVolume/
-    // soundVolume above) — the MUSIC/SOUND rows can only have moved on the
-    // update() call just above.
-    if (menu.musicVolume() !== musicVolume) {
-      musicVolume = menu.musicVolume();
-      music.setVolume(musicVolume);
-    }
-    if (menu.soundVolume() !== soundVolume) {
-      soundVolume = menu.soundVolume();
-      music.setSfxVolume(soundVolume);
-    }
+  switch (state) {
+    case "menu": return updateMenu();
+    case "paused": return updatePaused();
+    case "connecting": return updateConnecting(dt);
+    case "dying": return updateDying(dt);
+    case "gameover": return updateGameOver();
+    default: return updatePlaying(dt);
+  }
+}
+
+function updateMenu() {
+
+  const menuResult = menu.update(W);
+  // Phase 8 step 5's menu SFX — see audio/menusfx.js's own header for why
+  // this table, not menu.js itself, decides which id each gesture plays.
+  // "confirm" is handled separately below: START GAME gets jack_in
+  // instead of the plain menu_confirm tone (see music.jackIn()'s own
+  // comment for why the two never both fire for the same confirm).
+  if (menuResult.moved) music.play(MENU_SOUND.move);
+  if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
+  if (menuResult.confirmed) {
+    // Into game/jackin.js's boot sequence, NOT straight into "playing" — see
+    // the `state` comment above. The hint bar stays empty for its duration,
+    // the same way it does while "dying": there is nothing to steer yet.
+    state = "connecting";
+    hint.innerHTML = "";
+    // THE START GAME transition. The keypress that just confirmed this
+    // row is also the user gesture AudioContext creation needs — see
+    // synth.js's header — though in practice the context has usually
+    // already been built by the FIRST keypress of the session (see the
+    // startContext() listener above), START GAME just being the common
+    // case where that happens to be the very same press. jackIn() plays
+    // the descending riser and starts the music scheduler timed to land
+    // its first downbeat right as the riser ends — see its own comment.
+    // ONCE PER PAGE, unlike the visual sequence on the line below, which
+    // RESTART runs again (see the "gameover" branch).
+    music.jackIn();
+    jackin.trigger(player.x, player.y, player.w, player.h);
+  }
+  // The MUSIC/SOUND rows can only have moved on the update() call just above.
+  syncVolumes();
+}
+
+function updatePaused() {
+
+  // ESC again resumes directly, without going through CONTINUE — the same
+  // key that opened the pause screen closes it. A fresh consumePress each
+  // time, so this never fires on the very keypress that just opened pause.
+  if (consumePress("pause")) {
+    state = "playing";
+    hint.innerHTML = PLAY_HINT;
+    // Backing out of the menu WITHOUT confirming a row — the one place
+    // menu_back plays; see audio/menusfx.js's own header.
+    music.play(MENU_SOUND.back);
     return;
   }
-
-  if (state === "paused") {
-    // ESC again resumes directly, without going through CONTINUE — the same
-    // key that opened the pause screen closes it. A fresh consumePress each
-    // time, so this never fires on the very keypress that just opened pause.
-    if (consumePress("pause")) {
-      state = "playing";
-      hint.innerHTML = PLAY_HINT;
-      // Backing out of the menu WITHOUT confirming a row — the one place
-      // menu_back plays; see audio/menusfx.js's own header.
-      music.play(MENU_SOUND.back);
-      return;
-    }
-    const menuResult = menu.update(W);
-    if (menuResult.moved) music.play(MENU_SOUND.move);
-    if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
-    if (menuResult.confirmed) {
-      state = "playing";
-      hint.innerHTML = PLAY_HINT;
-      // CONTINUE resumes a run whose music has been playing the whole
-      // time it was paused (the scheduler never stops — see proceduralmusic.js's own
-      // header) — a plain confirm tone, not jack_in, which is reserved for
-      // the one moment the scheduler itself actually starts.
-      music.play(MENU_SOUND.confirm);
-    }
-    if (menu.musicVolume() !== musicVolume) {
-      musicVolume = menu.musicVolume();
-      music.setVolume(musicVolume);
-    }
-    if (menu.soundVolume() !== soundVolume) {
-      soundVolume = menu.soundVolume();
-      music.setSfxVolume(soundVolume);
-    }
-    return;
+  const menuResult = menu.update(W);
+  if (menuResult.moved) music.play(MENU_SOUND.move);
+  if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
+  if (menuResult.confirmed) {
+    state = "playing";
+    hint.innerHTML = PLAY_HINT;
+    // CONTINUE resumes a run whose music has been playing the whole
+    // time it was paused (the scheduler never stops — see proceduralmusic.js's own
+    // header) — a plain confirm tone, not jack_in, which is reserved for
+    // the one moment the scheduler itself actually starts.
+    music.play(MENU_SOUND.confirm);
   }
+  syncVolumes();
+}
 
-  if (state === "connecting") {
-    // "dying" in reverse, and frozen for the same reason: the world is built
-    // and drawn (render() runs its whole world path below) but nothing under
-    // "playing" advances it, so the road, the traffic and the player's car all
-    // sit exactly where newGame() put them until the feed is up.
-    jackin.update(dt);
-    // The SYS LOG's own animation, though — the boot lines jackin.update()
-    // just pushed have to slide and fade like any other line, so this ONE
-    // system keeps ticking while everything else is held. It is presentation,
-    // not world state (engine/console.js).
-    gameConsole.update(dt);
-    // Drained every tick for exactly the reason the "dying" branch drains
-    // "fire": input.js holds an edge until something consumes it, so an ESC
-    // pressed during the boot would otherwise sit in `fresh` and open the
-    // pause menu on the first real gameplay tick, a screen the player never
-    // asked for. Nothing is steerable yet, so nothing else is read.
-    consumePress("pause");
-    if (jackin.done) {
-      state = "playing";
-      hint.innerHTML = PLAY_HINT;
-    }
-    return;
+function updateConnecting(dt) {
+
+  // "dying" in reverse, and frozen for the same reason: the world is built
+  // and drawn (render() runs its whole world path below) but nothing under
+  // "playing" advances it, so the road, the traffic and the player's car all
+  // sit exactly where newGame() put them until the feed is up.
+  jackin.update(dt);
+  // The SYS LOG's own animation, though — the boot lines jackin.update()
+  // just pushed have to slide and fade like any other line, so this ONE
+  // system keeps ticking while everything else is held. It is presentation,
+  // not world state (engine/console.js).
+  gameConsole.update(dt);
+  // Drained every tick for exactly the reason the "dying" branch drains
+  // "fire": input.js holds an edge until something consumes it, so an ESC
+  // pressed during the boot would otherwise sit in `fresh` and open the
+  // pause menu on the first real gameplay tick, a screen the player never
+  // asked for. Nothing is steerable yet, so nothing else is read.
+  consumePress("pause");
+  if (jackin.done) {
+    state = "playing";
+    hint.innerHTML = PLAY_HINT;
   }
+}
 
-  if (state === "dying") {
-    // The world is frozen — nothing below this branch runs, so the road,
-    // traffic and the player's own last position all just sit exactly where
-    // they were the instant the hull hit zero (render() still draws them
-    // every frame; it's only update() that has stopped moving them). Only the
-    // death sequence itself advances.
-    disconnect.update(dt);
-    // Drained every tick, not just the one the sequence ends on: "fire" is
-    // held down (isDown, see the weapon check under "playing") rather than
-    // edge-consumed while shooting, so a press mid-sequence — the player
-    // still mashing fire as the car glitches out — would otherwise sit in
-    // input.js's `fresh` set until "gameover" opens below and consumePress
-    // reads it as THAT screen's confirm, instantly firing RESTART before the
-    // player has even seen it. Input is already ignored while "dying" (see
-    // the branch's own header comment); this just makes "fire" ignored too,
-    // instead of silently queuing itself for the next screen.
-    consumePress("fire");
-    if (disconnect.done) {
-      state = "gameover";
-      menu.open("gameover");
-      hint.innerHTML = MENU_HINT;
-    }
-    return;
+function updateDying(dt) {
+
+  // The world is frozen — nothing below this branch runs, so the road,
+  // traffic and the player's own last position all just sit exactly where
+  // they were the instant the hull hit zero (render() still draws them
+  // every frame; it's only update() that has stopped moving them). Only the
+  // death sequence itself advances.
+  disconnect.update(dt);
+  // Drained every tick, not just the one the sequence ends on: "fire" is
+  // held down (isDown, see the weapon check under "playing") rather than
+  // edge-consumed while shooting, so a press mid-sequence — the player
+  // still mashing fire as the car glitches out — would otherwise sit in
+  // input.js's `fresh` set until "gameover" opens below and consumePress
+  // reads it as THAT screen's confirm, instantly firing RESTART before the
+  // player has even seen it. Input is already ignored while "dying" (see
+  // the branch's own header comment); this just makes "fire" ignored too,
+  // instead of silently queuing itself for the next screen.
+  consumePress("fire");
+  if (disconnect.done) {
+    state = "gameover";
+    menu.open("gameover");
+    hint.innerHTML = MENU_HINT;
   }
+}
 
-  if (state === "gameover") {
-    // Same screen, same interaction as "paused" above — RESTART is row 0's
-    // label here (menu.js's ROW0_LABEL) the way CONTINUE is there — except
-    // confirming it starts a fresh run instead of resuming a frozen one.
-    const menuResult = menu.update(W);
-    if (menuResult.moved) music.play(MENU_SOUND.move);
-    if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
-    if (menuResult.confirmed) {
-      newGame();
-      // RESTART jacks in again, exactly like START GAME did — a run always
-      // begins with the rig coming up, and the game-over screen the player is
-      // confirming from has just told them the deck is REACQUIRING SIGNAL
-      // (game/disconnect.js's own readout), so cutting straight to a moving
-      // road would leave that sentence unanswered. newGame() FIRST: it resets
-      // this sequence and clears the SYS LOG, so the boot lines pushed from
-      // here on belong to the new run rather than being wiped by it.
-      state = "connecting";
-      hint.innerHTML = "";
-      jackin.trigger(player.x, player.y, player.w, player.h);
-      // RESTART — same plain confirm tone as CONTINUE (see its own comment
-      // above): the scheduler is already running, this is just resuming the
-      // GAME, not the deck jacking in a second time. So the boot above plays
-      // over music that never stopped, with no riser of its own — the riser
-      // and the backend start are once-per-page (synth.js's jackIn()).
-      music.play(MENU_SOUND.confirm);
-    }
-    if (menu.musicVolume() !== musicVolume) {
-      musicVolume = menu.musicVolume();
-      music.setVolume(musicVolume);
-    }
-    if (menu.soundVolume() !== soundVolume) {
-      soundVolume = menu.soundVolume();
-      music.setSfxVolume(soundVolume);
-    }
-    return;
+function updateGameOver() {
+
+  // Same screen, same interaction as "paused" above — RESTART is row 0's
+  // label here (menu.js's ROW0_LABEL) the way CONTINUE is there — except
+  // confirming it starts a fresh run instead of resuming a frozen one.
+  const menuResult = menu.update(W);
+  if (menuResult.moved) music.play(MENU_SOUND.move);
+  if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
+  if (menuResult.confirmed) {
+    newGame();
+    // RESTART jacks in again, exactly like START GAME did — a run always
+    // begins with the rig coming up, and the game-over screen the player is
+    // confirming from has just told them the deck is REACQUIRING SIGNAL
+    // (game/disconnect.js's own readout), so cutting straight to a moving
+    // road would leave that sentence unanswered. newGame() FIRST: it resets
+    // this sequence and clears the SYS LOG, so the boot lines pushed from
+    // here on belong to the new run rather than being wiped by it.
+    state = "connecting";
+    hint.innerHTML = "";
+    jackin.trigger(player.x, player.y, player.w, player.h);
+    // RESTART — same plain confirm tone as CONTINUE (see its own comment
+    // above): the scheduler is already running, this is just resuming the
+    // GAME, not the deck jacking in a second time. So the boot above plays
+    // over music that never stopped, with no riser of its own — the riser
+    // and the backend start are once-per-page (synth.js's jackIn()).
+    music.play(MENU_SOUND.confirm);
   }
+  syncVolumes();
+}
 
-  // state === "playing" from here down — the whole rest of this function is
-  // the real game tick, untouched by any of the above.
+function updatePlaying(dt) {
   if (consumePress("pause")) {
     state = "paused";
     menu.open("pause");
@@ -752,6 +758,7 @@ function update(dt) {
     hint.innerHTML = "";
   }
 }
+
 
 function drawHud() {
   glowText(ctx, "CYBERCRUISE", 12, 12, GREEN, 18, "left", 12);
@@ -987,7 +994,11 @@ function render(alpha) {
   let floorNodes = null;
   if (state !== "menu") {
     floorNodes = scenery.visibleNodes(scenery.floorDist(camY), player.y, W, H);
-    wallet.renderHints(ctx, scenery.clock, floorNodes, player, camY, W);
+    // The wallet decides WHAT is worth a marker (hints, a pure rule about money
+    // and reach); walletrender.js turns that into ink. Same split for the
+    // receipts below, which read wallet.marks directly.
+    renderNodeHints(ctx, wallet.hints(scenery.clock, floorNodes, player, camY, W));
+    renderAwardMarks(ctx, wallet.marks, player, camY, W);
   }
   // Air traffic (Phase 7c): between the floor and the road, so it draws after
   // the whole scenery layer (grid, buildings, floor traffic) and before the
@@ -1032,7 +1043,9 @@ function render(alpha) {
     // reporting on a link that died with it. Draws nothing unless a hold is
     // actually running, and shares the car's interpolated x so the two never
     // drift apart between logic steps.
-    if (floorNodes) wallet.renderLink(ctx, scenery.clock, floorNodes, player, player.renderX(alpha));
+    if (floorNodes) {
+      renderUplink(ctx, scenery.clock, wallet.linkGeometry(floorNodes, player, player.renderX(alpha)));
+    }
   }
   ctx.restore();
 

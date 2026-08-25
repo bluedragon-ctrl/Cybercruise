@@ -84,7 +84,7 @@ async function readBody(req) {
 // pair (speedMax >= speedMin) when a single request touches both — catching
 // nonsensical values like `health: -50` or an inverted speed range at the
 // boundary, rather than relying on downstream game-invariant tests to notice.
-const POSITIVE_FIELDS = new Set(["health", "speedMin", "speedMax", "amount", "duration"]);
+export const POSITIVE_FIELDS = new Set(["health", "speedMin", "speedMax", "amount", "duration"]);
 
 // minDistance is a gate, not a magnitude — 0 ("from the first metre", see
 // cartypes.js) is its most common and entirely valid value, so it only rules
@@ -93,117 +93,94 @@ const POSITIVE_FIELDS = new Set(["health", "speedMin", "speedMax", "amount", "du
 // hazard out of the draw entirely without deleting its entry.
 const NON_NEGATIVE_FIELDS = new Set(["minDistance", "weight"]);
 
-export function validateChanges(changes) {
-  if (!changes || typeof changes !== "object" || Array.isArray(changes)) {
-    throw new Error("body.changes must be an object");
+// The three validators below are one rule applied to three catalogues, so the
+// rule lives here once. Splitting them out as near-copies is how
+// validateObstacleChanges came to be missing the POSITIVE_FIELDS check its two
+// siblings performed — harmless only because OBSTACLE_FIELDS happens to contain
+// no positive-only field today, which is exactly the kind of accident that
+// stops being harmless the moment the catalogue grows one.
+//
+// `label` is the request-body key, and appears verbatim in the messages so a
+// failure names the field the caller actually sent. `noun` names the entity in
+// the "unknown ... id" message. `enums` maps a field to its permitted string
+// values (only laneHome has any); anything not listed there must be a number.
+// `crossCheck` runs last, for rules that need more than one field at once.
+function validateEntityChanges(value, { label, noun, ids, fields, enums = {}, crossCheck = null }) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`body.${label} must be an object`);
   }
-  if (Object.keys(changes).length === 0) {
-    throw new Error("body.changes must not be empty");
+  if (Object.keys(value).length === 0) {
+    throw new Error(`body.${label} must not be empty`);
   }
-  for (const [carId, fields] of Object.entries(changes)) {
-    if (!CAR_IDS.includes(carId)) {
-      throw new Error(`unknown car id "${carId}"`);
+  for (const [id, entry] of Object.entries(value)) {
+    if (!ids.includes(id)) {
+      throw new Error(`unknown ${noun} id "${id}"`);
     }
-    if (!fields || typeof fields !== "object" || Object.keys(fields).length === 0) {
-      throw new Error(`changes for "${carId}" must be a non-empty object`);
+    if (!entry || typeof entry !== "object" || Object.keys(entry).length === 0) {
+      throw new Error(`${label} for "${id}" must be a non-empty object`);
     }
-    for (const [field, value] of Object.entries(fields)) {
-      if (
-        !HULL_SPEED_FIELDS.includes(field) &&
-        !SPAWN_FIELDS.includes(field) &&
-        !BEHAVIOR_FIELDS.includes(field)
-      ) {
-        throw new Error(`unknown field "${field}" for "${carId}"`);
+    for (const [field, fieldValue] of Object.entries(entry)) {
+      if (!fields.includes(field)) {
+        throw new Error(`unknown field "${field}" for "${id}"`);
       }
-      if (field === "laneHome") {
-        if (!["any", "inner", "outer"].includes(value)) {
-          throw new Error(`invalid laneHome value for "${carId}": ${JSON.stringify(value)}`);
+      const allowed = enums[field];
+      if (allowed) {
+        if (!allowed.includes(fieldValue)) {
+          throw new Error(`invalid ${field} value for "${id}": ${JSON.stringify(fieldValue)}`);
         }
-      } else if (typeof value !== "number" || !Number.isFinite(value)) {
-        throw new Error(`field "${field}" for "${carId}" must be a finite number, got ${JSON.stringify(value)}`);
-      } else if (POSITIVE_FIELDS.has(field) && value <= 0) {
-        throw new Error(`field "${field}" for "${carId}" must be a positive number, got ${JSON.stringify(value)}`);
-      } else if (NON_NEGATIVE_FIELDS.has(field) && value < 0) {
-        throw new Error(`field "${field}" for "${carId}" must not be negative, got ${JSON.stringify(value)}`);
+      } else if (typeof fieldValue !== "number" || !Number.isFinite(fieldValue)) {
+        throw new Error(
+          `field "${field}" for "${id}" must be a finite number, got ${JSON.stringify(fieldValue)}`
+        );
+      } else if (POSITIVE_FIELDS.has(field) && fieldValue <= 0) {
+        throw new Error(
+          `field "${field}" for "${id}" must be a positive number, got ${JSON.stringify(fieldValue)}`
+        );
+      } else if (NON_NEGATIVE_FIELDS.has(field) && fieldValue < 0) {
+        throw new Error(
+          `field "${field}" for "${id}" must not be negative, got ${JSON.stringify(fieldValue)}`
+        );
       }
     }
-
-    if (
-      Object.prototype.hasOwnProperty.call(fields, "speedMin") &&
-      Object.prototype.hasOwnProperty.call(fields, "speedMax") &&
-      fields.speedMax < fields.speedMin
-    ) {
-      throw new Error(
-        `speedMax (${fields.speedMax}) must be >= speedMin (${fields.speedMin}) for "${carId}"`
-      );
-    }
+    if (crossCheck) crossCheck(entry, id);
   }
 }
 
-// Obstacles only ever expose weight/minDistance (see state.js's header on
-// why there's no behavior side to them), so this is the same shape as
-// validateChanges above with a much shorter field list and no laneHome/
-// speed-pair special cases.
+const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+export function validateChanges(changes) {
+  validateEntityChanges(changes, {
+    label: "changes",
+    noun: "car",
+    ids: CAR_IDS,
+    fields: [...HULL_SPEED_FIELDS, ...SPAWN_FIELDS, ...BEHAVIOR_FIELDS],
+    enums: { laneHome: ["any", "inner", "outer"] },
+    crossCheck(fields, carId) {
+      if (has(fields, "speedMin") && has(fields, "speedMax") && fields.speedMax < fields.speedMin) {
+        throw new Error(
+          `speedMax (${fields.speedMax}) must be >= speedMin (${fields.speedMin}) for "${carId}"`
+        );
+      }
+    },
+  });
+}
+
 export function validateObstacleChanges(obstacleChanges) {
-  if (!obstacleChanges || typeof obstacleChanges !== "object" || Array.isArray(obstacleChanges)) {
-    throw new Error("body.obstacleChanges must be an object");
-  }
-  if (Object.keys(obstacleChanges).length === 0) {
-    throw new Error("body.obstacleChanges must not be empty");
-  }
-  for (const [obstacleId, fields] of Object.entries(obstacleChanges)) {
-    if (!OBSTACLE_IDS.includes(obstacleId)) {
-      throw new Error(`unknown obstacle id "${obstacleId}"`);
-    }
-    if (!fields || typeof fields !== "object" || Object.keys(fields).length === 0) {
-      throw new Error(`obstacleChanges for "${obstacleId}" must be a non-empty object`);
-    }
-    for (const [field, value] of Object.entries(fields)) {
-      if (!OBSTACLE_FIELDS.includes(field)) {
-        throw new Error(`unknown field "${field}" for "${obstacleId}"`);
-      }
-      if (typeof value !== "number" || !Number.isFinite(value)) {
-        throw new Error(`field "${field}" for "${obstacleId}" must be a finite number, got ${JSON.stringify(value)}`);
-      } else if (NON_NEGATIVE_FIELDS.has(field) && value < 0) {
-        throw new Error(`field "${field}" for "${obstacleId}" must not be negative, got ${JSON.stringify(value)}`);
-      }
-    }
-  }
+  validateEntityChanges(obstacleChanges, {
+    label: "obstacleChanges",
+    noun: "obstacle",
+    ids: OBSTACLE_IDS,
+    fields: OBSTACLE_FIELDS,
+  });
 }
 
-// Pickups expose weight/minDistance (spawn tuning, same shape as obstacles —
-// see state.js) plus amount/duration (the payload a crate grants — see
-// state.js's header on why a given entry only ever has one of the two).
-// amount/duration join POSITIVE_FIELDS above: a crate that grants zero ammo,
-// zero healing or zero seconds of shield isn't a smaller reward, it's a
-// no-op, unlike weight (0 is a valid "not in the draw" for the spawn side).
 export function validatePickupChanges(pickupChanges) {
-  if (!pickupChanges || typeof pickupChanges !== "object" || Array.isArray(pickupChanges)) {
-    throw new Error("body.pickupChanges must be an object");
-  }
-  if (Object.keys(pickupChanges).length === 0) {
-    throw new Error("body.pickupChanges must not be empty");
-  }
-  for (const [pickupId, fields] of Object.entries(pickupChanges)) {
-    if (!PICKUP_IDS.includes(pickupId)) {
-      throw new Error(`unknown pickup id "${pickupId}"`);
-    }
-    if (!fields || typeof fields !== "object" || Object.keys(fields).length === 0) {
-      throw new Error(`pickupChanges for "${pickupId}" must be a non-empty object`);
-    }
-    for (const [field, value] of Object.entries(fields)) {
-      if (!PICKUP_SPAWN_FIELDS.includes(field) && !PICKUP_EFFECT_FIELDS.includes(field)) {
-        throw new Error(`unknown field "${field}" for "${pickupId}"`);
-      }
-      if (typeof value !== "number" || !Number.isFinite(value)) {
-        throw new Error(`field "${field}" for "${pickupId}" must be a finite number, got ${JSON.stringify(value)}`);
-      } else if (POSITIVE_FIELDS.has(field) && value <= 0) {
-        throw new Error(`field "${field}" for "${pickupId}" must be a positive number, got ${JSON.stringify(value)}`);
-      } else if (NON_NEGATIVE_FIELDS.has(field) && value < 0) {
-        throw new Error(`field "${field}" for "${pickupId}" must not be negative, got ${JSON.stringify(value)}`);
-      }
-    }
-  }
+  validateEntityChanges(pickupChanges, {
+    label: "pickupChanges",
+    noun: "pickup",
+    ids: PICKUP_IDS,
+    fields: [...PICKUP_SPAWN_FIELDS, ...PICKUP_EFFECT_FIELDS],
+  });
 }
 
 function commitMessage(changes, obstacleChanges, pickupChanges) {

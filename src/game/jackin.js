@@ -47,8 +47,7 @@
 // below), which is allocated once and reused.
 
 import { neonStroke, glowLine, glowText } from "../engine/neon.js";
-import { carShapeOutline } from "./carshapes.js";
-import { rng } from "./effects.js";
+import { rng, drawChromaticSplit } from "./effects.js";
 import { PLAYER, PLAYER_THRUST, GREEN_PALE, GREEN_BRIGHT } from "../engine/palette.js";
 import * as gameConsole from "../engine/console.js";
 import { HINT } from "../engine/console.js";
@@ -253,26 +252,22 @@ export class JackIn {
     const jitter = 7 * k;
     const drift = 14 * k;
 
+    // Assembling IN, so this is disconnect.js's split run backwards: the centre
+    // copy (the player's own cyan, not white — see the header) rises 0.35 -> 1
+    // as the car arrives while the side copies fade to nothing, and the offset
+    // itself closes with k so the three converge rather than merely dimming.
     ctx.save();
-    for (const [color, spread] of [["#ffffff", -1], [PLAYER, 0], [PLAYER_THRUST, 1]]) {
-      const alpha = spread === 0 ? 0.35 + 0.65 * p : 0.75 * k;
-      if (alpha <= 0.01) continue;
-      neonStroke(ctx, (c) => {
-        for (const loop of carShapeOutline(0, w, h)) {
-          for (let i = 0; i < loop.length; i++) {
-            const [x1, y1] = loop[i];
-            const [x2, y2] = loop[(i + 1) % loop.length];
-            const mx = (x1 + x2) / 2;
-            const my = (y1 + y2) / 2;
-            const d = Math.hypot(mx, my) || 1;
-            const ox = (mx / d) * drift + spread * 3 * k + (rand() - 0.5) * jitter;
-            const oy = (my / d) * drift + (rand() - 0.5) * jitter;
-            c.moveTo(cx + x1 + ox, cy + y1 + oy);
-            c.lineTo(cx + x2 + ox, cy + y2 + oy);
-          }
-        }
-      }, color, 2, 4, 0.13, alpha);
-    }
+    drawChromaticSplit(ctx, cx, cy, w, h, {
+      drift,
+      jitter,
+      spreadPx: 3 * k,
+      rand,
+      layers: [
+        ["#ffffff", -1, 0.75 * k],
+        [PLAYER, 0, 0.35 + 0.65 * p],
+        [PLAYER_THRUST, 1, 0.75 * k],
+      ],
+    });
     ctx.restore();
   }
 

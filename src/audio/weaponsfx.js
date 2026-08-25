@@ -2,7 +2,7 @@
 // audio/soundtypes.js id its discharge/use should play. The ONE place that
 // decision lives, so a new weapon added to weapons.js needs one new entry
 // here rather than a branch grown at main.js's fire/deploy call sites — and
-// so test/invariants.test.js can assert every weapon has a sound (and no
+// so test/audio.test.js can assert every weapon has a sound (and no
 // mapping points at an id nobody carries) without touching main.js at all.
 //
 // TWO TABLES, because the two catalogues are answering different questions.

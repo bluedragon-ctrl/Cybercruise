@@ -22,6 +22,7 @@
 import { drawPickupShape, PICKUP_SHAPES } from "./pickupshapes.js";
 import { pickPickupType, applyPickup, AMMO, HEAL, SHIELD } from "./pickuptypes.js";
 import { centerXAt, headingAt, ROAD_HALF_WIDTH } from "./road.js";
+import { overlaps } from "./collisions.js";
 import * as gameConsole from "../engine/console.js";
 
 // The console line a crate's kind reads as (engine/console.js) — always a
@@ -51,16 +52,6 @@ const DRAW_MARGIN = 40; // px past the screen edge still worth drawing
 // mine's own 7 (obstacles.js's PULSE_RATE) so a pickup never reads as a
 // hazard blinking.
 const PULSE_RATE = 2.2;
-
-// AABB overlap between two boxes exposing {worldY, offset, w, h}. Mirrors
-// obstacles.js's own — a pickup never moves under a shove the way TrafficCar
-// does, so this is the whole test.
-function overlaps(a, b) {
-  return (
-    Math.abs(a.worldY - b.worldY) < (a.h + b.h) / 2 &&
-    Math.abs(a.offset - b.offset) < (a.w + b.w) / 2
-  );
-}
 
 // One crate on the road.
 class Pickup {

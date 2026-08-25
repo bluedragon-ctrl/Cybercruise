@@ -156,7 +156,7 @@ const GLOW_PAD = 18;
 // colour (a 4px-wide wheel can't show finer detail than this anyway).
 const WHEEL_PERIOD = 4;
 // Exported so the sprite-cache budget in cartypes.js can be asserted rather than
-// only documented (see test/invariants.test.js).
+// only documented (see test/road-and-caches.test.js).
 export const WHEEL_FRAMES = 8;
 
 // Cached drawCar. Identical output to drawCar, except the wheel tread snaps to

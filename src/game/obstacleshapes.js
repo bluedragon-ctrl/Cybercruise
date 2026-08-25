@@ -36,6 +36,7 @@
 
 import { glowLine, glowPoly } from "../engine/neon.js";
 import { LANE_WIDTH } from "./road.js";
+import { polygon, caltropSpikes } from "./polygon.js";
 import {
   CAR_FILL,
   CAR_FILL_RAISED,
@@ -65,24 +66,10 @@ export const WATER = "water";
 
 // A circle as a polygon, so it goes through glowPoly and gets the same opaque
 // fill + glow treatment as every other part.
-function circle(cx, cy, r, n = 20) {
-  const pts = [];
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
-  }
-  return pts;
-}
+const circle = (cx, cy, r, n = 20) => polygon(cx, cy, r, r, n);
 
 // A regular polygon (hub plates, mine cores).
-function ngon(cx, cy, r, n, rot = 0) {
-  const pts = [];
-  for (let i = 0; i < n; i++) {
-    const a = rot + (i / n) * Math.PI * 2;
-    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
-  }
-  return pts;
-}
+const ngon = (cx, cy, r, n, rot = 0) => polygon(cx, cy, r, r, n, rot);
 
 // Diagonal hazard stripes, clipped to a rectangle. One clipped path buys the
 // strongest "do not drive here" signal available.
@@ -127,7 +114,7 @@ function stripes(ctx, x, y, w, h, color, step = 9) {
 // How far past its own geometry a neon part actually PAINTS. Every `extent` in
 // this file is geometry + one of these constants, and that is the whole point:
 // an extent that is typed by hand is a claim nobody checks, and the lane-fit
-// test in test/invariants.test.js asserts against `extent`, so a hand-typed
+// test in test/hazards.test.js asserts against `extent`, so a hand-typed
 // number that under-reports lets the test pass while the drawing crosses the
 // lane edge. That is exactly what the trestle did — declared 29, drew 33.
 //
@@ -376,17 +363,11 @@ export const OBSTACLE_SHAPES = [
       const spike = CALTROP_SPIKE + pulse * CALTROP_SPIKE_PULSE; // the spikes
                                                  // breathe; the core does not
 
-      // Each spike is a tapered triangle rather than a line, so it survives the
-      // glow at this size instead of dissolving into a smudge.
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2;
-        const dx = Math.cos(a);
-        const dy = Math.sin(a);
-        glowPoly(ctx, [
-          [cx + dx * (r + spike), cy + dy * (r + spike)],
-          [cx + dx * r - dy * 3.5, cy + dy * r + dx * 3.5],
-          [cx + dx * r + dy * 3.5, cy + dy * r - dx * 3.5],
-        ], ENEMY, 1.5, 9, CAR_FILL_RAISED);
+      // Tapered triangles, not lines, so they survive the glow at this size —
+      // see polygon.js's caltropSpikes, which pickupshapes.js's MINE glyph
+      // draws from too so the crate keeps the hazard's exact silhouette.
+      for (const tri of caltropSpikes(cx, cy, r, spike, 3.5)) {
+        glowPoly(ctx, tri, ENEMY, 1.5, 9, CAR_FILL_RAISED);
       }
 
       glowPoly(ctx, ngon(cx, cy, r, 6), ENEMY_PALE, 2, 11, CAR_FILL_HIGH);
@@ -451,8 +432,6 @@ export const OBSTACLE_SHAPES = [
   },
 ];
 
-export const OBSTACLE_SHAPE_NAMES = OBSTACLE_SHAPES.map((s) => s.name);
-
 // Look an obstacle up by name. Callers select through this rather than by
 // writing a bare index, for the reason carShapeIndex documents: inserting an
 // entry in the middle of the catalogue must not silently turn every mine on the
@@ -461,12 +440,6 @@ export function obstacleShapeIndex(name) {
   const i = OBSTACLE_SHAPES.findIndex((s) => s.name === name);
   if (i === -1) throw new Error(`unknown obstacle shape: ${name}`);
   return i;
-}
-
-// Indices of every entry in a family — what a placement pass wants when it has
-// decided "put a roadblock here" and now needs to pick which one.
-export function obstaclesOfFamily(family) {
-  return OBSTACLE_SHAPES.reduce((acc, s, i) => (s.family === family ? acc.concat(i) : acc), []);
 }
 
 // Draw obstacle `index` centred at (cx, cy). `pulse` (0..1) drives the mine's
