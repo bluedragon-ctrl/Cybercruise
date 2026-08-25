@@ -5,7 +5,7 @@
 // Requires git on PATH — see the startup check at the bottom of this file.
 
 import http from "node:http";
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
@@ -429,15 +429,73 @@ function commitMessage(body) {
   return lines.join("\n");
 }
 
-function runTests() {
+const TEST_DIR_REL = "test";
+
+// The test files, listed by reading the directory rather than by handing the
+// runner a pattern to expand.
+//
+// This used to pass `test/*.test.js` straight to execFile, which spawns without
+// a shell — so nothing ever expanded that glob except `node --test` itself, and
+// it only learned to do that in Node 21. On Node 20 the runner reported
+// `Could not find '<repo>\test\*.test.js'`, which the UI then showed as a
+// failing test run: every tuning attempt looked broken on an otherwise green
+// tree. (It read as working during development only because the same command
+// typed at a shell prompt gets its glob expanded by the shell first, so the
+// runner never sees the pattern.)
+//
+// An explicit list has no version-dependent expansion behind it at all, on any
+// Node and on any platform.
+export async function testFiles() {
+  const entries = await readdir(path.join(REPO_ROOT, TEST_DIR_REL));
+  return entries
+    .filter((name) => name.endsWith(".test.js"))
+    .sort()
+    .map((name) => `${TEST_DIR_REL}/${name}`);
+}
+
+// The runner prints a couple of thousand lines for a green suite, and on a red
+// one the handful that matter are buried in the middle of it. This pulls out
+// each `not ok` entry together with the indented YAML block under it, so the UI
+// can lead with what actually broke rather than with a wall of `ok`.
+//
+// TAP's own shape does the work: a result line is unindented, and everything
+// belonging to it is indented beneath.
+export function failingTests(tapOutput) {
+  const lines = tapOutput.split(/\r?\n/);
+  const failures = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^not ok \d+ - /.test(lines[i])) continue;
+    const block = [lines[i]];
+    let j = i + 1;
+    while (j < lines.length && (lines[j] === "" || /^\s/.test(lines[j]))) {
+      block.push(lines[j]);
+      j++;
+    }
+    // Trim the blank lines a block may have swallowed on its way to the next
+    // result line.
+    while (block.length > 0 && block[block.length - 1].trim() === "") block.pop();
+    failures.push(block.join("\n"));
+  }
+  return failures;
+}
+
+export async function runTests() {
+  let files;
+  try {
+    files = await testFiles();
+  } catch (err) {
+    return { passed: false, output: `could not list ${TEST_DIR_REL}/: ${err.message}` };
+  }
+  // No test files is not a pass. Reporting one would turn "the suite went
+  // missing" into a silent green light, which is the same failure mode the glob
+  // bug above had, only inverted.
+  if (files.length === 0) {
+    return { passed: false, output: `no *.test.js files found in ${TEST_DIR_REL}/` };
+  }
   return new Promise((resolve) => {
-    // NOTE: `node --test test/` (a bare directory arg, matching package.json's
-    // own "test" script) fails with MODULE_NOT_FOUND on this machine's
-    // Node v24.14.0 — reproduced even outside this repo, so it's a Node/npm
-    // compatibility issue, not something introduced here. The glob form
-    // below is what actually works and is otherwise equivalent.
-    execFile("node", ["--test", "test/*.test.js"], { cwd: REPO_ROOT }, (error, stdout, stderr) => {
-      resolve({ passed: !error, output: `${stdout}\n${stderr}` });
+    execFile("node", ["--test", ...files], { cwd: REPO_ROOT }, (error, stdout, stderr) => {
+      const output = `${stdout}\n${stderr}`;
+      resolve({ passed: !error, output, failures: failingTests(output) });
     });
   });
 }
@@ -608,9 +666,14 @@ async function handleCommit(req, res) {
     return;
   }
 
-  const { passed, output } = await runTests();
+  const { passed, output, failures } = await runTests();
   pending = { branchName, originalBranch };
-  sendJson(res, 200, { branch: branchName, testsPassed: passed, testOutput: output });
+  sendJson(res, 200, {
+    branch: branchName,
+    testsPassed: passed,
+    testOutput: output,
+    testFailures: failures ?? [],
+  });
 }
 
 async function handlePush(res) {

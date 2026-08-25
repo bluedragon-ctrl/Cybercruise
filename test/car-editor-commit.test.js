@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { applyChanges, TOUCHED_FILES } from "../tools/car-editor/server.js";
+import { readFileSync, readdirSync } from "node:fs";
+import {
+  applyChanges,
+  failingTests,
+  TOUCHED_FILES,
+  testFiles,
+} from "../tools/car-editor/server.js";
 import { CONSTANT_FILES, readConstantValue } from "../tools/car-editor/constants.js";
 
 // The commit handler's whole job is to turn one request into a set of patched
@@ -173,4 +178,86 @@ test("TOUCHED_FILES covers every file the constants catalogue reaches into", () 
   for (const rel of CONSTANT_FILES) {
     assert.ok(TOUCHED_FILES.includes(rel), `${rel} is patchable but not tracked`);
   }
+});
+
+// --- Finding the test files -------------------------------------------------
+//
+// The commit flow runs the suite before it will push, so how it FINDS the suite
+// is part of the flow. It used to hand `test/*.test.js` to execFile, which
+// spawns without a shell — so the only thing that could expand that glob was
+// `node --test` itself, which only learned to in Node 21. On Node 20 every
+// tuning attempt reported a failing test run on a completely green tree.
+//
+// It read as working throughout development because the same command typed at a
+// shell prompt has its glob expanded by the shell before the runner ever sees
+// it. That is exactly the gap these cover: discovery is asserted directly,
+// never through a shell.
+//
+// runTests() itself is deliberately NOT called here — it spawns the whole suite,
+// and calling it from inside the suite would recurse.
+
+test("testFiles finds the test files by reading the directory, with no glob involved", async () => {
+  const files = await testFiles();
+  assert.ok(files.length > 0, "no test files discovered");
+  for (const file of files) {
+    assert.match(file, /^test\/[^*?]+\.test\.js$/, `${file} is not a plain path`);
+  }
+});
+
+test("testFiles discovers exactly the *.test.js files on disk", async () => {
+  const onDisk = readdirSync(new URL("../test", import.meta.url))
+    .filter((name) => name.endsWith(".test.js"))
+    .sort()
+    .map((name) => `test/${name}`);
+  assert.deepEqual(await testFiles(), onDisk);
+  // Including this very file, which is the cheapest proof the list is real.
+  assert.ok(onDisk.includes("test/car-editor-commit.test.js"));
+});
+
+test("testFiles skips files that are not tests", async () => {
+  // test/ holds README-invariants.md alongside the suites.
+  const files = await testFiles();
+  assert.ok(!files.some((f) => f.endsWith(".md")));
+});
+
+// --- Reporting which test failed --------------------------------------------
+
+test("failingTests pulls each failure out with the block beneath it", () => {
+  const tap = [
+    "TAP version 13",
+    "ok 1 - fine",
+    "not ok 2 - the repair and the shield are the crate's own figures",
+    "  ---",
+    "  error: |-",
+    "    Expected values to be strictly equal:",
+    "    50 !== 70",
+    "  code: 'ERR_ASSERTION'",
+    "  ...",
+    "ok 3 - also fine",
+    "1..3",
+  ].join("\n");
+  const failures = failingTests(tap);
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /^not ok 2 - the repair and the shield/);
+  assert.match(failures[0], /50 !== 70/);
+  // The passing results are not swept in with it.
+  assert.ok(!failures[0].includes("ok 3"));
+});
+
+test("failingTests reports nothing for a green run", () => {
+  assert.deepEqual(failingTests("TAP version 13\nok 1 - a\nok 2 - b\n1..2\n"), []);
+});
+
+test("failingTests keeps every failure when there is more than one", () => {
+  const tap = "not ok 1 - first\n  ---\n  error: 'a'\n  ...\nnot ok 2 - second\n  ---\n  error: 'b'\n  ...\n";
+  const failures = failingTests(tap);
+  assert.equal(failures.length, 2);
+  assert.match(failures[0], /first/);
+  assert.match(failures[1], /second/);
+});
+
+test("failingTests handles CRLF output", () => {
+  // execFile hands back whatever the runner wrote, and this is Windows.
+  const tap = "ok 1 - a\r\nnot ok 2 - b\r\n  ---\r\n  error: 'x'\r\n  ...\r\n";
+  assert.equal(failingTests(tap).length, 1);
 });
