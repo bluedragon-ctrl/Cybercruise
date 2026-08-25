@@ -111,6 +111,9 @@ import {
   MUSIC_DIR,
   MUSIC_LISTING_URL,
   TRACK_GAIN,
+  TRACK_DECODE_SAMPLE_RATE,
+  TRACK_DECODE_RATE_MIN,
+  TRACK_DECODE_RATE_MAX,
   trackGainFor,
   trackDisplayName,
   validateMusicConfig,
@@ -978,9 +981,43 @@ test("shouldLoopSingleTrack is true only for a single-file directory", () => {
   assert.equal(shouldLoopSingleTrack([]), false);
 });
 
-test("retainedTrackNames keeps current and next, and drops a null next", () => {
-  assert.deepEqual(retainedTrackNames("a.ogg", "b.ogg"), new Set(["a.ogg", "b.ogg"]));
-  assert.deepEqual(retainedTrackNames("a.ogg", null), new Set(["a.ogg"]));
+test("retainedTrackNames keeps only the current track decoded, and only the next one compressed", () => {
+  // The asymmetry IS the memory fix: decoded PCM is tens of MB per track, the
+  // compressed bytes a few. Holding the stream-ahead decoded (as this used to)
+  // doubled the soundtrack's footprint for the entire length of every track.
+  assert.deepEqual(retainedTrackNames("a.ogg", "b.ogg"), {
+    decoded: new Set(["a.ogg"]),
+    encoded: new Set(["b.ogg"]),
+  });
+});
+
+test("retainedTrackNames drops a null next without disturbing the current track", () => {
+  // A single-track directory, or every other track already failed — there is
+  // nothing worth prefetching, but the track that's sounding must still be kept.
+  assert.deepEqual(retainedTrackNames("a.ogg", null), {
+    decoded: new Set(["a.ogg"]),
+    encoded: new Set(),
+  });
+});
+
+test("retainedTrackNames retains nothing at all before anything is playing", () => {
+  // order[index] is undefined until the listing has settled — evictStale()
+  // must treat that as "keep nothing", never as a name to hold on to.
+  assert.deepEqual(retainedTrackNames(undefined, null), {
+    decoded: new Set(),
+    encoded: new Set(),
+  });
+});
+
+test("the two retained sets never name the same track", () => {
+  // A track cannot be both the one playing and the one queued behind it; if it
+  // ever were, evictStale() would keep a decoded copy AND a compressed one of
+  // the same audio — paying twice for the thing this exists to stop paying
+  // twice for.
+  const keep = retainedTrackNames("a.ogg", "b.ogg");
+  for (const name of keep.decoded) {
+    assert.ok(!keep.encoded.has(name), `${name} is retained in both caches at once`);
+  }
 });
 
 test("nextPlayableIndex finds the first non-failed track at or after fromIndex, wrapping", () => {
@@ -1135,6 +1172,34 @@ test("validateMusicConfig rejects a root-absolute MUSIC_LISTING_URL", () => {
 test("validateMusicConfig rejects a root-absolute MUSIC_DIR", () => {
   const errors = validateMusicConfig({ musicDir: "/assets/music" });
   assert.ok(errors.some((e) => e.includes("MUSIC_DIR")), `expected a MUSIC_DIR error, got: ${errors}`);
+});
+
+test("TRACK_DECODE_SAMPLE_RATE is in range AND actually below a normal output rate", () => {
+  // The range check alone would pass for 48000, which is exactly the value
+  // that saves nothing — decoding at the output rate is what this constant
+  // exists to avoid. See musictypes.js for the measured footprint.
+  assert.ok(TRACK_DECODE_SAMPLE_RATE >= TRACK_DECODE_RATE_MIN);
+  assert.ok(TRACK_DECODE_SAMPLE_RATE <= TRACK_DECODE_RATE_MAX);
+  assert.ok(
+    TRACK_DECODE_SAMPLE_RATE < 44100,
+    `TRACK_DECODE_SAMPLE_RATE ${TRACK_DECODE_SAMPLE_RATE} saves no memory at or above the output rate`,
+  );
+});
+
+test("validateMusicConfig rejects a decode sample rate outside the useful range", () => {
+  for (const rate of [TRACK_DECODE_RATE_MIN - 1, TRACK_DECODE_RATE_MAX + 1, 0, -24000, NaN]) {
+    const errors = validateMusicConfig({ decodeSampleRate: rate });
+    assert.ok(
+      errors.some((e) => e.includes("TRACK_DECODE_SAMPLE_RATE")),
+      `expected a TRACK_DECODE_SAMPLE_RATE error for ${rate}, got: ${errors}`,
+    );
+  }
+});
+
+test("validateMusicConfig accepts the decode rate at both ends of its range", () => {
+  for (const rate of [TRACK_DECODE_RATE_MIN, TRACK_DECODE_RATE_MAX]) {
+    assert.deepEqual(validateMusicConfig({ decodeSampleRate: rate }), [], `rate ${rate} should be accepted`);
+  }
 });
 
 test("validateMusicConfig rejects an out-of-range per-track override", () => {

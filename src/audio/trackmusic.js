@@ -5,20 +5,42 @@
 // called by any other module directly — synth.js's resolveBackend() is the
 // only thing that ever touches this file's exports.
 //
-// --- Why decoding is streamed one track ahead, never the whole directory ---
+// --- Why only ONE track is ever held decoded ------------------------------
 //
-// Decoded PCM is large regardless of how small the compressed file is: a
-// 3-minute stereo track at 44.1kHz decodes to roughly 3*60*44100*2*4 bytes
-// (Float32, 2 channels) — about 60MB for THAT ONE TRACK, and decodeAudioData
-// hands back the whole thing as one in-memory AudioBuffer, no streaming API
-// involved. Decoding an entire multi-track directory up front the moment the
-// context exists would mean the game's memory footprint scales with however
-// much music someone has dropped into the folder, for a game that today has
-// no other asset anywhere near that size. Instead: decode the CURRENT track
-// and, in the background, the NEXT one — see decodeAndCache()/evictStale()
-// below — so memory stays bounded at "two tracks decoded" no matter how many
-// files exist, and the background decode has an entire track's playback
-// time (minutes) to finish before it's actually needed.
+// Decoded PCM is large regardless of how small the compressed file is, and
+// the real files make the point better than the arithmetic does: measured on
+// the published build, chase.ogg is 2.6MB on disk and 71MB decoded, and
+// under_chrome.ogg is 3.8MB and 110MB. decodeAudioData hands back the whole
+// thing as one in-memory AudioBuffer — there is no streaming API to decode
+// into. So decoding a whole directory up front would scale the game's
+// footprint with however much music someone dropped into the folder, for a
+// game whose next-largest asset is a sprite sheet.
+//
+// This file used to keep the current track AND the next one decoded, which
+// bounded that at "two tracks" — but two tracks was still 140-220MB held for
+// a whole session, plus a fresh allocation of that size (and collection of
+// the outgoing one) at every handoff, mid-gameplay. So the two halves of
+// "getting the next track ready" are now split apart:
+//
+//   BYTES are fetched ahead (prefetch()), the moment a track starts playing.
+//   A few MB, parked in `encoded`, so the network is never on the critical
+//   path at a handoff.
+//
+//   DECODING happens at the handoff itself (firstPlayableFrom), not before.
+//   Steady-state memory is therefore ONE decoded track, briefly two while a
+//   handoff is in flight — see evictStale(), which releases the outgoing
+//   track's PCM as soon as `index` moves.
+//
+// THE COST IS A GAP: the next track can't start until it has decoded, which
+// measures ~350-560ms per track. That is a deliberate trade, made because a
+// short silence between tracks is not something this game's soundtrack needs
+// to avoid — it is not crossfading, and a track boundary is already a
+// natural break. If seamless handoffs ever matter more than the memory,
+// decoding the stream-ahead early is what to put back.
+//
+// Sitting underneath both halves: tracks decode at a REDUCED SAMPLE RATE
+// (musictypes.js's TRACK_DECODE_SAMPLE_RATE, via decodeAtTrackRate below),
+// which halves what that one retained buffer costs in the first place.
 //
 // --- Two separate readiness questions --------------------------------------
 //
@@ -54,7 +76,7 @@
 // encodes, never decodes.
 
 import { getCtx, getMusicBus } from "./context.js";
-import { MUSIC_DIR, MUSIC_LISTING_URL, trackGainFor } from "./musictypes.js";
+import { MUSIC_DIR, MUSIC_LISTING_URL, TRACK_DECODE_SAMPLE_RATE, trackGainFor } from "./musictypes.js";
 
 // --- Pure playlist logic ----------------------------------------------------
 //
@@ -103,13 +125,26 @@ export function shouldLoopSingleTrack(order) {
   return order.length === 1;
 }
 
-// The set of track names that must stay decoded right now — everything else
-// in the buffer cache is stale and gets released (see evictStale() below).
+// What each of the two caches must hold right now — everything else in
+// either is stale and gets released (see evictStale() below). The two are
+// deliberately NOT the same set, and that asymmetry is the whole memory
+// story: only the track actually sounding is worth holding as decoded PCM
+// (tens of MB), while the one queued behind it is held as the compressed
+// bytes it arrived as (a few MB) and decoded only when it's needed.
+//
 // `nextName` is null when there's nothing worth streaming ahead (a single-
 // or zero-track directory, or every remaining track has already failed —
-// see streamAheadTarget()), in which case only the current track is kept.
+// see streamAheadTarget()), in which case nothing is prefetched at all.
+//
+// One function returning both sets rather than two functions, because this
+// IS one policy — "current decoded, next compressed" — and splitting it
+// would let the two halves drift into disagreeing about which track is
+// which.
 export function retainedTrackNames(currentName, nextName) {
-  return new Set([currentName, nextName].filter(Boolean));
+  return {
+    decoded: new Set([currentName].filter(Boolean)),
+    encoded: new Set([nextName].filter(Boolean)),
+  };
 }
 
 // The first index at or after `fromIndex` (wrapping, checked over at most
@@ -146,11 +181,11 @@ export function nextPlayableIndex(order, fromIndex, failedNames) {
 // `onOrderReady`, if given, fires SYNCHRONOUSLY right after the shuffle,
 // before `decodeTrack` is ever awaited — production's preload() (below)
 // uses this to adopt the new `order` into module state before its own
-// decodeAndCache(order[0]) call runs. That ordering matters:
-// decodeAndCache()'s own evictStale() reads the module-level `order`/
-// `index` to decide what's safe to keep, and it runs mid-decode — if it ran
-// against the OLD (empty) `order` instead, it would treat the buffer it
-// just finished decoding as stale and delete it on the spot.
+// decodeAndCache(order[0]) call runs. That ordering still matters: the
+// prefetch that follows picks its target with streamAheadTarget(), which
+// reads the module-level `order`/`index` — against the OLD (empty) `order`
+// there is no second track to name, and the stream-ahead would silently
+// never happen, leaving every handoff to download from scratch.
 //
 // `onListingSettled`, if given, fires in EVERY branch below — including the
 // two failure paths `onOrderReady` never reaches — the moment the listing
@@ -213,8 +248,10 @@ const listingSettledPromise = new Promise((resolve) => {
   resolveListingSettled = resolve;
 });
 
-const buffers = new Map(); // name -> decoded AudioBuffer; kept to at most {current, next} — see evictStale()
+const buffers = new Map(); // name -> decoded AudioBuffer; normally just the track that's sounding — see evictStale()
+const encoded = new Map(); // name -> the stream-ahead track's raw compressed bytes, waiting to be decoded at the handoff. A few MB against the tens of MB the same track costs decoded, which is the entire reason this cache exists separately from `buffers`
 const decoding = new Map(); // name -> in-flight decode Promise, so a background stream-ahead and a same-track request from handleTrackEnded share one fetch instead of racing two
+const prefetching = new Map(); // name -> in-flight byte fetch Promise; decodeAndCache() joins one of these rather than starting a second download of a track already on its way in
 const failedTracks = new Set(); // names that have failed to decode at least once this run — nextPlayableIndex() routes around these so a permanently corrupt file isn't re-fetched every time the playlist wraps back to it
 
 let trackFilter = null; // this backend's OWN lowpass — disturb() bends THIS, never context.js's musicFilter (see the project's own critical-constraint note: everything downstream of musicGain is off-limits)
@@ -293,11 +330,90 @@ function streamAheadTarget() {
   return candidate === null ? null : order[candidate];
 }
 
+// Releases whatever neither cache is supposed to be holding any more.
+//
+// CALLED FROM playIndex(), NOT FROM decodeAndCache(), and that move is
+// load-bearing now that only the CURRENT track stays decoded. Eviction
+// decides what to keep by reading the module-level `index`, which still
+// points at the OUTGOING track for the whole of a handoff — so running this
+// mid-decode (as it used to) would look at the buffer that was just decoded
+// for the track about to play, correctly conclude it isn't the current one,
+// and delete it on the spot. playIndex() is the one moment `index` and
+// reality agree, so that is where this belongs.
 function evictStale() {
   const keep = retainedTrackNames(order[index], streamAheadTarget());
   for (const name of buffers.keys()) {
-    if (!keep.has(name)) buffers.delete(name);
+    if (!keep.decoded.has(name)) buffers.delete(name);
   }
+  for (const name of encoded.keys()) {
+    if (!keep.encoded.has(name)) encoded.delete(name);
+  }
+}
+
+// Downloads `name`'s compressed bytes and parks them in `encoded`, WITHOUT
+// decoding — the cheap half of getting a track ready. Called for the
+// stream-ahead target so that when the handoff comes, the several MB of Ogg
+// are already in hand and only the decode is left to do (see the module
+// header on why the decode itself is no longer done ahead of time).
+//
+// Never throws, and never records a failure: a track that couldn't be
+// PREFETCHED isn't a track that has failed to DECODE — it just isn't ready
+// early, and decodeAndCache() will fetch it again at the handoff and record
+// a real failure then if there is one. Marking it failed here would retire a
+// track from the playlist over a single transient network blip.
+function prefetch(name) {
+  if (!name || encoded.has(name) || buffers.has(name)) return Promise.resolve();
+  const inFlight = prefetching.get(name);
+  if (inFlight) return inFlight;
+
+  const attempt = (async () => {
+    const res = await fetch(trackUrl(name));
+    if (!res.ok) throw new Error(`prefetch ${name} failed: ${res.status}`);
+    encoded.set(name, await res.arrayBuffer());
+  })()
+    .catch(() => {})
+    .finally(() => prefetching.delete(name));
+
+  prefetching.set(name, attempt);
+  return attempt;
+}
+
+// Decodes `bytes` to PCM at TRACK_DECODE_SAMPLE_RATE rather than at the
+// game's own output rate — see musictypes.js's constant for the measured
+// numbers and the reasoning. The short version: decodeAudioData resamples to
+// whatever context decodes it, so decoding in a throwaway OfflineAudioContext
+// at a lower rate is what makes a track cost half the memory, and the
+// resulting buffer still plays at full quality through the normal graph
+// because AudioBufferSourceNode resamples on the fly.
+//
+// A FRESH OfflineAudioContext PER DECODE, deliberately: it exists only to
+// carry a sample rate into decodeAudioData and is never started or connected
+// to anything, so it is cheap, and a fresh one cannot inherit state from a
+// previous decode that failed partway. Its length of 1 frame is the minimum
+// the constructor accepts — nothing is ever rendered through it.
+//
+// FALLS BACK TO THE LIVE CONTEXT if the browser won't build an
+// OfflineAudioContext at this rate (or lacks the constructor entirely). That
+// costs the memory saving and nothing else — the track still decodes and
+// still plays, which matters more than the footprint. Kept as a fallback
+// rather than a hard requirement because this whole change is an
+// optimisation; it must not become a new way for music to fail outright.
+//
+// ONLY THE CONSTRUCTOR IS GUARDED, not the decode, and that split is not
+// cosmetic: decodeAudioData DETACHES the ArrayBuffer it is handed. Wrapping
+// the decode too would mean a genuinely corrupt file failed once, then failed
+// again in the fallback on a now-detached buffer — reporting "detached
+// ArrayBuffer" to decodeAndCache()'s catch instead of the real decode error.
+// An unsupported rate throws from the constructor with the bytes untouched,
+// which is exactly the case worth retrying.
+async function decodeAtTrackRate(ctx, bytes) {
+  let decoder = ctx;
+  try {
+    decoder = new OfflineAudioContext(2, 1, TRACK_DECODE_SAMPLE_RATE);
+  } catch {
+    decoder = ctx; // unsupported rate or no OfflineAudioContext — decode natively
+  }
+  return await decoder.decodeAudioData(bytes);
 }
 
 // Decodes `name` and caches the result, or records it in `failedTracks` —
@@ -313,12 +429,27 @@ function decodeAndCache(name) {
 
   const attempt = (async () => {
     const ctx = getCtx();
-    const res = await fetch(trackUrl(name));
-    if (!res.ok) throw new Error(`fetch ${name} failed: ${res.status}`);
-    const arrayBuffer = await res.arrayBuffer();
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-    buffers.set(name, audioBuffer);
-    evictStale();
+    // Join an in-flight prefetch of this same track rather than racing a
+    // second download of it — the stream-ahead usually IS the track being
+    // asked for here, arriving early enough to still be downloading when a
+    // short track ends.
+    const pending = prefetching.get(name);
+    if (pending) await pending;
+
+    // Taking the bytes REMOVES them from the cache, and that is not just
+    // tidiness: decodeAudioData detaches the ArrayBuffer it is handed, so
+    // anything that fished the same entry out afterwards would be holding a
+    // zero-length husk. One owner, taken exactly once.
+    let arrayBuffer = encoded.get(name);
+    if (arrayBuffer) {
+      encoded.delete(name);
+    } else {
+      const res = await fetch(trackUrl(name));
+      if (!res.ok) throw new Error(`fetch ${name} failed: ${res.status}`);
+      arrayBuffer = await res.arrayBuffer();
+    }
+
+    buffers.set(name, await decodeAtTrackRate(ctx, arrayBuffer));
   })()
     .catch(() => {
       // A failed decode is SKIPPED, not fatal — see the module header and
@@ -385,9 +516,16 @@ function playIndex(i, delaySeconds) {
   trackChangeSubscriber?.(name);
 
   if (!loopSingle) {
-    const ahead = streamAheadTarget();
-    if (ahead) decodeAndCache(ahead);
+    // Only the BYTES are fetched ahead now, not the decoded audio — the
+    // decode happens at the next handoff (see firstPlayableFrom). That is
+    // what keeps one decoded track in memory instead of two.
+    prefetch(streamAheadTarget());
   }
+
+  // AFTER `index` was updated above, so this sees the track that is actually
+  // playing — see evictStale()'s own header on why nowhere else will do.
+  // This is the moment the outgoing track's decoded PCM is released.
+  evictStale();
 }
 
 // Walks forward from `fromIndex` (INCLUSIVE) through the playlist — via
@@ -496,8 +634,7 @@ export function preload() {
     decodeTrack: (name) => decodeAndCache(name),
   }).then((result) => {
     firstTrackReady = result.firstTrackReady;
-    const ahead = streamAheadTarget();
-    if (ahead) decodeAndCache(ahead); // stream the SECOND track in ahead of time too — see the module header on why never more than one ahead
+    prefetch(streamAheadTarget()); // pull the SECOND track's bytes in early — see the module header on why only its bytes, and never more than one ahead
   });
   return preloadPromise;
 }
