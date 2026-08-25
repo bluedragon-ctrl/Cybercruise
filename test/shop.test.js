@@ -132,11 +132,40 @@ test("rearming a layer costs more per round than topping up a gun", () => {
     "spike strips must stay the dearest round on the shelf");
 });
 
-test("the repair and the shield are the crate's own figures", () => {
-  assert.equal(CONSUMABLES.find((e) => e.kind === HEAL).amount,
-    PICKUP_TYPES.find((p) => p.kind === HEAL).amount);
-  assert.equal(CONSUMABLES.find((e) => e.kind === SHIELD).duration,
-    PICKUP_TYPES.find((p) => p.kind === SHIELD).duration);
+test("the repair and the shield say on the shelf exactly what they hand over", () => {
+  // These two rows were once the crates' own figures verbatim, and that is no
+  // longer the relation: the dock's repair is deliberately SMALLER than the FIX
+  // crate's and its shield deliberately LONGER than the crate's, because one is
+  // bought on demand and the other is what the road happened to drop. The tuning
+  // editor is allowed to move both independently — see
+  // validateUpgradeConsumableChanges, which accepts amount/duration on a shop row
+  // without touching pickuptypes.js.
+  //
+  // What must NOT drift is the row against its own caption. `detail` is written
+  // out by hand rather than formatted (upgrades.js says why: three rows, three
+  // different units), so nothing but this assertion stops a retune from leaving
+  // the shelf advertising a figure the purchase no longer pays out. That is the
+  // one bug a storefront must not have, and it is exactly the bug a tuning pass
+  // caused here once already.
+  const heal = CONSUMABLES.find((e) => e.kind === HEAL);
+  const shield = CONSUMABLES.find((e) => e.kind === SHIELD);
+  assert.equal(heal.detail, `+${heal.amount} HULL`);
+  assert.equal(shield.detail, `${shield.duration} SEC`);
+  // Both still have to be worth walking down a menu for, so neither may fall
+  // under the crate that grants the same thing for free.
+  assert.ok(heal.amount > 0 && shield.duration > 0, "the dock sells nothing");
+  assert.ok(shield.duration >= PICKUP_TYPES.find((p) => p.kind === SHIELD).duration,
+    "a bought shield is shorter than the one the road gives away");
+});
+
+test("every AMMO row's caption is its own count", () => {
+  // Same rule as the repair and the shield above, for the rows that spell their
+  // count out as rounds. The set rows ("SET OF 8") name the count too, so they
+  // are held to it the same way.
+  for (const row of CONSUMABLES.filter((e) => e.kind === AMMO)) {
+    const stated = Number(row.detail.match(/\d+/)?.[0]);
+    assert.equal(stated, row.amount, `${row.id} advertises ${row.detail} but hands over ${row.amount}`);
+  }
 });
 
 test("nothing on either shelf is free, and no two rows share an id", () => {
