@@ -8,8 +8,9 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { CAR_TYPES, ENEMY_FACTION } from "../src/game/cartypes.js";
 import {
@@ -114,7 +115,7 @@ import {
   trackDisplayName,
   validateMusicConfig,
 } from "../src/audio/musictypes.js";
-import { listMusicFiles } from "../tools/serve.js";
+import { listMusicFiles, manifestPath, manifestContents } from "../tools/musicmanifest.js";
 import "../src/audio/sustainedfx.js"; // side effect: registers every sustained voice's generator
 
 // --- Phase 8 audio infrastructure: voice limiter + duck (context.js) --------
@@ -1123,9 +1124,17 @@ test("validateMusicConfig rejects an empty MUSIC_DIR", () => {
   assert.ok(errors.some((e) => e.includes("MUSIC_DIR")), `expected a MUSIC_DIR error, got: ${errors}`);
 });
 
-test("validateMusicConfig rejects a MUSIC_LISTING_URL that isn't root-relative", () => {
-  const errors = validateMusicConfig({ listingUrl: "api/music" });
+test("validateMusicConfig rejects a root-absolute MUSIC_LISTING_URL", () => {
+  // Root-absolute is the mistake worth catching now that the game is
+  // published under a subdirectory — see the MUSIC_DIR comment in
+  // musictypes.js for what it breaks.
+  const errors = validateMusicConfig({ listingUrl: "/api/music" });
   assert.ok(errors.some((e) => e.includes("MUSIC_LISTING_URL")), `expected a MUSIC_LISTING_URL error, got: ${errors}`);
+});
+
+test("validateMusicConfig rejects a root-absolute MUSIC_DIR", () => {
+  const errors = validateMusicConfig({ musicDir: "/assets/music" });
+  assert.ok(errors.some((e) => e.includes("MUSIC_DIR")), `expected a MUSIC_DIR error, got: ${errors}`);
 });
 
 test("validateMusicConfig rejects an out-of-range per-track override", () => {
@@ -1181,7 +1190,7 @@ test("both music backends implement the same interface synth.js relies on", () =
   }
 });
 
-// --- tools/serve.js's music listing endpoint -----------------------------
+// --- tools/musicmanifest.js's generated track listing --------------------
 
 test("listMusicFiles returns only .ogg files, sorted, with sizes — including a spaced filename", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "cybercruise-music-"));
@@ -1222,7 +1231,45 @@ test("listMusicFiles returns an empty list for a missing directory rather than t
   });
 });
 
-test("MUSIC_DIR and MUSIC_LISTING_URL are both non-empty, and the listing URL is root-relative", () => {
+test("MUSIC_DIR and MUSIC_LISTING_URL are both non-empty and RELATIVE", () => {
+  // The leading-slash check is the one that keeps the published game's music
+  // working: a root-absolute path resolves against the domain root, which on
+  // a GitHub Pages project site (/Cybercruise/) is outside the site entirely
+  // and 404s every track. See musictypes.js's MUSIC_DIR comment.
   assert.ok(MUSIC_DIR.length > 0);
-  assert.ok(MUSIC_LISTING_URL.startsWith("/"));
+  assert.ok(!MUSIC_DIR.startsWith("/"), `MUSIC_DIR must be relative, got "${MUSIC_DIR}"`);
+  assert.ok(MUSIC_LISTING_URL.length > 0);
+  assert.ok(!MUSIC_LISTING_URL.startsWith("/"), `MUSIC_LISTING_URL must be relative, got "${MUSIC_LISTING_URL}"`);
+});
+
+test("listMusicFiles sorts by code unit, not by the machine's locale", async () => {
+  // A committed manifest has to regenerate byte-identically everywhere. Czech
+  // collation treats "ch" as one letter sorting after "h", so localeCompare
+  // would order these three differently depending on who ran the generator —
+  // and the staleness test below would then fail on their checkout.
+  const dir = await mkdtemp(path.join(tmpdir(), "cybercruise-music-"));
+  try {
+    for (const name of ["halo.ogg", "chase.ogg", "city.ogg"]) {
+      await writeFile(path.join(dir, name), Buffer.alloc(1));
+    }
+    const tracks = await listMusicFiles(dir);
+    assert.deepEqual(
+      tracks.map((t) => t.name),
+      ["chase.ogg", "city.ogg", "halo.ogg"],
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the committed manifest matches what's actually in assets/music/", async () => {
+  // The whole cost of trading the old live endpoint for a static file is that
+  // the file can go stale — drop in a track, forget `npm run music`, and the
+  // game silently never plays it. This is what turns that into a test failure
+  // instead of a bug a player finds. Fix by running: npm run music
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const manifest = manifestPath(repoRoot);
+  const onDisk = await readFile(manifest, "utf8");
+  const expected = manifestContents(await listMusicFiles(path.join(repoRoot, MUSIC_DIR)));
+  assert.equal(onDisk, expected, `${path.relative(repoRoot, manifest)} is stale — run: npm run music`);
 });

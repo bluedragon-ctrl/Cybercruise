@@ -8,6 +8,7 @@
     "test": "node --test test/",
     "sim": "node tools/drivesim.js",
     "econ": "node tools/econsim.js",
-    "serve": "node tools/serve.js 5173"
+    "serve": "node tools/serve.js 5173",
+    "music": "node tools/musicmanifest.js"
   }
 }

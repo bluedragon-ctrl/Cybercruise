@@ -1,8 +1,14 @@
 # assets/music/
 
-Drop recorded soundtrack files here — no code change needed. `tools/serve.js`'s
-`GET /api/music` endpoint lists whatever's in this directory at request time,
-and `src/audio/trackmusic.js` plays through the list it gets back.
+Drop recorded soundtrack files here, then run:
+
+```
+npm run music
+```
+
+That regenerates `tracks.json`, the manifest `src/audio/trackmusic.js` fetches
+to find out what it can play. No code change needed — but the manifest step
+is not optional, and `npm test` fails if you skip it (see below).
 
 ## Format
 
@@ -32,10 +38,28 @@ relative to the procedural backend), add an entry to `TRACK_OVERRIDES` in
 `src/audio/musictypes.js` — no need to re-export the audio itself just to
 trim its gain.
 
-## Why nothing is committed here by default
+## Why the tracks are committed, and why the listing is generated
 
-This repository has no build step or asset pipeline, and everything else in
-it is source code — no binary much larger than a sprite sheet exists
-anywhere in the history. Music files are a few MB each, so they're excluded
-via this directory's own `.gitignore` (see the PR that introduced this
-directory for the discussion of whether that should change).
+The audio ships with the game. It's part of what a player receives from
+GitHub Pages or itch.io, not a local convenience, so it lives in the
+repository like everything else the browser loads. Ogg Vorbis at q5-6 keeps
+a track to a few MB; the whole soundtrack should stay well inside the ~50MB
+of repo that static hosting is comfortable with. `.wav` and `.mp3` remain
+ignored by this directory's `.gitignore` — an accidental few-hundred-MB WAV
+in git history is not something you can cleanly undo.
+
+Only commit tracks you wrote, generated, or hold a license for that permits
+redistribution. Publishing puts them up for public download, and git history
+keeps them even after a delete.
+
+`tracks.json` is generated rather than hand-edited, and static rather than a
+server endpoint, because a browser cannot enumerate a directory over HTTP and
+a static host has nowhere to run the code that would. It used to be a live
+`GET /api/music` in `tools/serve.js`, which worked locally and silently fell
+back to procedural music everywhere the game was actually published. See
+`tools/musicmanifest.js` for the full reasoning.
+
+The one cost is staleness: a track that's in this directory but not in
+`tracks.json` will never play. `test/audio.test.js` compares the two, so
+forgetting `npm run music` fails the test suite rather than quietly shipping
+a missing track.

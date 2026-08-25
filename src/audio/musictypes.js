@@ -5,26 +5,42 @@
 // the music lives, and everything trackmusic.js needs to know about HOW
 // LOUD it should be, is collected here.
 //
-// A NODE-SAFE FILE ON PURPOSE. This is imported by tools/serve.js (a Node
-// server) as well as trackmusic.js (browser-only) — see MUSIC_DIR/
-// MUSIC_LISTING_URL below, the single source of truth for the path both
-// sides have to agree on. Nothing here may reference `window`, `document`,
-// or any Web Audio global, the same DOM-free contract context.js's own
-// header documents for the rest of this audio layer's data files.
+// A NODE-SAFE FILE ON PURPOSE. This is imported by tools/musicmanifest.js (a
+// Node script) as well as trackmusic.js (browser-only) — see MUSIC_DIR/
+// MUSIC_LISTING_URL below, the single source of truth for the paths the
+// generator and the player have to agree on. Nothing here may reference
+// `window`, `document`, or any Web Audio global, the same DOM-free contract
+// context.js's own header documents for the rest of this audio layer's data
+// files.
 
-// Relative to the repo root. tools/serve.js's GET /api/music lists exactly
-// this directory (see that file), and trackmusic.js fetches track bytes
-// from the same path — so a change here only ever needs to happen in one
-// place for both sides to stay in sync.
+// Where the soundtrack lives. BOTH constants below are RELATIVE, with no
+// leading slash, and that is load-bearing rather than incidental: a relative
+// URL resolves against the page's own address, so the game works served from
+// a domain root (tools/serve.js at localhost) AND from a subdirectory (a
+// GitHub Pages project site at /Cybercruise/, an itch.io game frame) with no
+// per-host configuration. A root-absolute "/assets/music" would resolve to
+// the DOMAIN root on those hosts — outside the site entirely — and every
+// track would 404. validateMusicConfig() below enforces this.
+//
+// tools/musicmanifest.js lists exactly this directory when it generates the
+// manifest, and trackmusic.js fetches track bytes from the same path, so a
+// change here only ever needs to happen in one place for both sides to stay
+// in sync.
 export const MUSIC_DIR = "assets/music";
 
-// The directory-listing endpoint's URL — see tools/serve.js's own handler.
+// The generated track listing — tools/musicmanifest.js writes this file,
+// trackmusic.js and the SFX gallery read it. See that generator's header for
+// why the listing is a committed static file rather than the live server
+// endpoint it used to be (short version: static hosts have no endpoints).
+//
 // A plain constant rather than deriving it from MUSIC_DIR because the two
-// are conceptually different things (a filesystem path vs. an API route)
-// that only happen to want the word "music" in both today; deriving one
-// from the other would make a future rename of either look like it should
-// change the other too, when it doesn't have to.
-export const MUSIC_LISTING_URL = "/api/music";
+// are conceptually different things (the directory of audio vs. the one
+// metadata file describing it) that only happen to share a prefix today;
+// deriving one from the other would make a future move of either look like
+// it should move the other too, when it doesn't have to. musicmanifest.js
+// takes the BASENAME of this to decide what to write, so the two cannot
+// drift apart into "generates tracks.json, fetches listing.json".
+export const MUSIC_LISTING_URL = "assets/music/tracks.json";
 
 // trackmusic.js's OWN gain trim (0..1), applied on trackmusic's own gain
 // node BEFORE the signal reaches context.js's getMusicBus() — see that
@@ -86,8 +102,11 @@ export function validateMusicConfig({
 } = {}) {
   const errors = [];
   if (!musicDir || typeof musicDir !== "string") errors.push("MUSIC_DIR must be a non-empty string");
-  if (!listingUrl || typeof listingUrl !== "string" || !listingUrl.startsWith("/")) {
-    errors.push("MUSIC_LISTING_URL must be a non-empty, root-relative path");
+  if (typeof musicDir === "string" && musicDir.startsWith("/")) {
+    errors.push("MUSIC_DIR must be relative (no leading slash) so the game works from a subdirectory");
+  }
+  if (!listingUrl || typeof listingUrl !== "string" || listingUrl.startsWith("/")) {
+    errors.push("MUSIC_LISTING_URL must be a non-empty, RELATIVE path (no leading slash) so the game works from a subdirectory");
   }
   if (!(trackGain >= 0 && trackGain <= 1)) errors.push(`TRACK_GAIN ${trackGain} must be in 0..1`);
   for (const [name, cfg] of Object.entries(overrides)) {
