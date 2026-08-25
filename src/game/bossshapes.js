@@ -3,7 +3,7 @@
 // that gives them behaviour.
 //
 // NO CAR TYPES YET, ON PURPOSE. carshapes.js's CAR_SHAPES is 1:1 with cartypes.js
-// and that pairing is enforced by test/invariants.test.js's "one car type per
+// and that pairing is enforced by test/road-and-caches.test.js's "one car type per
 // silhouette" — a shape in that catalogue with no type is a broken invariant,
 // not a work in progress. So the finished ARTWORK lives here and the TYPES get
 // written in the boss session, at which point each entry moves across to

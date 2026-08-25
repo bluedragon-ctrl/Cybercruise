@@ -11,7 +11,7 @@ import { PLAYER, PLAYER_THRUST, HAZARD, SHIELD_FLICKER } from "../engine/palette
 import * as gameConsole from "../engine/console.js";
 
 // Exported: the traffic catalogue is pinned to both ends of the player's speed
-// band (see cartypes.js), and that relation is asserted in test/invariants.test.js.
+// band (see cartypes.js), and that relation is asserted in test/road-and-caches.test.js.
 export const MIN_SPEED = 120; // world units/sec (also the road scroll speed)
 export const MAX_SPEED = 620;
 export const ACCEL = 380; // speed change per second at full throttle

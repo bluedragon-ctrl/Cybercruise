@@ -44,7 +44,7 @@ const SPAWN_INTERVAL = 1.1;  // seconds between spawn attempts
 const SPAWN_MARGIN = 120;    // world units past the screen edge a car appears at
 // Exported because obstacles.js has to place hazards BEYOND the traffic field —
 // a car spawned inside one gets no road to steer around it (see that file's
-// SPAWN_MARGIN, and test/invariants.test.js).
+// SPAWN_MARGIN, and test/combat.test.js).
 export const RETIRE_MARGIN = 320; // ...and how far past it before the car is dropped.
                              // Comfortably beyond SPAWN_MARGIN so a fresh car is
                              // never retired on the tick after it spawns.
@@ -55,7 +55,7 @@ const SPAWN_GAP = 150;       // min world-units of CLEAR ROAD between the boxes 
                              // and a centre-to-centre rule would let one appear
                              // half inside another
 // Exported so the ACCEL / FOLLOW_REACTION / speed-band relation described below
-// can be asserted rather than only documented (see test/invariants.test.js).
+// can be asserted rather than only documented (see test/combat.test.js).
 export const ACCEL = 340;    // world units/sec² traffic uses to reach targetSpeed.
                              // Sized against the CATALOGUE, not against feel: the
                              // speed band runs 180..730 (cartypes.js) and the

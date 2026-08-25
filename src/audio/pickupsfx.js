@@ -3,7 +3,7 @@
 // audio/weaponsfx.js exactly (same reasoning, same shape): a future pickup
 // KIND added to pickuptypes.js with no entry here would otherwise collect
 // silently, with nothing to say so until someone happened to notice in the
-// browser — see test/invariants.test.js's own coverage test for the guard.
+// browser — see test/audio.test.js's own coverage test for the guard.
 //
 // KEYED BY KIND, NOT BY id. pickuptypes.js's five entries collapse onto just
 // three kinds (AMMO/HEAL/SHIELD — see that file's own header), and the

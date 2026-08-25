@@ -37,7 +37,7 @@
 // drone carrying the player car it would be painted straight over the car. The
 // flag says "this flies, and the shadow is deliberately off" -- which is a very
 // different claim from a shape that simply forgot to say how it meets the road,
-// and test/invariants.test.js can tell the two apart because of it.
+// and test/road-and-caches.test.js can tell the two apart because of it.
 //
 // The three fills form a height ramp (see palette.js), the same trick
 // drawBuilding uses for its three faces: the higher a surface sits off the road,

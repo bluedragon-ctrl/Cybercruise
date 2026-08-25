@@ -29,7 +29,7 @@
 // starved by combat SFX however busy the fight gets.
 //
 // THE PURE/STATEFUL SPLIT mirrors context.js's planDuck()/duck(): plan*()
-// functions are plain data in, plain data out, so test/invariants.test.js can
+// functions are plain data in, plain data out, so test/audio.test.js can
 // exercise the registry's rules (idempotent acquire, ramp-on-change, release
 // reuses rather than rebuilds) under plain Node. acquire()/setLevel()/release()
 // are the only things here that touch a real AudioContext.

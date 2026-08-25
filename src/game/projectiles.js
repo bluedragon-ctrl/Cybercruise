@@ -180,7 +180,7 @@ export function drawDart(ctx, cx, cy, angle, opts = {}) {
 
 export class Projectiles {
   // `explosions` is the shared Explosions pool (effects.js), optional so this
-  // class still works stand-alone (see test/invariants.test.js). A weapon whose
+  // class still works stand-alone (see test/hazards.test.js). A weapon whose
   // `impact` is "fireball" routes through it instead of the ordinary spark —
   // see `detonate()` below.
   constructor(explosions = null) {

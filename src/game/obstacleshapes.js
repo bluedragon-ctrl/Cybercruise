@@ -114,7 +114,7 @@ function stripes(ctx, x, y, w, h, color, step = 9) {
 // How far past its own geometry a neon part actually PAINTS. Every `extent` in
 // this file is geometry + one of these constants, and that is the whole point:
 // an extent that is typed by hand is a claim nobody checks, and the lane-fit
-// test in test/invariants.test.js asserts against `extent`, so a hand-typed
+// test in test/hazards.test.js asserts against `extent`, so a hand-typed
 // number that under-reports lets the test pass while the drawing crosses the
 // lane edge. That is exactly what the trestle did — declared 29, drew 33.
 //

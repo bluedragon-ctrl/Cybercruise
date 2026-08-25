@@ -12,7 +12,7 @@
 // called from inside a gesture-driven handler (today: main.js's START GAME
 // keypress). Nothing in this module may construct or touch an AudioContext at
 // import time — that is what keeps this file safe to `import` from Node tests
-// with no DOM at all (see test/invariants.test.js's own header on the same
+// with no DOM at all (see test/audio.test.js's own header on the same
 // rule for input.js).
 //
 // --- Bus graph -----------------------------------------------------------
@@ -506,7 +506,7 @@ function dbToGain(db) {
 // Pure: `active` is the list of not-yet-expired duck records BEFORE this
 // call; returns the list AFTER adding this request (still just data) and the
 // gain-bus TARGET (0..1 fraction of MAX_DUCK_DB) that should now be in
-// effect. Exported for the invariant tests — see test/invariants.test.js —
+// effect. Exported for the invariant tests — see test/audio.test.js —
 // to exercise the max-not-stack rule without an AudioContext.
 export function planDuck(active, amount, now) {
   const live = active.filter((d) => d.end > now);

@@ -126,7 +126,7 @@ const ENEMY_MIN_DISTANCE = 100;
 // one thing a measurement harness must not do is measure a different game.
 // Exported so the suite can say so out loud: a focused catalogue breaks several
 // gating invariants below, and "van never appeared" is a much worse error
-// message than "FOCUS is still set". See test/invariants.test.js.
+// message than "FOCUS is still set". See test/hazards.test.js.
 export const FOCUS = [];
 
 // TWO AXES OF BEHAVIOUR, and a type names both.

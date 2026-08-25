@@ -7,9 +7,15 @@ import {
   POSITIVE_FIELDS,
 } from "../tools/car-editor/server.js";
 import {
-  CAR_IDS, HULL_SPEED_FIELDS, SPAWN_FIELDS, BEHAVIOR_FIELDS,
-  OBSTACLE_IDS, OBSTACLE_FIELDS,
-  PICKUP_IDS, PICKUP_SPAWN_FIELDS, PICKUP_EFFECT_FIELDS,
+  CAR_IDS,
+  HULL_SPEED_FIELDS,
+  SPAWN_FIELDS,
+  BEHAVIOR_FIELDS,
+  OBSTACLE_IDS,
+  OBSTACLE_FIELDS,
+  PICKUP_IDS,
+  PICKUP_SPAWN_FIELDS,
+  PICKUP_EFFECT_FIELDS,
 } from "../tools/car-editor/state.js";
 
 test("validateChanges rejects a negative health value", () => {

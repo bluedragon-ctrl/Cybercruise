@@ -7,7 +7,7 @@
 // ENEMY_WEAPON_TYPES drive weaponsfx.js's coverage: menu.js's own gestures
 // (a cursor step, a confirm, an adjust, a back-out) aren't rows in any
 // existing catalogue, so MENU_ACTIONS IS the canonical list here, and
-// test/invariants.test.js checks MENU_SOUND covers it exactly (no missing
+// test/audio.test.js checks MENU_SOUND covers it exactly (no missing
 // action, no orphaned key) the same way it checks PLAYER_FIRE_SOUND against
 // WEAPON_TYPES.
 //

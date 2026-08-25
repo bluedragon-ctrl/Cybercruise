@@ -15,7 +15,7 @@
 // EVERYTHING BUT THE CONSOLE VOICE IS A PURE FUNCTION OF (clock, node index),
 // the same rule every other per-frame layer on this floor follows.
 // conduitField/pingField/announcement take plain data and return plain data, so
-// test/invariants.test.js can exercise the motion under plain Node;
+// test/city-floor.test.js can exercise the motion under plain Node;
 // drawConduits/drawPings are the only functions here that touch ctx.
 //
 // THE CONSOLE VOICE IS THE ONE EXCEPTION, and the only thing on this floor that
@@ -368,7 +368,7 @@ export function activePing(nodes, clockValue) {
 // hand-built sequence instead of real timing.
 //
 // `push`/`busy` default to the real console.js, and exist as parameters (not
-// a hard import call) so test/invariants.test.js can drive this function
+// a hard import call) so test/city-floor.test.js can drive this function
 // with a counting stub instead of mutating the real, singleton SYS LOG —
 // the same reasoning main.js's own onCarDestroyed/fireShot/dropMine take
 // callbacks rather than importing their targets directly.

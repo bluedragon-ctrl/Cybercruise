@@ -33,7 +33,7 @@ const COMMUTER = {
   //     dv² / (2·ACCEL)  <=  followGap + dv·followReaction
   // for every closing speed dv the types naming this profile can produce (that
   // type's max minus the player's minimum). Asserted per profile in
-  // test/invariants.test.js — the profiles below state their headroom only where
+  // test/hazards.test.js — the profiles below state their headroom only where
   // the pair is tight.
   followReaction: 1.0,
 
@@ -148,7 +148,7 @@ function profile(delta = {}) {
 // profile: the two slow haulers want the outer lanes, the two fast machines the
 // inner, and the sedan fills in whatever is left. The road sorts itself by speed,
 // so the player's choice of lane is a choice about what they will meet there.
-// Asserted in test/invariants.test.js, so a retune that puts a rig in the fast
+// Asserted in test/hazards.test.js, so a retune that puts a rig in the fast
 // lane fails rather than merely looking odd.
 //
 // One profile per type. The van and the rig could share a "slow and heavy" table

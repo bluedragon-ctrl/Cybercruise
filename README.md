@@ -316,7 +316,7 @@ harness that measured a different code path would not be measuring the game. A
 focused type keeps its own `minDistance`, so focusing on the interceptor still
 waits for `DIST 100`.
 
-**Ship it empty.** The first test in `invariants.test.js` asserts `FOCUS` is
+**Ship it empty.** The first test in `test/hazards.test.js` asserts `FOCUS` is
 `[]`, because a focused catalogue also fails the gating invariants and
 "`van` never appeared" is a much worse error message than "`FOCUS` is still set".
 

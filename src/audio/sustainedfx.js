@@ -9,7 +9,7 @@
 //
 // EVERY PURE FUNCTION BELOW — the hull curve, its hysteresis, the
 // dropout/crackle schedulers, the shield fade — is exported and unit-tested
-// without an AudioContext at all (test/invariants.test.js's own "Phase 8
+// without an AudioContext at all (test/audio.test.js's own "Phase 8
 // step 3" section), the same pure/stateful split context.js's
 // planDuck()/duck() already established. The update*() functions at the
 // bottom are the only things here that touch a real AudioContext (via

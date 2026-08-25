@@ -240,7 +240,7 @@ const PRUNE_AT = 64;
 
 // Storage, reached through this one helper rather than by touching
 // localStorage directly, for two reasons: the test suite imports this module
-// under plain Node (no DOM — see test/invariants.test.js's header), and a
+// under plain Node (no DOM — see test/economy.test.js's header), and a
 // browser with storage disabled or a full quota should cost the player their
 // bank, not their run. Both cases end up here as "no storage", and everything
 // below already works with a bank that is always 0.

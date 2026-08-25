@@ -85,7 +85,7 @@ import { impactCost, SIDE_DAMAGE } from "./collisions.js";
 // The gap wanted is `followGap` plus a closing term, both off the driving
 // profile. Traffic can only shed speed at traffic.js's ACCEL, so the pair is a
 // REAL CONSTRAINT rather than free tuning — see driving.js's followReaction and
-// test/invariants.test.js.
+// test/hazards.test.js.
 function followSpeed(car, lead, desired = car.cruiseSpeed) {
   if (!lead) return desired;
   const gap = lead.worldY - car.worldY - (lead.h + car.h) / 2;
@@ -418,7 +418,7 @@ function nearer(a, b) {
 // WHY STEERING IS USUALLY ENOUGH: obstacles.js refuses to place a hazard in the
 // last open lane of a stretch of road, so a lane clear of the HAZARD always
 // exists. Whether it is clear of TRAFFIC too is not guaranteed, which is exactly
-// when stopping is the answer. Asserted in test/invariants.test.js.
+// when stopping is the answer. Asserted in test/hazards.test.js.
 
 // How far ahead a driver looks is DERIVED, not constant: a rig steers at 35px/sec
 // and a cycle at 180 while arriving nearly four times faster, so one number cannot
@@ -443,7 +443,7 @@ const HAZARD_SAFETY = 1.3;   // slack, so a car arrives already clear rather tha
 // is a CONSTRAINT ON WHERE HAZARDS MAY BE PLACED: obstacles.js has to spawn far
 // enough ahead that every car in the catalogue gets at least this much road, or
 // the slowest-steering types are asked to dodge something they physically cannot
-// avoid. Asserted in test/invariants.test.js.
+// avoid. Asserted in test/hazards.test.js.
 export function dodgeDistance(speed, steerSpeed) {
   return speed * ((LANE_WIDTH * HAZARD_DODGE_SPAN) / steerSpeed) * HAZARD_SAFETY;
 }
@@ -703,7 +703,7 @@ function raid(car, dt, world) {
 // under that with margin, so contact only counts once a shot is genuinely on the
 // table.
 //
-// Exported for test/invariants.test.js, which asserts the relation to the
+// Exported for test/hazards.test.js, which asserts the relation to the
 // profile's `pursueHold`: a stocker parked at its hold gap must count as in
 // contact, or the give-up clock would run while the car was doing its job
 // perfectly and it would ride off mid-engagement.
@@ -884,7 +884,7 @@ const BEHAVIOURS = {
                                             // then `pursue` for good
 };
 
-// Every manoeuvre the road knows. Exported for test/invariants.test.js, which
+// Every manoeuvre the road knows. Exported for test/hazards.test.js, which
 // checks that every `behaviour` in the catalogue names one of these — the
 // fallback below is a safety net for a half-written type, and a shipped type
 // silently taking it is the failure the table header warns about.
