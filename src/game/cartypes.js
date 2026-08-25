@@ -358,6 +358,7 @@ export const CAR_TYPES = [
     id: "bus",
     label: "BUS",
     shape: carShapeIndex("BUS"),
+    faction: NEUTRAL_FACTION,
     // THE HIGH-PENALTY CIVILIAN. Every other civilian's `value` still reads
     // the flat -100 every neutral type launched with; this is the first to
     // actually use the per-type `value` PR97 put on every entry — it is

@@ -50,18 +50,33 @@ a sprite in `src/game/sprites.js`, then register a cell in `src/demo/gallery.js`
 Car types are the exception: the gallery walks the catalogue, so a new entry in
 `src/game/cartypes.js` shows up there on its own.
 
-### Car editor
+### Tuning editor
 
-A local tool for tuning the whole roster's — civilian and hostile alike —
-hull, speed, spawn-distance, and driving-behavior knobs, plus obstacles'
-spawn chance and spawn distance (`tools/car-editor/`), without hand-editing
-`cartypes.js`/`driving.js`/`obstacletypes.js`. Double-click
-`tools/car-editor/edit.bat` (or run `node tools/car-editor/server.js`) and
-open the URL it prints. Every field shows its current value and a
-description of what it does; "Create Pull Request" patches the changed
-source files on a fresh branch, runs the test suite before pushing, and
-opens GitHub's compare page so you finish the PR from there. Requires Git;
-does not require the GitHub CLI.
+A local tool (`tools/car-editor/`) for tuning essentially every balance number
+in the game without hand-editing the source. Five tabs:
+
+| Tab | What it edits |
+| --- | --- |
+| Cars | The whole roster, civilian and hostile: hull and mass, speed and steering, the wreck's blast, score and bounty, spawn odds and distance, and the driving profile behind it |
+| Hazards & pickups | An obstacle's toughness, contact damage, blast and slow effect; a crate's payload; spawn odds and distance for both |
+| Weapons | The player's kit and the hostiles' alike: damage, rate of fire, burst, projectile flight, blast, magazine and starting ammo |
+| Shop | Consumable prices and payloads; a car system's tier-1 price and what one tier adds |
+| World | The stock car (`player.js`), traffic density (`traffic.js`), the road's shape (`tuning.js`), and the run's pacing and economy (`hauler.js`, `score.js`, the shop's tier-price ladder) |
+
+Double-click `tools/car-editor/edit.bat` (or run
+`node tools/car-editor/server.js`) and open the URL it prints. Every field
+shows its current value and a description of what it does; "Create Pull
+Request" patches the changed source files on a fresh branch, runs the test
+suite before pushing, and opens GitHub's compare page so you finish the PR
+from there. Requires Git; does not require the GitHub CLI.
+
+Two things worth knowing before you tune behaviour. Driving profiles are
+SHARED — the VAN and the BUS both drive `hauler`, and every car without its own
+profile falls back to `commuter`, the baseline the rest inherit from — so the
+editor states the reach of each behaviour edit on the form and in the diff.
+And what a stat's shop ladder counts UP from is the car's own figure, which is
+why `MAX_SPEED`, `BASE_MAX_HEALTH` and `PLAYER_MASS` are tuned under World
+rather than on the shop screen.
 
 ### Controls
 
@@ -569,7 +584,8 @@ src/
 tools/
   drivesim.js       headless driving-profile measurement (see npm run sim)
   econsim.js        headless credit-economy measurement (see npm run econ)
-  car-editor/       browser UI for tuning enemy hull/speed/behavior — see below
+  car-editor/       browser UI for tuning cars, hazards, weapons, the shop and
+                    the world's own constants — see below
 ```
 
 ## Money

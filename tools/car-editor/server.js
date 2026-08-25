@@ -1,6 +1,6 @@
 // tools/car-editor/server.js
 //
-// Local HTTP server for the enemy car editor: serves the editor UI and its
+// Local HTTP server for the tuning editor: serves the editor UI and its
 // API. Started via edit.bat, or directly with `node tools/car-editor/server.js`.
 // Requires git on PATH — see the startup check at the bottom of this file.
 
@@ -14,29 +14,48 @@ import {
   buildAllCarState,
   buildAllObstacleState,
   buildAllPickupState,
+  buildAllWeaponState,
   buildAllUpgradeConsumableState,
   buildAllUpgradeStatState,
   CAR_IDS,
+  CAR_TYPE_FIELDS,
+  CAR_FIELD_GROUPS,
   BEHAVIOR_FIELDS,
-  HULL_SPEED_FIELDS,
-  SPAWN_FIELDS,
+  BEHAVIOR_FIELD_GROUPS,
+  OBSTACLE_FIELD_GROUPS,
+  WEAPON_FIELD_GROUPS,
   OBSTACLE_IDS,
   OBSTACLE_FIELDS,
   PICKUP_IDS,
   PICKUP_SPAWN_FIELDS,
   PICKUP_EFFECT_FIELDS,
+  WEAPON_IDS,
+  WEAPON_FIELDS,
   UPGRADE_CONSUMABLE_IDS,
   UPGRADE_STAT_IDS,
+  buildCarState,
+  buildWeaponState,
+  drivingProfileNameFor,
+  drivingProfileScope,
+  refreshCatalogues,
 } from "./state.js";
+import {
+  CONSTANT_IDS,
+  CONSTANT_BY_ID,
+  CONSTANT_FILES,
+  buildAllConstantState,
+} from "./constants.js";
 import {
   patchCarType,
   patchDrivingProfile,
   patchObstacleType,
   patchPickupType,
+  patchWeaponType,
   patchUpgradeEntry,
+  patchConstant,
+  patchArrayConstantElement,
 } from "./patcher.js";
 import * as git from "./git.js";
-import { carTypeById } from "../../src/game/cartypes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,12 +65,39 @@ const CARTYPES_REL = "src/game/cartypes.js";
 const DRIVING_REL = "src/game/driving.js";
 const OBSTACLETYPES_REL = "src/game/obstacletypes.js";
 const PICKUPTYPES_REL = "src/game/pickuptypes.js";
+const WEAPONS_REL = "src/game/weapons.js";
 const UPGRADES_REL = "src/game/upgrades.js";
-const CARTYPES_PATH = path.join(REPO_ROOT, CARTYPES_REL);
-const DRIVING_PATH = path.join(REPO_ROOT, DRIVING_REL);
-const OBSTACLETYPES_PATH = path.join(REPO_ROOT, OBSTACLETYPES_REL);
-const PICKUPTYPES_PATH = path.join(REPO_ROOT, PICKUPTYPES_REL);
-const UPGRADES_PATH = path.join(REPO_ROOT, UPGRADES_REL);
+
+// Every file a tuning session may touch: the six catalogues above plus
+// whichever modules the bare-constant catalogue reaches into (player.js,
+// traffic.js, tuning.js, hauler.js, score.js — and upgrades.js again, for the
+// tier-price ladder, which is why this is deduplicated rather than
+// concatenated). One list, used for the dirty check, for reading, and for
+// staging the commit, so those three can never drift apart.
+export const TOUCHED_FILES = [
+  ...new Set([
+    CARTYPES_REL, DRIVING_REL, OBSTACLETYPES_REL, PICKUPTYPES_REL, WEAPONS_REL,
+    UPGRADES_REL, ...CONSTANT_FILES,
+  ]),
+];
+
+// The working set for one commit: every touched file's text, and whether a
+// patch has actually rewritten it. Replaces the five parallel
+// `let xText` / `let xChanged` pairs this used to carry, which would have
+// become eleven.
+async function loadTouchedFiles() {
+  const files = new Map();
+  for (const rel of TOUCHED_FILES) {
+    files.set(rel, { text: await readFile(path.join(REPO_ROOT, rel), "utf8"), changed: false });
+  }
+  return files;
+}
+
+function editFile(files, rel, patch) {
+  const entry = files.get(rel);
+  entry.text = patch(entry.text);
+  entry.changed = true;
+}
 
 // The single tuning attempt in flight, if any. This is a local, one-user
 // tool — there is never more than one browser tab driving it in practice —
@@ -78,12 +124,28 @@ function sendJson(res, status, body) {
 }
 
 async function handleState(res) {
+  // Re-read the catalogues from disk first. Without this the server keeps
+  // serving whatever it imported at startup, so the session after a commit
+  // would show pre-edit values as "current" and diff every change against a
+  // baseline that no longer exists on disk.
+  await refreshCatalogues();
   sendJson(res, 200, {
     cars: buildAllCarState(),
     obstacles: buildAllObstacleState(),
     pickups: buildAllPickupState(),
+    weapons: buildAllWeaponState(),
     upgradeConsumables: buildAllUpgradeConsumableState(),
     upgradeStats: buildAllUpgradeStatState(),
+    // Read straight from the source text on every request (see constants.js),
+    // so unlike the five catalogues above these need no cache-busting at all.
+    constantGroups: buildAllConstantState(),
+    // The field ORDERINGS, sent alongside the values. The UI used to keep its
+    // own copy of these, which meant a field added to a catalogue and not to
+    // the UI's list simply never rendered — a silent gap rather than an error.
+    carFieldGroups: CAR_FIELD_GROUPS,
+    behaviorFieldGroups: BEHAVIOR_FIELD_GROUPS,
+    obstacleFieldGroups: OBSTACLE_FIELD_GROUPS,
+    weaponFieldGroups: WEAPON_FIELD_GROUPS,
   });
 }
 
@@ -105,6 +167,12 @@ async function readBody(req) {
 // upgrades.js's own ladder logic accounts for.
 export const POSITIVE_FIELDS = new Set([
   "health", "speedMin", "speedMax", "amount", "duration", "price", "step",
+  // Weapons and the rest of a car's own figures. A weapon with `interval: 0`
+  // fires every frame forever and a `mass: 0` car cannot be pushed by
+  // anything, so neither is a value, both are a wedged simulation. `slowTo`
+  // is a SPEED to slow a car down TO, not an amount taken off, so zero would
+  // mean "stopped dead" — a different effect than the strip is designed for.
+  "interval", "muzzleSpeed", "topSpeed", "mass", "steerSpeed", "slowTo",
 ]);
 
 // minDistance is a gate, not a magnitude — 0 ("from the first metre", see
@@ -112,7 +180,19 @@ export const POSITIVE_FIELDS = new Set([
 // out negative distances rather than joining POSITIVE_FIELDS above. An
 // obstacle's `weight` joins it for the same reason: 0 is how you take a
 // hazard out of the draw entirely without deleting its entry.
-const NON_NEGATIVE_FIELDS = new Set(["minDistance", "weight"]);
+//
+// The rest are fields where zero genuinely means "none of this": a weapon
+// that deals no direct damage (the mine layer's payload does the work), a
+// wreck with no blast, a burst of one shot, a magazine you start empty.
+const NON_NEGATIVE_FIELDS = new Set([
+  "minDistance", "weight", "damage", "blastRadius", "blastDamage",
+  "contactDamage", "threat", "slowTime", "pierce", "burstCount",
+  "burstInterval", "accel", "turnRate", "aimSlack", "ammo", "startAmmo",
+]);
+
+// `value` and `bounty` are deliberately in NEITHER set: a civilian is worth
+// NEGATIVE score and negative credits (see cartypes.js), so a sign check here
+// would reject the roster the game already ships.
 
 // The three validators below are one rule applied to three catalogues, so the
 // rule lives here once. Splitting them out as near-copies is how
@@ -174,12 +254,26 @@ export function validateChanges(changes) {
     label: "changes",
     noun: "car",
     ids: CAR_IDS,
-    fields: [...HULL_SPEED_FIELDS, ...SPAWN_FIELDS, ...BEHAVIOR_FIELDS],
+    fields: [...CAR_TYPE_FIELDS, ...BEHAVIOR_FIELDS],
     enums: { laneHome: ["any", "inner", "outer"] },
+    // The speed range has to be valid AFTER the edit lands, which is not the
+    // same as "the submitted pair is valid": editing speedMax alone, down
+    // past the speedMin already in the source, used to sail through because
+    // this check only fired when one request carried both fields. Whichever
+    // side the request does not name is read from the current source instead,
+    // and tagged in the message so the number's origin is obvious.
     crossCheck(fields, carId) {
-      if (has(fields, "speedMin") && has(fields, "speedMax") && fields.speedMax < fields.speedMin) {
+      const givenMin = has(fields, "speedMin");
+      const givenMax = has(fields, "speedMax");
+      if (!givenMin && !givenMax) return;
+      const current = buildCarState(carId).values;
+      const speedMin = givenMin ? fields.speedMin : current.speedMin;
+      const speedMax = givenMax ? fields.speedMax : current.speedMax;
+      if (speedMax < speedMin) {
+        const tag = (given) => (given ? "" : ", unchanged");
         throw new Error(
-          `speedMax (${fields.speedMax}) must be >= speedMin (${fields.speedMin}) for "${carId}"`
+          `speedMax (${speedMax}${tag(givenMax)}) must be >= ` +
+            `speedMin (${speedMin}${tag(givenMin)}) for "${carId}"`
         );
       }
     },
@@ -234,28 +328,104 @@ export function validateUpgradeStatChanges(changes) {
   });
 }
 
-function commitMessage(changes, obstacleChanges, pickupChanges, upgradeChanges) {
-  const lines = ["Tune car, obstacle, pickup and shop parameters via the car editor", ""];
-  for (const [carId, fields] of Object.entries(changes ?? {})) {
-    for (const [field, value] of Object.entries(fields)) {
-      lines.push(`- ${carId}: ${field} -> ${value}`);
+// Weapons carry only SOME of the fields WEAPON_FIELDS names — the mine layer
+// has no `damage`, only the rocket steers — so a request naming a field this
+// weapon does not have is rejected against the entry itself rather than
+// against the union. Without that, `turnRate` on a cannon would pass here and
+// fail downstream in patchWeaponType with a less obvious message.
+export function validateWeaponChanges(weaponChanges) {
+  validateEntityChanges(weaponChanges, {
+    label: "weaponChanges",
+    noun: "weapon",
+    ids: WEAPON_IDS,
+    fields: WEAPON_FIELDS,
+    crossCheck(fields, weaponId) {
+      const weapon = buildWeaponState(weaponId);
+      for (const field of Object.keys(fields)) {
+        if (!(field in weapon.values)) {
+          throw new Error(
+            `weapon "${weaponId}" has no "${field}" to tune` +
+              (field === "ammo" && weapon.unlimitedAmmo
+                ? ` — its ammo is unlimited on purpose, and turning the endless gun into a magazine is a design change, not a tuning one`
+                : "")
+          );
+        }
+      }
+      // You cannot start with more rounds than the magazine holds. Checked
+      // against the source for whichever side the request leaves out, the same
+      // way the cars' speed range is.
+      const ammo = has(fields, "ammo") ? fields.ammo : weapon.values.ammo;
+      const startAmmo = has(fields, "startAmmo") ? fields.startAmmo : weapon.values.startAmmo;
+      if (Number.isFinite(ammo) && Number.isFinite(startAmmo) && startAmmo > ammo) {
+        throw new Error(
+          `startAmmo (${startAmmo}) must be <= ammo (${ammo}) for "${weaponId}"`
+        );
+      }
+    },
+  });
+}
+
+// Constants are not entities — each one IS a single number, so the request
+// shape is flat (`{ "player.MAX_SPEED": 700 }`) and validateEntityChanges,
+// which is built around "an id with a bag of fields", does not fit. Bounds
+// come from the catalogue entry itself rather than from the shared
+// POSITIVE/NON_NEGATIVE sets, because what counts as sane is per-constant:
+// ROAD_STRAIGHTNESS below 1 is meaningless, MAX_CARS below 1 empties the road.
+export function validateConstantChanges(constantChanges) {
+  if (!constantChanges || typeof constantChanges !== "object" || Array.isArray(constantChanges)) {
+    throw new Error("body.constantChanges must be an object");
+  }
+  if (Object.keys(constantChanges).length === 0) {
+    throw new Error("body.constantChanges must not be empty");
+  }
+  for (const [id, value] of Object.entries(constantChanges)) {
+    if (!CONSTANT_IDS.includes(id)) {
+      throw new Error(`unknown constant id "${id}"`);
+    }
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      throw new Error(
+        `constant "${id}" must be a finite number, got ${JSON.stringify(value)}`
+      );
+    }
+    const { min } = CONSTANT_BY_ID.get(id);
+    if (min !== undefined && value < min) {
+      throw new Error(`constant "${id}" must be >= ${min}, got ${value}`);
     }
   }
-  for (const [obstacleId, fields] of Object.entries(obstacleChanges ?? {})) {
+}
+
+function commitMessage(body) {
+  const lines = ["Tune car, weapon, hazard, shop and world parameters via the tuning editor", ""];
+
+  for (const [carId, fields] of Object.entries(body.changes ?? {})) {
     for (const [field, value] of Object.entries(fields)) {
-      lines.push(`- ${obstacleId}: ${field} -> ${value}`);
+      // Behavior fields land on a shared driving profile, not on the car —
+      // name the profile (and anyone else on it) so the commit log says what
+      // the diff will actually show.
+      const scope = BEHAVIOR_FIELDS.includes(field) ? drivingProfileScope(carId) : null;
+      const suffix = scope
+        ? ` (${scope.name} profile${scope.sharedWith.length ? `, also ${scope.sharedWith.join(", ")}` : ""})`
+        : "";
+      lines.push(`- ${carId}: ${field} -> ${value}${suffix}`);
     }
   }
-  for (const [pickupId, fields] of Object.entries(pickupChanges ?? {})) {
-    for (const [field, value] of Object.entries(fields)) {
-      lines.push(`- ${pickupId}: ${field} -> ${value}`);
+
+  for (const key of [
+    "obstacleChanges", "pickupChanges", "weaponChanges",
+    "upgradeConsumableChanges", "upgradeStatChanges",
+  ]) {
+    for (const [id, fields] of Object.entries(body[key] ?? {})) {
+      for (const [field, value] of Object.entries(fields)) {
+        lines.push(`- ${id}: ${field} -> ${value}`);
+      }
     }
   }
-  for (const [upgradeId, fields] of Object.entries(upgradeChanges ?? {})) {
-    for (const [field, value] of Object.entries(fields)) {
-      lines.push(`- ${upgradeId}: ${field} -> ${value}`);
-    }
+
+  // Constants are flat — the id already names the thing being set.
+  for (const [id, value] of Object.entries(body.constantChanges ?? {})) {
+    lines.push(`- ${id} -> ${value}`);
   }
+
   return lines.join("\n");
 }
 
@@ -272,35 +442,118 @@ function runTests() {
   });
 }
 
+// Every kind of change the API accepts, and the validator that guards it.
+// Listed once so the "did you send anything at all" check, the validation pass
+// and the error message naming the acceptable keys can never fall out of step —
+// which they had already started to, each new catalogue having added a third
+// place to remember.
+const CHANGE_KINDS = [
+  { key: "changes", validate: (v) => validateChanges(v) },
+  { key: "obstacleChanges", validate: (v) => validateObstacleChanges(v) },
+  { key: "pickupChanges", validate: (v) => validatePickupChanges(v) },
+  { key: "weaponChanges", validate: (v) => validateWeaponChanges(v) },
+  { key: "upgradeConsumableChanges", validate: (v) => validateUpgradeConsumableChanges(v) },
+  { key: "upgradeStatChanges", validate: (v) => validateUpgradeStatChanges(v) },
+  { key: "constantChanges", validate: (v) => validateConstantChanges(v) },
+];
+
+function hasEntries(value) {
+  return Boolean(value) && typeof value === "object" && Object.keys(value).length > 0;
+}
+
+// Applies every change in `body` to the in-memory file set. Throws on anything
+// the source cannot honour; nothing reaches disk until this has returned
+// cleanly for the whole request.
+export function applyChanges(body, files) {
+  // Hull/speed/spawn/reward fields belong to ONE car and are patched per car.
+  // Behavior fields belong to a DRIVING PROFILE, which several cars can share
+  // (VAN and BUS both drive "hauler"; every car without its own profile falls
+  // back to "commuter"), so they are collected per profile first and each
+  // profile is patched exactly once.
+  //
+  // Patching per car, as this used to, was wrong twice over: two cars sharing
+  // a profile produced two patches of the same block against the accumulating
+  // text, so the second silently overwrote the first, and a car with no
+  // `driving` key passed `undefined` as the profile name.
+  const behaviorByProfile = new Map(); // profileName -> { field: { value, carId } }
+  for (const [carId, fields] of Object.entries(body.changes ?? {})) {
+    const typeChanges = {};
+    for (const [field, value] of Object.entries(fields)) {
+      if (CAR_TYPE_FIELDS.includes(field)) {
+        typeChanges[field] = value;
+        continue;
+      }
+      const profileName = drivingProfileNameFor(carId);
+      if (!behaviorByProfile.has(profileName)) behaviorByProfile.set(profileName, {});
+      const bucket = behaviorByProfile.get(profileName);
+      const claimed = bucket[field];
+      // Two cars on one profile asking for two different values is not
+      // something a patch can honour — one of them would have to lose. Say so
+      // instead of picking a winner silently.
+      if (claimed && claimed.value !== value) {
+        throw new Error(
+          `"${carId}" and "${claimed.carId}" share the "${profileName}" driving profile, so ` +
+            `they cannot set different "${field}" values in one change ` +
+            `(${value} vs ${claimed.value}) — edit one of them, or give both the same value`
+        );
+      }
+      bucket[field] = { value, carId };
+    }
+    if (Object.keys(typeChanges).length > 0) {
+      editFile(files, CARTYPES_REL, (text) => patchCarType(text, carId, typeChanges));
+    }
+  }
+  for (const [profileName, bucket] of behaviorByProfile) {
+    const behaviorChanges = {};
+    for (const [field, { value }] of Object.entries(bucket)) behaviorChanges[field] = value;
+    editFile(files, DRIVING_REL, (text) =>
+      patchDrivingProfile(text, profileName, behaviorChanges)
+    );
+  }
+
+  for (const [id, fields] of Object.entries(body.obstacleChanges ?? {})) {
+    editFile(files, OBSTACLETYPES_REL, (text) => patchObstacleType(text, id, fields));
+  }
+  for (const [id, fields] of Object.entries(body.pickupChanges ?? {})) {
+    editFile(files, PICKUPTYPES_REL, (text) => patchPickupType(text, id, fields));
+  }
+  // Both weapon arrays live in weapons.js, and both shop shelves live in
+  // upgrades.js — each editFile call folds onto the running text for that file,
+  // so two shelves (or the player's kit and the hostiles') never overwrite one
+  // another.
+  for (const [id, fields] of Object.entries(body.weaponChanges ?? {})) {
+    editFile(files, WEAPONS_REL, (text) => patchWeaponType(text, id, fields));
+  }
+  for (const key of ["upgradeConsumableChanges", "upgradeStatChanges"]) {
+    for (const [id, fields] of Object.entries(body[key] ?? {})) {
+      editFile(files, UPGRADES_REL, (text) => patchUpgradeEntry(text, id, fields));
+    }
+  }
+
+  // Constants reach into whichever module declares them — including
+  // upgrades.js, whose tier-price ladder is an array element rather than a
+  // standalone declaration.
+  for (const [id, value] of Object.entries(body.constantChanges ?? {})) {
+    const entry = CONSTANT_BY_ID.get(id);
+    editFile(files, entry.file, (text) =>
+      entry.index === undefined
+        ? patchConstant(text, entry.name, value)
+        : patchArrayConstantElement(text, entry.name, entry.index, value)
+    );
+  }
+}
+
 async function handleCommit(req, res) {
   let body;
   try {
     body = await readBody(req);
-    const hasCarChanges = body.changes && Object.keys(body.changes).length > 0;
-    const hasObstacleChanges = body.obstacleChanges && Object.keys(body.obstacleChanges).length > 0;
-    const hasPickupChanges = body.pickupChanges && Object.keys(body.pickupChanges).length > 0;
-    // The shop's two shelves arrive as two separate keys, exactly as
-    // obstacles and pickups do — one per catalogue, matching state.js's own
-    // split rather than merged into a single "upgradeChanges" the server
-    // would then have to re-sort by shelf.
-    const hasUpgradeConsumableChanges =
-      body.upgradeConsumableChanges && Object.keys(body.upgradeConsumableChanges).length > 0;
-    const hasUpgradeStatChanges =
-      body.upgradeStatChanges && Object.keys(body.upgradeStatChanges).length > 0;
-    if (
-      !hasCarChanges && !hasObstacleChanges && !hasPickupChanges &&
-      !hasUpgradeConsumableChanges && !hasUpgradeStatChanges
-    ) {
+    const sent = CHANGE_KINDS.filter(({ key }) => hasEntries(body[key]));
+    if (sent.length === 0) {
       throw new Error(
-        "request must include at least one of changes, obstacleChanges, pickupChanges, " +
-          "upgradeConsumableChanges or upgradeStatChanges"
+        `request must include at least one of ${CHANGE_KINDS.map((k) => k.key).join(", ")}`
       );
     }
-    if (hasCarChanges) validateChanges(body.changes);
-    if (hasObstacleChanges) validateObstacleChanges(body.obstacleChanges);
-    if (hasPickupChanges) validatePickupChanges(body.pickupChanges);
-    if (hasUpgradeConsumableChanges) validateUpgradeConsumableChanges(body.upgradeConsumableChanges);
-    if (hasUpgradeStatChanges) validateUpgradeStatChanges(body.upgradeStatChanges);
+    for (const { key, validate } of sent) validate(body[key]);
   } catch (err) {
     sendJson(res, 400, { error: err.message });
     return;
@@ -311,66 +564,15 @@ async function handleCommit(req, res) {
     return;
   }
 
-  let cartypesText = await readFile(CARTYPES_PATH, "utf8");
-  let drivingText = await readFile(DRIVING_PATH, "utf8");
-  let obstaclesText = await readFile(OBSTACLETYPES_PATH, "utf8");
-  let pickupsText = await readFile(PICKUPTYPES_PATH, "utf8");
-  let upgradesText = await readFile(UPGRADES_PATH, "utf8");
-  let cartypesChanged = false;
-  let drivingChanged = false;
-  let obstaclesChanged = false;
-  let pickupsChanged = false;
-  let upgradesChanged = false;
-
+  const files = await loadTouchedFiles();
   try {
-    for (const [carId, fields] of Object.entries(body.changes ?? {})) {
-      const type = carTypeById(carId);
-      const hullSpeedChanges = {};
-      const behaviorChanges = {};
-      for (const [field, value] of Object.entries(fields)) {
-        if (HULL_SPEED_FIELDS.includes(field) || SPAWN_FIELDS.includes(field)) {
-          hullSpeedChanges[field] = value;
-        } else {
-          behaviorChanges[field] = value;
-        }
-      }
-      if (Object.keys(hullSpeedChanges).length > 0) {
-        cartypesText = patchCarType(cartypesText, carId, hullSpeedChanges);
-        cartypesChanged = true;
-      }
-      if (Object.keys(behaviorChanges).length > 0) {
-        drivingText = patchDrivingProfile(drivingText, type.driving, behaviorChanges);
-        drivingChanged = true;
-      }
-    }
-    for (const [obstacleId, fields] of Object.entries(body.obstacleChanges ?? {})) {
-      obstaclesText = patchObstacleType(obstaclesText, obstacleId, fields);
-      obstaclesChanged = true;
-    }
-    for (const [pickupId, fields] of Object.entries(body.pickupChanges ?? {})) {
-      pickupsText = patchPickupType(pickupsText, pickupId, fields);
-      pickupsChanged = true;
-    }
-    // Both shelves patch the SAME FILE, so both loops accumulate onto one
-    // running `upgradesText` before it is written once below — patching
-    // twice against the original text would silently drop whichever shelf's
-    // edit ran first.
-    for (const [id, fields] of Object.entries(body.upgradeConsumableChanges ?? {})) {
-      upgradesText = patchUpgradeEntry(upgradesText, id, fields);
-      upgradesChanged = true;
-    }
-    for (const [id, fields] of Object.entries(body.upgradeStatChanges ?? {})) {
-      upgradesText = patchUpgradeEntry(upgradesText, id, fields);
-      upgradesChanged = true;
-    }
+    applyChanges(body, files);
   } catch (err) {
     sendJson(res, 400, { error: err.message });
     return;
   }
 
-  const dirty = await git.dirtyTrackedFiles(REPO_ROOT, [
-    CARTYPES_REL, DRIVING_REL, OBSTACLETYPES_REL, PICKUPTYPES_REL, UPGRADES_REL,
-  ]);
+  const dirty = await git.dirtyTrackedFiles(REPO_ROOT, TOUCHED_FILES);
   if (dirty.length > 0) {
     sendJson(res, 409, { error: `uncommitted changes already present: ${dirty.join(", ")}` });
     return;
@@ -383,36 +585,13 @@ async function handleCommit(req, res) {
     await git.createBranch(REPO_ROOT, branchName);
 
     const changedRelPaths = [];
-    if (cartypesChanged) {
-      await writeFile(CARTYPES_PATH, cartypesText, "utf8");
-      changedRelPaths.push(CARTYPES_REL);
-    }
-    if (drivingChanged) {
-      await writeFile(DRIVING_PATH, drivingText, "utf8");
-      changedRelPaths.push(DRIVING_REL);
-    }
-    if (obstaclesChanged) {
-      await writeFile(OBSTACLETYPES_PATH, obstaclesText, "utf8");
-      changedRelPaths.push(OBSTACLETYPES_REL);
-    }
-    if (pickupsChanged) {
-      await writeFile(PICKUPTYPES_PATH, pickupsText, "utf8");
-      changedRelPaths.push(PICKUPTYPES_REL);
-    }
-    if (upgradesChanged) {
-      await writeFile(UPGRADES_PATH, upgradesText, "utf8");
-      changedRelPaths.push(UPGRADES_REL);
+    for (const [rel, entry] of files) {
+      if (!entry.changed) continue;
+      await writeFile(path.join(REPO_ROOT, rel), entry.text, "utf8");
+      changedRelPaths.push(rel);
     }
 
-    const upgradeChangesForMessage = {
-      ...(body.upgradeConsumableChanges ?? {}),
-      ...(body.upgradeStatChanges ?? {}),
-    };
-    await git.commitFiles(
-      REPO_ROOT,
-      changedRelPaths,
-      commitMessage(body.changes, body.obstacleChanges, body.pickupChanges, upgradeChangesForMessage)
-    );
+    await git.commitFiles(REPO_ROOT, changedRelPaths, commitMessage(body));
   } catch (err) {
     try {
       await git.checkoutBranch(REPO_ROOT, originalBranch);
@@ -421,8 +600,8 @@ async function handleCommit(req, res) {
       // Best-effort cleanup; if even this fails, the branch is left for the
       // user to sort out manually rather than masking the original error.
       // Logged (not surfaced in the response) so it isn't a silent leak of
-      // partial state — the user finds out from the console, not by
-      // stumbling on `car-editor-*` cruft in `git branch` later.
+      // partial state — the user finds out from the console, not by stumbling
+      // on `car-editor-*` cruft in `git branch` later.
       console.error(`cleanup after commit failure also failed on branch "${branchName}":`, cleanupErr);
     }
     sendJson(res, 500, { error: err.message });
@@ -514,11 +693,11 @@ const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === __file
 if (isMainModule) {
   execFile("git", ["--version"], (error) => {
     if (error) {
-      console.error("git was not found on PATH. Install Git before running the car editor.");
+      console.error("git was not found on PATH. Install Git before running the tuning editor.");
       process.exit(1);
     }
     server.listen(PORT, "127.0.0.1", () => {
-      console.log(`Car editor running at http://localhost:${PORT}`);
+      console.log(`Tuning editor running at http://localhost:${PORT}`);
     });
   });
 }

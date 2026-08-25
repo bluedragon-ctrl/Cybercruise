@@ -1,15 +1,37 @@
 // tools/car-editor/editor.js
 //
-// Vanilla-JS UI: fetch the roster's current values — cars AND obstacles —
-// let the user tune hull/speed/spawn/behavior fields with a plain-English
-// description of what each one does, show a diff before anything is
-// written, then drive the commit/test/push flow (added in Task 14-15).
+// Vanilla-JS UI for the tuning editor. Fetches every catalogue's current
+// values, lets them be edited with a plain-English description of what each
+// number does, shows a diff before anything is written, then drives the
+// commit/test/push flow.
+//
+// THE SHAPE OF THIS FILE. Seven kinds of thing are editable — cars, obstacles,
+// pickups, weapons, the shop's two shelves, and the world's bare constants —
+// and they are NOT seven copies of the same code. Each one is a KIND descriptor
+// below saying where its entries come from, how to group them in the sidebar,
+// and which fields its form shows; everything after that (reading a value,
+// recording a change, filtering out no-ops, building the review table, sending
+// the request) is written once and runs over all seven. Adding an eighth
+// catalogue should mean adding one descriptor, not another five functions.
+//
+// The kinds are then grouped into TABS, because "which weapon" and "which car"
+// are different questions and one scrolling column of everything was the main
+// thing making this hard to navigate.
 
-const FIELD_DESCRIPTIONS = {
+// --- What each field means -------------------------------------------------
+
+const CAR_FIELD_DESCRIPTIONS = {
   health: "Hull points. Spent by ramming, explosions, and weapons; the car is destroyed at zero.",
+  mass: "How heavy this is in a collision, weighed against the player's own PLAYER_MASS (World → Player car). The heavier car wins the shove — a rig barely notices being hit.",
   speedMin: "Slowest cruising speed this car will roll at when it spawns, in world units/sec.",
   speedMax: "Fastest cruising speed this car will roll at when it spawns, in world units/sec.",
-  minDistance: 'How far the player must have driven before this car can spawn at all, in DIST-readout units (the same number the HUD shows). 0 means it can appear from the very first metre.',
+  steerSpeed: "Sideways travel in px/sec at full lock — how fast this car changes lanes. Read it against the player's STEER_SPEED (World → Player car) to see who can cut whom off.",
+  blastRadius: "How far the explosion reaches when this car is destroyed, in world units. It catches anything nearby, the player included.",
+  blastDamage: "Hull points the explosion deals when this car is destroyed.",
+  value: "Score for destroying this. NEGATIVE for civilians — running down a bystander costs you points.",
+  bounty: "Credits for destroying this, and negative for civilians for the same reason. Against SHOP_INTERVAL (World → Run pacing) this is what decides how much you can afford at each dock.",
+  minDistance: "How far the player must have driven before this car can spawn at all, in DIST-readout units (the same number the HUD shows). 0 means it can appear from the very first metre.",
+  weight: "Relative spawn chance among the car types currently unlocked — bigger means more common, not a fixed probability. 0 takes this type off the road entirely.",
 
   followGap: "Clear road (world units) this driver wants between its nose and the car ahead's tail, before adding closing-speed room.",
   followReaction: "Seconds of closing speed added to followGap — how early this driver starts backing off from something ahead.",
@@ -20,106 +42,70 @@ const FIELD_DESCRIPTIONS = {
   passMargin: "How far past a car this driver's nose must clear before pulling back into the lane.",
   passTimeout: "Seconds before an unfinished pass is abandoned.",
   passSpeedMargin: "How much faster than the car ahead this driver must be able to go to bother passing at all.",
-  passClearance: "Sideways daylight (px) this driver wants between the two cars while passing.",
-  passLookBehind: "How far behind (world units) this driver checks for traffic before pulling into the passing lane.",
-  passLookAhead: "How far ahead (world units) this driver checks past the car it means to pass.",
-  passEffort: "How much harder this driver pushes its speed while committed to a pass (multiplier, capped at the car's own top speed).",
-  hazardClearance: "Sideways daylight (px) this driver wants when steering around a roadblock or other hazard.",
-
-  pursueHold: "How far behind the player (world units) this driver settles once it is chasing — its firing distance. Hostile cars only; civilians never chase.",
-  pursueRange: "How close the player must get (world units) before this driver starts actively chasing at all. Outside it, the car just drives like ordinary traffic.",
-  pursueGain: "How hard this driver corrects its speed to hold the chase gap. Higher snaps to the gap faster and looks more aggressive; lower drifts in and out of range.",
-  chaseSpeed: "Top speed (world units/sec) this driver will spend while chasing the player. Deliberately allowed above the car's own top speed — this is what keeps it in touch with a player running flat out.",
-  giveUpTime: "Seconds of LOST CONTACT before this driver abandons the player for good and rides off unarmed. 0 means it never gives up.",
-  raidGain: "How hard this driver corrects its speed while holding station ahead of the player for a mine drop. Only the mine-running tactics read it.",
-  ramBrake: "Once ahead of the player, the fraction of THEIR current speed this driver slows to — the block. 0.5 halves them; lower is a harder wall.",
-  ramFloor: "The slowest (world units/sec) that block will ever go. Below the player's own minimum of 120, so lifting off the throttle never escapes it.",
-
-  nerve: "Hull damage this driver will risk from a ROADBLOCK before swerving. 0 means it always dodges; higher means it sometimes barges through.",
-  contact: "Hull damage this driver will risk from hitting ANOTHER CAR before backing off. Free to set higher than nerve — a fender-bender reads as driving, not as a mistake.",
+  passClearance: "How much room this driver wants beside a car it's going past.",
+  passLookBehind: "How far back (world units) this driver checks for traffic before pulling out.",
+  passLookAhead: "How far ahead this driver checks the target lane is clear before pulling out.",
+  passEffort: "How much of its speed reserve this driver spends to get the pass done.",
+  hazardClearance: "How wide a berth this driver gives obstacles, in world units.",
+  pursueHold: "Seconds this driver stays locked on the player before re-deciding.",
+  pursueRange: "How far away (world units) the player can be and still be worth chasing.",
+  pursueGain: "How hard this driver steers toward the player's lane while chasing.",
+  chaseSpeed: "Speed multiplier applied while actively chasing the player.",
+  giveUpTime: "Seconds of failing to close before this driver abandons the chase.",
+  raidGain: "How hard this driver cuts across lanes on a raiding run.",
+  ramBrake: "How hard this driver brakes into a ram rather than driving through it.",
+  ramFloor: "Slowest speed a ram will be pressed home at.",
+  nerve: "How readily this driver will drive through a hazard rather than around it. 0 dodges everything.",
+  contact: "How willing this driver is to make contact with another car at all.",
 };
 
-const FIELD_ORDER = {
-  hull: ["health"],
-  speed: ["speedMin", "speedMax"],
-  spawn: ["minDistance"],
-  behavior: {
-    Following: ["followGap", "followReaction"],
-    "Lane discipline": ["laneDiscipline", "laneHome"],
-    Overtaking: [
-      "patience",
-      "passTrigger",
-      "passMargin",
-      "passTimeout",
-      "passSpeedMargin",
-      "passClearance",
-      "passLookBehind",
-      "passLookAhead",
-      "passEffort",
-    ],
-    Hazards: ["hazardClearance"],
-    // Hostile-only: nothing civilian reads these (see state.js). They still
-    // render for every car, showing the enemy baseline as inherited, which is
-    // the same treatment the pass* fields already get on a car that cruises.
-    "Chasing the player": [
-      "pursueHold",
-      "pursueRange",
-      "pursueGain",
-      "chaseSpeed",
-      "giveUpTime",
-      "raidGain",
-    ],
-    Ramming: ["ramBrake", "ramFloor"],
-    Nerve: ["nerve", "contact"],
-  },
-};
-
-// Obstacles have no driving-profile split (see state.js) — just the two
-// spawn-tuning fields the catalogue itself calls "weight" and "minDistance".
-// "weight" is described here as "chance" because that's what it decides —
-// the game code's own name for it stays in the label so it's still
-// recognisable against obstacletypes.js.
 const OBSTACLE_FIELD_DESCRIPTIONS = {
+  health: "Hull points this hazard has. Weapons and rams spend it; at zero it is destroyed, and its blast (if any) goes off.",
+  mass: "How heavy this hazard is in a collision. A light one gets shoved aside; a heavy one stops a car dead.",
+  contactDamage: "Hull points dealt to whatever drives over or into this.",
+  threat: "How wide a berth the driving AI gives this, in world units. Bigger means cars swerve earlier — it does not change what the hazard actually does to them.",
+  blastRadius: "How far this hazard's explosion reaches when it is destroyed, in world units.",
+  blastDamage: "Hull points that explosion deals.",
+  slowTo: "Speed, in world units/sec, that a car caught by this is dragged down to.",
+  slowTime: "Seconds the slow lasts.",
   weight: "Relative spawn chance among the obstacle types currently unlocked — bigger means more common, not a fixed probability. 0 takes this type out of the draw entirely.",
   minDistance: "How far the player must have driven before this obstacle can spawn at all, in DIST-readout units (the same number the HUD shows). 0 means it can appear from the very first metre.",
 };
 
-const OBSTACLE_FIELD_ORDER = ["weight", "minDistance"];
-
-// Pickups (see state.js) share the exact same weight/minDistance spawn shape
-// as obstacles, just described in terms of buff crates rather than hazards.
 const PICKUP_FIELD_DESCRIPTIONS = {
   weight: "Relative spawn chance among the pickup types currently unlocked — bigger means more common, not a fixed probability. 0 takes this type out of the draw entirely.",
   minDistance: "How far the player must have driven before this pickup can spawn at all, in DIST-readout units (the same number the HUD shows). 0 means it can appear from the very first metre.",
 };
 
-const PICKUP_FIELD_ORDER = ["weight", "minDistance"];
-
-// The payload a crate grants isn't the same field for every kind (see
-// state.js's header on PICKUP_EFFECT_FIELDS) — this picks which single field
-// applies to a given pickup's `kind`, and what it means in that context.
-const PICKUP_EFFECT_FIELD_BY_KIND = {
-  ammo: "amount",
-  heal: "amount",
-  shield: "duration",
-};
-
+// The payload a crate grants isn't the same field for every kind — AMMO and
+// HEAL spend `amount`, SHIELD spends `duration` — so what "the effect field"
+// means depends on the row's own kind.
 const PICKUP_EFFECT_DESCRIPTIONS = {
   ammo: "Ammo added to the matching weapon's magazine when this crate is picked up.",
   heal: "Hull points restored when this crate is picked up, capped at the player's max health.",
   shield: "Seconds of invulnerability granted when this crate is picked up.",
 };
 
-// The shop (game/upgrades.js) — two shelves, edited as two shapes because
-// they ARE two shapes in the source: a consumable is a flat price plus "how
-// much", a stat is a tier ladder whose only tunable numbers are its price and
-// what one tier adds. See state.js's own note on why a stat's `base` (the
-// stock car's own figure) is read-only here rather than editable.
+const WEAPON_FIELD_DESCRIPTIONS = {
+  damage: "Hull points one shot deals on a direct hit.",
+  pierce: "How many cars one shot passes through before it stops. 1 means it stops at the first thing it hits.",
+  blastRadius: "How far this shot's explosion reaches on impact, in world units.",
+  blastDamage: "Hull points the explosion deals, on top of the direct hit.",
+  interval: "Seconds between shots — or between bursts, for a burst weapon. Smaller is faster, and this is the single biggest dial on a weapon's damage per second.",
+  burstCount: "Shots fired in one burst.",
+  burstInterval: "Seconds between the individual shots inside a burst.",
+  muzzleSpeed: "Speed a shot leaves the barrel at, in world units/sec. Slow shots have to be led; fast ones are point-and-click.",
+  accel: "World units/sec² the projectile gains after launch — a rocket leaves the tube slowly and builds up.",
+  topSpeed: "Fastest the projectile will travel once it has finished accelerating.",
+  turnRate: "Degrees per second the projectile can steer toward its target. Bigger is harder to shake.",
+  aimSlack: "How far off-target, in degrees, a hostile will still take the shot. Bigger means it fires more often and hits less.",
+  ammo: "Magazine capacity — the most rounds this can hold at once.",
+  startAmmo: "Rounds you begin a run with. 0 means the weapon is carried empty until a crate or the shop fills it.",
+};
+
 const UPGRADE_CONSUMABLE_PRICE_DESCRIPTION =
   "Credits this costs at the dock. Always buyable, any number of times, at this flat price.";
 
-// Same shape as PICKUP_EFFECT_DESCRIPTIONS above, and for the same reason —
-// what "the effect field" means depends on the row's `kind`.
 const UPGRADE_CONSUMABLE_EFFECT_DESCRIPTIONS = {
   ammo: "Ammo added to the matching weapon's magazine when this is bought.",
   heal: "Hull points restored when this is bought, capped at the player's max health.",
@@ -127,564 +113,625 @@ const UPGRADE_CONSUMABLE_EFFECT_DESCRIPTIONS = {
 };
 
 const UPGRADE_STAT_DESCRIPTIONS = {
-  price: "Credits tier 1 costs. Tier 2 and tier 3 are this multiplied by upgrades.js's own TIER_PRICES ladder (not editable here — it applies to every stat at once).",
+  price: "Credits tier 1 costs. Tiers 2 and 3 are this multiplied by the shared TIER_PRICES ladder — which is editable under World → Run pacing & economy, and applies to every stat at once.",
   step: "What ONE tier adds to the stat, in the car's own units. Every tier adds the same amount; the price is what escalates.",
 };
 
-let cars = [];
-let obstacles = [];
-let pickups = [];
-let upgradeConsumables = [];
-let upgradeStats = [];
-// { kind: "car" | "obstacle" | "pickup" | "upgradeConsumable" | "upgradeStat", id }
-let selection = null;
-const pendingChanges = {}; // { carId: { field: value } }
-const pendingObstacleChanges = {}; // { obstacleId: { field: value } }
-const pendingPickupChanges = {}; // { pickupId: { field: value } }
-const pendingUpgradeConsumableChanges = {}; // { id: { field: value } }
-const pendingUpgradeStatChanges = {}; // { id: { field: value } }
+// --- Server state and pending edits ----------------------------------------
 
-async function loadState() {
-  const res = await fetch("/api/state");
-  const data = await res.json();
-  cars = data.cars;
-  obstacles = data.obstacles;
-  pickups = data.pickups;
-  upgradeConsumables = data.upgradeConsumables;
-  upgradeStats = data.upgradeStats;
+// Everything /api/state returns, keyed the way the server sends it.
+let data = {
+  cars: [], obstacles: [], pickups: [], weapons: [],
+  upgradeConsumables: [], upgradeStats: [], constantGroups: [],
+};
+
+// One bag of pending edits per kind: { entryId: { field: value } }. Constants
+// use the same shape, with the constant GROUP as the entry and the individual
+// constant ids as its fields — see the constant kind's descriptor and
+// realChanges below, which flattens that back out for the request.
+const pending = {};
+
+let activeTab = null;
+let selection = null; // { kind, id }
+
+// --- Kind descriptors ------------------------------------------------------
+
+// `values` is the flat { field: value } map the server sends for an entry.
+// `sections` returns the form's fieldsets: a legend, an optional note, and the
+// fields to render. `input` on a field is anything beyond a plain number box.
+const KINDS = {
+  car: {
+    tab: "cars",
+    label: "Car",
+    entries: () => data.cars,
+    requestKey: "changes",
+    // Groups derived rather than hard-coded: two `faction` filters used to BE
+    // the sidebar, which meant a car whose faction was neither string simply
+    // never appeared — the BUS was invisible and uneditable for as long as its
+    // catalogue entry was missing a `faction` key.
+    groups() {
+      const known = [
+        { heading: "Hostile", faction: "enemy" },
+        { heading: "Civilian", faction: "neutral" },
+      ];
+      const claimed = new Set(known.map((g) => g.faction));
+      const groups = known.map(({ heading, faction }) => ({
+        heading,
+        entries: data.cars.filter((car) => car.faction === faction),
+      }));
+      const rest = data.cars.filter((car) => !claimed.has(car.faction));
+      if (rest.length > 0) groups.push({ heading: "Uncategorised", entries: rest });
+      return groups.filter((g) => g.entries.length > 0);
+    },
+    sections(car) {
+      const catalogue = carFieldGroups.map(({ label, fields }) => ({
+        legend: label,
+        fields: fields.map((field) => ({
+          field,
+          description: CAR_FIELD_DESCRIPTIONS[field],
+        })),
+      }));
+      // Behavior fields write a DRIVING PROFILE, not a car. The form gives them
+      // the same shape as the per-car fields above, so the reach of an edit has
+      // to be spelled out — or tuning the VAN quietly retunes the BUS.
+      const behavior = behaviorFieldGroups.map(({ label, fields }) => ({
+        legend: label,
+        collapsible: true,
+        // Collapsed when nothing in the group is overridden: for a civilian
+        // that hides the whole chase-and-ram half of the profile, which it
+        // never reads.
+        open: fields.some((field) => !car.behavior[field].inherited),
+        fields: fields.map((field) => ({
+          field,
+          description: CAR_FIELD_DESCRIPTIONS[field],
+          tag: car.behavior[field].inherited ? "(inherited)" : "(overridden)",
+          input: field === "laneHome" ? { type: "select", options: ["any", "inner", "outer"] } : null,
+        })),
+      }));
+      behavior[0] = { ...behavior[0], scopeNote: behaviorScopeNote(car.profile) };
+      return [...catalogue, ...behavior];
+    },
+    // The behavior half of a car's fields is not stored in `values` — it is
+    // stored with its inherited flag alongside — so reading a value has to know
+    // which half a field is in.
+    //
+    // NOT named `valueOf`: every object inherits Object.prototype.valueOf, so a
+    // `kind.valueOf` test is true for EVERY kind, and the generic reader below
+    // would call the built-in and get the descriptor object back.
+    readValue(car, field) {
+      return field in car.values ? car.values[field] : car.behavior[field].value;
+    },
+    note(car, field) {
+      if (field in car.values) return "";
+      const base = car.behavior[field].inherited ? "new override" : "changed";
+      // The diff is per car, but the file this writes is per profile — a review
+      // row reading only "VAN: followGap" would understate what the PR changes.
+      const { name, sharedWith, isBaseline } = car.profile;
+      if (isBaseline) {
+        return `${base} — "${name}" baseline, inherited by every car not overriding ${field}`;
+      }
+      if (sharedWith.length > 0) {
+        return `${base} — "${name}" profile, also applies to ${sharedWith.join(", ")}`;
+      }
+      return base;
+    },
+  },
+
+  obstacle: {
+    tab: "hazards",
+    label: "Obstacle",
+    entries: () => data.obstacles,
+    requestKey: "obstacleChanges",
+    groups: () => [{ heading: "Obstacles", entries: data.obstacles }],
+    sections(obstacle) {
+      // Only the fields this hazard actually has: the slow-effect group exists
+      // for the SPIKES strip alone, and an empty fieldset is noise.
+      return obstacleFieldGroups
+        .map(({ label, fields }) => ({
+          legend: label,
+          fields: fields
+            .filter((field) => field in obstacle.values)
+            .map((field) => ({ field, description: OBSTACLE_FIELD_DESCRIPTIONS[field] })),
+        }))
+        .filter((section) => section.fields.length > 0);
+    },
+  },
+
+  pickup: {
+    tab: "hazards",
+    label: "Pickup",
+    entries: () => data.pickups,
+    requestKey: "pickupChanges",
+    groups: () => [{ heading: "Pickups", entries: data.pickups }],
+    sections(pickup) {
+      const effectField = Object.keys(pickup.values).find(
+        (field) => field === "amount" || field === "duration"
+      );
+      const sections = [];
+      if (effectField) {
+        sections.push({
+          legend: "Effect",
+          fields: [{ field: effectField, description: PICKUP_EFFECT_DESCRIPTIONS[pickup.kind] }],
+        });
+      }
+      sections.push({
+        legend: "Spawn",
+        fields: ["weight", "minDistance"].map((field) => ({
+          field,
+          description: PICKUP_FIELD_DESCRIPTIONS[field],
+        })),
+      });
+      return sections;
+    },
+  },
+
+  weapon: {
+    tab: "weapons",
+    label: "Weapon",
+    entries: () => data.weapons,
+    requestKey: "weaponChanges",
+    groups: () => [
+      { heading: "Player", entries: data.weapons.filter((w) => w.side === "player") },
+      { heading: "Hostile", entries: data.weapons.filter((w) => w.side === "enemy") },
+    ],
+    subtitle(weapon) {
+      const parts = [];
+      if (weapon.flight) parts.push(`${weapon.flight} flight`);
+      if (weapon.payload) parts.push(`lays ${weapon.payload}`);
+      // Worth saying out loud rather than leaving as a missing box: the default
+      // gun never running dry is the premise the rest of the arsenal is
+      // balanced against, so there is no ammo field to find.
+      if (weapon.unlimitedAmmo) parts.push("unlimited ammo (by design — not editable)");
+      return parts.join(" · ");
+    },
+    sections(weapon) {
+      return weaponFieldGroups
+        .map(({ label, fields }) => ({
+          legend: label,
+          fields: fields
+            .filter((field) => field in weapon.values)
+            .map((field) => ({ field, description: WEAPON_FIELD_DESCRIPTIONS[field] })),
+        }))
+        .filter((section) => section.fields.length > 0);
+    },
+  },
+
+  upgradeConsumable: {
+    tab: "shop",
+    label: "Shop consumable",
+    entries: () => data.upgradeConsumables,
+    requestKey: "upgradeConsumableChanges",
+    groups: () => [{ heading: "Consumables", entries: data.upgradeConsumables }],
+    sections(entry) {
+      const fields = [{ field: "price", description: UPGRADE_CONSUMABLE_PRICE_DESCRIPTION }];
+      if (entry.effectField) {
+        fields.push({
+          field: entry.effectField,
+          description: UPGRADE_CONSUMABLE_EFFECT_DESCRIPTIONS[entry.kind],
+        });
+      }
+      return [{ legend: "Price & effect", fields }];
+    },
+  },
+
+  upgradeStat: {
+    tab: "shop",
+    label: "Shop car system",
+    entries: () => data.upgradeStats,
+    requestKey: "upgradeStatChanges",
+    groups: () => [{ heading: "Car systems", entries: data.upgradeStats }],
+    sections(stat) {
+      return [{
+        legend: "Price & tier increase",
+        fields: [
+          { field: "price", description: UPGRADE_STAT_DESCRIPTIONS.price },
+          { field: "step", description: UPGRADE_STAT_DESCRIPTIONS.step, preview: statStepPreview(stat) },
+        ],
+      }];
+    },
+  },
+
+  constant: {
+    tab: "world",
+    label: "World",
+    // A constant GROUP is the entry here, and the individual constants are its
+    // fields. That keeps constants on the same "entry with fields" rails as
+    // every catalogue above, even though the request the server wants is flat —
+    // realChanges is where that flattening happens.
+    entries: () => data.constantGroups,
+    requestKey: "constantChanges",
+    flatRequest: true,
+    groups: () => [{ heading: "World", entries: data.constantGroups }],
+    subtitle: (group) => group.note,
+    sections(group) {
+      return [{
+        legend: group.label,
+        fields: group.constants.map((constant) => ({
+          field: constant.id,
+          label: constant.label,
+          description: `${constant.description} — ${constant.file}`,
+          input: constant.min === null ? null : { type: "number", min: constant.min },
+        })),
+      }];
+    },
+  },
+};
+
+// Field-group orderings, filled in from /api/state so the form and the server
+// read the same list — the UI used to own its own copy of these, which meant a
+// field added to the catalogue and not to the UI's list simply never rendered.
+let carFieldGroups = [];
+let behaviorFieldGroups = [];
+let obstacleFieldGroups = [];
+let weaponFieldGroups = [];
+
+const TABS = [
+  { id: "cars", label: "Cars" },
+  { id: "hazards", label: "Hazards & pickups" },
+  { id: "weapons", label: "Weapons" },
+  { id: "shop", label: "Shop" },
+  { id: "world", label: "World" },
+];
+
+function kindsInTab(tabId) {
+  return Object.entries(KINDS)
+    .filter(([, kind]) => kind.tab === tabId)
+    .map(([id, kind]) => ({ id, ...kind }));
 }
 
-function fieldValue(car, field) {
-  if (field in car.hull) return car.hull[field];
-  if (field in car.speed) return car.speed[field];
-  if (field in car.spawn) return car.spawn[field];
-  return car.behavior[field].value;
+// --- Reading and writing values --------------------------------------------
+
+function entryOf(kindId, id) {
+  return KINDS[kindId].entries().find((entry) => entry.id === id);
 }
 
-function isOverridden(car, field) {
-  if (field in car.hull || field in car.speed || field in car.spawn) return true;
-  return !car.behavior[field].inherited;
+function baseValue(kindId, id, field) {
+  const kind = KINDS[kindId];
+  const entry = entryOf(kindId, id);
+  if (kind.readValue) return kind.readValue(entry, field);
+  // The constant kind's "values" are its constants, keyed by their own id.
+  if (entry.constants) return entry.constants.find((c) => c.id === field).value;
+  return entry.values[field];
 }
+
+function currentValue(kindId, id, field) {
+  const bag = pending[kindId]?.[id];
+  if (bag && field in bag) return bag[field];
+  return baseValue(kindId, id, field);
+}
+
+function setChange(kindId, id, field, value) {
+  pending[kindId] ??= {};
+  pending[kindId][id] ??= {};
+  pending[kindId][id][field] = value;
+  renderNav();
+  renderActions();
+  if (!document.getElementById("review").hidden) renderReview();
+}
+
+// Drops one field's pending edit, and the whole entry once it holds nothing —
+// so the pending bags never accumulate empty objects that renderReview and
+// realChanges would then have to skip.
+function clearChange(kindId, id, field) {
+  const bag = pending[kindId]?.[id];
+  if (!bag) return;
+  delete bag[field];
+  if (Object.keys(bag).length === 0) delete pending[kindId][id];
+  renderNav();
+  renderActions();
+  if (!document.getElementById("review").hidden) renderReview();
+}
+
+function hasChange(kindId, id) {
+  return Boolean(pending[kindId]?.[id]);
+}
+
+// A pending bag can hold no-op entries — a field changed and then changed back.
+// Both the review table and the request filter them out through this, using the
+// identical comparison, so what you approve is exactly what gets sent.
+function* realChangeEntries() {
+  for (const [kindId, byEntry] of Object.entries(pending)) {
+    for (const [id, fields] of Object.entries(byEntry)) {
+      for (const [field, value] of Object.entries(fields)) {
+        if (baseValue(kindId, id, field) === value) continue;
+        yield { kindId, id, field, value };
+      }
+    }
+  }
+}
+
+function buildRequestBody() {
+  const body = {};
+  for (const { kindId, id, field, value } of realChangeEntries()) {
+    const kind = KINDS[kindId];
+    body[kind.requestKey] ??= {};
+    if (kind.flatRequest) {
+      // Constants: the server wants { constantId: value }, not the
+      // group-and-fields shape the UI carries them in.
+      body[kind.requestKey][field] = value;
+    } else {
+      body[kind.requestKey][id] ??= {};
+      body[kind.requestKey][id][field] = value;
+    }
+  }
+  return body;
+}
+
+function changeCount() {
+  let count = 0;
+  for (const _ of realChangeEntries()) count++;
+  return count;
+}
+
+function discardAllChanges() {
+  for (const key of Object.keys(pending)) delete pending[key];
+  renderNav();
+  renderForm();
+  renderActions();
+  document.getElementById("review").hidden = true;
+}
+
+// --- Small DOM helpers -----------------------------------------------------
 
 // Escapes text for safe interpolation into an innerHTML template string.
-// (showStatus() already uses textContent, which is safe by construction;
-// this is only needed for the showStatusHtml() call sites.)
+// (showStatus() uses textContent, which is safe by construction; this is only
+// for the showStatusHtml() call sites.)
 //
-// The textContent -> innerHTML round-trip only escapes &, < and > (the
-// characters that matter for plain text-node content); it leaves quote
-// characters untouched. That's fine for the call sites that land in plain
-// text (error messages, <pre>, <code>) but not for pushAttempt()'s success
-// message, which also interpolates data.url inside href="..." — a bare "
-// there would close the attribute early and let the rest of the string be
-// parsed as markup. Escaping quotes too makes this safe in both an
-// attribute-value context and a text-node context.
+// The textContent -> innerHTML round-trip escapes &, < and > but leaves quote
+// characters alone. That's fine where the result lands in plain text, but not
+// for pushAttempt()'s success message, which interpolates data.url inside
+// href="..." — a bare " there would close the attribute early and let the rest
+// be parsed as markup. Escaping quotes too makes this safe in both contexts.
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = String(str);
   return div.innerHTML.replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
-function currentValue(carId, field) {
-  if (pendingChanges[carId] && field in pendingChanges[carId]) {
-    return pendingChanges[carId][field];
+// A number input that was blanked (or filled with something unparseable) is NOT
+// a request to set zero — but `Number("")` is 0, so committing it verbatim wrote
+// a silent zero the user never typed, and only the handful of fields the server
+// guards as strictly positive would ever have caught it. The field is put back
+// to the value it currently holds instead; this flash is what stops that restore
+// from looking like nothing happened.
+function flashRejected(input) {
+  input.classList.remove("rejected");
+  // Force a reflow so re-adding the class restarts the animation when the same
+  // field is blanked twice in a row.
+  void input.offsetWidth;
+  input.classList.add("rejected");
+}
+
+// Returns the number in a text/number input, or null when it is empty or holds
+// something that isn't a finite number.
+function readNumberInput(input) {
+  const raw = input.value.trim();
+  if (raw === "") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function behaviorScopeNote({ name, sharedWith, isBaseline }) {
+  if (isBaseline) {
+    return `These write the "${name}" profile — the baseline every car inherits from. ` +
+      `Any car that does not override a field itself changes with it.`;
   }
-  const car = cars.find((c) => c.id === carId);
-  return fieldValue(car, field);
-}
-
-function setChange(carId, field, value) {
-  pendingChanges[carId] ??= {};
-  pendingChanges[carId][field] = value;
-}
-
-function currentObstacleValue(obstacleId, field) {
-  if (pendingObstacleChanges[obstacleId] && field in pendingObstacleChanges[obstacleId]) {
-    return pendingObstacleChanges[obstacleId][field];
+  if (sharedWith.length > 0) {
+    return `These write the "${name}" driving profile, shared with ${sharedWith.join(", ")}. ` +
+      `Edits here apply to those cars too.`;
   }
-  const obstacle = obstacles.find((o) => o.id === obstacleId);
-  return obstacle.spawn[field];
+  return `These write the "${name}" driving profile, which only this car uses.`;
 }
 
-function setObstacleChange(obstacleId, field, value) {
-  pendingObstacleChanges[obstacleId] ??= {};
-  pendingObstacleChanges[obstacleId][field] = value;
+// "620 → 660", in the shop's own printed precision, so the preview reads exactly
+// like the shop screen does rather than like a raw JS number.
+function statStepPreview(stat) {
+  const format = (value) => `${value.toFixed(stat.decimals)}${stat.unit}`;
+  return (step) =>
+    step === null
+      ? "Enter a number to preview what tier 1 buys."
+      : `Tier 1 moves this from ${format(stat.base)} to ${format(stat.base + step)}.`;
 }
 
-// A pickup's fields are split across two objects (spawn tuning vs. the
-// payload it grants — see state.js), but callers just want "the value of
-// this field on this pickup" without caring which side it lives on.
-function pickupFieldValue(pickup, field) {
-  if (field in pickup.spawn) return pickup.spawn[field];
-  return pickup.effect[field];
-}
+// --- Rendering -------------------------------------------------------------
 
-function currentPickupValue(pickupId, field) {
-  if (pendingPickupChanges[pickupId] && field in pendingPickupChanges[pickupId]) {
-    return pendingPickupChanges[pickupId][field];
-  }
-  const pickup = pickups.find((p) => p.id === pickupId);
-  return pickupFieldValue(pickup, field);
-}
-
-function setPickupChange(pickupId, field, value) {
-  pendingPickupChanges[pickupId] ??= {};
-  pendingPickupChanges[pickupId][field] = value;
-}
-
-// A consumable's "how much" is stored under whichever field its `kind` uses
-// (see UPGRADE_CONSUMABLE_EFFECT_FIELD_BY_KIND-style mapping on the server;
-// here the field name comes back pre-resolved on the entry itself as
-// `effectField`), so callers just ask "the value of this field" the same way
-// currentPickupValue does for a crate.
-function upgradeConsumableFieldValue(entry, field) {
-  if (field === "price") return entry.price;
-  return entry.effectValue;
-}
-
-function currentUpgradeConsumableValue(id, field) {
-  if (pendingUpgradeConsumableChanges[id] && field in pendingUpgradeConsumableChanges[id]) {
-    return pendingUpgradeConsumableChanges[id][field];
-  }
-  const entry = upgradeConsumables.find((e) => e.id === id);
-  return upgradeConsumableFieldValue(entry, field);
-}
-
-function setUpgradeConsumableChange(id, field, value) {
-  pendingUpgradeConsumableChanges[id] ??= {};
-  pendingUpgradeConsumableChanges[id][field] = value;
-}
-
-function upgradeStatFieldValue(stat, field) {
-  return field === "price" ? stat.price : stat.step;
-}
-
-function currentUpgradeStatValue(id, field) {
-  if (pendingUpgradeStatChanges[id] && field in pendingUpgradeStatChanges[id]) {
-    return pendingUpgradeStatChanges[id][field];
-  }
-  const stat = upgradeStats.find((s) => s.id === id);
-  return upgradeStatFieldValue(stat, field);
-}
-
-function setUpgradeStatChange(id, field, value) {
-  pendingUpgradeStatChanges[id] ??= {};
-  pendingUpgradeStatChanges[id][field] = value;
-}
-
-// "1.4 -> 1.8", using the stat's own printed precision (upgrades.js's
-// `decimals`/`unit`) so the preview reads exactly like the shop screen does,
-// not like a raw JS number a fractional field (RAM PLATE's mass) would print
-// as.
-function formatStatValue(stat, value) {
-  return `${value.toFixed(stat.decimals)}${stat.unit}`;
-}
-
-const FACTION_GROUPS = [
-  { faction: "enemy", heading: "Hostile" },
-  { faction: "neutral", heading: "Civilian" },
-];
-
-function renderNav() {
-  const nav = document.getElementById("car-list");
-  nav.innerHTML = "";
-
-  function addButton(label, kind, id) {
+function renderTabs() {
+  const bar = document.getElementById("tabs");
+  bar.innerHTML = "";
+  for (const tab of TABS) {
     const button = document.createElement("button");
-    button.textContent = label;
-    button.className = selection && selection.kind === kind && selection.id === id ? "selected" : "";
+    button.textContent = tab.label;
+    button.role = "tab";
+    button.className = tab.id === activeTab ? "tab selected" : "tab";
+    button.setAttribute("aria-selected", String(tab.id === activeTab));
+    // Count of pending edits in this tab, so a change made on one screen is
+    // still visible from another.
+    const count = [...realChangeEntries()].filter(
+      ({ kindId }) => KINDS[kindId].tab === tab.id
+    ).length;
+    if (count > 0) {
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = String(count);
+      button.appendChild(badge);
+    }
     button.addEventListener("click", () => {
-      selection = { kind, id };
+      activeTab = tab.id;
+      selection = null;
+      renderTabs();
       renderNav();
       renderForm();
     });
-    nav.appendChild(button);
-  }
-
-  for (const { faction, heading } of FACTION_GROUPS) {
-    const group = cars.filter((car) => car.faction === faction);
-    if (group.length === 0) continue;
-
-    const headingEl = document.createElement("h3");
-    headingEl.textContent = heading;
-    nav.appendChild(headingEl);
-
-    for (const car of group) addButton(car.label, "car", car.id);
-  }
-
-  if (obstacles.length > 0) {
-    const headingEl = document.createElement("h3");
-    headingEl.textContent = "Obstacles";
-    nav.appendChild(headingEl);
-
-    for (const obstacle of obstacles) addButton(obstacle.label, "obstacle", obstacle.id);
-  }
-
-  if (pickups.length > 0) {
-    const headingEl = document.createElement("h3");
-    headingEl.textContent = "Pickups";
-    nav.appendChild(headingEl);
-
-    for (const pickup of pickups) addButton(pickup.label, "pickup", pickup.id);
-  }
-
-  // The shop's two shelves, as their own nav group — a fifth kind of thing to
-  // pick, exactly the way obstacles and pickups became their own groups
-  // rather than being folded into the car list.
-  if (upgradeConsumables.length > 0) {
-    const headingEl = document.createElement("h3");
-    headingEl.textContent = "Shop — Consumables";
-    nav.appendChild(headingEl);
-
-    for (const entry of upgradeConsumables) addButton(entry.label, "upgradeConsumable", entry.id);
-  }
-
-  if (upgradeStats.length > 0) {
-    const headingEl = document.createElement("h3");
-    headingEl.textContent = "Shop — Car Systems";
-    nav.appendChild(headingEl);
-
-    for (const stat of upgradeStats) addButton(stat.label, "upgradeStat", stat.id);
+    bar.appendChild(button);
   }
 }
 
-function makeField(carId, field) {
-  const car = cars.find((c) => c.id === carId);
+function renderNav() {
+  const nav = document.getElementById("entry-list");
+  nav.innerHTML = "";
+
+  for (const kind of kindsInTab(activeTab)) {
+    for (const group of kind.groups()) {
+      const headingEl = document.createElement("h3");
+      headingEl.textContent = group.heading;
+      nav.appendChild(headingEl);
+
+      for (const entry of group.entries) {
+        const button = document.createElement("button");
+        button.textContent = entry.label;
+        const selected = selection && selection.kind === kind.id && selection.id === entry.id;
+        button.className = selected ? "selected" : "";
+        if (hasChange(kind.id, entry.id)) {
+          const dot = document.createElement("span");
+          dot.className = "change-dot";
+          dot.title = "has pending changes";
+          button.appendChild(dot);
+        }
+        button.addEventListener("click", () => {
+          selection = { kind: kind.id, id: entry.id };
+          renderNav();
+          renderForm();
+        });
+        nav.appendChild(button);
+      }
+    }
+  }
+}
+
+function makeField(kindId, entryId, spec) {
   const wrapper = document.createElement("div");
   wrapper.className = "field";
 
   const label = document.createElement("label");
-  label.textContent = field;
-  if (isOverridden(car, field)) {
+  label.textContent = spec.label ?? spec.field;
+  if (spec.tag) {
     const tag = document.createElement("span");
-    tag.className = "override-tag";
-    tag.textContent = "(overridden)";
+    tag.className = spec.tag === "(inherited)" ? "inherit-tag" : "override-tag";
+    tag.textContent = spec.tag;
     label.appendChild(tag);
   }
   wrapper.appendChild(label);
 
+  const readCurrent = () => currentValue(kindId, entryId, spec.field);
+
   let input;
-  if (field === "laneHome") {
+  if (spec.input?.type === "select") {
     input = document.createElement("select");
-    for (const option of ["any", "inner", "outer"]) {
+    for (const option of spec.input.options) {
       const opt = document.createElement("option");
       opt.value = option;
       opt.textContent = option;
       input.appendChild(opt);
     }
-    input.value = currentValue(carId, field);
+    input.value = readCurrent();
+    input.addEventListener("change", () => setChange(kindId, entryId, spec.field, input.value));
   } else {
     input = document.createElement("input");
     input.type = "number";
     input.step = "any";
-    input.value = currentValue(carId, field);
+    if (spec.input?.min !== undefined) input.min = String(spec.input.min);
+    input.value = readCurrent();
+    input.addEventListener("change", () => {
+      const value = readNumberInput(input);
+      if (value === null) {
+        clearChange(kindId, entryId, spec.field);
+        // `readCurrent` is a function, not a captured value, because a blanked
+        // box has to be restored to what the field holds RIGHT NOW — the
+        // pending edit if there is one, not what it was built with.
+        input.value = readCurrent();
+        flashRejected(input);
+        return;
+      }
+      setChange(kindId, entryId, spec.field, value);
+    });
   }
-  input.addEventListener("change", () => {
-    const value = field === "laneHome" ? input.value : Number(input.value);
-    setChange(carId, field, value);
-  });
   wrapper.appendChild(input);
 
   const description = document.createElement("div");
   description.className = "description";
-  description.textContent = FIELD_DESCRIPTIONS[field];
+  description.textContent = spec.description ?? "";
   wrapper.appendChild(description);
 
-  return wrapper;
-}
-
-// Obstacles and pickups both edit plain numbers with no per-field special
-// cases, so the two builders that used to spell this out separately now differ
-// only in where the value comes from and where a change goes. makeField above
-// stays its own function: a car field can be an enum (laneHome) and can carry
-// an "(overridden)" tag, neither of which belongs here.
-function makeNumberField(field, value, description, onChange) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "field";
-
-  const label = document.createElement("label");
-  label.textContent = field;
-  wrapper.appendChild(label);
-
-  const input = document.createElement("input");
-  input.type = "number";
-  input.step = "any";
-  input.value = value;
-  input.addEventListener("change", () => onChange(Number(input.value)));
-  wrapper.appendChild(input);
-
-  const descriptionEl = document.createElement("div");
-  descriptionEl.className = "description";
-  descriptionEl.textContent = description;
-  wrapper.appendChild(descriptionEl);
+  if (spec.preview) {
+    const preview = document.createElement("div");
+    preview.className = "description preview";
+    const render = () => {
+      // Read the INPUT directly rather than the pending value: that only
+      // updates once the "change" listener fires on blur/Enter, and a
+      // keep-typing preview needs the value mid-edit.
+      preview.textContent = spec.preview(readNumberInput(input));
+    };
+    render();
+    // Kept in sync with the input directly rather than by re-rendering the
+    // form on every keystroke, which would drop focus out of the box being
+    // typed in. This is the one line on the screen where a stale value would
+    // read as wrong rather than as "not yet applied", since it does arithmetic
+    // the user can't easily do in their head.
+    input.addEventListener("input", render);
+    wrapper.appendChild(preview);
+  }
 
   return wrapper;
-}
-
-function makeObstacleField(obstacleId, field) {
-  return makeNumberField(
-    field,
-    currentObstacleValue(obstacleId, field),
-    OBSTACLE_FIELD_DESCRIPTIONS[field],
-    (value) => setObstacleChange(obstacleId, field, value),
-  );
-}
-
-// `description` is passed in rather than looked up by field name because
-// "amount" means something different per pickup kind (see
-// PICKUP_EFFECT_DESCRIPTIONS) — unlike weight/minDistance, whose meaning is
-// the same for every pickup and can be looked up in PICKUP_FIELD_DESCRIPTIONS.
-function makePickupField(pickupId, field, description) {
-  return makeNumberField(
-    field,
-    currentPickupValue(pickupId, field),
-    description,
-    (value) => setPickupChange(pickupId, field, value),
-  );
-}
-
-function makeUpgradeConsumableField(id, field, description) {
-  return makeNumberField(
-    field,
-    currentUpgradeConsumableValue(id, field),
-    description,
-    (value) => setUpgradeConsumableChange(id, field, value),
-  );
-}
-
-function makeUpgradeStatField(id, field, description) {
-  return makeNumberField(
-    field,
-    currentUpgradeStatValue(id, field),
-    description,
-    (value) => setUpgradeStatChange(id, field, value),
-  );
 }
 
 function renderForm() {
-  const carSection = document.getElementById("car-form");
-  const obstacleSection = document.getElementById("obstacle-form");
-  const pickupSection = document.getElementById("pickup-form");
-  const upgradeConsumableSection = document.getElementById("upgrade-consumable-form");
-  const upgradeStatSection = document.getElementById("upgrade-stat-form");
-  const allSections = [
-    carSection, obstacleSection, pickupSection, upgradeConsumableSection, upgradeStatSection,
-  ];
+  const form = document.getElementById("form");
+  const empty = document.getElementById("form-empty");
+  const sectionsEl = document.getElementById("form-sections");
 
   if (!selection) {
-    for (const section of allSections) section.hidden = true;
+    form.hidden = true;
+    empty.hidden = false;
     return;
   }
 
-  if (selection.kind === "upgradeConsumable") {
-    for (const section of allSections) section.hidden = true;
-    upgradeConsumableSection.hidden = false;
+  const kind = KINDS[selection.kind];
+  const entry = entryOf(selection.kind, selection.id);
+  form.hidden = false;
+  empty.hidden = true;
+  document.getElementById("form-title").textContent = entry.label;
 
-    const entry = upgradeConsumables.find((e) => e.id === selection.id);
-    document.getElementById("upgrade-consumable-form-title").textContent = entry.label;
+  const subtitleEl = document.getElementById("form-subtitle");
+  const subtitle = kind.subtitle?.(entry);
+  subtitleEl.textContent = subtitle ?? "";
+  subtitleEl.hidden = !subtitle;
 
-    const fieldsDiv = document.getElementById("upgrade-consumable-fields");
-    fieldsDiv.innerHTML = "";
-    fieldsDiv.appendChild(
-      makeUpgradeConsumableField(entry.id, "price", UPGRADE_CONSUMABLE_PRICE_DESCRIPTION)
-    );
-    if (entry.effectField) {
-      fieldsDiv.appendChild(
-        makeUpgradeConsumableField(
-          entry.id, entry.effectField, UPGRADE_CONSUMABLE_EFFECT_DESCRIPTIONS[entry.kind]
-        )
-      );
-    }
-    return;
-  }
-
-  if (selection.kind === "upgradeStat") {
-    for (const section of allSections) section.hidden = true;
-    upgradeStatSection.hidden = false;
-
-    const stat = upgradeStats.find((s) => s.id === selection.id);
-    document.getElementById("upgrade-stat-form-title").textContent = stat.label;
-
-    const fieldsDiv = document.getElementById("upgrade-stat-fields");
-    fieldsDiv.innerHTML = "";
-    fieldsDiv.appendChild(makeUpgradeStatField(stat.id, "price", UPGRADE_STAT_DESCRIPTIONS.price));
-    const stepField = makeUpgradeStatField(stat.id, "step", UPGRADE_STAT_DESCRIPTIONS.step);
-    fieldsDiv.appendChild(stepField);
-    const stepInput = stepField.querySelector("input");
-
-    // A live "base -> base + step" readout, in the shop's own formatting, so
-    // changing the step shows what tier 1 will actually buy without anyone
-    // having to do the arithmetic by hand. Read-only — see state.js's note on
-    // why `base` itself isn't a field.
-    const preview = document.createElement("div");
-    preview.className = "description";
-    const renderPreview = () => {
-      // Read the INPUT directly, not currentUpgradeStatValue: that only picks
-      // up a change once makeNumberField's own "change" listener commits it to
-      // pendingUpgradeStatChanges, which fires on blur/Enter — a "keep typing"
-      // preview needs the value as it stands mid-edit, before that commit.
-      const step = Number(stepInput.value);
-      const text = Number.isFinite(step)
-        ? `Tier 1 moves this from ${formatStatValue(stat, stat.base)} to ${formatStatValue(stat, stat.base + step)}.`
-        : "Enter a number to preview what tier 1 buys.";
-      preview.textContent = text;
-    };
-    renderPreview();
-    fieldsDiv.appendChild(preview);
-
-    // Kept in sync with the step INPUT directly rather than by re-running
-    // renderForm() on every keystroke — a full re-render would rebuild every
-    // field in this section and drop focus out of whichever one the user is
-    // typing in, which is exactly the kind of thing that makes a form
-    // frustrating to use. This is the one line on the whole screen where a
-    // stale value would read as wrong rather than just as "not yet applied",
-    // since it does arithmetic the user can't easily do in their head.
-    stepInput.addEventListener("input", renderPreview);
-    return;
-  }
-
-  if (selection.kind === "obstacle") {
-    for (const section of allSections) section.hidden = true;
-    obstacleSection.hidden = false;
-
-    const obstacle = obstacles.find((o) => o.id === selection.id);
-    document.getElementById("obstacle-form-title").textContent = obstacle.label;
-
-    const spawnDiv = document.getElementById("obstacle-spawn-fields");
-    spawnDiv.innerHTML = "";
-    for (const field of OBSTACLE_FIELD_ORDER) spawnDiv.appendChild(makeObstacleField(obstacle.id, field));
-    return;
-  }
-
-  if (selection.kind === "pickup") {
-    for (const section of allSections) section.hidden = true;
-    pickupSection.hidden = false;
-
-    const pickup = pickups.find((p) => p.id === selection.id);
-    document.getElementById("pickup-form-title").textContent = pickup.label;
-
-    const effectDiv = document.getElementById("pickup-effect-fields");
-    effectDiv.innerHTML = "";
-    const effectField = PICKUP_EFFECT_FIELD_BY_KIND[pickup.kind];
-    if (effectField) {
-      effectDiv.appendChild(
-        makePickupField(pickup.id, effectField, PICKUP_EFFECT_DESCRIPTIONS[pickup.kind])
-      );
+  sectionsEl.innerHTML = "";
+  for (const section of kind.sections(entry)) {
+    // A collapsible section is a <details>, so the twenty-odd behavior fields
+    // a car carries can be folded away when nothing in them is overridden.
+    const box = document.createElement(section.collapsible ? "details" : "fieldset");
+    if (section.collapsible) {
+      box.open = section.open !== false;
+      const summary = document.createElement("summary");
+      summary.textContent = section.legend;
+      box.appendChild(summary);
+    } else {
+      const legend = document.createElement("legend");
+      legend.textContent = section.legend;
+      box.appendChild(legend);
     }
 
-    const spawnDiv = document.getElementById("pickup-spawn-fields");
-    spawnDiv.innerHTML = "";
-    for (const field of PICKUP_FIELD_ORDER) {
-      spawnDiv.appendChild(makePickupField(pickup.id, field, PICKUP_FIELD_DESCRIPTIONS[field]));
+    if (section.scopeNote) {
+      const note = document.createElement("p");
+      note.className = "scope-note";
+      note.textContent = section.scopeNote;
+      box.appendChild(note);
     }
-    return;
-  }
 
-  for (const section of allSections) section.hidden = true;
-  carSection.hidden = false;
-
-  const car = cars.find((c) => c.id === selection.id);
-  document.getElementById("car-form-title").textContent = car.label;
-
-  const hullDiv = document.getElementById("hull-fields");
-  hullDiv.innerHTML = "";
-  for (const field of FIELD_ORDER.hull) hullDiv.appendChild(makeField(car.id, field));
-
-  const speedDiv = document.getElementById("speed-fields");
-  speedDiv.innerHTML = "";
-  for (const field of FIELD_ORDER.speed) speedDiv.appendChild(makeField(car.id, field));
-
-  const spawnDiv = document.getElementById("spawn-fields");
-  spawnDiv.innerHTML = "";
-  for (const field of FIELD_ORDER.spawn) spawnDiv.appendChild(makeField(car.id, field));
-
-  const behaviorDiv = document.getElementById("behavior-fields");
-  behaviorDiv.innerHTML = "";
-  for (const [group, fields] of Object.entries(FIELD_ORDER.behavior)) {
-    const heading = document.createElement("h3");
-    heading.textContent = group;
-    behaviorDiv.appendChild(heading);
-    for (const field of fields) behaviorDiv.appendChild(makeField(car.id, field));
+    for (const spec of section.fields) {
+      box.appendChild(makeField(selection.kind, entry.id, spec));
+    }
+    sectionsEl.appendChild(box);
   }
 }
 
-// Behavior fields flag whether this edit ADDS a new override to the car's
-// profile (it currently inherits the commuter default) or CHANGES an
-// override that was already there. Hull/speed/spawn fields are always plain
-// changes — cartypes.js sets them on every entry, so there's no "inherited"
-// state for the note to describe.
-function noteFor(car, field) {
-  if (field in car.hull || field in car.speed || field in car.spawn) return "";
-  return car.behavior[field].inherited ? "new override" : "changed";
-}
-
-// pendingChanges/pendingObstacleChanges can accumulate no-op entries — a
-// field the user changed and then changed back to its original value.
-// renderReview() already filters these out of the diff table; these do the
-// same filtering for what actually gets sent to the server, using the
-// identical comparison.
-function realChanges() {
-  const result = {};
-  for (const [carId, fields] of Object.entries(pendingChanges)) {
-    const car = cars.find((c) => c.id === carId);
-    for (const [field, value] of Object.entries(fields)) {
-      if (fieldValue(car, field) === value) continue;
-      result[carId] ??= {};
-      result[carId][field] = value;
-    }
-  }
-  return result;
-}
-
-function realObstacleChanges() {
-  const result = {};
-  for (const [obstacleId, fields] of Object.entries(pendingObstacleChanges)) {
-    const obstacle = obstacles.find((o) => o.id === obstacleId);
-    for (const [field, value] of Object.entries(fields)) {
-      if (obstacle.spawn[field] === value) continue;
-      result[obstacleId] ??= {};
-      result[obstacleId][field] = value;
-    }
-  }
-  return result;
-}
-
-function realPickupChanges() {
-  const result = {};
-  for (const [pickupId, fields] of Object.entries(pendingPickupChanges)) {
-    const pickup = pickups.find((p) => p.id === pickupId);
-    for (const [field, value] of Object.entries(fields)) {
-      if (pickupFieldValue(pickup, field) === value) continue;
-      result[pickupId] ??= {};
-      result[pickupId][field] = value;
-    }
-  }
-  return result;
-}
-
-function realUpgradeConsumableChanges() {
-  const result = {};
-  for (const [id, fields] of Object.entries(pendingUpgradeConsumableChanges)) {
-    const entry = upgradeConsumables.find((e) => e.id === id);
-    for (const [field, value] of Object.entries(fields)) {
-      if (upgradeConsumableFieldValue(entry, field) === value) continue;
-      result[id] ??= {};
-      result[id][field] = value;
-    }
-  }
-  return result;
-}
-
-function realUpgradeStatChanges() {
-  const result = {};
-  for (const [id, fields] of Object.entries(pendingUpgradeStatChanges)) {
-    const stat = upgradeStats.find((s) => s.id === id);
-    for (const [field, value] of Object.entries(fields)) {
-      if (upgradeStatFieldValue(stat, field) === value) continue;
-      result[id] ??= {};
-      result[id][field] = value;
-    }
-  }
-  return result;
+function renderActions() {
+  const count = changeCount();
+  document.getElementById("review-button").textContent =
+    count === 0 ? "Review changes" : `Review ${count} change${count === 1 ? "" : "s"}`;
+  document.getElementById("discard-button").hidden = count === 0;
+  renderTabs();
 }
 
 function renderReview() {
@@ -693,12 +740,14 @@ function renderReview() {
   tbody.innerHTML = "";
 
   let hasChanges = false;
-
-  function addRow(label, field, before, after, note) {
-    if (before === after) return;
+  for (const { kindId, id, field, value } of realChangeEntries()) {
     hasChanges = true;
+    const kind = KINDS[kindId];
+    const entry = entryOf(kindId, id);
+    const before = baseValue(kindId, id, field);
+    const note = kind.note ? kind.note(entry, field) : "";
     const row = document.createElement("tr");
-    for (const text of [label, field, String(before), String(after), note]) {
+    for (const text of [kind.label, entry.label, field, String(before), String(value), note]) {
       const td = document.createElement("td");
       td.textContent = text;
       row.appendChild(td);
@@ -706,44 +755,11 @@ function renderReview() {
     tbody.appendChild(row);
   }
 
-  for (const [carId, fields] of Object.entries(pendingChanges)) {
-    const car = cars.find((c) => c.id === carId);
-    for (const [field, value] of Object.entries(fields)) {
-      addRow(car.label, field, fieldValue(car, field), value, noteFor(car, field));
-    }
-  }
-
-  for (const [obstacleId, fields] of Object.entries(pendingObstacleChanges)) {
-    const obstacle = obstacles.find((o) => o.id === obstacleId);
-    for (const [field, value] of Object.entries(fields)) {
-      addRow(obstacle.label, field, obstacle.spawn[field], value, "");
-    }
-  }
-
-  for (const [pickupId, fields] of Object.entries(pendingPickupChanges)) {
-    const pickup = pickups.find((p) => p.id === pickupId);
-    for (const [field, value] of Object.entries(fields)) {
-      addRow(pickup.label, field, pickupFieldValue(pickup, field), value, "");
-    }
-  }
-
-  for (const [id, fields] of Object.entries(pendingUpgradeConsumableChanges)) {
-    const entry = upgradeConsumables.find((e) => e.id === id);
-    for (const [field, value] of Object.entries(fields)) {
-      addRow(entry.label, field, upgradeConsumableFieldValue(entry, field), value, "");
-    }
-  }
-
-  for (const [id, fields] of Object.entries(pendingUpgradeStatChanges)) {
-    const stat = upgradeStats.find((s) => s.id === id);
-    for (const [field, value] of Object.entries(fields)) {
-      addRow(stat.label, field, upgradeStatFieldValue(stat, field), value, "");
-    }
-  }
-
   section.hidden = false;
   document.getElementById("create-pr").disabled = !hasChanges;
 }
+
+// --- Status and the commit/test/push flow ----------------------------------
 
 function showStatus(text, kind) {
   const status = document.getElementById("status");
@@ -757,6 +773,16 @@ function showStatusHtml(html, kind) {
   status.hidden = false;
   status.className = kind;
   status.innerHTML = html;
+}
+
+async function loadState() {
+  const res = await fetch("/api/state");
+  if (!res.ok) throw new Error(`/api/state responded ${res.status}`);
+  data = await res.json();
+  carFieldGroups = data.carFieldGroups;
+  behaviorFieldGroups = data.behaviorFieldGroups;
+  obstacleFieldGroups = data.obstacleFieldGroups;
+  weaponFieldGroups = data.weaponFieldGroups;
 }
 
 async function pushAttempt() {
@@ -778,11 +804,15 @@ async function pushAttempt() {
     "success"
   );
   window.open(data.url, "_blank", "noopener");
-  for (const key of Object.keys(pendingChanges)) delete pendingChanges[key];
-  for (const key of Object.keys(pendingObstacleChanges)) delete pendingObstacleChanges[key];
-  for (const key of Object.keys(pendingPickupChanges)) delete pendingPickupChanges[key];
-  for (const key of Object.keys(pendingUpgradeConsumableChanges)) delete pendingUpgradeConsumableChanges[key];
-  for (const key of Object.keys(pendingUpgradeStatChanges)) delete pendingUpgradeStatChanges[key];
+  // The source files on disk have moved on, so the baseline every "before"
+  // column and no-op filter reads from has to move with them. /api/state
+  // re-reads them from disk (see the server's refreshCatalogues), which is what
+  // makes a second tuning session in one sitting diff against reality.
+  discardAllChanges();
+  await loadState();
+  renderTabs();
+  renderNav();
+  renderForm();
 }
 
 async function cancelAttempt() {
@@ -804,13 +834,7 @@ async function createPullRequest() {
   const commitRes = await fetch("/api/commit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      changes: realChanges(),
-      obstacleChanges: realObstacleChanges(),
-      pickupChanges: realPickupChanges(),
-      upgradeConsumableChanges: realUpgradeConsumableChanges(),
-      upgradeStatChanges: realUpgradeStatChanges(),
-    }),
+    body: JSON.stringify(buildRequestBody()),
   });
   const commitData = await commitRes.json();
 
@@ -836,6 +860,23 @@ async function createPullRequest() {
 
 document.getElementById("review-button").addEventListener("click", renderReview);
 document.getElementById("create-pr").addEventListener("click", createPullRequest);
+document.getElementById("discard-button").addEventListener("click", discardAllChanges);
 
-await loadState();
-renderNav();
+// A reload or a closed tab used to take every pending edit with it silently.
+window.addEventListener("beforeunload", (event) => {
+  if (changeCount() === 0) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
+
+try {
+  await loadState();
+  activeTab = TABS[0].id;
+  renderTabs();
+  renderNav();
+  renderActions();
+} catch (err) {
+  // Without this the module just rejects and the page stays blank with the
+  // reason buried in the console.
+  showStatus(`Could not load the catalogues: ${err.message}`, "error");
+}

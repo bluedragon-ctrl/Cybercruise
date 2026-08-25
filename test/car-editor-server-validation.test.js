@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   validateChanges,
+  validateWeaponChanges,
+  validateConstantChanges,
   validateObstacleChanges,
   validatePickupChanges,
   validateUpgradeConsumableChanges,
@@ -10,8 +12,7 @@ import {
 } from "../tools/car-editor/server.js";
 import {
   CAR_IDS,
-  HULL_SPEED_FIELDS,
-  SPAWN_FIELDS,
+  CAR_TYPE_FIELDS,
   BEHAVIOR_FIELDS,
   OBSTACLE_IDS,
   OBSTACLE_FIELDS,
@@ -20,6 +21,9 @@ import {
   PICKUP_EFFECT_FIELDS,
   UPGRADE_CONSUMABLE_IDS,
   UPGRADE_STAT_IDS,
+  WEAPON_IDS,
+  buildCarState,
+  buildWeaponState,
 } from "../tools/car-editor/state.js";
 
 test("validateChanges rejects a negative health value", () => {
@@ -49,8 +53,32 @@ test("validateChanges rejects speedMax < speedMin when both are given", () => {
   );
 });
 
-test("validateChanges accepts speedMax alone without speedMin in the request", () => {
-  assert.doesNotThrow(() => validateChanges({ rival: { speedMax: 500 } }));
+// The speed range has to hold AFTER the edit, so a lone speedMax is checked
+// against the speedMin already in the source rather than waved through — the
+// pair-only check this replaces let an edit invert a car's range in one field.
+test("validateChanges accepts speedMax alone when it clears the car's current speedMin", () => {
+  const { speedMin } = buildCarState("rival").values;
+  assert.doesNotThrow(() => validateChanges({ rival: { speedMax: speedMin + 10 } }));
+});
+
+test("validateChanges rejects speedMax alone when it falls under the car's current speedMin", () => {
+  const { speedMin } = buildCarState("rival").values;
+  assert.throws(
+    () => validateChanges({ rival: { speedMax: speedMin - 10 } }),
+    // The "unchanged" tag is the point of the message: it says the speedMin
+    // it compared against came from the source, not from the request.
+    (err) =>
+      err.message ===
+      `speedMax (${speedMin - 10}) must be >= speedMin (${speedMin}, unchanged) for "rival"`
+  );
+});
+
+test("validateChanges rejects speedMin alone when it rises above the car's current speedMax", () => {
+  const { speedMax } = buildCarState("rival").values;
+  assert.throws(
+    () => validateChanges({ rival: { speedMin: speedMax + 10 } }),
+    /must be >= speedMin/
+  );
 });
 
 test("validateChanges accepts a civilian car id", () => {
@@ -107,9 +135,13 @@ test("validateObstacleChanges rejects an unknown obstacle id", () => {
 });
 
 test("validateObstacleChanges rejects an unknown field", () => {
+  // `health` used to be the example here, back when spawn odds were all an
+  // obstacle exposed. It is a real field now — a hazard's own toughness is
+  // tunable — so the example has to be something the catalogue genuinely has
+  // no notion of.
   assert.throws(
-    () => validateObstacleChanges({ trestle: { health: 100 } }),
-    /unknown field "health" for "trestle"/
+    () => validateObstacleChanges({ trestle: { nerve: 4 } }),
+    /unknown field "nerve" for "trestle"/
   );
 });
 
@@ -276,7 +308,7 @@ test("validateUpgradeStatChanges rejects an empty changes object", () => {
 // is precisely when the old gap would have reopened.
 const CATALOGUES = [
   { name: "validateChanges", fn: validateChanges, id: CAR_IDS[0],
-    fields: [...HULL_SPEED_FIELDS, ...SPAWN_FIELDS, ...BEHAVIOR_FIELDS] },
+    fields: [...CAR_TYPE_FIELDS, ...BEHAVIOR_FIELDS] },
   { name: "validateObstacleChanges", fn: validateObstacleChanges, id: OBSTACLE_IDS[0],
     fields: OBSTACLE_FIELDS },
   { name: "validatePickupChanges", fn: validatePickupChanges, id: PICKUP_IDS[0],
@@ -285,6 +317,11 @@ const CATALOGUES = [
     id: UPGRADE_CONSUMABLE_IDS[0], fields: ["price", "amount", "duration"] },
   { name: "validateUpgradeStatChanges", fn: validateUpgradeStatChanges,
     id: UPGRADE_STAT_IDS[0], fields: ["price", "step"] },
+  // The rocket rather than WEAPON_IDS[0]: a weapon validator rejects a field
+  // the entry does not HAVE before it ever gets to a sign check, so this has to
+  // ask about the fields that weapon actually carries.
+  { name: "validateWeaponChanges", fn: validateWeaponChanges, id: "rocket",
+    fields: Object.keys(buildWeaponState("rocket").values) },
 ];
 
 test("every validator enforces POSITIVE_FIELDS on every such field it accepts", () => {
