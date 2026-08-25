@@ -111,6 +111,9 @@ import {
   MUSIC_DIR,
   MUSIC_LISTING_URL,
   TRACK_GAIN,
+  TRACK_DECODE_SAMPLE_RATE,
+  TRACK_DECODE_RATE_MIN,
+  TRACK_DECODE_RATE_MAX,
   trackGainFor,
   trackDisplayName,
   validateMusicConfig,
@@ -1135,6 +1138,34 @@ test("validateMusicConfig rejects a root-absolute MUSIC_LISTING_URL", () => {
 test("validateMusicConfig rejects a root-absolute MUSIC_DIR", () => {
   const errors = validateMusicConfig({ musicDir: "/assets/music" });
   assert.ok(errors.some((e) => e.includes("MUSIC_DIR")), `expected a MUSIC_DIR error, got: ${errors}`);
+});
+
+test("TRACK_DECODE_SAMPLE_RATE is in range AND actually below a normal output rate", () => {
+  // The range check alone would pass for 48000, which is exactly the value
+  // that saves nothing — decoding at the output rate is what this constant
+  // exists to avoid. See musictypes.js for the measured footprint.
+  assert.ok(TRACK_DECODE_SAMPLE_RATE >= TRACK_DECODE_RATE_MIN);
+  assert.ok(TRACK_DECODE_SAMPLE_RATE <= TRACK_DECODE_RATE_MAX);
+  assert.ok(
+    TRACK_DECODE_SAMPLE_RATE < 44100,
+    `TRACK_DECODE_SAMPLE_RATE ${TRACK_DECODE_SAMPLE_RATE} saves no memory at or above the output rate`,
+  );
+});
+
+test("validateMusicConfig rejects a decode sample rate outside the useful range", () => {
+  for (const rate of [TRACK_DECODE_RATE_MIN - 1, TRACK_DECODE_RATE_MAX + 1, 0, -24000, NaN]) {
+    const errors = validateMusicConfig({ decodeSampleRate: rate });
+    assert.ok(
+      errors.some((e) => e.includes("TRACK_DECODE_SAMPLE_RATE")),
+      `expected a TRACK_DECODE_SAMPLE_RATE error for ${rate}, got: ${errors}`,
+    );
+  }
+});
+
+test("validateMusicConfig accepts the decode rate at both ends of its range", () => {
+  for (const rate of [TRACK_DECODE_RATE_MIN, TRACK_DECODE_RATE_MAX]) {
+    assert.deepEqual(validateMusicConfig({ decodeSampleRate: rate }), [], `rate ${rate} should be accepted`);
+  }
 });
 
 test("validateMusicConfig rejects an out-of-range per-track override", () => {

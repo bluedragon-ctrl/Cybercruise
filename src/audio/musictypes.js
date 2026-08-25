@@ -54,6 +54,49 @@ export const MUSIC_LISTING_URL = "assets/music/tracks.json";
 // track has actually been checked by ear against the procedural loop.
 export const TRACK_GAIN = 0.8;
 
+// The sample rate music is DECODED at, in Hz — the single biggest lever on
+// this game's memory footprint, and the reason this constant exists at all.
+//
+// decodeAudioData expands compressed audio to Float32 PCM at the sample rate
+// of the context doing the decoding, which is where the cost hides: measured
+// on the published build, chase.ogg is 2.6MB on disk and 71MB decoded at
+// 48kHz, and under_chrome.ogg is 3.8MB on disk and 110MB decoded. Since
+// trackmusic.js deliberately keeps the current track AND the stream-ahead
+// decoded at once (see its header), the soundtrack alone was holding
+// 140-220MB resident for a whole session — on top of everything the game
+// itself allocates, and with a fresh buffer of that size allocated (and the
+// outgoing one collected) at every track change, mid-gameplay.
+//
+// RE-ENCODING THE SOURCE FILES AT A LOWER RATE WOULD NOT HELP: decodeAudioData
+// resamples to the DECODING CONTEXT's rate regardless of what the file says,
+// so a 24kHz .ogg still expands to 48kHz PCM in a 48kHz context. Decoding in
+// an OfflineAudioContext at this rate is what actually halves it, and the
+// resulting buffer plays back fine in the game's own 48kHz context —
+// AudioBufferSourceNode resamples on the fly, and keeps .detune, .loop and
+// sample-accurate .start() exactly as trackmusic.js already uses them. That
+// full-fidelity playback path is why this is a memory fix and not a rewrite.
+//
+// THE TRADE IS TREBLE. 24kHz can only represent frequencies up to 12kHz
+// (Nyquist), so cymbals and synth sheen lose their top end; the pads, bass
+// and drums this soundtrack is mostly made of are untouched. 24000 is the
+// starting point rather than the settled answer — it is meant to be checked
+// by ear against the procedural backend, the same way TRACK_GAIN above is,
+// with 32000 (16kHz ceiling, ~1.5x the memory) as the fallback if the mix
+// reads dull. Decoding also gets SLOWER at a reduced rate, not faster
+// (~560ms vs ~356ms for chase.ogg — the resample is extra work), which
+// doesn't stall rendering because decodeAudioData runs off the main thread;
+// it is the allocation and collection of the buffer that the main thread
+// pays for, and that is what this halves.
+export const TRACK_DECODE_SAMPLE_RATE = 24000;
+
+// The bounds validateMusicConfig() holds TRACK_DECODE_SAMPLE_RATE to. The Web
+// Audio spec permits 3000..768000, but this range is the useful one: below
+// 8000 the music is telephone-grade to the point of being a bug, and above
+// 48000 it would be spending MORE memory than decoding natively ever did,
+// which is the exact opposite of why this knob exists.
+export const TRACK_DECODE_RATE_MIN = 8000;
+export const TRACK_DECODE_RATE_MAX = 48000;
+
 // Per-filename overrides, keyed by the exact name tools/serve.js's listing
 // endpoint returns (the DECODED filename — see trackmusic.js's own header
 // on where percent-encoding happens and why it's never part of the key
@@ -98,6 +141,7 @@ export function validateMusicConfig({
   musicDir = MUSIC_DIR,
   listingUrl = MUSIC_LISTING_URL,
   trackGain = TRACK_GAIN,
+  decodeSampleRate = TRACK_DECODE_SAMPLE_RATE,
   overrides = TRACK_OVERRIDES,
 } = {}) {
   const errors = [];
@@ -109,6 +153,11 @@ export function validateMusicConfig({
     errors.push("MUSIC_LISTING_URL must be a non-empty, RELATIVE path (no leading slash) so the game works from a subdirectory");
   }
   if (!(trackGain >= 0 && trackGain <= 1)) errors.push(`TRACK_GAIN ${trackGain} must be in 0..1`);
+  if (!(decodeSampleRate >= TRACK_DECODE_RATE_MIN && decodeSampleRate <= TRACK_DECODE_RATE_MAX)) {
+    errors.push(
+      `TRACK_DECODE_SAMPLE_RATE ${decodeSampleRate} must be in ${TRACK_DECODE_RATE_MIN}..${TRACK_DECODE_RATE_MAX} Hz`,
+    );
+  }
   for (const [name, cfg] of Object.entries(overrides)) {
     if (!(cfg.gain >= 0 && cfg.gain <= 1)) errors.push(`TRACK_OVERRIDES["${name}"].gain ${cfg.gain} must be in 0..1`);
   }

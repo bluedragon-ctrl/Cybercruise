@@ -54,7 +54,7 @@
 // encodes, never decodes.
 
 import { getCtx, getMusicBus } from "./context.js";
-import { MUSIC_DIR, MUSIC_LISTING_URL, trackGainFor } from "./musictypes.js";
+import { MUSIC_DIR, MUSIC_LISTING_URL, TRACK_DECODE_SAMPLE_RATE, trackGainFor } from "./musictypes.js";
 
 // --- Pure playlist logic ----------------------------------------------------
 //
@@ -300,6 +300,44 @@ function evictStale() {
   }
 }
 
+// Decodes `bytes` to PCM at TRACK_DECODE_SAMPLE_RATE rather than at the
+// game's own output rate — see musictypes.js's constant for the measured
+// numbers and the reasoning. The short version: decodeAudioData resamples to
+// whatever context decodes it, so decoding in a throwaway OfflineAudioContext
+// at a lower rate is what makes a track cost half the memory, and the
+// resulting buffer still plays at full quality through the normal graph
+// because AudioBufferSourceNode resamples on the fly.
+//
+// A FRESH OfflineAudioContext PER DECODE, deliberately: it exists only to
+// carry a sample rate into decodeAudioData and is never started or connected
+// to anything, so it is cheap, and a fresh one cannot inherit state from a
+// previous decode that failed partway. Its length of 1 frame is the minimum
+// the constructor accepts — nothing is ever rendered through it.
+//
+// FALLS BACK TO THE LIVE CONTEXT if the browser won't build an
+// OfflineAudioContext at this rate (or lacks the constructor entirely). That
+// costs the memory saving and nothing else — the track still decodes and
+// still plays, which matters more than the footprint. Kept as a fallback
+// rather than a hard requirement because this whole change is an
+// optimisation; it must not become a new way for music to fail outright.
+//
+// ONLY THE CONSTRUCTOR IS GUARDED, not the decode, and that split is not
+// cosmetic: decodeAudioData DETACHES the ArrayBuffer it is handed. Wrapping
+// the decode too would mean a genuinely corrupt file failed once, then failed
+// again in the fallback on a now-detached buffer — reporting "detached
+// ArrayBuffer" to decodeAndCache()'s catch instead of the real decode error.
+// An unsupported rate throws from the constructor with the bytes untouched,
+// which is exactly the case worth retrying.
+async function decodeAtTrackRate(ctx, bytes) {
+  let decoder = ctx;
+  try {
+    decoder = new OfflineAudioContext(2, 1, TRACK_DECODE_SAMPLE_RATE);
+  } catch {
+    decoder = ctx; // unsupported rate or no OfflineAudioContext — decode natively
+  }
+  return await decoder.decodeAudioData(bytes);
+}
+
 // Decodes `name` and caches the result, or records it in `failedTracks` —
 // never throws. Dedupes against an in-flight decode of the SAME name (the
 // background stream-ahead and handleTrackEnded's own "make sure the next
@@ -316,7 +354,7 @@ function decodeAndCache(name) {
     const res = await fetch(trackUrl(name));
     if (!res.ok) throw new Error(`fetch ${name} failed: ${res.status}`);
     const arrayBuffer = await res.arrayBuffer();
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    const audioBuffer = await decodeAtTrackRate(ctx, arrayBuffer);
     buffers.set(name, audioBuffer);
     evictStale();
   })()
