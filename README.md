@@ -592,34 +592,46 @@ catalogue, not the wallet.
 **Siphoning.** The nodes on the city floor (`src/game/links.js`) are worth
 credits — 5 to 25, hash-derived from the plot index exactly like the callsign,
 so a node's name *and* its price are both stable facts about that place. There
-are two ways to take one, and both cost something:
+is **one** way to take one:
 
-- **Grab** — be within the siphon radius while the node is pinging. Instant,
-  full price, any speed. The radius is deliberately *smaller than the road's own
-  half-width*, so a car on the centre-line can never earn a credit no matter how
-  the road bends: money lives out at the shoulders, next to the barrier, where
-  there is nowhere to dodge to.
-- **Uplink** — nodes sit on a fixed column grid while the road wanders across
-  it, so some are simply too far out for the shoulder to reach. Those can still
-  be taken by holding station on that side of the road under ~200 u/s for a
-  couple of seconds, lit or not — at **half price**. Slowing down on this road
-  is the real cost: the traffic behind you arrives, the score's distance term
-  stalls, and everything hostile on screen gets longer to work on you.
+- **The link.** Hold the shoulder on the node's side of the road and it drains,
+  at full price, lit or not. How fast it drains is set by how close you are:
+  point blank it is gone in a third of a second, out at the edge of reach it
+  takes several. There is no threshold in there — the pickup that feels instant
+  and the one you have to work for are the same act at two ends of one curve.
+- **Speed is the price, but it is not a rule.** Nothing in the wallet reads the
+  throttle. What speed decides is how long you stay in range, so a node far out
+  past the barrier simply cannot be taken at 620 — and slowing down costs what
+  it always did: the traffic behind you arrives, the score's distance term
+  stalls, everything hostile on screen gets longer to work on you.
+- **The middle of the road pays nothing**, ever. The car has to be out past the
+  shoulder line on the node's own side before anything charges at all. Money
+  lives at the edges, next to the barrier, where there is nowhere to dodge to.
 
-The affordance for all of this is on the floor rather than in a tutorial: a
-node in reach wears the price *it would actually pay you* faintly, brightens
-when it goes live, prints `SLOW` when the throttle is the only thing standing
-between you and it, and grows a fill meter while an uplink is running. Every
-payout — a siphon, a bounty, a fine — leaves a floating `+25CR` over the exact
-spot it came from, and the SYS LOG names the node it just paid out.
+This replaced two mechanics — an instant grab up close while a node pinged, and
+a slow half-price uplink from further out. Which one you got came down to
+whether the node happened to be lit as you arrived, which is not something a
+player can predict, so the same approach to the same node produced two
+different acts at two different prices with an invisible boundary between them.
+
+The affordance is on the floor rather than in a tutorial: a node in reach wears
+its price, brightens while it is pinging, prints `SHOULDER` when getting out
+there is the only thing standing between you and it, and grows a fill meter as
+it drains — *every* pickup draws that meter, including the ones that finish
+almost at once, so nothing the player sees suggests there is more than one way
+to do this. The car wears the other end of it: a small dish on the flank,
+aimed at the node, with the link drawn between the two. Every payout — a
+siphon, a bounty, a fine — leaves a floating `+25CR` over the exact spot it came
+from, and the SYS LOG names the node it just paid out.
 
 Fines can empty a run's earnings but never touch credits banked from earlier
 runs, and the run is banked at the moment of death rather than when the
 game-over screen appears.
 
 `npm run econ` measures the whole thing headlessly — credits per minute for a
-player who hugs the shoulders, one who hunts nodes, and one who never leaves
-the middle (that last one should always read zero).
+player who hugs the shoulders, one who hunts nodes, one who eases off to stay
+beside them longer, and one who never leaves the middle (that last one should
+always read zero).
 
 ## Development roadmap
 

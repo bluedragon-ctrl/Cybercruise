@@ -90,12 +90,13 @@ const STYLES = {
   },
 };
 
-// Styles that also work the UPLINK: they crawl whenever a node is out on their
-// side of the road, buying the ones the shoulder alone can never reach. The
-// speed they give up is the whole point, and is reported alongside what they
-// earned.
-const UPLINKERS = new Set(["uplinker"]);
-STYLES.uplinker = STYLES.hunter;
+// Styles that BUY TIME: they ease off whenever a node is out on their side of
+// the road, so the link has long enough to drain something the shoulder would
+// otherwise sail past. Nothing in wallet.js reads the throttle any more (see
+// its THE LINK header) — slowing simply keeps the car in range for longer, and
+// the speed given up is reported alongside what it bought.
+const CRAWLERS = new Set(["crawler"]);
+STYLES.crawler = STYLES.hunter;
 
 function run(styleName, seconds, speed) {
   const style = STYLES[styleName];
@@ -117,11 +118,11 @@ function run(styleName, seconds, speed) {
     x += Math.max(-step, Math.min(step, want - x));
     x = Math.max(edges.left + CAR_HALF_W, Math.min(edges.right - CAR_HALF_W, x));
 
-    // An uplinking style drops to a crawl whenever there is something on its
-    // side worth crawling for — the real trade the mechanic asks the player to
+    // A crawling style drops its speed whenever there is something on its side
+    // worth staying beside — the real trade the mechanic asks the player to
     // make, simulated as bluntly as possible.
     let v = speed;
-    if (UPLINKERS.has(styleName)) {
+    if (CRAWLERS.has(styleName)) {
       const worth = nodes.some((n) =>
         (n.cx < edges.left || n.cx > edges.right) &&
         Math.sign(n.cx - edges.center) === Math.sign(x - edges.center) &&

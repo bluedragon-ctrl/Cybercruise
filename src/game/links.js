@@ -258,7 +258,7 @@ export function nodeId(bx, by) {
 // SCALE, against the other side of the economy (cartypes.js's `bounty`, 25 a
 // kill): a node runs from a fifth of a kill to a hair over one. Deliberately
 // the same order of magnitude — the point of the shoulder-hugging detour
-// (wallet.js's HARVEST_RADIUS) is that it competes with staying centred and
+// (wallet.js's LINK_SHOULDER) is that it competes with staying centred and
 // shooting, and a node worth a tenth of a kill would never be worth the
 // swerve while a node worth ten would make the guns pointless.
 const NODE_VALUE_MIN = 5;
