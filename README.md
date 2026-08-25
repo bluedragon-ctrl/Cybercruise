@@ -633,6 +633,50 @@ player who hugs the shoulders, one who hunts nodes, one who eases off to stay
 beside them longer, and one who never leaves the middle (that last one should
 always read zero).
 
+## The upgrade shop
+
+Every 400 DIST a cargo drone drops out of the sky, closes its jaws on the car
+and flies it to a dock (`src/game/hauler.js`). What is up there is a storefront
+with two shelves — `src/game/upgrades.js` holds every price, quantity and tier,
+in the same data-file style as `cartypes.js`; `src/game/shop.js` is a cursor, a
+layout and a colour scheme over it and owns no numbers of its own.
+
+**Consumables** are always for sale, any number of times, at a flat price: hull
+repair, a shield, and ammunition for each of the four weapons that has a
+magazine (the cannon is infinite and needs none). A bought repair and a
+driven-over `FIX` crate are literally the same event, applied by the same code.
+
+Guns are **topped up** by the crate's own quantity, so a row is worth what the
+crate you already know is worth. Layers — the mine and the spike strip — are
+**rearmed as a whole set** instead: their magazines are five and three rounds, so
+a "+1" row would be a rounding error on a decision you walked down a menu to
+make. One press leaves the dock with a full magazine, and those are the dearest
+rounds on the shelf per unit precisely because of it.
+
+**Car systems** are tiered: three steps each, the third costing four times the
+first, and once bought a step stays bought for the rest of the run.
+
+| system | what one tier buys | ladder |
+| --- | --- | --- |
+| ENGINE | +40 top speed | 620 → 740, which clears the fastest cruise on the road by a hair |
+| CHASSIS | +50 max hull, and it repairs by the same | 200 → 350; three tiers is about one mine |
+| DEFLECTOR | +12s on *every* shield the car is ever handed | a 5s crate becomes a 41s one |
+| RAM PLATE | +0.4 mass | 1.4 → 2.6: past the bruiser, never past the rig |
+
+The ram plate is one row because mass is one number that buys three things —
+`collisions.js` splits both damage and separation by inverse mass, so a heavier
+car hits harder, takes less and gets shoved around less, including through road
+furniture.
+
+**Nothing survives a run.** The tiers die with the car exactly as the unspent
+credits do, which is the same promise `main.js`'s `CREDIT_STORE` makes about the
+money itself — see Money above. When the game has player records and a real
+bank, whether the upgrade ladder should persist alongside it is a decision to
+make then, not one to inherit.
+
+Multi-weapon fire and the other *special* upgrades are not in yet; the shelves
+are built so that adding them is a catalogue edit.
+
 ## Development roadmap
 
 Work lands via Pull Requests, one phase at a time; each phase leaves the game
@@ -688,13 +732,22 @@ phases' code.
 - [ ] **Phase 10** — Bosses: named enemies at fixed distance milestones, each
       with its own hull, arms and behaviour, an approach/fight/wreck sequence
       and a payout worth the run
-- [ ] **Phase 11** — Car upgrades & upgrade shop: spend earnings between runs
-      on max speed, max hull, multi-attacks (firing more than one weapon at
-      once), shield duration, and so on — a catalogue in the same
-      data-file style as `cartypes.js`, plus the shop screen and the persisted
-      wallet/owned-upgrades state. **The currency itself is already in**
-      (`src/game/wallet.js` — see Money above): bounties, node siphoning, the
-      persisted bank, and `Wallet.spend()` waiting for a shop to call it
+- [ ] **Phase 11** — Car upgrades & upgrade shop — see The upgrade shop above
+  - [x] **11a** — The interlude: a cargo drone lifts the car off the road every
+        400 DIST, hands it to a dock screen, and flies it back
+        (`src/game/hauler.js`, the `lifting`/`shopping`/`lowering` states)
+  - [x] **11b** — The first stock: consumables (hull repair, shield, ammunition
+        for every weapon that has a magazine) and four tiered car systems —
+        engine, chassis, deflector, ram plate — as a catalogue in the
+        `cartypes.js` style (`src/game/upgrades.js`) with a navigable
+        storefront over it (`src/game/shop.js`) spending `Wallet.spend()`
+  - [ ] **11c** — Specials: multi-weapon fire, shields that damage what hits
+        them, and the rest of the upgrades that are a new MECHANIC rather than
+        a bigger number. A catalogue edit plus whatever each one needs of the
+        code it changes
+  - [ ] **11d** — Persistence, once players have records to hold one: turn
+        `main.js`'s `CREDIT_STORE` back on and decide, then, whether the
+        upgrade ladder persists with the money or stays scoped to a run
 - [ ] **Phase 12** — Polish: balance, high scores, performance
 - [ ] **Phase 13** — Online server: put the game on a public URL. Static
       hosting is enough for the no-build ES-module layout; the server side is

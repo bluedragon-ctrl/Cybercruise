@@ -15,11 +15,25 @@
 //
 // AMMUNITION. The default gun carries `Infinity` rounds — the player is never
 // left with no way to shoot at all, which is what makes the special weapons
-// (Phase 5) a choice rather than a lifeline. Every other weapon will be finite,
-// so the ammo bookkeeping is built in HERE from the start rather than bolted on:
+// (Phase 5) a choice rather than a lifeline. Every other weapon is finite, so
+// the ammo bookkeeping is built in HERE from the start rather than bolted on:
 // `tryFire` already spends a round, and an Infinity counter simply never runs
 // down (Infinity - 1 === Infinity, so the arithmetic needs no special case —
 // only the HUD does, which is why `ammoText` exists).
+//
+// WHAT YOU START WITH AND WHAT YOU CAN HOLD ARE TWO DIFFERENT NUMBERS, and they
+// used to be one. `ammo` is the MAGAZINE — the ceiling a refill may fill to —
+// and `startAmmo` is what is in it when a run begins, defaulting to a full
+// magazine when a weapon does not say otherwise.
+//
+// The split exists because most of the catalogue is now EARNED rather than
+// issued. The tracker, the rocket and the spike strip all begin a run EMPTY: the
+// player drives out with the cannon and the mines, and everything else is
+// something the road drops (game/pickuptypes.js) or the dock sells
+// (game/upgrades.js). That turns each of those weapons from equipment into a
+// decision — a magazine you went and got is one you spend differently from one
+// you were handed — and it is what gives the shop's consumable shelf something
+// to matter for on the very first stop.
 //
 // WHAT THIS FILE DOES NOT DO: it never touches the world. `tryFire` answers one
 // question — "may a shot be taken this instant?" — and the caller is what turns
@@ -103,7 +117,12 @@ export const FLIGHT_SEEKING = "seeking";
 //               bigger number is a more reckless gun, willing to spray at a
 //               target it isn't cleanly lined up on rather than only firing
 //               on a sure hit
-//   ammo        rounds carried. Infinity for the default gun
+//   ammo        THE MAGAZINE: rounds this weapon can hold, and the ceiling
+//               Weapon.refill will top up to. Infinity for the default gun
+//   startAmmo   OPTIONAL. Rounds in hand when a run begins. Omitted means a
+//               full magazine, which is how every weapon behaved before this
+//               field existed; 0 is a weapon the player has to go and find
+//               ammunition for before it is a weapon at all
 //   color/glow  bullet body and its trail
 //   length/width  the bullet's drawn size AND its hit box, world units
 //   render      how projectiles.js draws it. Omitted = "tracer", the batched
@@ -172,9 +191,14 @@ export const WEAPON_TYPES = [
     // heavy types — the round only continues if it actually killed, so a rig
     // (220 hull) stops it dead, and the rocket stays the answer to armour.
     pierce: 2,
-    // FINITE: fifteen bursts, sized for a "running dry and dropping back to the
-    // cannon" arc rather than a magazine you can lean on.
+    // FIFTEEN BURSTS WHEN FULL, sized for a "running dry and dropping back to
+    // the cannon" arc rather than a magazine you can lean on...
     ammo: 120,
+    // ...and NONE of them to begin with. The tracker is the first weapon the
+    // player has to go and find: a lane-raking hose handed out at the start
+    // would be the obvious answer to the opening minute of road, and the cannon
+    // is supposed to be that. See the header's own note on the split.
+    startAmmo: 0,
     color: PLAYER_THRUST,
     glow: PLAYER,
     length: 16,
@@ -232,10 +256,13 @@ export const WEAPON_TYPES = [
     // a hard change the moment it sees the launch. A seeker that could not be
     // dodged would make the rocket the only weapon worth carrying.
     turnRate: 260,
-    // FINITE — at ~2.86 shots/sec this empties in under 20s of held trigger,
-    // same "use it, don't lean on it" intent as before, just retimed to match
-    // the faster reload above.
+    // At ~2.86 shots/sec a full magazine empties in under 20s of held trigger —
+    // "use it, don't lean on it", retimed to match the faster reload above.
     ammo: 50,
+    // EMPTY AT THE START, like the tracker. The rocket is the heaviest hit in
+    // the game and the answer to armour; a run that opened with fifty of them
+    // would never have to learn what the cannon is for.
+    startAmmo: 0,
     color: ROCKET,
     glow: ROCKET_HOT,
     length: 16,
@@ -278,13 +305,18 @@ export const WEAPON_TYPES = [
     // mine, whoever laid it.
     payload: "caltrop",
     // SIX SECONDS, THREE ROUNDS is the enemy's own layer (armament.js). The
-    // player gets a much shorter rest and two more rounds: a held trigger there
-    // is an AI's rare tactical choice, but here it is a deliberate press every
-    // time, so the tighter enemy rationing would read as broken rather than
-    // scarce. The magazine, not the reload, is what rations this. FIRST PASS,
-    // like the rocket's numbers above — retune against real road time.
+    // player gets a much shorter rest and more than twice the magazine: a held
+    // trigger there is an AI's rare tactical choice, but here it is a deliberate
+    // press every time, so the tighter enemy rationing would read as broken
+    // rather than scarce. The magazine, not the reload, is what rations this.
     interval: 1,
-    ammo: 5,
+    ammo: 8,
+    // THE ONE DEPLOYABLE THE PLAYER IS ISSUED, and the only finite weapon in the
+    // catalogue that starts full — it names no `startAmmo`, so the magazine is
+    // what it begins with. Something has to be behind the deploy key on the
+    // first corner or the key is a mystery, and the mine is the right one to be
+    // it: its whole behaviour — one hazard, dropped behind, dodgeable — is
+    // legible the first time you use it. The strip below is the one you earn.
     // HUD-only below this line — a mine never flies, so length/width/flight/
     // muzzleSpeed/render/impact mean nothing here and main.js never reads them
     // for this weapon. color/glow still matter: the HUD readout (main.js's
@@ -307,11 +339,17 @@ export const WEAPON_TYPES = [
     payload: "spikes",
     // THE MAGAZINE IS THE WHOLE BALANCE OF THIS WEAPON. A strip is not dodged
     // so much as routed around, and a player who could keep one on the road at
-    // all times would make the road behind them permanently impassable — so
-    // what stops it being oppressive is that there are THREE, not that any one
-    // of them is weak. Two fewer than the mine's five for that reason, despite
-    // being the gentler hazard of the pair.
-    ammo: 3,
+    // all times would make the road behind them permanently impassable — so what
+    // stops it being oppressive is HOW FEW THERE ARE, not that any one of them
+    // is weak. Three fewer than the mine's eight for that reason, despite being
+    // the gentler hazard of the pair.
+    ammo: 5,
+    // AND NONE AT THE START. This is the strongest form the rationing takes: the
+    // strip is not equipment the player owns and spends, it is something they
+    // buy or find, run out of, and buy again. Between that and the magazine, a
+    // permanently belted road is out of reach — which is the entire design
+    // constraint this weapon is written around.
+    startAmmo: 0,
     // Slower than the mine's 1s. A strip is a lane-wide commitment laid at a
     // moment you chose, not something to sprinkle — and at three rounds the
     // magazine would otherwise be gone inside three seconds of a held key.
@@ -484,7 +522,11 @@ export class Weapon {
   constructor(type = DEFAULT_WEAPON) {
     this.type = type;
     this.cooldown = 0;   // seconds until the next shot is allowed
-    this.ammo = type.ammo;
+    // What is IN it, which is not necessarily what it HOLDS — see the header's
+    // note on the split. Nullish coalescing rather than a truthiness test on
+    // purpose: startAmmo 0 is the whole point of the field, and a falsy check
+    // would read it as "unset" and hand the player a full magazine.
+    this.ammo = type.startAmmo ?? type.ammo;
     // Rounds left in the burst IN PROGRESS. 0 means "none" — either this
     // weapon doesn't burst at all (type.burstCount unset) or the last one
     // just finished and the next tryFire starts a fresh one. See tryFire.
@@ -524,10 +566,14 @@ export class Weapon {
     return true;
   }
 
-  // Add rounds, capped at the catalogue's OWN starting figure — there is no
-  // separate "max ammo" field, so `type.ammo` doubles as both the weapon's
-  // starting magazine and the ceiling an ammo pickup (game/pickuptypes.js) can
-  // top it back up to. A no-op on the default gun (Infinity stays Infinity).
+  // Add rounds, capped at the MAGAZINE — `type.ammo`, which is the ceiling an
+  // ammo pickup (game/pickuptypes.js) or a dock purchase (game/upgrades.js) can
+  // fill to, and is NOT necessarily what the weapon started the run holding (see
+  // the header's note on `startAmmo`). Because the cap IS the magazine, "sell
+  // the whole magazine" and "top it right up" are the same act however much was
+  // left in it — which is what the shop's layer rows rely on.
+  //
+  // A no-op on the default gun (Infinity stays Infinity).
   refill(amount) {
     if (amount <= 0) return;
     this.ammo = Math.min(this.type.ammo, this.ammo + amount);

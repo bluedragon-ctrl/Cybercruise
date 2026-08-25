@@ -37,7 +37,11 @@ const STEER_SPEED = 260; // horizontal px/sec at full lock
 const STEER_ACCEL = 900; // px/sec² while a steering key is held
 const STEER_RELEASE = 2600; // px/sec² while returning to centre (or reversing)
 
-const MAX_HEALTH = 200;
+// The hull the player STARTS a run with, and the floor every CHASSIS tier is
+// added to (game/upgrades.js). Exported for that reason alone: the upgrade
+// catalogue prices a tier as a delta on this figure rather than restating it,
+// so retuning the starting hull retunes the whole ladder with it.
+export const BASE_MAX_HEALTH = 200;
 const WALL_DAMAGE = 3; // health lost per wall-scrape tick
 const WALL_DAMAGE_INTERVAL = 0.25; // seconds between scrape ticks (rate-limits damage)
 const WALL_SPEED_SCRUB = 0.985; // per-tick speed multiplier while grinding a barrier
@@ -110,8 +114,22 @@ export class Player {
     this.speed = 260; // current forward/scroll speed
     this.color = PLAYER; // cyan accent — stands out against the green world
 
-    this.health = MAX_HEALTH;
-    this.maxHealth = MAX_HEALTH;
+    this.health = BASE_MAX_HEALTH;
+    // PER-INSTANCE, not the module constant — the shop's CHASSIS tiers raise
+    // this mid-run (see applyUpgrades below).
+    this.maxHealth = BASE_MAX_HEALTH;
+    // Likewise per-instance: MAX_SPEED and PLAYER_MASS above are the BASE
+    // figures a run starts from, and the shop's ENGINE and RAM PLATE tiers
+    // move these copies. Nothing else may read the constants for the player's
+    // LIVE values — cartypes.js is pinned to the band the CONSTANTS describe
+    // (a car catalogue must not shift under an upgrade the player bought),
+    // which is exactly why the two are now separate things.
+    this.maxSpeed = MAX_SPEED;
+    this.mass = PLAYER_MASS;
+    // Extra seconds every shield the player picks up (or buys) is worth — the
+    // DEFLECTOR tiers. Added in activateShield rather than baked into the
+    // pickup catalogue, so one upgrade covers every shield source at once.
+    this.shieldBonus = 0;
     this.hitWall = false; // true on frames the car is pressed against a barrier
     this.wallTimer = 0; // counts down between scrape-damage ticks
     this.wheelPhase = 0; // accumulated roll distance, drives the wheel tread
@@ -180,8 +198,33 @@ export class Player {
   // `seconds` rather than stacking on top, so a cluster of shield pickups
   // caps out at "however long the strongest one lasts" instead of chaining
   // into effectively permanent invulnerability.
+  // `shieldBonus` (the shop's DEFLECTOR tiers) is added to whatever the source
+  // offered, so a 5s crate becomes a 7s one rather than the upgrade having to
+  // be applied at every call site that grants a shield.
   activateShield(seconds) {
-    this.shieldTime = Math.max(this.shieldTime, seconds);
+    if (seconds <= 0) return;
+    this.shieldTime = Math.max(this.shieldTime, seconds + this.shieldBonus);
+  }
+
+  // Re-point this car at the stat block the shop's tiers add up to
+  // (game/upgrades.js's Garage.stats). ABSOLUTE, not incremental: every field
+  // is the base figure plus the tiers owned, recomputed from scratch, so
+  // calling this twice for one purchase cannot double an upgrade — which is
+  // what lets main.js simply re-apply after every sale rather than diffing.
+  //
+  // THE HULL IS THE ONE THAT ALSO HEALS. Raising the ceiling without filling
+  // the new room would sell the player a bar that is instantly LESS full than
+  // it was a moment ago — the opposite of what "MORE HULL" is supposed to feel
+  // like — so the capacity gained is granted as health too. heal() caps itself
+  // and re-arms the damage call-outs on the way past, which is what a car
+  // coming out of a workshop should do.
+  applyUpgrades(stats) {
+    this.maxSpeed = stats.maxSpeed;
+    this.mass = stats.mass;
+    this.shieldBonus = stats.shieldBonus;
+    const gained = stats.maxHealth - this.maxHealth;
+    this.maxHealth = stats.maxHealth;
+    if (gained > 0) this.heal(gained);
   }
 
   // `bounds` = { left, right } road edges in screen x for the player's row.
@@ -210,7 +253,7 @@ export class Player {
     const throttle = throttleAxis();
     this.speed += throttle * ACCEL * dt;
     if (this.speed < MIN_SPEED) this.speed = MIN_SPEED;
-    if (this.speed > MAX_SPEED) this.speed = MAX_SPEED;
+    if (this.speed > this.maxSpeed) this.speed = this.maxSpeed;
 
     // Constrain to the road; scraping a barrier costs health and scrubs speed.
     //
@@ -250,7 +293,10 @@ export class Player {
     // plume on the same frame it costs speed. The throttle axis goes across
     // too, so the flame answers the key rather than the momentum — see the
     // flare constants in exhaust.js.
-    this.exhaust.update(dt, (this.speed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED), throttle);
+    // Normalised against the car's OWN band, not the module's: an upgraded car
+    // should still be showing its longest plume when it is flat out, rather
+    // than topping the flame off partway up a band it can now exceed.
+    this.exhaust.update(dt, (this.speed - MIN_SPEED) / (this.maxSpeed - MIN_SPEED), throttle);
 
     if (this.flash > 0) this.flash -= dt;
 

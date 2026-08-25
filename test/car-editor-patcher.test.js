@@ -7,10 +7,12 @@ import {
   patchDrivingProfile,
   patchObstacleType,
   patchPickupType,
+  patchUpgradeEntry,
 } from "../tools/car-editor/patcher.js";
 import { CAR_TYPES } from "../src/game/cartypes.js";
 import { OBSTACLE_TYPES } from "../src/game/obstacletypes.js";
 import { PICKUP_TYPES } from "../src/game/pickuptypes.js";
+import { CONSUMABLES, STATS } from "../src/game/upgrades.js";
 
 test("findMatchingBrace finds the matching closing brace", () => {
   const text = "before { inner } after";
@@ -366,4 +368,67 @@ test("patchPickupType works against the real src/game/pickuptypes.js for amount 
 
   const durationResult = patchPickupType(realSource, "shield", { duration: 8 });
   assert.match(durationResult, /id: "shield",[\s\S]*?duration: 8,/);
+});
+
+// --- patchUpgradeEntry: the shop's own catalogue (game/upgrades.js) --------
+//
+// Both CONSUMABLES and STATS are flat, id-first arrays exactly like
+// CAR_TYPES/OBSTACLE_TYPES/PICKUP_TYPES above, so patchUpgradeEntry is
+// patchTypeEntry under a third name (see patcher.js's own comment on why the
+// two shelves share one function) — these tests exercise it against the real
+// file rather than a fixture, the same way the pickup tests above do, because
+// that shape claim is exactly the kind of thing that quietly stops being true
+// if someone restructures the catalogue.
+const UPGRADES_PATH = new URL("../src/game/upgrades.js", import.meta.url);
+
+test("patchUpgradeEntry replaces price on a CONSUMABLES row without touching its amount", () => {
+  const realSource = readFileSync(UPGRADES_PATH, "utf8");
+  const result = patchUpgradeEntry(realSource, "buy_repair", { price: 250 });
+  assert.match(result, /id: "buy_repair",[\s\S]*?price: 250,/);
+  const untouchedAmount = CONSUMABLES.find((e) => e.id === "buy_repair").amount;
+  assert.match(result, new RegExp(`id: "buy_repair",[\\s\\S]*?amount: ${untouchedAmount},`));
+});
+
+test("patchUpgradeEntry replaces the effect field (amount or duration) on a CONSUMABLES row", () => {
+  const realSource = readFileSync(UPGRADES_PATH, "utf8");
+  const amountResult = patchUpgradeEntry(realSource, "buy_repair", { amount: 90 });
+  assert.match(amountResult, /id: "buy_repair",[\s\S]*?amount: 90,/);
+
+  const durationResult = patchUpgradeEntry(realSource, "buy_shield", { duration: 9 });
+  assert.match(durationResult, /id: "buy_shield",[\s\S]*?duration: 9,/);
+});
+
+test("patchUpgradeEntry throws when asked to patch duration on a row that only has amount", () => {
+  const realSource = readFileSync(UPGRADES_PATH, "utf8");
+  assert.throws(
+    () => patchUpgradeEntry(realSource, "buy_repair", { duration: 3 }),
+    /field "duration" not found/
+  );
+});
+
+test("patchUpgradeEntry replaces price and step together on a STATS row", () => {
+  const realSource = readFileSync(UPGRADES_PATH, "utf8");
+  const result = patchUpgradeEntry(realSource, "engine", { price: 160, step: 45 });
+  assert.match(result, /id: "engine",[\s\S]*?step: 45,[\s\S]*?price: 160,/);
+  // Untouched: the OTHER stats keep their own figures — the surgery must not
+  // have grabbed the wrong block just because "engine" and "chassis" both name
+  // fields called `price` and `step`.
+  const chassis = STATS.find((s) => s.id === "chassis");
+  assert.match(result, new RegExp(`id: "chassis",[\\s\\S]*?step: ${chassis.step},`));
+});
+
+test("patchUpgradeEntry throws for an unknown upgrade id", () => {
+  const realSource = readFileSync(UPGRADES_PATH, "utf8");
+  assert.throws(
+    () => patchUpgradeEntry(realSource, "ghost", { price: 100 }),
+    /no entry with id "ghost"/
+  );
+});
+
+test("patchUpgradeEntry throws for a field not present on the entry", () => {
+  const realSource = readFileSync(UPGRADES_PATH, "utf8");
+  assert.throws(
+    () => patchUpgradeEntry(realSource, "engine", { blastDamage: 10 }),
+    /field "blastDamage" not found/
+  );
 });

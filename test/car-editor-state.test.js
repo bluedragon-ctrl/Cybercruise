@@ -7,6 +7,10 @@ import {
   buildAllObstacleState,
   buildPickupState,
   buildAllPickupState,
+  buildUpgradeConsumableState,
+  buildAllUpgradeConsumableState,
+  buildUpgradeStatState,
+  buildAllUpgradeStatState,
   CAR_IDS,
   BEHAVIOR_FIELDS,
   HULL_SPEED_FIELDS,
@@ -16,10 +20,14 @@ import {
   PICKUP_IDS,
   PICKUP_SPAWN_FIELDS,
   PICKUP_EFFECT_FIELDS,
+  UPGRADE_CONSUMABLE_IDS,
+  UPGRADE_STAT_IDS,
+  UPGRADE_CONSUMABLE_EFFECT_FIELD_BY_KIND,
 } from "../tools/car-editor/state.js";
 import { CAR_TYPES } from "../src/game/cartypes.js";
 import { OBSTACLE_TYPES } from "../src/game/obstacletypes.js";
 import { PICKUP_TYPES } from "../src/game/pickuptypes.js";
+import { CONSUMABLES, STATS } from "../src/game/upgrades.js";
 
 const HOSTILE_IDS = CAR_TYPES.filter((t) => t.faction === "enemy").map((t) => t.id);
 
@@ -168,4 +176,64 @@ test("buildAllPickupState covers every kind with the effect fields PICKUP_EFFECT
 
 test("buildPickupState throws for a pickup id outside the catalogue", () => {
   assert.throws(() => buildPickupState("ghost"), /unknown pickup id "ghost"/);
+});
+
+// --- The shop's two shelves (game/upgrades.js) ------------------------------
+
+test("buildAllUpgradeConsumableState returns every row on the consumables shelf", () => {
+  const all = buildAllUpgradeConsumableState();
+  assert.deepEqual(all.map((e) => e.id).sort(), [...UPGRADE_CONSUMABLE_IDS].sort());
+  assert.deepEqual(UPGRADE_CONSUMABLE_IDS, CONSUMABLES.map((e) => e.id));
+});
+
+test("buildUpgradeConsumableState reports price and the one effect field its kind uses", () => {
+  const heal = buildUpgradeConsumableState("buy_repair");
+  assert.equal(heal.kind, "heal");
+  assert.equal(heal.effectField, "amount");
+  assert.equal(typeof heal.price, "number");
+  assert.equal(typeof heal.effectValue, "number");
+
+  const shield = buildUpgradeConsumableState("buy_shield");
+  assert.equal(shield.kind, "shield");
+  assert.equal(shield.effectField, "duration");
+  assert.equal(typeof shield.effectValue, "number");
+
+  const ammo = buildUpgradeConsumableState("buy_rocket_ammo");
+  assert.equal(ammo.kind, "ammo");
+  assert.equal(ammo.effectField, "amount");
+  assert.equal(ammo.weaponId, "rocket");
+});
+
+test("every consumable's effect field matches UPGRADE_CONSUMABLE_EFFECT_FIELD_BY_KIND", () => {
+  for (const state of buildAllUpgradeConsumableState()) {
+    assert.equal(state.effectField, UPGRADE_CONSUMABLE_EFFECT_FIELD_BY_KIND[state.kind]);
+  }
+});
+
+test("buildUpgradeConsumableState throws for a consumable id outside the catalogue", () => {
+  assert.throws(
+    () => buildUpgradeConsumableState("ghost"),
+    /unknown consumable id "ghost"/
+  );
+});
+
+test("buildAllUpgradeStatState returns every row on the car-systems shelf", () => {
+  const all = buildAllUpgradeStatState();
+  assert.deepEqual(all.map((s) => s.id).sort(), [...UPGRADE_STAT_IDS].sort());
+  assert.deepEqual(UPGRADE_STAT_IDS, STATS.map((s) => s.id));
+});
+
+test("buildUpgradeStatState reports price, step and read-only context", () => {
+  const state = buildUpgradeStatState("engine");
+  assert.equal(typeof state.price, "number");
+  assert.equal(typeof state.step, "number");
+  assert.equal(typeof state.base, "number");
+  // base/unit/decimals are context for the editor's preview, not fields it can
+  // write — the editor only ever sends price/step back (see server.js's
+  // validateUpgradeStatChanges).
+  assert.equal(state.base, STATS.find((s) => s.id === "engine").base);
+});
+
+test("buildUpgradeStatState throws for a stat id outside the catalogue", () => {
+  assert.throws(() => buildUpgradeStatState("ghost"), /unknown stat id "ghost"/);
 });

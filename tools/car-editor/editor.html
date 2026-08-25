@@ -8,7 +8,7 @@
 <body>
   <header>
     <h1>Car Editor</h1>
-    <p class="subtitle">Tune hull, speed, spawn distance and driving behavior for the whole roster — hostile and civilian — plus spawn chance and distance for obstacles and pickups, and how much ammo, healing or shield time each pickup grants, then open a pull request.</p>
+    <p class="subtitle">Tune hull, speed, spawn distance and driving behavior for the whole roster — hostile and civilian — plus spawn chance and distance for obstacles and pickups, how much ammo, healing or shield time each pickup grants, and the upgrade shop's own prices and tier increases, then open a pull request.</p>
   </header>
 
   <main>
@@ -59,6 +59,24 @@
         <fieldset>
           <legend>Spawn</legend>
           <div id="pickup-spawn-fields"></div>
+        </fieldset>
+      </section>
+
+      <section id="upgrade-consumable-form" hidden>
+        <h2 id="upgrade-consumable-form-title"></h2>
+
+        <fieldset>
+          <legend>Price &amp; effect</legend>
+          <div id="upgrade-consumable-fields"></div>
+        </fieldset>
+      </section>
+
+      <section id="upgrade-stat-form" hidden>
+        <h2 id="upgrade-stat-form-title"></h2>
+
+        <fieldset>
+          <legend>Price &amp; tier increase</legend>
+          <div id="upgrade-stat-fields"></div>
         </fieldset>
       </section>
 

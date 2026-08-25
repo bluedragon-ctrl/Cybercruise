@@ -4,6 +4,8 @@ import {
   validateChanges,
   validateObstacleChanges,
   validatePickupChanges,
+  validateUpgradeConsumableChanges,
+  validateUpgradeStatChanges,
   POSITIVE_FIELDS,
 } from "../tools/car-editor/server.js";
 import {
@@ -16,6 +18,8 @@ import {
   PICKUP_IDS,
   PICKUP_SPAWN_FIELDS,
   PICKUP_EFFECT_FIELDS,
+  UPGRADE_CONSUMABLE_IDS,
+  UPGRADE_STAT_IDS,
 } from "../tools/car-editor/state.js";
 
 test("validateChanges rejects a negative health value", () => {
@@ -177,6 +181,90 @@ test("validatePickupChanges rejects a negative duration", () => {
   );
 });
 
+// The shop's two shelves (game/upgrades.js), edited through their own
+// validators for the same reason state.js builds their state separately —
+// see server.js's own note on why a consumable and a stat don't share a
+// field list.
+test("validateUpgradeConsumableChanges accepts a price change", () => {
+  assert.doesNotThrow(() => validateUpgradeConsumableChanges({ buy_repair: { price: 120 } }));
+});
+
+test("validateUpgradeConsumableChanges accepts an amount change for an AMMO/HEAL row", () => {
+  assert.doesNotThrow(() => validateUpgradeConsumableChanges({ buy_repair: { amount: 90 } }));
+});
+
+test("validateUpgradeConsumableChanges accepts a duration change for the SHIELD row", () => {
+  assert.doesNotThrow(() => validateUpgradeConsumableChanges({ buy_shield: { duration: 8 } }));
+});
+
+test("validateUpgradeConsumableChanges rejects a zero price", () => {
+  assert.throws(
+    () => validateUpgradeConsumableChanges({ buy_repair: { price: 0 } }),
+    /field "price" for "buy_repair" must be a positive number, got 0/
+  );
+});
+
+test("validateUpgradeConsumableChanges rejects a negative amount", () => {
+  assert.throws(
+    () => validateUpgradeConsumableChanges({ buy_repair: { amount: -5 } }),
+    /field "amount" for "buy_repair" must be a positive number, got -5/
+  );
+});
+
+test("validateUpgradeConsumableChanges rejects an unknown consumable id", () => {
+  assert.throws(
+    () => validateUpgradeConsumableChanges({ nope: { price: 100 } }),
+    /unknown shop consumable id "nope"/
+  );
+});
+
+test("validateUpgradeConsumableChanges rejects an unknown field", () => {
+  assert.throws(
+    () => validateUpgradeConsumableChanges({ buy_repair: { step: 5 } }),
+    /unknown field "step" for "buy_repair"/
+  );
+});
+
+test("validateUpgradeConsumableChanges rejects an empty changes object", () => {
+  assert.throws(() => validateUpgradeConsumableChanges({}), /must not be empty/);
+});
+
+test("validateUpgradeStatChanges accepts price and step together", () => {
+  assert.doesNotThrow(() => validateUpgradeStatChanges({ engine: { price: 160, step: 45 } }));
+});
+
+test("validateUpgradeStatChanges rejects a zero step", () => {
+  assert.throws(
+    () => validateUpgradeStatChanges({ engine: { step: 0 } }),
+    /field "step" for "engine" must be a positive number, got 0/
+  );
+});
+
+test("validateUpgradeStatChanges rejects a negative price", () => {
+  assert.throws(
+    () => validateUpgradeStatChanges({ engine: { price: -10 } }),
+    /field "price" for "engine" must be a positive number, got -10/
+  );
+});
+
+test("validateUpgradeStatChanges rejects an unknown stat id", () => {
+  assert.throws(
+    () => validateUpgradeStatChanges({ nope: { price: 100 } }),
+    /unknown shop stat id "nope"/
+  );
+});
+
+test("validateUpgradeStatChanges rejects an unknown field", () => {
+  assert.throws(
+    () => validateUpgradeStatChanges({ engine: { amount: 5 } }),
+    /unknown field "amount" for "engine"/
+  );
+});
+
+test("validateUpgradeStatChanges rejects an empty changes object", () => {
+  assert.throws(() => validateUpgradeStatChanges({}), /must not be empty/);
+});
+
 // The three validators were near-copies until they shared a core, and the copy
 // that drifted (validateObstacleChanges) was the one that quietly dropped the
 // POSITIVE_FIELDS check. That went unnoticed because OBSTACLE_FIELDS contains
@@ -193,6 +281,10 @@ const CATALOGUES = [
     fields: OBSTACLE_FIELDS },
   { name: "validatePickupChanges", fn: validatePickupChanges, id: PICKUP_IDS[0],
     fields: [...PICKUP_SPAWN_FIELDS, ...PICKUP_EFFECT_FIELDS] },
+  { name: "validateUpgradeConsumableChanges", fn: validateUpgradeConsumableChanges,
+    id: UPGRADE_CONSUMABLE_IDS[0], fields: ["price", "amount", "duration"] },
+  { name: "validateUpgradeStatChanges", fn: validateUpgradeStatChanges,
+    id: UPGRADE_STAT_IDS[0], fields: ["price", "step"] },
 ];
 
 test("every validator enforces POSITIVE_FIELDS on every such field it accepts", () => {

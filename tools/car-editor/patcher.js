@@ -99,6 +99,16 @@ export function patchPickupType(sourceText, pickupId, changes) {
   return patchTypeEntry(sourceText, pickupId, changes, "patchPickupType");
 }
 
+// Patches price/amount/duration on a CONSUMABLES entry, or price/step on a
+// STATS entry, in game/upgrades.js — whichever `id` matches. Both arrays are
+// flat objects with `id` first, exactly like CAR_TYPES/OBSTACLE_TYPES/
+// PICKUP_TYPES above, so the same brace-matching text-surgery applies
+// unchanged; the two shelves share one function here for the same reason they
+// share one file in the game source.
+export function patchUpgradeEntry(sourceText, id, changes) {
+  return patchTypeEntry(sourceText, id, changes, "patchUpgradeEntry");
+}
+
 function replaceStringField(block, field, value) {
   const re = new RegExp(`(\\b${field}:\\s*)"[^"]*"`);
   if (!re.test(block)) return null;

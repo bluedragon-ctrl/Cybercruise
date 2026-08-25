@@ -231,7 +231,7 @@ export function ramSpeed(speed, moverMass, blockerMass) {
 // player (its x IS the offset, re-based on the centre-line).
 export class PlayerBody {
   constructor(mass, halfRoad) {
-    this.mass = mass;
+    this.baseMass = mass;
     this.halfRoad = halfRoad; // lateral limit, so a shove can't post the player
     this.player = null;       // through a barrier for a frame
     this.centerX = 0;
@@ -248,6 +248,14 @@ export class PlayerBody {
 
   get w() { return this.player.w; }
   get h() { return this.player.h; }
+
+  // READ OFF THE CAR, not stored here, because the shop's RAM PLATE tiers move
+  // it mid-run (game/upgrades.js) and this adapter is REBUILT on every shop
+  // visit — Traffic is thrown away and remade by main.js's respawnWorld(), so
+  // a copy taken at construction would silently roll every purchase back the
+  // moment the player undocked. `baseMass` is the fallback for the tick before
+  // sync() has ever run, and for a fixture with no player at all.
+  get mass() { return this.player ? this.player.mass : this.baseMass; }
 
   // Never false. A hull running out doesn't remove the player from this
   // solver at all — it ends the "playing" state one level up in main.js,
