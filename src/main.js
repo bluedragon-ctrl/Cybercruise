@@ -91,6 +91,21 @@ const music = createMusic();
 let musicVolume = menu.musicVolume();
 let soundVolume = menu.soundVolume();
 
+// Push the menu's levels into the engine, but ONLY where they actually moved.
+// Called from every state that leaves the menu's sliders reachable (menu,
+// paused, gameover) — it was three copies of this pair of ifs before, one per
+// state, which is three places to remember the "only on a change" rule.
+function syncVolumes() {
+  if (menu.musicVolume() !== musicVolume) {
+    musicVolume = menu.musicVolume();
+    music.setVolume(musicVolume);
+  }
+  if (menu.soundVolume() !== soundVolume) {
+    soundVolume = menu.soundVolume();
+    music.setSfxVolume(soundVolume);
+  }
+}
+
 // Phase 8 step 5, PROBLEM 1: the AudioContext has to exist before the menu's
 // own SOUND/MUSIC sliders can preview anything (menu_adjust), which happens
 // well before START GAME is ever confirmed — so this builds the bus graph on
@@ -391,17 +406,8 @@ function update(dt) {
       music.jackIn();
       jackin.trigger(player.x, player.y, player.w, player.h);
     }
-    // Only pushed to the engine on an actual change (see musicVolume/
-    // soundVolume above) — the MUSIC/SOUND rows can only have moved on the
-    // update() call just above.
-    if (menu.musicVolume() !== musicVolume) {
-      musicVolume = menu.musicVolume();
-      music.setVolume(musicVolume);
-    }
-    if (menu.soundVolume() !== soundVolume) {
-      soundVolume = menu.soundVolume();
-      music.setSfxVolume(soundVolume);
-    }
+    // The MUSIC/SOUND rows can only have moved on the update() call just above.
+    syncVolumes();
     return;
   }
 
@@ -429,14 +435,7 @@ function update(dt) {
       // the one moment the scheduler itself actually starts.
       music.play(MENU_SOUND.confirm);
     }
-    if (menu.musicVolume() !== musicVolume) {
-      musicVolume = menu.musicVolume();
-      music.setVolume(musicVolume);
-    }
-    if (menu.soundVolume() !== soundVolume) {
-      soundVolume = menu.soundVolume();
-      music.setSfxVolume(soundVolume);
-    }
+    syncVolumes();
     return;
   }
 
@@ -515,14 +514,7 @@ function update(dt) {
       // and the backend start are once-per-page (synth.js's jackIn()).
       music.play(MENU_SOUND.confirm);
     }
-    if (menu.musicVolume() !== musicVolume) {
-      musicVolume = menu.musicVolume();
-      music.setVolume(musicVolume);
-    }
-    if (menu.soundVolume() !== soundVolume) {
-      soundVolume = menu.soundVolume();
-      music.setSfxVolume(soundVolume);
-    }
+    syncVolumes();
     return;
   }
 

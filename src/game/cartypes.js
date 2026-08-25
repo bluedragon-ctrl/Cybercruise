@@ -63,6 +63,7 @@
 
 import { carShapeIndex } from "./carshapes.js";
 import { DIST_UNITS } from "./road.js";
+import { pickWeighted } from "./weightedpick.js";
 import {
   ENEMY_DEEP,
   ENEMY_THRUST,
@@ -721,21 +722,7 @@ export function typeAvailable(type, distance) {
 // obstacles.js). The default of Infinity means a caller that doesn't care about
 // gating (tools, tests) gets the whole catalogue.
 export function pickCarType(distance = Infinity) {
-  let total = 0;
-  for (const type of CAR_TYPES) {
-    if (typeAvailable(type, distance)) total += type.weight;
-  }
-  if (total <= 0) return null;
-
-  let roll = Math.random() * total;
-  let last = null;
-  for (const type of CAR_TYPES) {
-    if (!typeAvailable(type, distance)) continue;
-    last = type;
-    roll -= type.weight;
-    if (roll <= 0) return type;
-  }
-  return last; // float dust at the very top of the roll
+  return pickWeighted(CAR_TYPES, (type) => typeAvailable(type, distance));
 }
 
 export function carTypeById(id) {

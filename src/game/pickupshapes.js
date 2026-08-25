@@ -28,6 +28,7 @@
 // carries a few px more than the geometry strictly needs.
 
 import { glowLine, glowPoly } from "../engine/neon.js";
+import { polygon, caltropSpikes } from "./polygon.js";
 import {
   GREEN,
   GREEN_BRIGHT,
@@ -47,16 +48,9 @@ import {
   SHIELD_FLICKER,
 } from "../engine/palette.js";
 
-// --- Local drawing helpers (mirrors obstacleshapes.js's own) ---------------
+// --- Local drawing helpers -------------------------------------------------
 
-function ngon(cx, cy, r, n, rot = 0) {
-  const pts = [];
-  for (let i = 0; i < n; i++) {
-    const a = rot + (i / n) * Math.PI * 2;
-    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
-  }
-  return pts;
-}
+const ngon = (cx, cy, r, n, rot = 0) => polygon(cx, cy, r, r, n, rot);
 
 // The reticle every pickup shares. `pulse` (0..1) drives the whole thing's
 // alpha AS ONE PIECE, target-lock style — a mine's core pulses independently
@@ -148,15 +142,8 @@ function drawTracerGlyph(ctx, cx, cy) {
 function drawMineGlyph(ctx, cx, cy) {
   const r = 3.2;
   const spike = 4.2;
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
-    const dx = Math.cos(a);
-    const dy = Math.sin(a);
-    glowPoly(ctx, [
-      [cx + dx * (r + spike), cy + dy * (r + spike)],
-      [cx + dx * r - dy * 1.6, cy + dy * r + dx * 1.6],
-      [cx + dx * r + dy * 1.6, cy + dy * r - dx * 1.6],
-    ], ENEMY, 1.2, 7);
+  for (const tri of caltropSpikes(cx, cy, r, spike, 1.6)) {
+    glowPoly(ctx, tri, ENEMY, 1.2, 7);
   }
   glowPoly(ctx, ngon(cx, cy, r, 6), ENEMY_PALE, 1, 8, "#2a0a0a");
 }

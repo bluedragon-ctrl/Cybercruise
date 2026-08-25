@@ -69,35 +69,75 @@ export function rng(seed) {
 // --- Path builders. Each only issues moveTo/lineTo, so the caller can batch a
 // whole pass into a single neonStroke and pay the halo once. ---
 
-// The shell: every segment of the car's own outline becomes a fragment that
-// flies outward and tumbles about its midpoint.
-function buildShell(c, cx, cy, tt, shape, w, h, rand) {
+// Walks the car's wireframe as SEGMENTS, which is the unit both effects below
+// work in: each yields the segment's two endpoints, its midpoint, and the unit
+// vector from the car's centre out through that midpoint. Fragments and copies
+// alike move along that vector, so it is worth deriving once.
+function* outlineSegments(shape, w, h) {
   for (const loop of carShapeOutline(shape, w, h)) {
     for (let i = 0; i < loop.length; i++) {
       const [x1, y1] = loop[i];
       const [x2, y2] = loop[(i + 1) % loop.length];
       const mx = (x1 + x2) / 2;
       const my = (y1 + y2) / 2;
-
-      // Fragments fly away from the car's centre, at a speed that varies per
-      // fragment so the field spreads instead of staying a ring.
       const d = Math.hypot(mx, my) || 1;
-      const speed = (55 + rand() * 110) * SHELL_SPEED;
-      const spin = (rand() - 0.5) * 9; // rad/sec
-      const ox = (mx / d) * speed * tt;
-      const oy = (my / d) * speed * tt;
-
-      const a = spin * tt;
-      const cos = Math.cos(a);
-      const sin = Math.sin(a);
-      const rx1 = (x1 - mx) * cos - (y1 - my) * sin;
-      const ry1 = (x1 - mx) * sin + (y1 - my) * cos;
-      const rx2 = (x2 - mx) * cos - (y2 - my) * sin;
-      const ry2 = (x2 - mx) * sin + (y2 - my) * cos;
-
-      c.moveTo(cx + mx + ox + rx1, cy + my + oy + ry1);
-      c.lineTo(cx + mx + ox + rx2, cy + my + oy + ry2);
+      yield { x1, y1, x2, y2, mx, my, nx: mx / d, ny: my / d };
     }
+  }
+}
+
+// The CHROMATIC SPLIT both ends of a run are drawn with: the car's own wireframe
+// outline redrawn once per colour a few px apart, each copy easing out along its
+// own radius from the car's centre and jittering in place. The signal is still
+// recognisably the player's car, it just no longer agrees with itself about
+// where it is.
+//
+// SHARED BY BOTH DIRECTIONS. disconnect.js runs it forward (the car coming
+// apart) and jackin.js runs it backward (the car assembling) — they were two
+// copies of this loop, differing only in the numbers below, which is exactly
+// what an effect that is meant to be the same effect played in reverse should
+// NOT be. Note this is NOT drawWreck's shell above: fragments here ease apart
+// along their radius and never rotate, because this is desync, not an explosion.
+//
+// `layers` is [color, spread, alpha] per copy — `spread` is the sideways offset
+// in `spreadPx` units (-1 / 0 / +1 for the left, centre and right copies) and
+// doubles as the identity of the centre copy, which the callers give a different
+// alpha. A layer at alpha <= 0.01 is skipped rather than drawn invisibly.
+export function drawChromaticSplit(ctx, cx, cy, w, h, { drift, jitter, spreadPx, rand, layers }) {
+  for (const [color, spread, alpha] of layers) {
+    if (alpha <= 0.01) continue;
+    neonStroke(ctx, (c) => {
+      for (const { x1, y1, x2, y2, nx, ny } of outlineSegments(0, w, h)) {
+        const ox = nx * drift + spread * spreadPx + (rand() - 0.5) * jitter;
+        const oy = ny * drift + (rand() - 0.5) * jitter;
+        c.moveTo(cx + x1 + ox, cy + y1 + oy);
+        c.lineTo(cx + x2 + ox, cy + y2 + oy);
+      }
+    }, color, 2, 4, 0.13, alpha);
+  }
+}
+
+// The shell: every segment of the car's own outline becomes a fragment that
+// flies outward and tumbles about its midpoint.
+function buildShell(c, cx, cy, tt, shape, w, h, rand) {
+  for (const { x1, y1, x2, y2, mx, my, nx, ny } of outlineSegments(shape, w, h)) {
+    // Fragments fly away from the car's centre, at a speed that varies per
+    // fragment so the field spreads instead of staying a ring.
+    const speed = (55 + rand() * 110) * SHELL_SPEED;
+    const spin = (rand() - 0.5) * 9; // rad/sec
+    const ox = nx * speed * tt;
+    const oy = ny * speed * tt;
+
+    const a = spin * tt;
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    const rx1 = (x1 - mx) * cos - (y1 - my) * sin;
+    const ry1 = (x1 - mx) * sin + (y1 - my) * cos;
+    const rx2 = (x2 - mx) * cos - (y2 - my) * sin;
+    const ry2 = (x2 - mx) * sin + (y2 - my) * cos;
+
+    c.moveTo(cx + mx + ox + rx1, cy + my + oy + ry1);
+    c.lineTo(cx + mx + ox + rx2, cy + my + oy + ry2);
   }
 }
 

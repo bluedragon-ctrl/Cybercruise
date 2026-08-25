@@ -8,10 +8,11 @@
 // dimming toward black), before the game reports CONNECTION LOST. That local-
 // then-global order is what sells this as a CONNECTION collapsing rather than
 // a vehicle being destroyed. Reuses effects.js's rng() for the same
-// stable-per-seed jitter it uses, and carshapes.js's carShapeOutline(0, ...) —
-// shape 0 is what drawCarCached already renders the player as (see
-// sprites.js's drawCarCached: an omitted `shape` keeps the player's look) —
-// so the local glitch is built from the exact silhouette that was on screen.
+// stable-per-seed jitter it uses, and its drawChromaticSplit for the local
+// stage — which is jackin.js's arrival effect run backwards, and draws car
+// shape 0, what drawCarCached already renders the player as (see sprites.js:
+// an omitted `shape` keeps the player's look). So the glitch is built from the
+// exact silhouette that was on screen.
 //
 // PACING. The sequence deliberately holds still for a beat right after the
 // hit (see HOLD_END) before anything glitches — a death that starts breaking
@@ -30,8 +31,7 @@
 // per frame.
 
 import { neonStroke, glowLine, glowText } from "../engine/neon.js";
-import { carShapeOutline } from "./carshapes.js";
-import { rng } from "./effects.js";
+import { rng, drawChromaticSplit } from "./effects.js";
 import { PLAYER, PLAYER_THRUST, GREEN_PALE } from "../engine/palette.js";
 
 // Seconds from the killing hit to the game-over screen taking over.
@@ -163,23 +163,20 @@ export class Disconnect {
       const k = 1 - u;
       const jitter = 6 * k;
       const drift = 10 * u;
-      for (const [color, spread] of [[PLAYER, -1], ["#ffffff", 0], [PLAYER_THRUST, 1]]) {
-        neonStroke(ctx, (c) => {
-          for (const loop of carShapeOutline(0, w, h)) {
-            for (let i = 0; i < loop.length; i++) {
-              const [x1, y1] = loop[i];
-              const [x2, y2] = loop[(i + 1) % loop.length];
-              const mx = (x1 + x2) / 2;
-              const my = (y1 + y2) / 2;
-              const d = Math.hypot(mx, my) || 1;
-              const ox = (mx / d) * drift + spread * 3 + (rand() - 0.5) * jitter;
-              const oy = (my / d) * drift + (rand() - 0.5) * jitter;
-              c.moveTo(cx + x1 + ox, cy + y1 + oy);
-              c.lineTo(cx + x2 + ox, cy + y2 + oy);
-            }
-          }
-        }, color, 2, 4, 0.13, spread === 0 ? k : k * 0.7);
-      }
+      // Fading OUT: the centre copy holds full strength longest (k), the two
+      // side copies trail it (k * 0.7), and the offset is a fixed 3px so the
+      // copies stay split apart even as they dim.
+      drawChromaticSplit(ctx, cx, cy, w, h, {
+        drift,
+        jitter,
+        spreadPx: 3,
+        rand,
+        layers: [
+          [PLAYER, -1, k * 0.7],
+          ["#ffffff", 0, k],
+          [PLAYER_THRUST, 1, k * 0.7],
+        ],
+      });
     }
 
     // GLOBAL: the rest of the feed following the car down. A beat after the

@@ -1,6 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { validateChanges, validateObstacleChanges, validatePickupChanges } from "../tools/car-editor/server.js";
+import {
+  validateChanges,
+  validateObstacleChanges,
+  validatePickupChanges,
+  POSITIVE_FIELDS,
+} from "../tools/car-editor/server.js";
+import {
+  CAR_IDS, HULL_SPEED_FIELDS, SPAWN_FIELDS, BEHAVIOR_FIELDS,
+  OBSTACLE_IDS, OBSTACLE_FIELDS,
+  PICKUP_IDS, PICKUP_SPAWN_FIELDS, PICKUP_EFFECT_FIELDS,
+} from "../tools/car-editor/state.js";
 
 test("validateChanges rejects a negative health value", () => {
   assert.throws(
@@ -159,4 +169,37 @@ test("validatePickupChanges rejects a negative duration", () => {
     () => validatePickupChanges({ shield: { duration: -5 } }),
     /field "duration" for "shield" must be a positive number, got -5/
   );
+});
+
+// The three validators were near-copies until they shared a core, and the copy
+// that drifted (validateObstacleChanges) was the one that quietly dropped the
+// POSITIVE_FIELDS check. That went unnoticed because OBSTACLE_FIELDS contains
+// no positive-only field, so no hand-written case could have caught it.
+//
+// This one is derived from the field tables instead: it asks every catalogue
+// about every positive-only field it actually has. It is vacuous for obstacles
+// TODAY and becomes a live assertion the moment one gains such a field, which
+// is precisely when the old gap would have reopened.
+const CATALOGUES = [
+  { name: "validateChanges", fn: validateChanges, id: CAR_IDS[0],
+    fields: [...HULL_SPEED_FIELDS, ...SPAWN_FIELDS, ...BEHAVIOR_FIELDS] },
+  { name: "validateObstacleChanges", fn: validateObstacleChanges, id: OBSTACLE_IDS[0],
+    fields: OBSTACLE_FIELDS },
+  { name: "validatePickupChanges", fn: validatePickupChanges, id: PICKUP_IDS[0],
+    fields: [...PICKUP_SPAWN_FIELDS, ...PICKUP_EFFECT_FIELDS] },
+];
+
+test("every validator enforces POSITIVE_FIELDS on every such field it accepts", () => {
+  for (const { name, fn, id, fields } of CATALOGUES) {
+    for (const field of fields) {
+      if (!POSITIVE_FIELDS.has(field)) continue;
+      for (const bad of [0, -1]) {
+        assert.throws(
+          () => fn({ [id]: { [field]: bad } }),
+          /must be a positive number/,
+          `${name} accepted ${field}: ${bad} for "${id}"`,
+        );
+      }
+    }
+  }
 });

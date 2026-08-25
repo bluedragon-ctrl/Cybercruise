@@ -764,55 +764,44 @@ function generatePickupAmmo(ctx, dest, t) {
 
 registerGenerator("pickup_ammo", generatePickupAmmo);
 
-// A FIX crate collected (game/pickuptypes.js's HEAL kind) — a rising fifth,
-// A2->E3 over ~250ms, per the design brief. PICKUPS STAY ASCENDING BUT LOW:
-// per the brief, "ascending-and-bright is the obvious reward shape and is
-// exactly what would tip this into arcade-toy territory" — so this climbs
-// exactly one interval (a fifth) entirely below 165Hz, told apart from
-// pickup_shield below by WHICH interval it climbs, not by how bright it gets.
-function generatePickupHeal(ctx, dest, t) {
-  const dur = 0.25;
-  const osc = ctx.createOscillator();
-  osc.type = "triangle";
-  osc.frequency.setValueAtTime(110, t); // A2
-  osc.frequency.exponentialRampToValueAtTime(164.81, t + dur); // E3 — a fifth up
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.4, t + 0.03);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  osc.connect(g).connect(dest);
-  osc.start(t);
-  osc.stop(t + dur + 0.02);
-  return dur;
+// The two crate confirmations that CLIMB (game/pickuptypes.js's HEAL and
+// SHIELD kinds). ONE SHARED SHAPE, TWO REGISTRATIONS — the same treatment
+// generateConsoleTick below gives its three severities, and for the same
+// reason: these differ ONLY in how far they climb and how long they take.
+// Waveform, envelope and start pitch are identical and are meant to be.
+//
+// PICKUPS STAY ASCENDING BUT LOW. Per the design brief,
+// "ascending-and-bright is the obvious reward shape and is exactly what would
+// tip this into arcade-toy territory" — so both start at A2 and neither gets
+// brighter than the other. They are told apart by WHICH INTERVAL they climb,
+// which is precisely the parameter this builder takes:
+//
+//   pickup_heal    A2 -> E3, a fifth,  over 250ms
+//   pickup_shield  A2 -> A3, an OCTAVE, over 300ms
+//
+// The wider interval is the stronger buff. shield_drone (sustainedfx.js) then
+// takes over for the shield's duration, driven independently off
+// player.shieldTime in main.js's update loop, not from anything here — this is
+// only the confirmation tone for the INSTANT of collection.
+function risingCrateTone(toFreq, dur) {
+  return function (ctx, dest, t) {
+    const osc = ctx.createOscillator();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(110, t); // A2
+    osc.frequency.exponentialRampToValueAtTime(toFreq, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.4, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g).connect(dest);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+    return dur;
+  };
 }
 
-registerGenerator("pickup_heal", generatePickupHeal);
-
-// A SHIELD crate collected (game/pickuptypes.js's SHIELD kind) — a rising
-// OCTAVE, A2->A3 over ~300ms, per the design brief: "Rising octave A2→A3,
-// then shield_drone takes over." The wider interval (an octave, against
-// pickup_heal's fifth) is what tells the two apart at a glance — still low,
-// still triangle, same "ascending but restrained" family. shield_drone
-// itself (sustainedfx.js) is driven independently off player.shieldTime in
-// main.js's update loop, not from anything in this function — this is only
-// the confirmation tone for the INSTANT of collection.
-function generatePickupShield(ctx, dest, t) {
-  const dur = 0.3;
-  const osc = ctx.createOscillator();
-  osc.type = "triangle";
-  osc.frequency.setValueAtTime(110, t); // A2
-  osc.frequency.exponentialRampToValueAtTime(220, t + dur); // A3 — an octave up
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.4, t + 0.03);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  osc.connect(g).connect(dest);
-  osc.start(t);
-  osc.stop(t + dur + 0.02);
-  return dur;
-}
-
-registerGenerator("pickup_shield", generatePickupShield);
+registerGenerator("pickup_heal", risingCrateTone(164.81, 0.25)); // E3
+registerGenerator("pickup_shield", risingCrateTone(220, 0.3)); // A3
 
 // --- Phase 8 step 4: console log ticks ------------------------------------
 //
@@ -880,7 +869,7 @@ registerGenerator("menu_move", generateMenuMove);
 
 // A DESCENDING fifth, E3->A2 — per the design brief, "you are going down
 // into the system, not levelling up", the opposite contour from every
-// ascending pickup tone in the catalogue (generatePickupHeal/Shield above),
+// ascending pickup tone in the catalogue (risingCrateTone's two above),
 // deliberately: this needed to read as entering the deck, not as a reward.
 // A single continuous glide, the same shape those two pickups use just
 // inverted, rather than two discrete notes — one unbroken descent reads as

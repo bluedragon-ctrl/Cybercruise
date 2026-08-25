@@ -36,6 +36,7 @@
 
 import { glowLine, glowPoly } from "../engine/neon.js";
 import { LANE_WIDTH } from "./road.js";
+import { polygon, caltropSpikes } from "./polygon.js";
 import {
   CAR_FILL,
   CAR_FILL_RAISED,
@@ -65,24 +66,10 @@ export const WATER = "water";
 
 // A circle as a polygon, so it goes through glowPoly and gets the same opaque
 // fill + glow treatment as every other part.
-function circle(cx, cy, r, n = 20) {
-  const pts = [];
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
-  }
-  return pts;
-}
+const circle = (cx, cy, r, n = 20) => polygon(cx, cy, r, r, n);
 
 // A regular polygon (hub plates, mine cores).
-function ngon(cx, cy, r, n, rot = 0) {
-  const pts = [];
-  for (let i = 0; i < n; i++) {
-    const a = rot + (i / n) * Math.PI * 2;
-    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
-  }
-  return pts;
-}
+const ngon = (cx, cy, r, n, rot = 0) => polygon(cx, cy, r, r, n, rot);
 
 // Diagonal hazard stripes, clipped to a rectangle. One clipped path buys the
 // strongest "do not drive here" signal available.
@@ -376,17 +363,11 @@ export const OBSTACLE_SHAPES = [
       const spike = CALTROP_SPIKE + pulse * CALTROP_SPIKE_PULSE; // the spikes
                                                  // breathe; the core does not
 
-      // Each spike is a tapered triangle rather than a line, so it survives the
-      // glow at this size instead of dissolving into a smudge.
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2;
-        const dx = Math.cos(a);
-        const dy = Math.sin(a);
-        glowPoly(ctx, [
-          [cx + dx * (r + spike), cy + dy * (r + spike)],
-          [cx + dx * r - dy * 3.5, cy + dy * r + dx * 3.5],
-          [cx + dx * r + dy * 3.5, cy + dy * r - dx * 3.5],
-        ], ENEMY, 1.5, 9, CAR_FILL_RAISED);
+      // Tapered triangles, not lines, so they survive the glow at this size —
+      // see polygon.js's caltropSpikes, which pickupshapes.js's MINE glyph
+      // draws from too so the crate keeps the hazard's exact silhouette.
+      for (const tri of caltropSpikes(cx, cy, r, spike, 3.5)) {
+        glowPoly(ctx, tri, ENEMY, 1.5, 9, CAR_FILL_RAISED);
       }
 
       glowPoly(ctx, ngon(cx, cy, r, 6), ENEMY_PALE, 2, 11, CAR_FILL_HIGH);

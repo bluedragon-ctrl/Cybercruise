@@ -56,7 +56,7 @@ import {
 } from "./obstacletypes.js";
 import { OBSTACLE_SHAPES, MINE } from "./obstacleshapes.js";
 import { CAR_TYPES } from "./cartypes.js";
-import { ramSpeed } from "./collisions.js";
+import { ramSpeed, overlaps } from "./collisions.js";
 import { PLAYER_MASS } from "./player.js";
 import { centerXAt, headingAt, laneOffset, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 
@@ -264,16 +264,6 @@ function placementOffsets(placement, w) {
       return spots;
     }
   }
-}
-
-// AABB overlap between two boxes exposing {worldY, offset, w, h}. Obstacles
-// never move under a rammed shove the way TrafficCar does, so this is the
-// whole test — no resolveCollisions-style separation is needed on either side.
-function overlaps(a, b) {
-  return (
-    Math.abs(a.worldY - b.worldY) < (a.h + b.h) / 2 &&
-    Math.abs(a.offset - b.offset) < (a.w + b.w) / 2
-  );
 }
 
 export class Obstacles {
