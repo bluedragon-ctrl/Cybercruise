@@ -220,6 +220,65 @@ silently floors at vsync and reports a ratio of ~1 unless the load genuinely
 overruns the frame budget. Two plausible-looking methods disagreed by 5x. Prefer
 saturating rAF throughput, and sanity-check any ratio near 1.
 
+### Display scaling
+
+The playfield is **600x800 forever**. That is a game constant, not a window
+measurement: widening the world on a wide screen would show more road ahead and
+quietly change the difficulty of every tuned value. What follows the window is
+the RASTER, and `src/engine/viewport.js` is the only module that knows the
+difference. It keeps three numbers apart:
+
+- `fit` — CSS pixels per logical pixel. How big the game LOOKS. Window-driven, uncapped.
+- `scale` — device pixels per logical pixel. How SHARP it is. Capped at 2.
+- `dpr` — the display's own ratio, folded into `scale`.
+
+The canvas backing store is `600 x 800` times `scale`, one uniform transform is
+installed per frame, and every drawing call in `src/game` keeps issuing 600x800
+coordinates. Nothing downstream knows. Cached layers rasterise at the same scale
+via `createSurface`/`blitSurface`, and carry `scale` in their cache keys.
+
+**`scale` moves in eighths, and that number is derived, not chosen.** The two
+scrolling layers are blitted from cached tiles, and a tile drawn at a fractional
+DEVICE offset is resampled rather than copied. Because the camera advances every
+frame the fractional part changes every frame, sliding the resample kernel under
+the artwork — which reads as the road visibly SMEARING as it scrolls. A scale
+that doesn't divide the tile stride evenly also stops a tile being a whole number
+of device rows, opening sub-pixel seams. The fix is that `scale`'s denominator
+must divide every tiled dimension: `TILE_STRIDE` 128, 600, 800, and
+`ARTERIAL_PERIOD` 512. Their gcd is 8. **If any of those four ever change,
+recompute that gcd** — `SCALE_STEP` follows from them.
+
+`snapToDevice()` closes the loop by snapping the two camera clocks (`main.js`'s
+`camY`, `scenery.js`'s `floorDist`) to the same grid, so every blit offset lands
+whole too. It is FINER than the whole-logical-pixel rounding it replaced — at
+scale 1.75 the world advances in 1/1.75-pixel steps — so motion got smoother, not
+chunkier. At scale 1 it reduces exactly to `Math.round`.
+
+**Integer-only scaling was tried first and is the wrong answer**, for a reason
+worth recording: `fit` is ~1.74 on a 1440p screen and ~1.94 on a 1600p one, both
+of which floor to 1x — a 74% and 94% browser upscale, on exactly the big screens
+the whole exercise was for. Eighths track `fit` to within 1/16, cutting the worst
+case to about 6%.
+
+**`will-change: transform` on the canvas is load-bearing.** Where `scale` and
+`fit` disagree the browser has to scale the canvas to present it, and HOW it does
+that is the whole difference: left unpromoted the canvas is re-rasterised into
+its display size every frame, measured at 48 frames of 599 over 17ms with
+occasional 30ms+ spikes, against 7 of 599 and none once promoted. Promotion makes
+the enlargement a GPU layer transform and the raster is reused untouched.
+
+Measured after all of the above, driving at 1.75x (3.06x the pixels of 1x):
+median 16.7ms, p95 16.9ms, no frame over 20ms — a locked 60fps, matching the
+pre-scaling baseline.
+
+Two smaller notes. The backing store is resized on a 150ms settle timer, not per
+resize event, so a whole window drag collapses into ONE cache rebuild; only the
+CSS box tracks the window continuously. And `#hint` carries `width: 0;
+min-width: 100%` deliberately — `#frame` is a flex item, so its width is
+shrink-to-fit, and a hint line longer than the canvas (the 91-char gameplay
+legend) would otherwise stretch the cabinet ~150px wider than the playfield and
+hang a slab of bezel off one side.
+
 ### Traffic
 
 The other cars on the road are three files, split so that adding a kind of
@@ -774,3 +833,24 @@ phases' code.
       format first (an interstitial between runs and a rewarded spot in the
       upgrade shop fit the loop; nothing mid-run), then whether it is worth
       the load cost and the third-party script at all
+- [ ] **Phase 15** — GPU render path: a WebGL post-processing pass over the
+      finished Canvas2D frame — real bloom (bright-pass, downsample, blur,
+      additive composite), chromatic aberration, scanlines/vignette — behind a
+      flag so it can be A/B'd against the current look. The neon glow today is
+      `neonStroke`'s three-pass overdraw: a hand-tuned fake halo with a fixed
+      falloff that hugs each stroke. Real bloom bleeds light ACROSS objects and
+      responds to brightness. Note this is not a new idea but a substrate
+      change — the half/quarter-res glow downsample was built, measured and
+      REJECTED (620us against a 434us baseline) because in Canvas2D the
+      intermediate full-screen composite costs more than the stroke coverage it
+      saves, and that composite cost is exactly what a GPU pipeline removes.
+      Deliberately a POST pass first, not a renderer rewrite: it touches no game
+      module, needs no SDF text atlas (~39 `glowText`/`fillText` sites across 8
+      modules is the trap that makes a full port expensive), and risks nothing
+      in the test suite. If it lands, effects and particles can migrate into the
+      GPU path incrementally while the HUD, menus and shop stay on Canvas2D.
+      Unmeasured risk to settle first: the per-frame canvas->texture upload.
+      NOT a performance phase — the 1x frame is ~1ms of a 16.7ms budget; this is
+      purely visual ambition, and a full WebGL/WebGPU renderer (which would also
+      retire the sprite cache, free per-object rotation and lift the scaling
+      constraints above) stays out of scope until the post pass proves the look

@@ -1,3 +1,5 @@
+import { LOGICAL_W, LOGICAL_H } from "./viewport.js";
+
 // Mouse input, canvas-space. Mirrors input.js's held/edge-triggered pattern
 // (see consumePress there) but for the pointer: menu.js needs both a level
 // state (is the button down right now, for dragging the MUSIC volume bar)
@@ -10,12 +12,16 @@ let down = false;
 let clicked = false; // fresh mousedown, consumed like input.js's `fresh` set
 
 function toCanvasSpace(canvas, e) {
-  // The canvas has a fixed width/height attribute (index.html) with no CSS
-  // scaling today, but computing the ratio anyway costs nothing and keeps
-  // this correct if that ever changes.
+  // Maps to the game's LOGICAL 600x800 space, which is what every caller reads
+  // (menu.js hit-tests against the same coordinates it drew in).
+  //
+  // Deliberately NOT canvas.width/rect.width: the backing store is device
+  // pixels, so that ratio would return device coordinates and every hit-test
+  // would drift by the raster scale. The element's CSS box maps straight to the
+  // logical box — see engine/viewport.js, which sets both.
   const rect = canvas.getBoundingClientRect();
-  x = (e.clientX - rect.left) * (canvas.width / rect.width);
-  y = (e.clientY - rect.top) * (canvas.height / rect.height);
+  x = (e.clientX - rect.left) * (LOGICAL_W / rect.width);
+  y = (e.clientY - rect.top) * (LOGICAL_H / rect.height);
 }
 
 export function initMouse(canvas) {

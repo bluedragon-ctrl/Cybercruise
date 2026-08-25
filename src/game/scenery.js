@@ -25,6 +25,7 @@ import {
   sectorIndex,
 } from "./citygrid.js";
 import { neonStroke } from "../engine/neon.js";
+import { renderScale, createSurface, blitSurface, snapToDevice } from "../engine/viewport.js";
 import {
   FLOOR_GRID, FLOOR_STREET, FLOOR_STREET_LINE, FLOOR_TRAFFIC, FLOOR_TICK,
   SECTOR_COUNT,
@@ -66,7 +67,11 @@ export const FLOOR_PARALLAX = 0.5;
 // `distance`, sectors.js) and the render loop (main.js's already-rounded
 // `camY`). There is no wrong thing to pass.
 export function floorDist(distance) {
-  return Math.round(Math.round(distance) * FLOOR_PARALLAX);
+  // Snapped to the DEVICE pixel grid, not the logical one — the floor grid is a
+  // blitted tile and softens at a fractional device offset exactly as the road
+  // strips do (see engine/viewport.js's SCALE_STEP). Reduces to the previous
+  // Math.round at scale 1.
+  return snapToDevice(snapToDevice(distance) * FLOOR_PARALLAX);
 }
 
 // The drawn grid SUBDIVIDES the placement grid: it is CELL / GRID_SUBDIV, so
@@ -291,19 +296,26 @@ export function tileIntersections(W, tileHeight) {
 // touched only in here, never at module scope — the test suite imports this
 // file under plain Node (same rule as engine/spritecache.js).
 function floorGridTile(W, H, sector) {
-  const key = `${W}x${H}x${sector}`;
+  // The raster scale (engine/viewport.js) joins the key for the same reason
+  // `sector` did: it is baked into the tile's actual pixels. A tile built at 1x
+  // and blitted onto a 2x canvas would be resampled up and read soft, which is
+  // the one thing this whole layer is not allowed to look.
+  const key = `${W}x${H}x${sector}x${renderScale()}`;
   const hit = floorTiles.get(key);
   if (hit) return hit;
 
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H + ARTERIAL_PERIOD;
+  // A viewport surface: `scale`-sized backing store, logical-unit context, so
+  // everything below still draws in plain screen coordinates.
+  const canvas = createSurface(W, H + ARTERIAL_PERIOD);
+  // The tile's LOGICAL height. Not canvas.height — that is now the device-pixel
+  // size, `scale` times larger, and every loop below walks screen coordinates.
+  const TILE_H = H + ARTERIAL_PERIOD;
   const g = canvas.getContext("2d");
   const DASH = [14, 10];
 
   // Cross-street bands: periodic every ARTERIAL_PERIOD, full width. Mirrors the
   // fine grid's own y-loop below, just at the coarser period.
-  for (let y0 = 0; y0 <= canvas.height; y0 += ARTERIAL_PERIOD) {
+  for (let y0 = 0; y0 <= TILE_H; y0 += ARTERIAL_PERIOD) {
     g.fillStyle = FLOOR_STREET;
     g.fillRect(0, y0 + STREET_INSET, W, STREET_WIDTH);
     neonDashedStroke(
@@ -324,12 +336,12 @@ function floorGridTile(W, H, sector) {
     if (!isAvenueCol(bx)) continue;
     const x0 = bx * PLOT;
     g.fillStyle = FLOOR_STREET;
-    g.fillRect(x0 + STREET_INSET, 0, STREET_WIDTH, canvas.height);
+    g.fillRect(x0 + STREET_INSET, 0, STREET_WIDTH, TILE_H);
     neonDashedStroke(
       g,
       (c) => {
         c.moveTo(x0 + PLOT / 2, 0);
-        c.lineTo(x0 + PLOT / 2, canvas.height);
+        c.lineTo(x0 + PLOT / 2, TILE_H);
       },
       FLOOR_STREET_LINE,
       DASH,
@@ -350,7 +362,7 @@ function floorGridTile(W, H, sector) {
   neonStroke(
     g,
     (c) => {
-      for (const { x, y } of tileIntersections(W, canvas.height)) {
+      for (const { x, y } of tileIntersections(W, TILE_H)) {
         c.moveTo(x - TICK_LEN, y);
         c.lineTo(x + TICK_LEN, y);
         c.moveTo(x, y - TICK_LEN);
@@ -371,7 +383,7 @@ function floorGridTile(W, H, sector) {
   neonStroke(
     g,
     (c) => {
-      for (let y = 0; y <= canvas.height; y += GRID_SPACING) {
+      for (let y = 0; y <= TILE_H; y += GRID_SPACING) {
         if (insideCrossStreet(y)) continue;
         c.moveTo(0, y);
         c.lineTo(W, y);
@@ -379,7 +391,7 @@ function floorGridTile(W, H, sector) {
       for (let x = 0; x <= W; x += GRID_SPACING) {
         if (insideAvenue(x)) continue;
         c.moveTo(x, 0);
-        c.lineTo(x, canvas.height);
+        c.lineTo(x, TILE_H);
       }
     },
     FLOOR_GRID,
@@ -405,7 +417,7 @@ export function gridPhase(fDist, playerY) {
 // pixel-diffed against a direct re-stroke IN ISOLATION — buildings drawn on top
 // would mask exactly the rows a phase error shows up in.
 export function drawFloorGrid(ctx, fDist, playerY, W, H, sector) {
-  ctx.drawImage(floorGridTile(W, H, sector), 0, gridPhase(fDist, playerY) - ARTERIAL_PERIOD);
+  blitSurface(ctx, floorGridTile(W, H, sector), 0, gridPhase(fDist, playerY) - ARTERIAL_PERIOD);
 }
 
 // --- Materialisation (Phase 7g) ------------------------------------------

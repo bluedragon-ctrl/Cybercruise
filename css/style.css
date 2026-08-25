@@ -5,10 +5,38 @@
 
 * { box-sizing: border-box; }
 
-html, body {
+/* The backdrop lives on HTML, not on body.
+   
+   body is a FLEX ITEM here (html is the flex container that centres it), and a
+   flex item shrink-wraps its content — so body's box is only as wide as the
+   cabinet inside it, not as wide as the window. Painting the backdrop on body
+   would therefore leave the rest of the viewport showing the browser's own
+   default canvas colour, which reads as a grey border round the game. html is
+   the one box guaranteed to cover the viewport. */
+html {
   margin: 0;
   height: 100%;
-  background: var(--bg);
+  /* The gutters either side of a 3:4 playfield on a 16:9 screen: a soft neon
+     wash bleeding out from the centre over a vertical gradient. Purely
+     decorative and entirely static — the game loop never composites it, so it
+     costs nothing per frame. */
+  background:
+    radial-gradient(ellipse 60% 80% at 50% 50%, rgba(57, 255, 136, 0.07), transparent 70%),
+    linear-gradient(to bottom, #070a12 0%, var(--bg) 55%, #0a0710 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  /* Explicit, because a flex item does NOT fill its container by default.
+     Without these the centring below still works, but body no longer spans the
+     window — which is exactly what left the grey gap. */
+  width: 100%;
+  height: 100%;
+  background: transparent;
   color: #7dffb0;
   font-family: "Courier New", monospace;
   display: flex;
@@ -17,6 +45,11 @@ html, body {
   overflow: hidden;
 }
 
+/* The cabinet. Shrink-wrapped to the canvas, which engine/viewport.js sizes in
+   CSS pixels every resize — so the bezel tracks the playfield instead of the
+   window, and the two never disagree about where the frame is. The 14px padding
+   is mirrored by BEZEL_PAD in main.js, which keeps it out of the fit
+   calculation so the frame can never be pushed off-screen. */
 #frame {
   position: relative;
   padding: 14px;
@@ -25,18 +58,68 @@ html, body {
   box-shadow: 0 0 24px rgba(57, 255, 136, 0.18), inset 0 0 0 1px rgba(57, 255, 136, 0.25);
 }
 
+/* NOTE: no `image-rendering: pixelated`. Where the raster scale is below the
+   display size the leftover stretch should be SMOOTH — nearest-neighbour on a
+   glow gradient turns soft neon halos into visible stair-stepped bands, a far
+   worse artefact than a slight blur. */
 #game {
   display: block;
   background: #05060a;
   border-radius: 4px;
-  image-rendering: pixelated;
+
+  /* LOAD-BEARING, AND NOT A MICRO-OPTIMISATION.
+     
+     engine/viewport.js renders at an INTEGER scale (so cached tiles land on
+     whole device pixels and the road doesn't smear) while this element's CSS box
+     is the full window fit — so the two usually differ and the browser has to
+     scale the canvas to present it.
+     
+     How it does that scaling is the whole difference. Left unpromoted, the
+     canvas is re-rasterised into its display size every frame, which measured as
+     a clear regression: 48 frames of 599 over 17 ms with occasional 30 ms+
+     spikes, against 7 of 599 and no spikes once promoted. `will-change:
+     transform` puts the canvas on its own compositor layer, so the enlargement
+     becomes a GPU layer transform applied at composite time and the raster is
+     reused untouched.
+     
+     Measured alternatives, for anyone tempted to simplify this away: a real
+     `transform: scale()` on a 1:1-sized box performs the same but needs a
+     wrapper element to keep the cabinet's layout honest, and letterboxing to
+     integer display sizes is cheapest of all but renders 1080p screens at 1x —
+     which is the "too small on a big screen" problem this all started with. */
+  will-change: transform;
 }
 
+/* The control legend under the playfield.
+   
+   `width: 0` with `min-width: 100%` is the load-bearing pair, and it is not
+   cosmetic. #frame is a FLEX ITEM, so its width is shrink-to-fit — the widest
+   child's max-content width. #hint's max-content is its whole unwrapped line,
+   and the gameplay legend (91 chars) is far longer than the menu's (45), so a
+   plain `width: 100%` let it stretch the cabinet ~150px wider than the canvas
+   the moment a run started. That surplus bezel hanging off one side is the
+   "shadow bar". Zeroing the width removes #hint from that calculation entirely;
+   min-width then sizes it to whatever the CANVAS established.
+   
+   NOWRAP, plus a font size derived to make the longest legend fit, because the
+   alternative — letting it wrap — changes the chrome's height when the legend
+   changes, and the chrome height is measured only on resize (see viewport.js).
+   The cabinet would silently outgrow the window on entering a run.
+   
+   The divisor comes from measurement, not a guess: Courier New advances 0.6em
+   per character and #hint adds 1px of letter-spacing, so the longest legend
+   needs 91 * (0.6F + 1) px and must fit 600 * --fit. Solving for F gives
+   ~10.99 * fit - 1.67; the 10.7 below keeps a little slack. Clamped at both
+   ends so it stays legible on a small window and doesn't become a headline on
+   a 4K one. If a longer legend is ever added to main.js, this constant is what
+   has to come down. */
 #hint {
-  width: 600px;
+  width: 0;
+  min-width: 100%;
   margin-top: 8px;
   text-align: center;
-  font-size: 12px;
+  white-space: nowrap;
+  font-size: clamp(9px, calc(10.7px * var(--fit, 1) - 1.7px), 18px);
   letter-spacing: 1px;
   color: rgba(125, 255, 176, 0.6);
 }
