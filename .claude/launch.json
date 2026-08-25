@@ -4,18 +4,13 @@
     {
       "name": "cybercruise",
       "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "tools/serve.js",
-        "5178"
-      ],
-      "port": 5178
+      "runtimeArgs": ["tools/serve.js", "5173"],
+      "port": 5173
     },
     {
       "name": "car-editor",
       "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "tools/car-editor/server.js"
-      ],
+      "runtimeArgs": ["tools/car-editor/server.js"],
       "port": 5174
     }
   ]
