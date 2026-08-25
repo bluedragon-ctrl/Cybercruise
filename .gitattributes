@@ -1,0 +1,9 @@
+# The generated music manifest must round-trip byte-for-byte: tools/musicmanifest.js
+# writes LF, and test/audio.test.js compares the committed file against a freshly
+# generated one to catch a stale listing. With core.autocrlf=true (the Windows
+# default) git would hand the test a CRLF checkout of a file the generator writes
+# with LF, and every fresh clone would fail that test for no real reason.
+assets/music/tracks.json text eol=lf
+
+# Audio is binary — never let newline translation near it.
+*.ogg binary

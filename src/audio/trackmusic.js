@@ -270,7 +270,13 @@ function trackUrl(name) {
   // itself never needs it (a fixed, developer-authored path, not something
   // that will ever contain a space or apostrophe the way a downloaded
   // track's filename can).
-  return `/${MUSIC_DIR}/${encodeURIComponent(name)}`;
+  //
+  // RELATIVE, with no leading slash, so the URL resolves against the page
+  // rather than the domain root — that is what lets the game play its music
+  // when published under a subdirectory (a GitHub Pages project site). See
+  // musictypes.js's MUSIC_DIR for the full reasoning; this is the fetch that
+  // would 404 on every track if the slash came back.
+  return `${MUSIC_DIR}/${encodeURIComponent(name)}`;
 }
 
 // Which track (if any) should be background-decoded next, given what's

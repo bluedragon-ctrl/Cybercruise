@@ -1,6 +1,6 @@
-# Music files themselves are deliberately not committed — see README.md in
-# this directory for why, and the PR that introduced it for the open
-# question of whether that should change.
-*.ogg
+# Ogg Vorbis tracks ARE committed — they ship with the published game (see
+# README.md in this directory). These two formats are not: they're what an
+# intermediate export or a stray download tends to be, and a multi-hundred-MB
+# WAV landing in git history is not undoable. Re-export to .ogg instead.
 *.wav
 *.mp3
