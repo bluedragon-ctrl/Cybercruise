@@ -72,16 +72,21 @@ export const CONSUMABLES = [
   {
     id: "buy_repair",
     label: "HULL REPAIR",
-    detail: "+70 HULL",
+    detail: "+50 HULL",
     price: 50,
     kind: HEAL,
-    amount: 50, // the FIX crate's own figure — 35% of a stock 200 hull
+    // TUNED BELOW THE FIX CRATE'S OWN 70 (pickuptypes.js) and priced to match:
+    // a repair the player can walk up and buy on demand is worth less per point
+    // than one the road decided to drop. `detail` is the same figure written out
+    // in the player's units, and shop.test.js pins the two together — the number
+    // and the caption under it are one edit, never two.
+    amount: 50,
     color: GREEN_BRIGHT,
   },
   {
     id: "buy_shield",
     label: "SHIELD",
-    detail: "5 SEC",
+    detail: "15 SEC",
     price: 75,
     kind: SHIELD,
     // RUNS FROM THE MOMENT THE WHEELS ARE BACK DOWN, and it costs nothing to
@@ -90,6 +95,10 @@ export const CONSUMABLES = [
     // sequence either side of it (see updateShopping/updateLowering there). A
     // shield bought here is therefore still whole when the car lands, which is
     // the only reading of "buy a shield in a shop" that isn't a swindle.
+    //
+    // THREE TIMES the crate's five seconds (pickuptypes.js): the crate is a
+    // reprieve the road handed over mid-fight, this is a stretch of cover the
+    // player paid for and gets to spend where they choose.
     duration: 15,
     color: PLAYER,
   },
