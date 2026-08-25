@@ -368,6 +368,11 @@ test("swapping cannot be used to dodge a cooldown", () => {
 
 test("the loadout cycles through every gun and returns", () => {
   const loadout = new Loadout();
+  // LOADED FIRST. Most of the catalogue starts empty (weapons.js's startAmmo)
+  // and the cycle skips empty magazines, so a full lap is only a full lap once
+  // there is something in all of them — which is what a run looks like after
+  // the road and the dock have handed the player their ammunition.
+  for (const w of loadout.weapons) w.refill(w.type.ammo);
   const seen = new Set();
   for (let i = 0; i < GUN_TYPES.length; i++) {
     seen.add(loadout.current.type.id);
@@ -375,6 +380,75 @@ test("the loadout cycles through every gun and returns", () => {
   }
   assert.equal(seen.size, GUN_TYPES.length, "TAB does not reach every gun");
   assert.equal(loadout.current.type.id, GUN_TYPES[0].id, "the cycle does not return to the start");
+});
+
+test("TAB never selects a gun with no ammo left in it", () => {
+  // weapons.js: an empty magazine is not a choice the player would make, so
+  // the cycle steps over it. The run opens in exactly this state — the cannon
+  // loaded, every special gun empty — so TAB must hold the cannon rather than
+  // walking the player through slots that cannot fire.
+  const loadout = new Loadout();
+  const empties = loadout.weapons.filter((w) => !w.type.payload && w.empty);
+  assert.ok(empties.length, "expected the catalogue to open with at least one empty gun");
+
+  for (let i = 0; i < WEAPON_TYPES.length * 2 + 1; i++) {
+    loadout.next();
+    assert.ok(!loadout.current.empty, `TAB selected ${loadout.current.type.id}, which is empty`);
+    assert.ok(!loadout.current.type.payload, "TAB selected a layer");
+  }
+
+  // ...and a refill puts that gun back on the cycle, with nothing else to do.
+  const gun = empties[0];
+  gun.refill(gun.type.ammo);
+  const seen = new Set();
+  for (let i = 0; i < WEAPON_TYPES.length * 2; i++) {
+    loadout.next();
+    seen.add(loadout.current.type.id);
+  }
+  assert.ok(seen.has(gun.type.id), "a refilled gun must rejoin the cycle");
+});
+
+test("the round that empties a magazine hands over the next loaded gun", () => {
+  // weapons.js's settle(), which main.js calls after every shot: running dry
+  // must not leave the player holding a spent weapon.
+  const loadout = new Loadout();
+  const spare = loadout.weapons.find((w) => !w.type.payload && w.type.ammo !== Infinity);
+  assert.ok(spare, "expected a finite gun in the catalogue");
+  spare.refill(1);
+
+  loadout.index = loadout.weapons.indexOf(spare);
+  assert.ok(spare.tryFire(), "the one round we loaded should fire");
+  assert.ok(loadout.settle(), "emptying the weapon in hand must move the cursor");
+  assert.notEqual(loadout.current, spare, "the spent gun is still in hand");
+  assert.ok(!loadout.current.empty, "swapped onto another empty gun");
+
+  // A weapon that is merely COOLING is still the one the player chose.
+  const held = loadout.current;
+  assert.ok(!loadout.settle(), "settle moved a cursor that was not empty");
+  assert.equal(loadout.current, held);
+});
+
+test("the deploy cycle skips spent layers, and laying the last one moves on", () => {
+  // The mine/spikes half of the same rule: CTRL must keep working rather than
+  // going quiet on an empty layer while another is still loaded.
+  const layers = WEAPON_TYPES.filter((t) => t.payload);
+  if (layers.length < 2) return; // nothing to switch TO — see weapons.js
+  const loadout = new Loadout();
+  for (const w of loadout.weapons) if (w.type.payload) w.refill(w.type.ammo);
+
+  const first = loadout.deployable;
+  first.ammo = 1;
+  assert.ok(first.tryFire(), "the last round should still fire");
+  assert.ok(loadout.settle(), "emptying the selected layer must move the deploy cursor");
+  assert.notEqual(loadout.deployable, first, "the spent layer is still selected");
+  assert.ok(loadout.deployable.type.payload, "the deploy cycle selected a gun");
+  assert.ok(!loadout.deployable.empty, "swapped onto another empty layer");
+
+  // And with everything spent, the cursor stays put rather than jumping about.
+  for (const w of loadout.weapons) if (w.type.payload) w.ammo = 0;
+  const stuck = loadout.deployable;
+  assert.equal(loadout.nextDeployable(), stuck, "a cycle with nothing loaded must be a no-op");
+  assert.ok(!loadout.settle(), "settle must not move a cursor with nowhere to go");
 });
 
 test("the player's mine layer is a Weapon like any other, and its payload resolves", () => {

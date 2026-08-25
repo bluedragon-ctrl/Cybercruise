@@ -588,10 +588,27 @@ export class Weapon {
 
 // Everything a car is carrying, and which of it is in hand.
 //
-// SWAPPING NEVER FAILS, including onto an empty weapon. The alternative — skip
-// what has no ammo — means the same key does different things depending on
-// state, and the player has no way to see what they are about to get. An empty
-// weapon selects, shows "0", and refuses to fire; TAB again moves on.
+// A CYCLE ONLY EVER LANDS ON SOMETHING LOADED. An empty magazine is not a
+// choice the player would ever make on purpose: selecting one costs a keypress,
+// shows "0", and refuses to fire, so every TAB through a mostly-spent catalogue
+// was a press that did nothing. Both cycles skip anything empty, and the HUD
+// already agreed — main.js lists only the loaded guns plus whatever is in hand.
+//
+// The magazine, not the cooldown, is the filter. A weapon that is merely
+// COOLING is still the weapon you meant to have out and will fire again in a
+// moment; a weapon with no rounds left will not fire again until something
+// refills it (a pickup, the dock).
+//
+// WHERE NOTHING IS LOADED, THE CURSOR STAYS PUT — the cycle is a no-op rather
+// than a jump to some arbitrary empty slot, so the HUD keeps reading the
+// weapon the player last chose. The gun cycle can only reach that state in a
+// catalogue with no infinite gun in it (the player's own always carries the
+// cannon); the deployable cycle reaches it the moment the last mine is laid.
+//
+// AND RUNNING DRY MOVES THE CURSOR ITSELF. `settle()` is what the firing code
+// calls after a shot is spent: the round that emptied a magazine hands the
+// player the next loaded weapon instead of leaving them holding a spent one
+// and finding out by pulling a dead trigger.
 //
 // Cooldowns run for the WHOLE loadout, not just the weapon in hand (see
 // update), so swapping cannot be used to dodge a slow weapon's fire rate by
@@ -607,14 +624,23 @@ export class Weapon {
 // The two cycles keep INDEPENDENT cursors: laying a mine must never disturb
 // which gun is in hand, which was the whole reason the mine got its own key in
 // the first place.
+// What each cycle will land on. Free functions rather than methods because
+// they are about ONE weapon and nothing else about the loadout — see #step.
+const isLoadedGun = (w) => !w.type.payload && !w.empty;
+const isLoadedLayer = (w) => !!w.type.payload && !w.empty;
+
 export class Loadout {
   constructor(types = WEAPON_TYPES) {
     this.weapons = types.map((t) => new Weapon(t));
     this.index = 0;
-    // First layer in the catalogue, or -1 if there are none. Not 0: index 0 is
-    // a gun, and a `deployable` that silently returned the cannon would let the
-    // deploy key fire it.
-    this.deployIndex = this.weapons.findIndex((w) => w.type.payload);
+    // First LOADED layer in the catalogue, falling back to the first layer of
+    // any kind and finally to -1 when there are none. Not 0: index 0 is a gun,
+    // and a `deployable` that silently returned the cannon would let the deploy
+    // key fire it. The fallback is what keeps a catalogue whose layers all
+    // start empty (see startAmmo) showing one on the HUD rather than nothing —
+    // the cycle itself will find it again the moment a pickup fills it.
+    this.deployIndex = this.weapons.findIndex(isLoadedLayer);
+    if (this.deployIndex < 0) this.deployIndex = this.weapons.findIndex((w) => w.type.payload);
   }
 
   get current() {
@@ -636,38 +662,69 @@ export class Loadout {
     return this.weapons.find((w) => w.type.id === id) ?? null;
   }
 
-  // GUNS ONLY. A layer (type.payload set — the mine, see WEAPON_TYPES above)
-  // is skipped here on purpose: it has its own key now (main.js's "mine"
-  // action) rather than a slot in this cycle, so a player laying one is never
-  // forced to tab away from whatever gun they had and back again afterwards.
+  // GUNS ONLY, AND LOADED ONES. A layer (type.payload set — the mine, see
+  // WEAPON_TYPES above) is skipped here on purpose: it has its own key now
+  // (main.js's "mine" action) rather than a slot in this cycle, so a player
+  // laying one is never forced to tab away from whatever gun they had and back
+  // again afterwards. Empty guns are skipped for the reason in the header.
   next() {
-    const n = this.weapons.length;
-    for (let i = 1; i <= n; i++) {
-      const idx = (this.index + i) % n;
-      if (!this.weapons[idx].type.payload) {
-        this.index = idx;
-        break;
-      }
-    }
+    const idx = this.#step(this.index, isLoadedGun);
+    if (idx >= 0) this.index = idx;
     return this.current;
   }
 
-  // LAYERS ONLY — the same walk as next(), filtered the other way. A no-op
-  // while the mine is the only layer carried, which is deliberate: the key
-  // works from the day it is bound rather than appearing along with the second
-  // deployable, so nothing about the controls changes under the player when
-  // one is added.
+  // LAYERS ONLY — the same walk as next(), filtered the other way, and equally
+  // uninterested in empty magazines. A no-op while the mine is the only layer
+  // carried, which is deliberate: the key works from the day it is bound rather
+  // than appearing along with the second deployable, so nothing about the
+  // controls changes under the player when one is added.
   nextDeployable() {
     if (this.deployIndex < 0) return null;
-    const n = this.weapons.length;
-    for (let i = 1; i <= n; i++) {
-      const idx = (this.deployIndex + i) % n;
-      if (this.weapons[idx].type.payload) {
-        this.deployIndex = idx;
-        break;
+    const idx = this.#step(this.deployIndex, isLoadedLayer);
+    if (idx >= 0) this.deployIndex = idx;
+    return this.deployable;
+  }
+
+  // THE AUTOMATIC HALF OF THE SAME RULE. Called by whatever just spent a round
+  // (main.js): if the weapon in hand or the selected layer has just run dry,
+  // move that cursor on to the next loaded one of its own kind. Returns whether
+  // anything actually moved, so the caller can sound the swap it would have
+  // sounded had the player pressed the key themselves.
+  //
+  // BOTH CURSORS, ONE CALL, because "what did I just empty" is not something
+  // the caller should have to say: a cursor that is not sitting on an empty
+  // weapon is left exactly where it is, so asking about both costs nothing and
+  // there is one method to remember rather than two.
+  settle() {
+    let moved = false;
+    if (this.current?.empty) {
+      const idx = this.#step(this.index, isLoadedGun);
+      if (idx >= 0) {
+        this.index = idx;
+        moved = true;
       }
     }
-    return this.deployable;
+    if (this.deployable?.empty) {
+      const idx = this.#step(this.deployIndex, isLoadedLayer);
+      if (idx >= 0) {
+        this.deployIndex = idx;
+        moved = true;
+      }
+    }
+    return moved;
+  }
+
+  // The first weapon after `from` that `wants` accepts, wrapping, or -1 if
+  // there is none. `from` itself is tried LAST rather than skipped, so a cycle
+  // with exactly one acceptable weapon in it stays on that weapon instead of
+  // reporting nothing.
+  #step(from, wants) {
+    const n = this.weapons.length;
+    for (let i = 1; i <= n; i++) {
+      const idx = (from + i) % n;
+      if (wants(this.weapons[idx])) return idx;
+    }
+    return -1;
   }
 
   update(dt) {
