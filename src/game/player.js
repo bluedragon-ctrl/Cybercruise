@@ -270,7 +270,7 @@ export class Player {
   // and damage, not about the shape of the road.
   // Where the car is being DRAWN this frame, as opposed to where the logic
   // step left it: x interpolated between the last two steps. Public because
-  // anything that has to touch the car's on-screen position — the uplink dish
+  // anything that has to touch the car's on-screen position — the link's dish
   // wallet.js hangs off its flank — has to use the same number render() does,
   // or it rides a frame behind the car it is attached to.
   renderX(alpha) {

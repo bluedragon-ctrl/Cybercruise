@@ -23,10 +23,9 @@
 //             Phase 10's bosses and special enemies are built on — "not every
 //             enemy is worth money" is expressed by leaving the field off,
 //             not by a faction check here.
-//   SIPHONS   a node on the city floor (game/links.js), taken either by
-//             driving up alongside it while it pings (HARVEST_RADIUS) or by
-//             holding a slow uplink on it from further out (UPLINK_*). Two
-//             routes, one payout — see THE TWO ROUTES below.
+//   SIPHONS   a node on the city floor (game/links.js), drained by holding a
+//             link on it from the shoulder — ONE route, at one price, however
+//             near or far it is. See THE LINK below.
 //
 // NO DISTANCE TERM, deliberately. score.js pays for road covered because a
 // player who does nothing should still watch a number move; a wallet that
@@ -39,25 +38,38 @@
 // credits banked from earlier runs. Punishing a bad run is the point; undoing
 // an hour of saved-up shop progress in one accidental broadside is not.
 //
-// THE TWO ROUTES TO A NODE, and why there have to be two. Nodes sit on a fixed
-// column grid (citygrid.js's PLOT) while the road wanders across it, so a node
-// can simply be too far out for the shoulder to reach — at which point the
-// only honest answers are "that one was never yours" or "there is another way
-// to get it". The second is better, because the other way costs something the
-// first one doesn't:
+// THE LINK — the one way a node is ever taken, and why it replaced two.
 //
-//   GRAB     inside HARVEST_RADIUS, while the node is pinging: instant, free,
-//            and available at any speed. The reward for being in the right
-//            place at the right moment.
-//   UPLINK   inside UPLINK_RADIUS, on the node's side of the road, holding
-//            under UPLINK_MAX_SPEED for UPLINK_TIME: slow, deliberate, and
-//            available whether or not the node is lit. The reward for GIVING
-//            SOMETHING UP for it.
+// It used to be two: an instant GRAB up close while the node pinged, and a
+// slow UPLINK from further out at half price. Both worked, and together they
+// were unlearnable. Whether a node paid out the moment you arrived or made you
+// hold for it came down to whether it happened to be lit at that instant,
+// which the player cannot predict — so the same approach to the same node
+// produced two different mechanics at two different prices, and the boundary
+// between them was invisible. "Why didn't I get that one?" had two answers and
+// no way to tell which was in play.
 //
-// Slowing down on this road is a real price — traffic catches up from behind,
-// the distance term of the score stalls, and every hostile on screen gets
-// longer to work on you — which is exactly what stops the second route from
-// being a free replacement for the first.
+// Now there is one mechanic and one price. A node charges while the car is out
+// on its side of the road, and HOW FAST IT CHARGES IS SET BY HOW CLOSE THE CAR
+// IS: point blank it completes in LINK_NEAR_TIME, which reads as instant; out
+// at the edge of reach it takes LINK_FAR_TIME. There is no threshold in there
+// anywhere — the "instant" pickup and the "slow" one are the same act at two
+// ends of one curve, and they draw the same dish and the same bar.
+//
+// SPEED IS STILL THE PRICE, but it is no longer a RULE. Nothing here reads the
+// throttle. What speed decides is how long the car stays in range: at 620 a
+// node is beside you for a fraction of a second and only a close one finishes,
+// while a crawl will drain something far out past the barrier. Slowing down
+// still costs what it always did — traffic catches up from behind, the score's
+// distance term stalls, every hostile on screen gets longer to work on you —
+// but the player never has to learn a number. They learn one sentence: GET
+// NEAR IT AND STAY NEAR IT.
+//
+// WHAT THE PING MEANS NOW. It no longer gates money — a node pays whether or
+// not it is lit, because "arrive during the window" was the coin-flip half of
+// the old confusion. The ping is what it always looked like: the node
+// advertising itself, and the label going bright is still worth steering at,
+// because a lit node is one the floor is pointing at.
 //
 // BANKED AT THE END OF THE RUN, once, in bank() — not on every credit. The
 // run's earnings therefore stay a clean, quotable number for the game-over
@@ -65,7 +77,7 @@
 // a run but death, so there is nothing to lose to that).
 
 import { pingingNodes, nodeId, nodeValue, callsign, announceCityLine } from "./links.js";
-import { edgesAt, centerXAt } from "./road.js";
+import { edgesAt, centerXAt, ROAD_HALF_WIDTH } from "./road.js";
 import { glowText, neonStroke } from "../engine/neon.js";
 import { GREEN_PALE, GREEN_BRIGHT, HAZARD } from "../engine/palette.js";
 import * as gameConsole from "../engine/console.js";
@@ -80,46 +92,82 @@ export const CREDITS_KEY = "cybercruise.credits";
 // same kill.
 const AWARD_FLASH = 1.2;
 
-// SIPHON RANGE, px, measured from the player's car to the node's marker on the
-// floor below — the one number that decides whether credits are a decision or
-// a trickle.
+// SIPHON RANGE, px, measured from the player's car to the node's marker on
+// the floor below. Everything inside this reaches; how fast it drains is the
+// falloff below.
 //
-// SIZED AGAINST THE ROAD, NOT BY EYE, and the relation is the whole design:
-// it is STRICTLY LESS THAN road.js's ROAD_HALF_WIDTH (143). Since a payable
-// node is by definition off the tarmac (offRoad below), a car sitting on the
-// centre-line is at least ROAD_HALF_WIDTH from the nearest one — so with this
-// under that figure, DRIVING THE MIDDLE CAN NEVER EARN A CREDIT, no matter how
-// the road happens to bend. Not approximately never: never. Meanwhile a car
-// scraping the shoulder is ~17px inside the barrier and reaches 113px past it,
-// which covers the plot columns that actually sit beside the road.
+// Wide on purpose — well past the barrier — because the far columns are the
+// whole reason this mechanic is a hold rather than a touch. Nodes sit on a
+// fixed column grid (citygrid.js's PLOT) while the road wanders across it, so
+// a node can simply be too far out for the shoulder to touch. Reach that far
+// and they stop being a tease; the cost of taking one is the time it takes at
+// that distance, which is the falloff's job, not this number's.
 //
-// That is the trade this number exists to create: money lives at the edges,
-// where the wall is and where there is nowhere to dodge to. Raise it above
-// ROAD_HALF_WIDTH and the detour stops costing anything (measured: at 150 a
-// centre-line drive quietly collects ~3 CR/min it did nothing for — see
-// tools/econsim.js); drop it much below and the shoulder itself stops being
-// enough.
-export const HARVEST_RADIUS = 130;
+// It is also what a payable node ADVERTISES from, and the two have to be the
+// same figure: a price tag on something out of reach would be a tease, and a
+// node that pays without having announced itself first reads as a random
+// event rather than as something the player did.
+export const LINK_RADIUS = 300;
 
-// HOW FAR OFF A PAYABLE NODE ANNOUNCES ITSELF, px. Money the player can't see
-// coming teaches nothing: without a marker, a credit that lands while you
-// happen to be near the shoulder reads as a random event rather than as
-// something you did, and the whole point of the range rule is that it is a
-// choice. So a live node advertises its price from well outside the range it
-// can actually be taken at, and the label goes BRIGHT the moment it is
-// actually paying — the transition is the teacher.
+// WHAT KEEPS THE MIDDLE OF THE ROAD WORTHLESS, and the one rule that now does
+// that job alone.
 //
-// Comfortably wider than HARVEST_RADIUS (roughly double) so the player has
-// time to decide and steer: at 350 u/s the road covers this in under two
-// seconds, which is about one lane change plus the commitment to make it.
-const DETECT_RADIUS = 300;
+// This used to be arithmetic: the old grab radius was strictly under road.js's
+// ROAD_HALF_WIDTH (143), so a car on the centre-line was further from any
+// off-tarmac node than the radius could reach and DRIVING THE MIDDLE COULD
+// NEVER EARN A CREDIT — not approximately never, never. One reach of 300 px
+// cannot promise that by arithmetic, so the promise moves here: the car has to
+// be OUT PAST THE SHOULDER LINE on the node's own side before anything charges
+// at all. Centre-line: nothing, whatever the road is doing, whatever is beside
+// it.
+//
+// Half the road's half-width, so "out past this" means the outer half of your
+// own lane-side — a real commitment to the wall, where there is nowhere left
+// to dodge, and the same trade the old radius bought: money lives at the
+// edges. Measured against the centre at the car's OWN row so a bend can never
+// make it mean two different things at two ends of the screen.
+const LINK_SHOULDER = ROAD_HALF_WIDTH * 0.5;
 
-// The one-off SYS LOG line the first payable node of a run triggers — the
-// thing that says out loud what the marker means. Once per run only: it is a
-// tutorial line, and a tutorial line that repeats is nagging. Phrased as the
-// deck reporting a capability rather than as instructions, which is the voice
-// every other line in that log uses (links.js's own announcement()).
-const SIPHON_HINT = "SIGNAL NODE LIVE // CLOSE ALONGSIDE TO SIPHON";
+// THE FALLOFF: how long a node takes to drain, near and far.
+//
+// These two numbers ARE the merge. The old design had an instant route and a
+// slow route with a threshold between them; this has one act whose duration
+// slides with distance, so there is no boundary to be on the wrong side of and
+// nothing for the player to have to predict.
+//
+// NEAR is short enough to read as instant — at point blank the bar is gone
+// almost before it is seen, which is what the old grab felt like and is worth
+// keeping for the node you happened to be alongside. FAR is long enough that
+// a distant column is a decision: at 350 u/s the car crosses the whole reach
+// in well under that, so a node out at the edge simply cannot be taken at
+// speed. Nothing here reads the throttle — that IS the throttle rule, spelled
+// as geometry.
+//
+// BOTH ARE MEASURED, not guessed (tools/econsim.js, 300s per style).
+//
+// THE FAR END WAS 5.5s AND THAT WAS TOO LONG — not expensive, impossible. A
+// node 220px out took 4.1s, and at 350 u/s a car only gets a second or two
+// anywhere near its closest approach, so the whole outer band was "come to a
+// near-stop or forget it", which is a wall rather than a choice. At 4.0s, with
+// the curve below doing the rest, that same node takes 2.3s: reachable by
+// easing off, still not by ignoring it.
+const LINK_NEAR_TIME = 0.3;
+const LINK_FAR_TIME = 4.0;
+
+// Progress bleeds away rather than snapping to zero when the hold breaks, so
+// clipping a car mid-drain costs the player time rather than the whole
+// attempt. Progress is normalised 0..1 here (the rate it fills at depends on
+// range, so seconds-held would not be comparable between two nodes), and this
+// is in the same units per second.
+//
+// Faster than the FAR end fills (0.5/s) so a hold that is mostly broken never
+// completes by accident out where holds are slow. Deliberately NOT faster than
+// the near end: point blank the thing completes in 0.2s anyway, and a decay
+// that outran that would make a node you are sitting on top of impossible to
+// finish through the smallest bump.
+const LINK_DECAY = 1.5;
+
+const SIPHON_HINT = "SIGNAL NODE IN REACH // HOLD THE SHOULDER TO SIPHON";
 
 // How long a payout's own "+14CR" hangs over the SPOT IT CAME FROM, seconds,
 // and how far it drifts upward while it does. Shorter than the HUD's award
@@ -140,48 +188,7 @@ const AWARD_MARK_RISE = 26;
 // what stays on screen is what just happened.
 const MAX_AWARD_MARKS = 5;
 
-// THE UPLINK: how far out it reaches, how slow the player has to be holding
-// it, and how long it takes to complete.
-//
-// The radius is DETECT_RADIUS itself, deliberately: everything the floor
-// advertises is obtainable one way or the other, so a price tag is never a
-// tease. Anything further out doesn't announce itself and can't be taken.
-//
-// THE SPEED CEILING is the whole cost of this route. The player's band is
-// 120..620 (player.js), so this sits at the bottom quarter of it — not a
-// nudge off the throttle but a genuine crawl, long enough for the traffic
-// behind to arrive. Retune this before retuning the time: how SLOW is what
-// the player feels, how LONG is just how long they feel it for.
-const UPLINK_MAX_SPEED = 200;
-// The hold, seconds — the download runs half again as fast as it first
-// shipped (2.6s), because the crawl itself was carrying the cost and the extra
-// second on top of it was just dead air: a player who has already given up
-// their speed has made the decision, and holding them there longer only
-// punishes a choice they committed to. The ceiling above is untouched, so the
-// route still costs exactly what it always did — it just stops overcharging.
-const UPLINK_TIME = 1.75;  // seconds held before it pays
-
-// What the uplink route actually pays, as a fraction of the node's value.
-//
-// IT HAS TO BE LESS THAN THE GRAB, and time alone can't do that job: nodes
-// linger on the half-speed floor plane for many seconds (scenery.js's
-// FLOOR_PARALLAX), so a crawling car satisfies almost any hold time on almost
-// every node that goes past — measured, a full-price uplink earned three times
-// what shoulder-hugging did and made the fast route pointless (tools/
-// econsim.js). Halving the payout puts the two within sight of each other
-// while leaving the uplink strictly better than driving past.
-//
-// It also says the right thing: a node you took at speed, in its own live
-// window, gave you the whole packet; one you forced out of a dormant relay by
-// sitting on it gave you what it had.
-const UPLINK_FRACTION = 0.5;
-// Progress bleeds away rather than snapping to zero when the hold breaks, so
-// clipping a car mid-uplink costs the player time rather than the whole
-// attempt. Faster than it fills, so a hold that is mostly broken never
-// completes by accident.
-const UPLINK_DECAY = 1.5;
-
-// THE DISH: the marker on the car itself that says an uplink is running.
+// THE DISH: the marker on the car itself that says a link is running.
 //
 // WHY THE CAR NEEDS ONE AT ALL, given the node already grows a fill bar. The
 // bar is the instrument — how far along, to the pixel — and it lives out on
@@ -228,9 +235,10 @@ function offRoad(node, worldY, W) {
   return node.cx < left || node.cx > right;
 }
 
-// Whether the car is out on the same side of the road as the node — the
-// uplink's one positional demand, and what keeps it a DECISION rather than a
-// slow-motion version of driving straight. Each side is measured against the
+// Whether the car is out on the same side of the road as the node — half of
+// the link's one positional demand (LINK_SHOULDER is the other half), and
+// what keeps it a DECISION rather than a slow-motion version of driving
+// straight. Each side is measured against the
 // road's centre at ITS OWN row, so a bend can't make "the left side" mean two
 // different things at two ends of the screen.
 function sameSide(node, nodeWorldY, playerX, playerWorldY, W) {
@@ -312,11 +320,14 @@ export class Wallet {
     // AWARD_MARK_LIFE, and mark() below for the two ways one can be anchored.
     this.marks = [];
 
-    // The uplink in progress: which node, and how many seconds of hold it has
-    // banked. ONE AT A TIME — the demand is that the player commit to a node,
-    // and a rig that could quietly charge three at once would be exactly the
-    // opposite of that. Switching targets starts the new one from zero.
-    this.uplink = null; // { id, held }
+    // The link in progress: which node, and how much of it is drained, 0..1.
+    // NORMALISED rather than counted in seconds, because how fast it fills
+    // depends on range (linkRate) — seconds-held would not mean the same thing
+    // on two different nodes. ONE AT A TIME: the demand is that the player
+    // commit to a node, and a rig that could quietly charge three at once
+    // would be exactly the opposite of that. Switching targets starts the new
+    // one from zero.
+    this.link = null; // { id, charge }
   }
 
   // What the player can actually spend: earlier runs plus this run so far. The
@@ -378,9 +389,9 @@ export class Wallet {
 
   // --- Siphoning ------------------------------------------------------------
 
-  // Pays for every node that is pinging, in range, off the road, and not
-  // already paid for this run. Called once per playing tick from main.js with
-  // the node list scenery.js already built for the frame.
+  // Drains every node the car is entitled to be draining, and pays for the
+  // ones that finish. Called once per playing tick from main.js with the node
+  // list scenery.js already built for the frame.
   //
   // `push`/`busy` ride through to links.js's shared city-line throttle exactly
   // as they do in announce(), so the test suite can watch what this says
@@ -392,58 +403,74 @@ export class Wallet {
   // noisy the log happened to be. So the payout happens unconditionally here
   // and only the sentence about it goes through the rate limit.
   harvest(dt, clockValue, nodes, player, distance, W, push = gameConsole.push, busy = gameConsole.isBusy) {
-    let total = 0;
-
-    // ROUTE ONE — the grab. Every node pinging inside the close radius pays at
-    // once, whatever the car is doing.
-    for (const n of pingingNodes(nodes, clockValue)) {
-      if (!this.payable(n, player, distance, W)) continue;
-      const dx = n.cx - player.x;
-      const dy = n.sy - player.y;
-      if (dx * dx + dy * dy > HARVEST_RADIUS * HARVEST_RADIUS) continue;
-      total += this.collect(clockValue, n, push, busy);
-    }
-
-    // ROUTE TWO — the uplink. One node at a time, and only while the car is
-    // holding its side of the road slowly enough to be doing it deliberately.
-    total += this.holdUplink(dt, clockValue, nodes, player, distance, W, push, busy);
-
+    const total = this.holdLink(dt, clockValue, nodes, player, distance, W, push, busy);
     if (this.harvested.size > PRUNE_AT) this.prune(nodes);
     return total;
   }
 
-  // The three things that are true of every node either route can pay for:
+  // The three things that are true of every node the link can ever pay for:
   // not already taken this run, not hidden under the road, and inside the
-  // radius the floor advertises. Shared by both routes and by the hint layer,
-  // so a marker can never appear over something that would refuse to pay.
+  // reach the floor advertises. Shared by the drain and by the hint layer, so
+  // a marker can never appear over something that would refuse to pay.
+  //
+  // NOTE what is NOT here: whether the node is pinging. The ping stopped
+  // gating money when the two routes became one (see THE LINK) — it lights the
+  // label, nothing more.
   payable(node, player, distance, W) {
     if (this.harvested.has(nodeId(node.bx, node.by))) return false;
     if (!offRoad(node, distance + (player.y - node.sy), W)) return false;
-    return Math.hypot(node.cx - player.x, node.sy - player.y) <= DETECT_RADIUS;
+    return Math.hypot(node.cx - player.x, node.sy - player.y) <= LINK_RADIUS;
   }
 
-  // Whether an uplink could be running on this node right now — the extra
-  // demands route two makes on top of payable(): the player's side of the
-  // road, and a speed low enough to mean it.
-  uplinkable(node, player, distance, W) {
-    if (player.speed > UPLINK_MAX_SPEED) return false;
+  // Whether the car is positioned to be draining this node at all: out past
+  // the shoulder line, on the node's own side. The single rule that keeps the
+  // middle of the road worthless (see LINK_SHOULDER) — and the only positional
+  // demand left, now that speed is geometry rather than a ceiling.
+  linkable(node, player, distance, W) {
+    if (Math.abs(player.x - centerXAt(distance, W)) < LINK_SHOULDER) return false;
     return sameSide(node, distance + (player.y - node.sy), player.x, distance, W);
   }
 
-  // Advances (or bleeds) the one uplink, and pays out when it completes.
-  // Split out of harvest() above so the state machine can be driven directly
-  // by the test suite, the same reasoning links.js splits announceActive from
+  // HOW FAST THIS NODE DRAINS, in progress per second, given how far off it
+  // is. The whole merge lives in this one line: near is quick enough to read
+  // as instant, far is slow enough to be a decision, and everything between
+  // is the same act taking longer.
+  //
+  // Interpolated on TIME rather than on rate, because time is what the player
+  // experiences — a curve that interpolated the rate would spend most of the
+  // reach feeling identical and then collapse at the end.
+  //
+  // SQUARED, not straight, and that is what makes the outer half of the reach
+  // playable. A straight line spends its budget evenly, so by halfway out a
+  // node already costs half the maximum and the whole outer band needs a
+  // near-stop. Squaring keeps the near half cheap and loads the cost into the
+  // last stretch, where it belongs: at 150px a node drains in 1.2s instead of
+  // 2.9s, while the outermost column still asks for 4s.
+  //
+  // Measured, it also HELPED the balance rather than costing it (econsim):
+  // crawling fell from 1.55x a fast style's income to 1.36x, because a car at
+  // speed can now finish the nodes it passes instead of only the ones it is
+  // scraping. Slowing down still pays — it just no longer pays for everything.
+  linkRate(dist) {
+    const t = Math.min(1, Math.max(0, dist / LINK_RADIUS));
+    return 1 / (LINK_NEAR_TIME + (LINK_FAR_TIME - LINK_NEAR_TIME) * t * t);
+  }
+
+  // Advances (or bleeds) the one link, and pays out when it completes. Split
+  // out of harvest() above so the state machine can be driven directly by the
+  // test suite, the same reasoning links.js splits announceActive from
   // announce.
-  holdUplink(dt, clockValue, nodes, player, distance, W, push = gameConsole.push, busy = gameConsole.isBusy) {
+  holdLink(dt, clockValue, nodes, player, distance, W, push = gameConsole.push, busy = gameConsole.isBusy) {
     // The nearest node this car is currently entitled to be charging. Nearest
     // rather than best-paying: the player is steering at a place, and a rule
     // that silently preferred a further, richer node would put the meter on
-    // something they weren't looking at.
+    // something they weren't looking at. It is also the fastest-draining one
+    // by definition, so "nearest" and "the one about to pay" never disagree.
     let target = null;
     let best = Infinity;
     for (const n of nodes) {
       if (!this.payable(n, player, distance, W)) continue;
-      if (!this.uplinkable(n, player, distance, W)) continue;
+      if (!this.linkable(n, player, distance, W)) continue;
       const d = Math.hypot(n.cx - player.x, n.sy - player.y);
       if (d < best) { best = d; target = n; }
     }
@@ -451,20 +478,23 @@ export class Wallet {
     if (!target) {
       // Nothing eligible: whatever was being held bleeds away, and is dropped
       // entirely once it's gone.
-      if (this.uplink) {
-        this.uplink.held -= dt * UPLINK_DECAY;
-        if (this.uplink.held <= 0) this.uplink = null;
+      if (this.link) {
+        this.link.charge -= dt * LINK_DECAY;
+        if (this.link.charge <= 0) this.link = null;
       }
       return 0;
     }
 
     const id = nodeId(target.bx, target.by);
-    if (!this.uplink || this.uplink.id !== id) this.uplink = { id, held: 0 };
-    this.uplink.held += dt;
-    if (this.uplink.held < UPLINK_TIME) return 0;
+    if (!this.link || this.link.id !== id) this.link = { id, charge: 0 };
+    // Charged at the rate for where the car is THIS tick, not where it was
+    // when the link opened: closing the distance mid-drain speeds it up, which
+    // is the same sentence the mechanic already tells the player.
+    this.link.charge += dt * this.linkRate(best);
+    if (this.link.charge < 1) return 0;
 
-    this.uplink = null;
-    return this.collect(clockValue, target, push, busy, UPLINK_FRACTION);
+    this.link = null;
+    return this.collect(clockValue, target, push, busy);
   }
 
   // The payout itself, shared by both routes so they can never drift apart:
@@ -476,12 +506,15 @@ export class Wallet {
   // wrong for income, since it would make the player's earnings depend on how
   // noisy the log happened to be. So the payout happens unconditionally here
   // and only the sentence about it goes through the rate limit.
-  // `fraction` is how much of the node's price this route pays — 1 for the
-  // grab, UPLINK_FRACTION for the uplink. Never rounds to nothing: a node that
-  // took a hold and paid zero would read as a bug.
-  collect(clockValue, node, push = gameConsole.push, busy = gameConsole.isBusy, fraction = 1) {
+  // ONE PRICE. There is no fraction any more: a node is worth what the floor
+  // says it is worth, whether the car took it in a fifth of a second alongside
+  // or ground it out from the far side of the barrier. The old half-price
+  // uplink existed to stop a second route from eating the first; with one
+  // route there is nothing to protect, and a quoted price that turns out to be
+  // half is exactly the confusion this merge removes.
+  collect(clockValue, node, push = gameConsole.push, busy = gameConsole.isBusy) {
     this.harvested.add(nodeId(node.bx, node.by));
-    const value = Math.max(1, Math.round(nodeValue(node.bx, node.by) * fraction));
+    const value = nodeValue(node.bx, node.by);
     this.award(value);
     this.siphoned += value;
     this.nodes++;
@@ -523,25 +556,34 @@ export class Wallet {
 
   // Which nodes are worth SHOWING the player, and how loudly — pure data, no
   // canvas, so the whole rule is testable the same way links.js's own fields
-  // are. One entry per unclaimed, reachable node inside DETECT_RADIUS:
+  // are. One entry per unclaimed, reachable node inside LINK_RADIUS:
   //
-  //   value    what it pays, so the label can quote a real number
-  //   live     whether it is PINGING, i.e. whether it would pay right now
-  //   alpha    fades up as the player closes on it, so a node across the road
-  //            doesn't shout as loudly as the one they are drawing level with
+  //   value     what it pays — the node's price, flat, because there is only
+  //             one price now (see collect)
+  //   live      whether it is PINGING. Advertising only: it no longer decides
+  //             anything about money, it just means the floor is pointing
+  //   charge    how far the link on THIS node has got, 0..1
+  //   alpha     fades up as the player closes on it, so a node across the road
+  //             doesn't shout as loudly as the one they are drawing level with
   //
-  // TWO STATES, NOT ONE, and the reason is that a payout is INSTANT: the tick
-  // a node starts pinging with the player already alongside is the tick it is
-  // collected, so an "in range and paying" marker would flash for a single
-  // frame and teach nobody anything. What the player needs to learn is earlier
-  // than that — "the boxes out past the barrier are worth money, and they only
-  // pay while they are lit" — so a dormant node in reach still wears its price
-  // faintly, and going live is what brightens it. The pair reads as a thing
-  // waiting to be worth taking.
+  // NO PROMPT FIELD, and that is a decision rather than an omission. There was
+  // one — SHOULDER, over any node the car was not yet positioned to drain, and
+  // SLOW before it. It is gone because the mechanic now draws itself: a link
+  // that is running shows a beam from the car to the node and a bar filling
+  // over it, and a player who can see the money, the beam and the bar does not
+  // also need a word telling them what the picture already says. What the
+  // player who is NOT collecting needs is not instructions — it is to notice
+  // the number at all, so the price got bigger instead (see renderHints).
   //
-  // Everything else harvest() insists on is enforced here too (unclaimed, off
-  // the road): a marker over a node that could not be collected would be the
-  // HUD lying, and this game's HUD does not lie.
+  // THE LABEL IS NOW HONEST BY CONSTRUCTION. It used to have to quote the
+  // price for the route that happened to be open — full up close and lit, half
+  // otherwise — because the same node was worth two different amounts
+  // depending on how it was taken. One route, one number: what is written over
+  // a node is what lands in the wallet.
+  //
+  // Everything else the drain insists on is enforced here too (unclaimed, off
+  // the road, in reach): a marker over a node that could not be collected
+  // would be the HUD lying, and this game's HUD does not lie.
   hints(clockValue, nodes, player, distance, W) {
     const live = new Set(pingingNodes(nodes, clockValue).map((n) => nodeId(n.bx, n.by)));
     const out = [];
@@ -550,37 +592,13 @@ export class Wallet {
 
       const id = nodeId(n.bx, n.by);
       const dist = Math.hypot(n.cx - player.x, n.sy - player.y);
-      const lit = live.has(id);
-      const grabbable = lit && dist <= HARVEST_RADIUS;
       out.push({
         x: n.cx, y: n.sy,
-        // THE PRICE THIS PLAYER WOULD ACTUALLY GET, not the node's headline
-        // value: a label quoting the full price while the car is on course to
-        // collect half of it would be the HUD lying about money, which is the
-        // one thing it may never do. A node that is lit and in reach quotes
-        // full; anything else quotes the uplink's share, since that is the
-        // route still open to it.
-        value: grabbable
-          ? nodeValue(n.bx, n.by)
-          : Math.max(1, Math.round(nodeValue(n.bx, n.by) * UPLINK_FRACTION)),
-        full: grabbable,
-        live: lit,
-        // How far the uplink on THIS node has got, 0..1 — the meter the player
-        // watches while paying the speed for it.
-        uplink: this.uplink && this.uplink.id === id ? Math.min(1, this.uplink.held / UPLINK_TIME) : 0,
-        // Whether the ONLY thing standing between the car and this node is the
-        // throttle: right side of the road, in reach, going too fast. This is
-        // what earns the "SLOW" prompt, and it is the whole reason a node out
-        // past the shoulder is not just a tease.
-        slow: !live.has(id)
-          && dist > HARVEST_RADIUS
-          && player.speed > UPLINK_MAX_SPEED
-          && sameSide(n, distance + (player.y - n.sy), player.x, distance, W),
-        // Fades up over the approach, full once inside the radius that pays on
-        // sight.
-        alpha: dist <= HARVEST_RADIUS
-          ? 1
-          : 0.3 + 0.7 * (1 - (dist - HARVEST_RADIUS) / (DETECT_RADIUS - HARVEST_RADIUS)),
+        value: nodeValue(n.bx, n.by),
+        live: live.has(id),
+        charge: this.link && this.link.id === id ? Math.min(1, this.link.charge) : 0,
+        // Fades up over the approach — brightest where the drain is fastest.
+        alpha: 1 - 0.7 * Math.min(1, dist / LINK_RADIUS),
       });
     }
     return out;
@@ -611,29 +629,38 @@ export class Wallet {
       ctx.save();
       // A dormant node's price is a hint, not an offer — held well under the
       // live one so the two never compete for the same glance. A node being
-      // uplinked reads as live whatever its ping is doing, because it is: the
+      // drained reads as live whatever its ping is doing, because it is: the
       // player is taking it right now.
-      const hot = m.live || m.uplink > 0;
+      const hot = m.live || m.charge > 0;
       ctx.globalAlpha = m.alpha * (hot ? 1 : 0.45);
-      glowText(ctx, `+${m.value}CR`, m.x, m.y + 22, hot ? GREEN_BRIGHT : GREEN_PALE, 11, "center", hot ? 10 : 4);
+      // THE PRICE IS THE AFFORDANCE, so it is sized to be read rather than to
+      // be tidy. This is the only thing on the floor telling a player who is
+      // not collecting that there is money out here at all — it took over that
+      // job from a word prompt, and a number nobody notices would do the job
+      // worse than the word did. Bold once the node is hot (lit, or being
+      // drained), which is the moment it is worth steering at.
+      glowText(ctx, `+${m.value}CR`, m.x, m.y + 24, hot ? GREEN_BRIGHT : GREEN_PALE, hot ? 16 : 14, "center", hot ? 12 : 5, hot);
 
-      // THE UPLINK METER: a plain bar under the price, filling as the hold is
-      // banked. No glow and no neonStroke — this is an instrument, like the
+      // THE DRAIN METER: a plain bar under the price, filling as the node
+      // empties. No glow and no neonStroke — this is an instrument, like the
       // hull bar, and it has to be readable at a glance while the player is
       // watching traffic rather than watching it.
-      if (m.uplink > 0) {
-        const bw = 38;
+      //
+      // EVERY pickup draws it now, including the ones that finish in a fifth
+      // of a second. That is the point of drawing it: the fast take and the
+      // slow one are visibly the same act, so nothing the player sees suggests
+      // there are two ways to do this.
+      if (m.charge > 0) {
+        const bw = 44;
         const bx = m.x - bw / 2;
-        const by = m.y + 28;
+        // Clear of the price above it: the label's ink and glow reach y+34
+        // (measured), so the bar starts below that rather than sharing pixels
+        // with the number it is reporting on.
+        const by = m.y + 38;
         ctx.fillStyle = "rgba(0,0,0,0.55)";
         ctx.fillRect(bx - 1, by - 1, bw + 2, 5);
         ctx.fillStyle = GREEN_BRIGHT;
-        ctx.fillRect(bx, by, bw * m.uplink, 3);
-      } else if (m.slow) {
-        // The prompt, and the only place this game tells the player what to
-        // do: they are on the right side of the road with a node in reach and
-        // nothing between them and it but speed.
-        glowText(ctx, "SLOW", m.x, m.y + 34, GREEN_PALE, 9, "center", 4);
+        ctx.fillRect(bx, by, bw * m.charge, 3);
       }
       ctx.restore();
     }
@@ -656,13 +683,16 @@ export class Wallet {
       // Red for a fine, in the same HAZARD the HUD's own award uses — the one
       // place money is allowed to borrow a faction colour, because here it IS
       // reporting on a faction: the car under this number was a civilian.
-      glowText(ctx, `${m.value >= 0 ? "+" : ""}${m.value}CR`, x, y, m.value >= 0 ? GREEN_BRIGHT : HAZARD, 13, "center", 12, true);
+      // Sized ABOVE the price label above, deliberately: the offer is loud, and
+      // the money actually landing has to be louder, or taking a node reads as
+      // less of an event than being told it was available.
+      glowText(ctx, `${m.value >= 0 ? "+" : ""}${m.value}CR`, x, y, m.value >= 0 ? GREEN_BRIGHT : HAZARD, 18, "center", 14, true);
       ctx.restore();
     }
   }
 
-  // WHERE THE LINK RUNS THIS FRAME, or null when nothing is being uplinked:
-  // the node end, the car end, and how far along the hold is. Pure, and split
+  // WHERE THE LINK RUNS THIS FRAME, or null when nothing is being drained:
+  // the node end, the car end, and how far along the drain is. Pure, and split
   // out of the drawing below for the same reason hints() is split out of
   // renderHints() — the geometry is checkable without a canvas, and the only
   // thing left in the render method is ink.
@@ -672,13 +702,13 @@ export class Wallet {
   // dish that used the logic position would swim against its own car.
   //
   // The node is looked up in the list the floor just drew rather than being
-  // remembered when the hold started, so the link is always attached to where
+  // remembered when the drain started, so the link is always attached to where
   // that node actually is on screen — it scrolls down the floor plane while
   // the hold runs, and a cached position would leave the beam pointing at a
   // spot the node had already left.
-  uplinkLink(nodes, player, carX) {
-    if (!this.uplink) return null;
-    const node = nodes.find((n) => nodeId(n.bx, n.by) === this.uplink.id);
+  linkGeometry(nodes, player, carX) {
+    if (!this.link) return null;
+    const node = nodes.find((n) => nodeId(n.bx, n.by) === this.link.id);
     if (!node) return null;
 
     const dx = node.cx - carX;
@@ -700,7 +730,7 @@ export class Wallet {
       // Unit vector from car to node — the direction the dish faces and the
       // line the dashes travel along.
       ux, uy,
-      progress: Math.min(1, this.uplink.held / UPLINK_TIME),
+      progress: Math.min(1, this.link.charge),
     };
   }
 
@@ -712,8 +742,8 @@ export class Wallet {
   // The second function in this file that touches a canvas, and the only one
   // that draws in the CAR's layer rather than on the city floor — which is
   // exactly the point of it (see THE DISH above).
-  renderUplink(ctx, clockValue, nodes, player, carX) {
-    const link = this.uplinkLink(nodes, player, carX);
+  renderLink(ctx, clockValue, nodes, player, carX) {
+    const link = this.linkGeometry(nodes, player, carX);
     if (!link) return;
 
     // Faint at the moment the link takes, bright as it comes good.

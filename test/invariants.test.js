@@ -61,7 +61,7 @@ import {
   nodeId, nodeValue, pingingNodes,
   reset as linksReset,
 } from "../src/game/links.js";
-import { Wallet, HARVEST_RADIUS, CREDITS_KEY, loadBanked } from "../src/game/wallet.js";
+import { Wallet, LINK_RADIUS, CREDITS_KEY, loadBanked } from "../src/game/wallet.js";
 import { edgesAt } from "../src/game/road.js";
 import {
   HINT as CONSOLE_HINT, WARN as CONSOLE_WARN, CRITICAL as CONSOLE_CRITICAL,
@@ -4790,11 +4790,25 @@ function nodeBeside(distance, { offRoadBy = 20, bx = 3, by = 40 } = {}) {
 // is a hash-derived phase of a hash-derived period (links.js), so the honest
 // way to test "in range while pinging" is to ask links.js itself when that is,
 // rather than to hard-code a number a reseed would invalidate.
-// A player stand-in level with a node, `away` px to its right, driving fast
-// enough that nothing here can accidentally trigger the slow-uplink route —
-// the tests that want that route ask for it explicitly.
+// A player stand-in level with a node, `away` px to its right. `speed` is
+// carried because other parts of the game read it, but nothing in wallet.js
+// does any more — how fast the car is going stopped being a rule when the two
+// routes became one (see wallet.js's THE LINK).
 function atNode(node, away = 0, speed = 600) {
-  return { x: node.cx + away, y: node.sy, speed };
+  return { x: node.cx + away, y: node.sy, speed, w: 34 };
+}
+
+// Ticks the whole drain at 60Hz for `seconds` and returns what it paid — the
+// way main.js drives it. Nothing pays out in a single frame now: the fastest
+// a node can be taken is LINK_NEAR_TIME, so a test that wants a payout has to
+// spend the time for it.
+function siphon(w, nodes, player, distance, seconds, clock = 0, W = TEST_W) {
+  let paid = 0;
+  const dt = 1 / 60;
+  for (let t = 0; t < seconds; t += dt) {
+    paid += w.harvest(dt, clock + t, nodes, player, distance, W, () => {}, () => false);
+  }
+  return paid;
 }
 
 function clockWhileQuiet(node) {
@@ -4811,13 +4825,23 @@ function clockWhilePinging(node) {
   throw new Error("no ping window found in 60s — links.js's duty cycle has changed");
 }
 
-test("HARVEST_RADIUS is strictly under ROAD_HALF_WIDTH, so the centre of the road can never earn a credit", () => {
-  // wallet.js's whole design claim: a payable node is off the tarmac, so a car
-  // on the centre-line is at least ROAD_HALF_WIDTH from the nearest one.
+test("driving the middle of the road can never earn a credit, however long you sit there", () => {
+  // wallet.js's oldest design claim, and the one the merge had to carry over.
+  // It used to be arithmetic (the grab radius was strictly under
+  // ROAD_HALF_WIDTH); with one reach of LINK_RADIUS that guarantee moved into
+  // the shoulder rule, so it is asserted here the only way that still means
+  // anything: drive the centre-line next to a node and take nothing.
+  const distance = 4000;
+  const node = nodeBeside(distance);
+  const w = new Wallet(null);
+  const centre = { x: centerXAt(distance, TEST_W), y: node.sy, speed: 150, w: 34 };
+
   assert.ok(
-    HARVEST_RADIUS < ROAD_HALF_WIDTH,
-    `HARVEST_RADIUS ${HARVEST_RADIUS} must stay under ROAD_HALF_WIDTH ${ROAD_HALF_WIDTH}`
+    Math.hypot(node.cx - centre.x, node.sy - centre.y) < LINK_RADIUS,
+    "this test is not testing what it thinks it is — the node is out of reach anyway"
   );
+  assert.equal(siphon(w, [node], centre, distance, 20), 0, "the centre-line paid out");
+  assert.equal(w.link, null, "the centre-line opened a link it should never have");
 });
 
 test("every car type's bounty agrees in sign with its score value", () => {
@@ -4848,7 +4872,7 @@ test("nodeValue is a stable function of the plot index, inside its stated range"
     for (let by = 0; by < 40; by++) {
       const v = nodeValue(bx, by);
       assert.ok(Number.isInteger(v), `node ${bx},${by} pays a non-integer ${v}`);
-      assert.ok(v >= 5 && v <= 25, `node ${bx},${by} pays ${v}, outside 5..25`);
+      assert.ok(v >= 4 && v <= 17, `node ${bx},${by} pays ${v}, outside 4..17`);
       assert.equal(v, nodeValue(bx, by), "nodeValue is not deterministic");
     }
   }
@@ -4915,41 +4939,52 @@ test("spend() refuses to overdraw and persists what is left", () => {
   assert.equal(loadBanked(store), 15);
 });
 
-test("a node in range while pinging pays exactly once per run", () => {
+test("a node held alongside pays its full price, exactly once per run", () => {
   const distance = 4000;
   const node = nodeBeside(distance);
-  const clock = clockWhilePinging(node);
   const w = new Wallet(null);
-  const push = () => {};
-  const busy = () => false;
 
-  const paid = w.harvest(0, clock, [node], atNode(node), distance, TEST_W, push, busy);
-  assert.equal(paid, nodeValue(node.bx, node.by));
+  const paid = siphon(w, [node], atNode(node), distance, 0.5, clockWhilePinging(node));
+  assert.equal(paid, nodeValue(node.bx, node.by), "a node paid something other than its price");
   assert.equal(w.nodes, 1);
 
-  // The same node, still pinging, on the next frame: nothing more.
-  const again = w.harvest(0, clock + 0.05, [node], atNode(node), distance, TEST_W, push, busy);
-  assert.equal(again, 0, "the same node paid twice in one run");
+  // The same node, alongside for another second: nothing more.
+  assert.equal(siphon(w, [node], atNode(node), distance, 1), 0, "the same node paid twice in one run");
   assert.equal(w.nodes, 1);
+});
+
+test("the ping decides nothing about money — a dormant node pays the same as a lit one", () => {
+  // The coin-flip half of the old confusion: whether a node paid instantly or
+  // made you hold used to come down to whether it happened to be lit when you
+  // arrived, which the player cannot predict. Now it is the same act either
+  // way, at the same price.
+  const distance = 4000;
+  const node = nodeBeside(distance);
+
+  const lit = new Wallet(null);
+  const dark = new Wallet(null);
+  const paidLit = siphon(lit, [node], atNode(node), distance, 0.5, clockWhilePinging(node));
+  const paidDark = siphon(dark, [node], atNode(node), distance, 0.5, clockWhileQuiet(node));
+
+  assert.equal(paidLit, nodeValue(node.bx, node.by));
+  assert.equal(paidDark, paidLit, "a dormant node paid differently from a lit one");
 });
 
 test("a node out of range, or under the road, pays nothing however long it pings", () => {
   const distance = 4000;
   const node = nodeBeside(distance);
   const clock = clockWhilePinging(node);
-  const push = () => {};
-  const busy = () => false;
 
   const far = new Wallet(null);
-  // The player exactly as far from it as the centre of the road would be.
-  far.harvest(0, clock, [node], atNode(node, ROAD_HALF_WIDTH), distance, TEST_W, push, busy);
+  // Beyond the reach the floor advertises: out of the mechanic entirely.
+  siphon(far, [node], atNode(node, LINK_RADIUS + 40), distance, 10);
   assert.equal(far.credits, 0, "a node beyond the siphon radius paid out");
 
   // A node the road is currently covering: invisible, and so worth nothing —
   // even with the player sitting directly on top of it.
   const under = new Wallet(null);
   const buried = { ...node, cx: edgesAt(distance, TEST_W).center };
-  under.harvest(0, clock, [buried], atNode(buried), distance, TEST_W, push, busy);
+  siphon(under, [buried], atNode(buried), distance, 10, clock);
   assert.equal(under.credits, 0, "a node hidden under the road paid out");
 });
 
@@ -4975,33 +5010,29 @@ test("CREDITS_KEY shares the settings namespace and does not collide with them",
 });
 
 test("a node in reach wears its price dormant, and brightens when it goes live", () => {
-  // The affordance, and the only reason the range rule is learnable. TWO
-  // states rather than one, because the payout itself is instant: see
-  // Wallet.hints() on why "in range and paying" would never be visible.
+  // The affordance. TWO states rather than one, but the difference between
+  // them is now about ATTENTION, not money: a lit node is one the floor is
+  // pointing at, and it is worth exactly what the dormant one beside it is
+  // worth.
   const distance = 4000;
   const node = nodeBeside(distance);
   const clock = clockWhilePinging(node);
   const w = new Wallet(null);
 
-  // Dormant: a node not currently pinging still advertises itself — but at
-  // the price the route still open to it (the uplink) would actually pay,
-  // which is less than the headline value. The HUD never quotes money the
-  // player is not on course to receive.
-  const quiet = clockWhileQuiet(node);
-  const dormant = w.hints(quiet, [node], atNode(node), distance, TEST_W);
+  const dormant = w.hints(clockWhileQuiet(node), [node], atNode(node), distance, TEST_W);
   assert.equal(dormant.length, 1);
   assert.equal(dormant[0].live, false);
-  assert.equal(dormant[0].full, false);
-  assert.ok(dormant[0].value > 0 && dormant[0].value < nodeValue(node.bx, node.by));
 
-  // Live and in reach: full price, because the grab is now the route on offer.
   const lit = w.hints(clock, [node], atNode(node), distance, TEST_W);
   assert.equal(lit[0].live, true);
-  assert.equal(lit[0].full, true);
+
+  // ONE PRICE, and the label quotes it whatever the ping is doing. The old
+  // half-price quote is exactly what this merge removed.
   assert.equal(lit[0].value, nodeValue(node.bx, node.by));
+  assert.equal(dormant[0].value, lit[0].value, "the same node was advertised at two prices");
 
   // Further out on the approach: still advertised, but quieter.
-  const far = w.hints(clock, [node], atNode(node, HARVEST_RADIUS + 60), distance, TEST_W);
+  const far = w.hints(clock, [node], atNode(node, 200), distance, TEST_W);
   assert.equal(far.length, 1);
   assert.ok(far[0].alpha < lit[0].alpha, "a distant node shouts as loudly as one alongside");
 });
@@ -5016,7 +5047,7 @@ test("nothing is advertised that could not actually be collected", () => {
   const w = new Wallet(null);
 
   // Already taken this run.
-  w.harvest(0, clock, [node], atNode(node), distance, TEST_W, () => {}, () => false);
+  siphon(w, [node], atNode(node), distance, 0.5, clock);
   assert.equal(w.hints(clock, [node], atNode(node), distance, TEST_W).length, 0);
 
   // Hidden under the road.
@@ -5058,7 +5089,7 @@ test("every payout leaves a marker on the spot it came from, which ages out on i
 
   // A siphoned node: anchored on the CITY FLOOR, at the screen position it was
   // taken at.
-  w.harvest(0, clock, [node], atNode(node), distance, TEST_W, () => {}, () => false);
+  siphon(w, [node], atNode(node), distance, 0.5, clock);
   assert.equal(w.marks.length, 1);
   assert.equal(w.marks[0].kind, "floor");
   assert.equal(w.marks[0].x, node.cx);
@@ -5105,15 +5136,15 @@ test("a fine with nothing left to take leaves no marker at all", () => {
   assert.equal(w.marks.length, 0);
 });
 
-// --- The uplink: the slow route to a node the shoulder can't reach ----------
+// --- The link: the one way a node is ever taken -----------------------------
 
-// A player stand-in out past the road's edge on the same side as `node`, at a
-// given speed — the position the uplink demands.
-function beside(node, distance, speed) {
+// A player stand-in out past the shoulder on the same side as `node` — the
+// position the link demands, and the only position it demands.
+function beside(node, distance, speed = 350) {
   const center = centerXAt(distance, TEST_W);
   const side = Math.sign(node.cx - center) || -1;
-  // `w` because the uplink's dish is measured off the car's flank
-  // (wallet.js's uplinkLink); everything else here only needs a point.
+  // `w` because the link's dish is measured off the car's flank
+  // (wallet.js's linkGeometry); everything else here only needs a point.
   return { x: center + side * (ROAD_HALF_WIDTH - 17), y: node.sy, speed, w: 34 };
 }
 
@@ -5122,49 +5153,80 @@ function hold(w, node, player, distance, seconds, clock = 0) {
   let paid = 0;
   const dt = 1 / 60;
   for (let t = 0; t < seconds; t += dt) {
-    paid += w.holdUplink(dt, clock + t, [node], player, distance, TEST_W, () => {}, () => false);
+    paid += w.holdLink(dt, clock + t, [node], player, distance, TEST_W, () => {}, () => false);
   }
   return paid;
 }
 
-test("a slow car on the node's side eventually takes a node it could never reach", () => {
-  // The whole reason this route exists: nodes sit on a fixed column grid while
-  // the road wanders across it, so some of them are simply too far out for the
-  // shoulder to touch.
-  const distance = 4000;
-  const node = nodeBeside(distance, { offRoadBy: 200 }); // well beyond HARVEST_RADIUS
-  const w = new Wallet(null);
-  const player = beside(node, distance, 150);
-  assert.ok(
-    Math.hypot(node.cx - player.x, node.sy - player.y) > HARVEST_RADIUS,
-    "this test is not testing what it thinks it is — the node is grabbable"
-  );
-
-  const paid = hold(w, node, player, distance, 3);
-  assert.ok(paid > 0, "a held uplink never completed");
-  assert.equal(w.nodes, 1);
-  // At a discount to the node's headline price: the fast route stays the
-  // better one (see UPLINK_FRACTION).
-  assert.ok(paid < nodeValue(node.bx, node.by));
-});
-
-test("the uplink is bought with speed — too fast and it never starts", () => {
+test("a car on the node's side eventually takes a node it could never touch", () => {
+  // The whole reason the reach is wide: nodes sit on a fixed column grid while
+  // the road wanders across it, so some are simply too far out to be brushed
+  // past. Reaching them is what the time is for.
   const distance = 4000;
   const node = nodeBeside(distance, { offRoadBy: 200 });
   const w = new Wallet(null);
-  const paid = hold(w, node, beside(node, distance, 600), distance, 5);
-  assert.equal(paid, 0);
-  assert.equal(w.uplink, null);
+  const player = beside(node, distance, 150);
+
+  // Long enough for a node this far out: the drain slows with range, and 200px
+  // past the barrier is most of the way to the edge of reach.
+  const paid = hold(w, node, player, distance, 6);
+  assert.ok(paid > 0, "a held link never completed");
+  assert.equal(w.nodes, 1);
+  // AT FULL PRICE. The old uplink paid half for exactly this node; one route
+  // means one number, and it is the one the floor advertised.
+  assert.equal(paid, nodeValue(node.bx, node.by));
 });
 
-test("the uplink is bought with position too — the wrong side of the road earns nothing", () => {
+test("distance sets the pace: the same node takes longer from further out", () => {
+  // The merge itself, stated as a test. There is no threshold anywhere in
+  // here — near is quick, far is slow, and the two are the same act.
+  const distance = 4000;
+  const node = nodeBeside(distance, { offRoadBy: 40 });
+
+  const near = new Wallet(null);
+  const far = new Wallet(null);
+  const alongside = beside(node, distance);
+  const back = { ...alongside, y: node.sy + 200 };
+
+  // The rate curve itself: strictly faster the closer the car is, with no
+  // step anywhere in it.
+  assert.ok(near.linkRate(0) > near.linkRate(150), "the curve is flat up close");
+  assert.ok(near.linkRate(150) > near.linkRate(LINK_RADIUS), "the curve is flat further out");
+  assert.ok(1 / near.linkRate(0) < 0.4, "point blank does not read as instant");
+
+  // Alongside: taken in well under two seconds.
+  assert.ok(hold(near, node, alongside, distance, 1.5) > 0, "a node alongside never completed");
+  // The same time from 200px back is not enough...
+  assert.equal(hold(far, node, back, distance, 1.5), 0, "a distant node paid at close-range speed");
+  assert.ok(far.link.charge > 0, "a distant node was not charging at all");
+  // ...but it gets there, given the time.
+  assert.ok(hold(far, node, back, distance, 6) > 0, "a distant node never completed");
+});
+
+test("nothing reads the throttle — speed costs time in range, not permission", () => {
+  // Speed used to be a rule with a number attached (a 200 u/s ceiling). Now it
+  // is geometry: the same hold at 620 pays exactly as it does at 120, because
+  // wallet.js never asks. What speed decides is how long the car is there for,
+  // which is main.js's business, not this module's.
+  const distance = 4000;
+  const node = nodeBeside(distance, { offRoadBy: 200 });
+
+  const crawling = new Wallet(null);
+  const flying = new Wallet(null);
+  const paidSlow = hold(crawling, node, beside(node, distance, 120), distance, 6);
+  const paidFast = hold(flying, node, beside(node, distance, 620), distance, 6);
+  assert.ok(paidSlow > 0);
+  assert.equal(paidFast, paidSlow, "the throttle changed what a held node paid");
+});
+
+test("the link is bought with position — the wrong side of the road earns nothing", () => {
   const distance = 4000;
   const node = nodeBeside(distance, { offRoadBy: 200 });
   const w = new Wallet(null);
   const center = centerXAt(distance, TEST_W);
   const side = Math.sign(node.cx - center) || -1;
-  // Slow, but out on the OPPOSITE shoulder.
-  const wrongSide = { x: center - side * (ROAD_HALF_WIDTH - 17), y: node.sy, speed: 150 };
+  // Out on the OPPOSITE shoulder.
+  const wrongSide = { x: center - side * (ROAD_HALF_WIDTH - 17), y: node.sy, speed: 150, w: 34 };
   assert.equal(hold(w, node, wrongSide, distance, 5), 0);
 });
 
@@ -5172,76 +5234,82 @@ test("a broken hold bleeds away rather than being wiped, and never completes on 
   const distance = 4000;
   const node = nodeBeside(distance, { offRoadBy: 200 });
   const w = new Wallet(null);
+  const center = centerXAt(distance, TEST_W);
+  // Swerving back into the middle is what breaks a hold now.
+  const middle = { x: center, y: node.sy, speed: 350, w: 34 };
 
-  hold(w, node, beside(node, distance, 150), distance, 1);
-  const banked = w.uplink.held;
+  hold(w, node, beside(node, distance), distance, 1);
+  const banked = w.link.charge;
   assert.ok(banked > 0);
 
-  // One tick at speed: progress drops, but the attempt survives.
-  w.holdUplink(1 / 60, 0, [node], beside(node, distance, 600), distance, TEST_W, () => {}, () => false);
-  assert.ok(w.uplink.held < banked, "a broken hold kept its progress");
-  assert.ok(w.uplink.held > 0, "a single fast tick wiped the whole attempt");
+  // One tick back off the shoulder: progress drops, but the attempt survives.
+  w.holdLink(1 / 60, 0, [node], middle, distance, TEST_W, () => {}, () => false);
+  assert.ok(w.link.charge < banked, "a broken hold kept its progress");
+  assert.ok(w.link.charge > 0, "a single tick wiped the whole attempt");
 
   // Sustained: it lapses entirely, and nothing is ever paid for it.
   for (let i = 0; i < 600; i++) {
-    w.holdUplink(1 / 60, 0, [node], beside(node, distance, 600), distance, TEST_W, () => {}, () => false);
+    w.holdLink(1 / 60, 0, [node], middle, distance, TEST_W, () => {}, () => false);
   }
-  assert.equal(w.uplink, null);
+  assert.equal(w.link, null);
   assert.equal(w.credits, 0);
 });
 
-test("only one uplink runs at a time, and switching nodes starts over", () => {
+test("only one link runs at a time, and switching nodes starts over", () => {
   const distance = 4000;
   const near = nodeBeside(distance, { offRoadBy: 200, bx: 3, by: 40 });
   const far = { ...near, bx: 4, by: 41, cx: near.cx - 60 };
   const w = new Wallet(null);
   const player = beside(near, distance, 150);
 
-  hold(w, near, player, distance, 1);
-  const id = w.uplink.id;
-  const progress = w.uplink.held;
+  hold(w, near, player, distance, 0.3);
+  const id = w.link.id;
+  const progress = w.link.charge;
 
   // The same tick sequence against the OTHER node: a new hold, from zero.
-  w.holdUplink(1 / 60, 0, [far], player, distance, TEST_W, () => {}, () => false);
-  assert.notEqual(w.uplink.id, id);
-  assert.ok(w.uplink.held < progress);
+  w.holdLink(1 / 60, 0, [far], player, distance, TEST_W, () => {}, () => false);
+  assert.notEqual(w.link.id, id);
+  assert.ok(w.link.charge < progress);
 });
 
-test("a node that only needs the throttle says so", () => {
-  // The prompt exists because "drive slower here" is the one thing about this
-  // game the player cannot deduce from watching the road.
+test("a node out of position still advertises its price — that is the whole affordance", () => {
+  // There is no text prompt any more: the beam, the bar and the number do the
+  // teaching. Which puts the entire job of telling a centre-line driver that
+  // there is money out here on the PRICE LABEL, so the one thing that must
+  // never happen is a node going quiet just because the car is not yet in a
+  // position to drain it.
   const distance = 4000;
-  const node = nodeBeside(distance, { offRoadBy: 200 });
+  const node = nodeBeside(distance, { offRoadBy: 40 });
   const w = new Wallet(null);
   const quiet = clockWhileQuiet(node);
+  const center = centerXAt(distance, TEST_W);
 
-  const fast = w.hints(quiet, [node], beside(node, distance, 600), distance, TEST_W);
-  assert.equal(fast.length, 1);
-  assert.equal(fast[0].slow, true, "a node in reach of a slow-down said nothing about it");
+  const central = w.hints(quiet, [node], { x: center, y: node.sy, speed: 350, w: 34 }, distance, TEST_W);
+  assert.equal(central.length, 1, "a node in reach went unadvertised to a centre-line car");
+  assert.equal(central[0].value, nodeValue(node.bx, node.by), "the price quoted was not the price");
 
-  // Already slow: no prompt, because the meter itself is now the feedback.
-  const slow = w.hints(quiet, [node], beside(node, distance, 150), distance, TEST_W);
-  assert.equal(slow[0].slow, false);
+  // And it is the same number once the car is out there earning it — the label
+  // never changes its mind about what a node is worth.
+  const out = w.hints(quiet, [node], beside(node, distance), distance, TEST_W);
+  assert.equal(out[0].value, central[0].value);
+
+  // Closing on it makes it louder, which is the only signal that changes.
+  assert.ok(out[0].alpha > central[0].alpha, "drawing level with a node did not brighten it");
 });
 
-test("an uplink in progress shows its own meter", () => {
+test("a drain in progress shows its own meter", () => {
   const distance = 4000;
   const node = nodeBeside(distance, { offRoadBy: 200 });
   const w = new Wallet(null);
   const player = beside(node, distance, 150);
   const quiet = clockWhileQuiet(node);
 
-  assert.equal(w.hints(quiet, [node], player, distance, TEST_W)[0].uplink, 0);
-  hold(w, node, player, distance, 1);
-  const mid = w.hints(quiet, [node], player, distance, TEST_W)[0].uplink;
+  assert.equal(w.hints(quiet, [node], player, distance, TEST_W)[0].charge, 0);
+  hold(w, node, player, distance, 0.5);
+  const mid = w.hints(quiet, [node], player, distance, TEST_W)[0].charge;
   assert.ok(mid > 0 && mid < 1, `meter reads ${mid}`);
 });
 
-// The draw call itself, exercised once with a road-anchored receipt alive —
-// the one thing in wallet.js that a pure-data test can't reach. A throw here
-// is not a cosmetic bug: render() runs inside the rAF callback (engine/loop.js)
-// and takes the next frame down with it, so the whole game stops on the frame
-// after a kill, half-drawn, with only the city floor on screen.
 test("a wreck's receipt draws without taking the frame down with it", () => {
   const distance = 4000;
   const w = new Wallet(null);
@@ -5269,7 +5337,7 @@ test("no hold, no dish — the car only wears one while it is actually taking so
   const node = nodeBeside(distance, { offRoadBy: 200 });
   const w = new Wallet(null);
   const player = beside(node, distance, 150);
-  assert.equal(w.uplinkLink([node], player, player.x), null);
+  assert.equal(w.linkGeometry([node], player, player.x), null);
 });
 
 test("the dish rides the flank the node is on, clear of the car's own body", () => {
@@ -5279,7 +5347,7 @@ test("the dish rides the flank the node is on, clear of the car's own body", () 
   const player = beside(node, distance, 150);
   hold(w, node, player, distance, 1);
 
-  const link = w.uplinkLink([node], player, player.x);
+  const link = w.linkGeometry([node], player, player.x);
   assert.ok(link, "a running hold drew no dish");
   // The whole point of the marker: it says WHICH WAY the money is.
   assert.equal(Math.sign(link.ax - player.x), Math.sign(node.cx - player.x));
@@ -5290,16 +5358,16 @@ test("the dish rides the flank the node is on, clear of the car's own body", () 
   assert.ok(Math.sign(link.ux) === Math.sign(node.cx - player.x));
 });
 
-test("the dish brightens with the hold it is reporting, and lands on the node", () => {
+test("the dish brightens with the drain it is reporting, and lands on the node", () => {
   const distance = 4000;
   const node = nodeBeside(distance, { offRoadBy: 200 });
   const w = new Wallet(null);
   const player = beside(node, distance, 150);
 
+  hold(w, node, player, distance, 0.2);
+  const early = w.linkGeometry([node], player, player.x);
   hold(w, node, player, distance, 0.3);
-  const early = w.uplinkLink([node], player, player.x);
-  hold(w, node, player, distance, 0.6);
-  const later = w.uplinkLink([node], player, player.x);
+  const later = w.linkGeometry([node], player, player.x);
   assert.ok(later.progress > early.progress, "progress went backwards");
   assert.ok(later.progress < 1, "the meter filled before the hold did");
   // The far end is the node itself — the link is between two real things.
@@ -5308,7 +5376,7 @@ test("the dish brightens with the hold it is reporting, and lands on the node", 
 });
 
 test("a node the floor is no longer drawing takes its dish with it", () => {
-  // uplinkLink reads the node out of the list actually on screen, so a hold on
+  // linkGeometry reads the node out of the list actually on screen, so a hold on
   // something that has scrolled away draws nothing rather than a beam into an
   // empty patch of city.
   const distance = 4000;
@@ -5316,5 +5384,5 @@ test("a node the floor is no longer drawing takes its dish with it", () => {
   const w = new Wallet(null);
   const player = beside(node, distance, 150);
   hold(w, node, player, distance, 1);
-  assert.equal(w.uplinkLink([], player, player.x), null);
+  assert.equal(w.linkGeometry([], player, player.x), null);
 });
