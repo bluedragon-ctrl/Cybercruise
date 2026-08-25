@@ -73,16 +73,16 @@ export const CONSUMABLES = [
     id: "buy_repair",
     label: "HULL REPAIR",
     detail: "+70 HULL",
-    price: 100,
+    price: 50,
     kind: HEAL,
-    amount: 70, // the FIX crate's own figure — 35% of a stock 200 hull
+    amount: 50, // the FIX crate's own figure — 35% of a stock 200 hull
     color: GREEN_BRIGHT,
   },
   {
     id: "buy_shield",
     label: "SHIELD",
     detail: "5 SEC",
-    price: 110,
+    price: 75,
     kind: SHIELD,
     // RUNS FROM THE MOMENT THE WHEELS ARE BACK DOWN, and it costs nothing to
     // make that true: main.js only advances the player during "playing", so
@@ -90,14 +90,14 @@ export const CONSUMABLES = [
     // sequence either side of it (see updateShopping/updateLowering there). A
     // shield bought here is therefore still whole when the car lands, which is
     // the only reading of "buy a shield in a shop" that isn't a swindle.
-    duration: 5,
+    duration: 15,
     color: PLAYER,
   },
   {
     id: "buy_rocket_ammo",
     label: "ROCKET AMMO",
     detail: "+18 RDS",
-    price: 120,
+    price: 80,
     kind: AMMO,
     weaponId: "rocket",
     amount: 18,
@@ -107,7 +107,7 @@ export const CONSUMABLES = [
     id: "buy_tracer_ammo",
     label: "TRACER AMMO",
     detail: "+48 RDS",
-    price: 90,
+    price: 80,
     kind: AMMO,
     weaponId: "tracker",
     amount: 48,
@@ -120,7 +120,7 @@ export const CONSUMABLES = [
     // The whole magazine (weapons.js's `mine`), at well under four times what
     // the road's own two-mine crate is worth — a set bought in one press is
     // priced as a set, not as four separate crates carried out one at a time.
-    price: 200,
+    price: 75,
     kind: AMMO,
     weaponId: "mine",
     amount: 8,
@@ -139,7 +139,7 @@ export const CONSUMABLES = [
     // you simply have". Fewer rounds than the mine row for a lower total but a
     // HIGHER price each, which is the relation that matters and the one
     // test/shop.test.js pins.
-    price: 150,
+    price: 75,
     kind: AMMO,
     weaponId: "spikes",
     amount: 5,
@@ -258,8 +258,8 @@ export const STATS = [
     // what its own catalogue entry calls it — "immovable in practice: ram it
     // and you lose, not the rig". A ladder that climbed past the rig would
     // delete the one thing on the road the player is meant to drive around.
-    step: 0.4,
-    price: 130,
+    step: 0.8,
+    price: 150,
     unit: "",
     decimals: 1,
   },
