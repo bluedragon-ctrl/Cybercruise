@@ -847,6 +847,12 @@ function updatePlaying(dt) {
     const centerX = road.centerXAt(distance, W);
     shots.spawn(distance + player.h / 2, player.x - centerX, player.speed, weapon.type, W);
     music.play(PLAYER_FIRE_SOUND[weapon.type.id]);
+    // WAS THAT THE LAST ROUND? Then the loadout hands over the next loaded gun
+    // by itself (weapons.js's settle), sounding the same swap TAB would have.
+    // The alternative is the player finding out by pulling a dead trigger in
+    // the middle of a fight, which is a punishment for firing the shot they
+    // were meant to fire.
+    if (loadout.settle()) music.play("weapon_swap");
   } else if (isDown("fire") && weapon.empty) {
     // A refusal, not a shot — the trigger is held against an empty magazine.
     // isDown never edge-triggers the way consumePress does, so it's
@@ -879,6 +885,10 @@ function updatePlaying(dt) {
     if (obstacles.drop(obstacleTypeById(deployable.type.payload), body)) {
       deployable.tryFire();
       music.play(PLAYER_FIRE_SOUND[deployable.type.id]);
+      // Same rule as the gun above: the drop that empties the last mine selects
+      // whatever else is still loaded, so CTRL keeps working rather than going
+      // quiet on a spent layer.
+      if (loadout.settle()) music.play("weapon_swap");
     }
   }
   // Traffic cars and road obstacles are both fair game for the PLAYER'S gunfire
