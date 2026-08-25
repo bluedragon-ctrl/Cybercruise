@@ -62,6 +62,7 @@ import {
   reset as linksReset,
 } from "../src/game/links.js";
 import { Wallet, LINK_RADIUS, CREDITS_KEY, loadBanked } from "../src/game/wallet.js";
+import { renderNodeHints, renderAwardMarks, renderUplink } from "../src/game/walletrender.js";
 import { edgesAt } from "../src/game/road.js";
 import {
   HINT as CONSOLE_HINT, WARN as CONSOLE_WARN, CRITICAL as CONSOLE_CRITICAL,
@@ -5326,8 +5327,52 @@ test("a wreck's receipt draws without taking the frame down with it", () => {
     set: () => true,
   });
 
-  w.renderHints(ctx, 0, [], { x: 0, y: 400, speed: 150 }, distance, TEST_W);
+  renderAwardMarks(ctx, w.marks, { x: 0, y: 400, speed: 150 }, distance, TEST_W);
   assert.ok(drawn.some(([k]) => k === "fillText"), "the receipt never reached the canvas");
+});
+
+// walletrender.js's other two entry points, on the same terms as the receipt
+// test above: what is under test is that each one completes AND actually emits
+// ink, since an early return would sail through a bare "did not throw".
+//
+// Worth having because these moved out of Wallet in the first place. The rule
+// deciding what belongs on screen (hints, linkGeometry) is asserted in detail
+// elsewhere in this file under plain Node; these two only check that the ink
+// path downstream of those rules is still wired up.
+function recordingCtx(drawn) {
+  return new Proxy({}, {
+    get: (_t, k) => (k === "measureText" ? () => ({ width: 10 }) : (...args) => drawn.push([k, ...args])),
+    set: () => true,
+  });
+}
+
+test("a node's price marker reaches the canvas", () => {
+  const distance = 4000;
+  const node = nodeBeside(distance, { offRoadBy: 200 });
+  const w = new Wallet(null);
+  const player = beside(node, distance, 150);
+  const marks = w.hints(clockWhilePinging(node), [node], player, distance, TEST_W);
+  assert.ok(marks.length > 0, "the node offered no marker to draw");
+
+  const drawn = [];
+  renderNodeHints(recordingCtx(drawn), marks);
+  assert.ok(drawn.some(([k]) => k === "fillText"), "the price never reached the canvas");
+});
+
+test("the uplink draws while a hold is running, and nothing at all when none is", () => {
+  const distance = 4000;
+  const node = nodeBeside(distance, { offRoadBy: 200 });
+  const w = new Wallet(null);
+  const player = beside(node, distance, 150);
+
+  const idle = [];
+  renderUplink(recordingCtx(idle), 0, w.linkGeometry([node], player, player.x));
+  assert.equal(idle.length, 0, "a car with no hold still drew a dish");
+
+  hold(w, node, player, distance, 0.5);
+  const live = [];
+  renderUplink(recordingCtx(live), 0, w.linkGeometry([node], player, player.x));
+  assert.ok(live.some(([k]) => k === "stroke"), "the dish never reached the canvas");
 });
 
 // --- The dish: the same fact, drawn on the car -------------------------------

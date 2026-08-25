@@ -78,8 +78,6 @@
 
 import { pingingNodes, nodeId, nodeValue, callsign, announceCityLine } from "./links.js";
 import { edgesAt, centerXAt, ROAD_HALF_WIDTH } from "./road.js";
-import { glowText, neonStroke } from "../engine/neon.js";
-import { GREEN_PALE, GREEN_BRIGHT, HAZARD } from "../engine/palette.js";
 import * as gameConsole from "../engine/console.js";
 
 // Where the bank lives. Same "cybercruise.*" namespace menu.js's SOUND/MUSIC
@@ -179,8 +177,8 @@ const SIPHON_HINT = "SIGNAL NODE IN REACH // HOLD THE SHOULDER TO SIPHON";
 // one chain reaction, WHICH ONE PAID is the half the player actually needs in
 // order to do it again on purpose. It is the same lesson in both cases: money
 // has a source, and the source is a thing you did to something.
-const AWARD_MARK_LIFE = 0.9;
-const AWARD_MARK_RISE = 26;
+export const AWARD_MARK_LIFE = 0.9;
+export const AWARD_MARK_RISE = 26;
 
 // Ceiling on how many of those can be in the air at once. A chain reaction can
 // kill half a lane in one tick, and a stack of overlapping numbers is worse
@@ -206,22 +204,8 @@ const MAX_AWARD_MARKS = 5;
 // 34px wide: anything drawn on top of the wireframe competes with it, while
 // anything on the outside edge is against empty tarmac. The offset clears the
 // body, so the link never crosses the car it comes from.
-const DISH_MAST = 9;    // px from the car's flank out to the dish's middle
-const DISH_R = 6;       // the dish's own radius
-
-// The link itself: dashes that march FROM THE NODE TOWARD THE CAR, because
-// that is the direction the data is going and a beam that ran the other way
-// would quietly say the player is uploading something. Speed is in px/sec of
-// dash travel — brisk enough to read as flow at a glance, slow enough not to
-// strobe.
-const LINK_DASH = 7;
-const LINK_GAP = 6;
-const LINK_MARCH = 34;
-
-// Both parts brighten as the hold fills, from "connecting" to "about to pay".
-// The floor's bar is still the precise reading; this is the glance version, so
-// it only has to get louder in the right direction.
-const LINK_MIN_ALPHA = 0.3;
+export const DISH_MAST = 9;    // px from the car's flank out to the dish's middle
+export const DISH_R = 6;       // the dish's own radius
 
 // Nodes UNDER the road pay nothing, however close they are. The city floor
 // runs beneath the elevated road ribbon and the road paints an opaque surface
@@ -615,82 +599,6 @@ export class Wallet {
     return this.hinted;
   }
 
-  // Draws the markers over the city floor. One of the two functions in this
-  // file that touch a canvas — this one and renderUplink() below, kept at the
-  // bottom behind the same wall links.js puts between its own pure fields and
-  // its two draw calls.
-  //
-  // Cost is bounded by what hints() returns, which the range rule holds to
-  // "the odd node beside the player" — nowhere near the per-frame node walk
-  // the floor already pays for.
-  renderHints(ctx, clockValue, nodes, player, distance, W) {
-    const marks = this.hints(clockValue, nodes, player, distance, W);
-    for (const m of marks) {
-      ctx.save();
-      // A dormant node's price is a hint, not an offer — held well under the
-      // live one so the two never compete for the same glance. A node being
-      // drained reads as live whatever its ping is doing, because it is: the
-      // player is taking it right now.
-      const hot = m.live || m.charge > 0;
-      ctx.globalAlpha = m.alpha * (hot ? 1 : 0.45);
-      // THE PRICE IS THE AFFORDANCE, so it is sized to be read rather than to
-      // be tidy. This is the only thing on the floor telling a player who is
-      // not collecting that there is money out here at all — it took over that
-      // job from a word prompt, and a number nobody notices would do the job
-      // worse than the word did. Bold once the node is hot (lit, or being
-      // drained), which is the moment it is worth steering at.
-      glowText(ctx, `+${m.value}CR`, m.x, m.y + 24, hot ? GREEN_BRIGHT : GREEN_PALE, hot ? 16 : 14, "center", hot ? 12 : 5, hot);
-
-      // THE DRAIN METER: a plain bar under the price, filling as the node
-      // empties. No glow and no neonStroke — this is an instrument, like the
-      // hull bar, and it has to be readable at a glance while the player is
-      // watching traffic rather than watching it.
-      //
-      // EVERY pickup draws it now, including the ones that finish in a fifth
-      // of a second. That is the point of drawing it: the fast take and the
-      // slow one are visibly the same act, so nothing the player sees suggests
-      // there are two ways to do this.
-      if (m.charge > 0) {
-        const bw = 44;
-        const bx = m.x - bw / 2;
-        // Clear of the price above it: the label's ink and glow reach y+34
-        // (measured), so the bar starts below that rather than sharing pixels
-        // with the number it is reporting on.
-        const by = m.y + 38;
-        ctx.fillStyle = "rgba(0,0,0,0.55)";
-        ctx.fillRect(bx - 1, by - 1, bw + 2, 5);
-        ctx.fillStyle = GREEN_BRIGHT;
-        ctx.fillRect(bx, by, bw * m.charge, 3);
-      }
-      ctx.restore();
-    }
-
-    // The receipts: what each recent payout was worth, hanging over the place
-    // it came from and drifting up as it fades. Drawn even when the thing that
-    // paid is gone — a collected node has stopped pinging and a destroyed car
-    // has left the road entirely, which is the point: these are not labels on
-    // objects, they are labels on things that HAPPENED.
-    for (const m of this.marks) {
-      const frac = Math.max(0, m.life / AWARD_MARK_LIFE);
-      // Where it sits this frame — see mark() on why the road plane has to be
-      // re-projected while the floor plane does not.
-      const x = m.kind === "road" ? centerXAt(m.worldY, W) + m.offset : m.x;
-      // `player.y` is the screen row the car is drawn at — the same projection
-      // every entity on the road plane uses in main.js's render.
-      const y = (m.kind === "road" ? player.y - (m.worldY - distance) : m.y) - (1 - frac) * AWARD_MARK_RISE;
-      ctx.save();
-      ctx.globalAlpha = frac;
-      // Red for a fine, in the same HAZARD the HUD's own award uses — the one
-      // place money is allowed to borrow a faction colour, because here it IS
-      // reporting on a faction: the car under this number was a civilian.
-      // Sized ABOVE the price label above, deliberately: the offer is loud, and
-      // the money actually landing has to be louder, or taking a node reads as
-      // less of an event than being told it was available.
-      glowText(ctx, `${m.value >= 0 ? "+" : ""}${m.value}CR`, x, y, m.value >= 0 ? GREEN_BRIGHT : HAZARD, 18, "center", 14, true);
-      ctx.restore();
-    }
-  }
-
   // WHERE THE LINK RUNS THIS FRAME, or null when nothing is being drained:
   // the node end, the car end, and how far along the drain is. Pure, and split
   // out of the drawing below for the same reason hints() is split out of
@@ -732,55 +640,6 @@ export class Wallet {
       ux, uy,
       progress: Math.min(1, this.link.charge),
     };
-  }
-
-  // THE DISH AND ITS LINK. Drawn from main.js immediately AFTER the car, so
-  // the dish sits on the car rather than under it — and drawn in two
-  // neonStrokes rather than a dozen (see neon.js on why the path is batched):
-  // one for the link's dashes, one for the dish and its mast.
-  //
-  // The second function in this file that touches a canvas, and the only one
-  // that draws in the CAR's layer rather than on the city floor — which is
-  // exactly the point of it (see THE DISH above).
-  renderLink(ctx, clockValue, nodes, player, carX) {
-    const link = this.linkGeometry(nodes, player, carX);
-    if (!link) return;
-
-    // Faint at the moment the link takes, bright as it comes good.
-    const alpha = LINK_MIN_ALPHA + (1 - LINK_MIN_ALPHA) * link.progress;
-
-    // THE LINK: dashes marching node -> car. `clockValue` drives the march, so
-    // it keeps step with the same floor clock the nodes' own pings run on and
-    // stops dead when the game does.
-    const start = DISH_MAST + DISH_R;                       // clear of the dish's mouth
-    const span = Math.hypot(link.nx - link.ax, link.ny - link.ay) - start;
-    if (span > 0) {
-      const period = LINK_DASH + LINK_GAP;
-      // Subtracted, not added: the pattern slides back down the beam toward
-      // the car, which is the direction the credits are going.
-      const phase = (clockValue * LINK_MARCH) % period;
-      neonStroke(ctx, (c) => {
-        for (let d = span - phase; d > 0; d -= period) {
-          const from = Math.max(0, d - LINK_DASH);
-          c.moveTo(link.ax + link.ux * (start + from), link.ay + link.uy * (start + from));
-          c.lineTo(link.ax + link.ux * (start + d), link.ay + link.uy * (start + d));
-        }
-      }, GREEN_BRIGHT, 1.5, 3.5, 0.12, alpha * 0.8);
-    }
-
-    // THE DISH: a mast off the flank, a half-circle whose OPEN side faces the
-    // node (the bulge points back at the car, the way a real dish's does), and
-    // a stub feed horn standing in its mouth.
-    const theta = Math.atan2(link.uy, link.ux);
-    neonStroke(ctx, (c) => {
-      c.moveTo(link.ax, link.ay);
-      c.lineTo(link.dx, link.dy);
-      c.moveTo(link.dx + Math.cos(theta + Math.PI / 2) * DISH_R,
-               link.dy + Math.sin(theta + Math.PI / 2) * DISH_R);
-      c.arc(link.dx, link.dy, DISH_R, theta + Math.PI / 2, theta + Math.PI * 1.5);
-      c.moveTo(link.dx, link.dy);
-      c.lineTo(link.dx + link.ux * DISH_R * 0.8, link.dy + link.uy * DISH_R * 0.8);
-    }, GREEN_BRIGHT, 1.5, 3.5, 0.14, alpha);
   }
 
   // 0..1 while an award is still worth drawing, 0 once it has faded — same
