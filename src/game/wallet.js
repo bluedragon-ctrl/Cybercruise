@@ -143,15 +143,16 @@ const LINK_SHOULDER = ROAD_HALF_WIDTH * 0.5;
 // speed. Nothing here reads the throttle — that IS the throttle rule, spelled
 // as geometry.
 //
-// BOTH ARE MEASURED, not guessed (tools/econsim.js, 300s per style). The
-// far end is what holds the crawl in check now that there is no half-price
-// route to do it: at 2s a crawling style earned 55 CR/min against a fast
-// style's 23 and the old dominance was straight back; at 5.5s the two are
-// 29 and 19, which is the closest the two have ever been. Shortening it is
-// the first thing to reach for if the road starts feeling stingy, and the
-// thing to check afterwards is whether crawling has taken over again.
+// BOTH ARE MEASURED, not guessed (tools/econsim.js, 300s per style).
+//
+// THE FAR END WAS 5.5s AND THAT WAS TOO LONG — not expensive, impossible. A
+// node 220px out took 4.1s, and at 350 u/s a car only gets a second or two
+// anywhere near its closest approach, so the whole outer band was "come to a
+// near-stop or forget it", which is a wall rather than a choice. At 4.0s, with
+// the curve below doing the rest, that same node takes 2.3s: reachable by
+// easing off, still not by ignoring it.
 const LINK_NEAR_TIME = 0.3;
-const LINK_FAR_TIME = 5.5;
+const LINK_FAR_TIME = 4.0;
 
 // Progress bleeds away rather than snapping to zero when the hold breaks, so
 // clipping a car mid-drain costs the player time rather than the whole
@@ -435,12 +436,24 @@ export class Wallet {
   // as instant, far is slow enough to be a decision, and everything between
   // is the same act taking longer.
   //
-  // Linear in distance rather than in rate, because it is the TIME the player
+  // Interpolated on TIME rather than on rate, because time is what the player
   // experiences — a curve that interpolated the rate would spend most of the
   // reach feeling identical and then collapse at the end.
+  //
+  // SQUARED, not straight, and that is what makes the outer half of the reach
+  // playable. A straight line spends its budget evenly, so by halfway out a
+  // node already costs half the maximum and the whole outer band needs a
+  // near-stop. Squaring keeps the near half cheap and loads the cost into the
+  // last stretch, where it belongs: at 150px a node drains in 1.2s instead of
+  // 2.9s, while the outermost column still asks for 4s.
+  //
+  // Measured, it also HELPED the balance rather than costing it (econsim):
+  // crawling fell from 1.55x a fast style's income to 1.36x, because a car at
+  // speed can now finish the nodes it passes instead of only the ones it is
+  // scraping. Slowing down still pays — it just no longer pays for everything.
   linkRate(dist) {
     const t = Math.min(1, Math.max(0, dist / LINK_RADIUS));
-    return 1 / (LINK_NEAR_TIME + (LINK_FAR_TIME - LINK_NEAR_TIME) * t);
+    return 1 / (LINK_NEAR_TIME + (LINK_FAR_TIME - LINK_NEAR_TIME) * t * t);
   }
 
   // Advances (or bleeds) the one link, and pays out when it completes. Split
@@ -550,10 +563,17 @@ export class Wallet {
   //   live      whether it is PINGING. Advertising only: it no longer decides
   //             anything about money, it just means the floor is pointing
   //   charge    how far the link on THIS node has got, 0..1
-  //   shoulder  whether the only thing in the way is that the car isn't out
-  //             far enough on the node's side
   //   alpha     fades up as the player closes on it, so a node across the road
   //             doesn't shout as loudly as the one they are drawing level with
+  //
+  // NO PROMPT FIELD, and that is a decision rather than an omission. There was
+  // one — SHOULDER, over any node the car was not yet positioned to drain, and
+  // SLOW before it. It is gone because the mechanic now draws itself: a link
+  // that is running shows a beam from the car to the node and a bar filling
+  // over it, and a player who can see the money, the beam and the bar does not
+  // also need a word telling them what the picture already says. What the
+  // player who is NOT collecting needs is not instructions — it is to notice
+  // the number at all, so the price got bigger instead (see renderHints).
   //
   // THE LABEL IS NOW HONEST BY CONSTRUCTION. It used to have to quote the
   // price for the route that happened to be open — full up close and lit, half
@@ -577,19 +597,6 @@ export class Wallet {
         value: nodeValue(n.bx, n.by),
         live: live.has(id),
         charge: this.link && this.link.id === id ? Math.min(1, this.link.charge) : 0,
-        // The one prompt this game gives, and it now names the one rule there
-        // is: this node is in reach and the car is not yet in a position to
-        // drain it. Deliberately NOT narrowed to nodes already on the player's
-        // side — a marker sits over the node it is talking about, so "get out
-        // to that shoulder" is exactly as useful from the wrong side of the
-        // road as it is from the middle, and a car dead on the centre-line has
-        // no side at all (sameSide reads 0 there) and would otherwise be told
-        // nothing at the one moment it most needs telling.
-        //
-        // Speed gets no prompt because speed is no longer a rule — a car
-        // flying past sees the bar creep and reset, which teaches the same
-        // thing without a word.
-        shoulder: !this.linkable(n, player, distance, W),
         // Fades up over the approach — brightest where the drain is fastest.
         alpha: 1 - 0.7 * Math.min(1, dist / LINK_RADIUS),
       });
@@ -626,7 +633,13 @@ export class Wallet {
       // player is taking it right now.
       const hot = m.live || m.charge > 0;
       ctx.globalAlpha = m.alpha * (hot ? 1 : 0.45);
-      glowText(ctx, `+${m.value}CR`, m.x, m.y + 22, hot ? GREEN_BRIGHT : GREEN_PALE, 11, "center", hot ? 10 : 4);
+      // THE PRICE IS THE AFFORDANCE, so it is sized to be read rather than to
+      // be tidy. This is the only thing on the floor telling a player who is
+      // not collecting that there is money out here at all — it took over that
+      // job from a word prompt, and a number nobody notices would do the job
+      // worse than the word did. Bold once the node is hot (lit, or being
+      // drained), which is the moment it is worth steering at.
+      glowText(ctx, `+${m.value}CR`, m.x, m.y + 24, hot ? GREEN_BRIGHT : GREEN_PALE, hot ? 16 : 14, "center", hot ? 12 : 5, hot);
 
       // THE DRAIN METER: a plain bar under the price, filling as the node
       // empties. No glow and no neonStroke — this is an instrument, like the
@@ -638,18 +651,16 @@ export class Wallet {
       // slow one are visibly the same act, so nothing the player sees suggests
       // there are two ways to do this.
       if (m.charge > 0) {
-        const bw = 38;
+        const bw = 44;
         const bx = m.x - bw / 2;
-        const by = m.y + 28;
+        // Clear of the price above it: the label's ink and glow reach y+34
+        // (measured), so the bar starts below that rather than sharing pixels
+        // with the number it is reporting on.
+        const by = m.y + 38;
         ctx.fillStyle = "rgba(0,0,0,0.55)";
         ctx.fillRect(bx - 1, by - 1, bw + 2, 5);
         ctx.fillStyle = GREEN_BRIGHT;
         ctx.fillRect(bx, by, bw * m.charge, 3);
-      } else if (m.shoulder) {
-        // The prompt, and the only place this game tells the player what to
-        // do: the node is in reach on their side of the road and the car is
-        // still too far in to be draining it.
-        glowText(ctx, "SHOULDER", m.x, m.y + 34, GREEN_PALE, 9, "center", 4);
       }
       ctx.restore();
     }
@@ -672,7 +683,10 @@ export class Wallet {
       // Red for a fine, in the same HAZARD the HUD's own award uses — the one
       // place money is allowed to borrow a faction colour, because here it IS
       // reporting on a faction: the car under this number was a civilian.
-      glowText(ctx, `${m.value >= 0 ? "+" : ""}${m.value}CR`, x, y, m.value >= 0 ? GREEN_BRIGHT : HAZARD, 13, "center", 12, true);
+      // Sized ABOVE the price label above, deliberately: the offer is loud, and
+      // the money actually landing has to be louder, or taking a node reads as
+      // less of an event than being told it was available.
+      glowText(ctx, `${m.value >= 0 ? "+" : ""}${m.value}CR`, x, y, m.value >= 0 ? GREEN_BRIGHT : HAZARD, 18, "center", 14, true);
       ctx.restore();
     }
   }

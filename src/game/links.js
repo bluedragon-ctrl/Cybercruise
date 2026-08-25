@@ -256,13 +256,21 @@ export function nodeId(bx, by) {
 // one") rather than as interchangeable scenery.
 //
 // SCALE, against the other side of the economy (cartypes.js's `bounty`, 25 a
-// kill): a node runs from a fifth of a kill to a hair over one. Deliberately
-// the same order of magnitude — the point of the shoulder-hugging detour
-// (wallet.js's LINK_SHOULDER) is that it competes with staying centred and
-// shooting, and a node worth a tenth of a kill would never be worth the
+// kill): a node runs from a sixth of a kill to about two thirds of one.
+// Deliberately the same order of magnitude — the point of the shoulder-hugging
+// detour (wallet.js's LINK_SHOULDER) is that it competes with staying centred
+// and shooting, and a node worth a tenth of a kill would never be worth the
 // swerve while a node worth ten would make the guns pointless.
-const NODE_VALUE_MIN = 5;
-const NODE_VALUE_MAX = 25;
+//
+// CUT 30% FROM 5..25 when the two ways of taking a node became one. Merging
+// them meant dropping the half-price route, which quietly raised every node
+// the old uplink used to discount to full price, and the road ended up paying
+// far more than it was ever balanced to. The cut is applied to the PRICE
+// rather than to the drain, deliberately: how long a node takes is how the
+// mechanic FEELS, and it was just tuned to feel right, while what a node is
+// worth is a number the Phase 11 shop will be priced against either way.
+const NODE_VALUE_MIN = 4;
+const NODE_VALUE_MAX = 17;
 
 function valueSeed(bx, by) {
   return bx * 79493 + by * 31153 + 7013; // own seed space again, distinct from

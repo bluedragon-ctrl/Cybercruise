@@ -590,7 +590,7 @@ money" will be expressed for Phase 10's bosses and minions: by editing the
 catalogue, not the wallet.
 
 **Siphoning.** The nodes on the city floor (`src/game/links.js`) are worth
-credits — 5 to 25, hash-derived from the plot index exactly like the callsign,
+credits — 4 to 17, hash-derived from the plot index exactly like the callsign,
 so a node's name *and* its price are both stable facts about that place. There
 is **one** way to take one:
 

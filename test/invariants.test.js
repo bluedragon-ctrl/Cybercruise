@@ -4872,7 +4872,7 @@ test("nodeValue is a stable function of the plot index, inside its stated range"
     for (let by = 0; by < 40; by++) {
       const v = nodeValue(bx, by);
       assert.ok(Number.isInteger(v), `node ${bx},${by} pays a non-integer ${v}`);
-      assert.ok(v >= 5 && v <= 25, `node ${bx},${by} pays ${v}, outside 5..25`);
+      assert.ok(v >= 4 && v <= 17, `node ${bx},${by} pays ${v}, outside 4..17`);
       assert.equal(v, nodeValue(bx, by), "nodeValue is not deterministic");
     }
   }
@@ -5272,33 +5272,29 @@ test("only one link runs at a time, and switching nodes starts over", () => {
   assert.ok(w.link.charge < progress);
 });
 
-test("a node that only needs the shoulder says so", () => {
-  // The one prompt left, and it names the one rule left. "Drive slower here"
-  // is gone with the speed ceiling that made it true.
+test("a node out of position still advertises its price — that is the whole affordance", () => {
+  // There is no text prompt any more: the beam, the bar and the number do the
+  // teaching. Which puts the entire job of telling a centre-line driver that
+  // there is money out here on the PRICE LABEL, so the one thing that must
+  // never happen is a node going quiet just because the car is not yet in a
+  // position to drain it.
   const distance = 4000;
-  // Close enough in that a car on the centre-line is still inside the reach —
-  // otherwise there is nothing to prompt about.
   const node = nodeBeside(distance, { offRoadBy: 40 });
   const w = new Wallet(null);
   const quiet = clockWhileQuiet(node);
   const center = centerXAt(distance, TEST_W);
 
   const central = w.hints(quiet, [node], { x: center, y: node.sy, speed: 350, w: 34 }, distance, TEST_W);
-  assert.equal(central.length, 1);
-  assert.equal(central[0].shoulder, true, "a node needing the shoulder said nothing about it");
+  assert.equal(central.length, 1, "a node in reach went unadvertised to a centre-line car");
+  assert.equal(central[0].value, nodeValue(node.bx, node.by), "the price quoted was not the price");
 
-  // The wrong shoulder gets told too: the marker is over the node it is
-  // talking about, so "get out to that side" is the same useful sentence.
-  const side = Math.sign(node.cx - center) || -1;
-  // Out past the shoulder line, but on the opposite side — so it is the SIDE
-  // rule failing here, not the shoulder one, and still close enough to be in
-  // reach at all.
-  const wrong = { x: center - side * 100, y: node.sy, speed: 350, w: 34 };
-  assert.equal(w.hints(quiet, [node], wrong, distance, TEST_W)[0].shoulder, true);
-
-  // Already out there: no prompt, because the meter itself is now the feedback.
+  // And it is the same number once the car is out there earning it — the label
+  // never changes its mind about what a node is worth.
   const out = w.hints(quiet, [node], beside(node, distance), distance, TEST_W);
-  assert.equal(out[0].shoulder, false);
+  assert.equal(out[0].value, central[0].value);
+
+  // Closing on it makes it louder, which is the only signal that changes.
+  assert.ok(out[0].alpha > central[0].alpha, "drawing level with a node did not brighten it");
 });
 
 test("a drain in progress shows its own meter", () => {
