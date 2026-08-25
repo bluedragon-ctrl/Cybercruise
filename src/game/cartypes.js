@@ -228,10 +228,10 @@ export const CAR_TYPES = [
     speedMin: 215,
     speedMax: 290,
     steerSpeed: 90,
-    blastRadius: 36,
-    blastDamage: 14,
-    value: -100,
-    bounty: -15,
+    blastRadius: 30,
+    blastDamage: 10,
+    value: -50,
+    bounty: -10,
     minDistance: 0, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     weight: 3, // the backbone of the road
@@ -263,8 +263,8 @@ export const CAR_TYPES = [
     steerSpeed: 60,
     blastRadius: 42,
     blastDamage: 18,
-    value: -100,
-    bounty: -15,
+    value: -50,
+    bounty: -10,
     minDistance: 0, // the city's own traffic: on the road from the first metre
     behaviour: "cruise", // slow and wide: it holds its lane and makes you go round
     driving: "hauler",   // out of the way, and it will lean on a small car
@@ -336,11 +336,11 @@ export const CAR_TYPES = [
     // It is carrying something. Killing a rig in traffic is the biggest event on
     // the road — the blast covers most of the tarmac around it and will take a
     // third of the player's hull if they are alongside when it goes.
-    blastRadius: 72,
-    blastDamage: 46,
-    value: -100,
-    bounty: -15,
-    minDistance: 0, // the city's own traffic: on the road from the first metre
+    blastRadius: 120,
+    blastDamage: 60,
+    value: -200,
+    bounty: -20,
+    minDistance: 400, // the city's own traffic: on the road from the first metre
     // Even the rolling wall dodges — `juggernaut` keeps nerve at 0. A rig
     // ploughing a trestle is tempting flavour, but it is also the one civilian
     // heavy enough to be somewhere near a hazard the player wanted left standing,
@@ -392,8 +392,8 @@ export const CAR_TYPES = [
     // Big, but deliberately short of the rig's 72/46 — the rig stays the
     // single biggest explosion on the road (see its own comment above); the
     // bus is the second-biggest, not a replacement for it.
-    blastRadius: 64,
-    blastDamage: 36,
+    blastRadius: 30,
+    blastDamage: 15,
     // THE POINT OF THIS ENTRY. Three times the flat civilian fine: not a
     // rounding tweak, a stated policy that this one is worse to hit than the
     // rest of the traffic put together.
@@ -403,7 +403,7 @@ export const CAR_TYPES = [
     // and a catalogue entry with no `bounty` pays nothing at all — which would
     // have made the worst car on the road the one kill money never noticed.
     bounty: -45,
-    minDistance: 0, // the city's own traffic: on the road from the first metre
+    minDistance: 800, // the city's own traffic: on the road from the first metre
     behaviour: "cruise", // holds its lane exactly like the van and the rig —
                          // it does not overtake, it makes you go round
     driving: "hauler",   // the van's own profile: cautious, out of the way,
@@ -433,10 +433,10 @@ export const CAR_TYPES = [
     speedMax: 700,
     steerSpeed: 160,
     blastRadius: 32,
-    blastDamage: 10,
-    value: -100,
+    blastDamage: 20,
+    value: -150,
     bounty: -15,
-    minDistance: 700, // the city's own traffic: on the road from the first metre
+    minDistance: 1200, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     // The other pale civilian, and the deliberate opposite of the roadster: same
     // shade, same tactic, similar pace, and it holds a perfect line and sweeps
@@ -480,7 +480,7 @@ export const CAR_TYPES = [
     blastDamage: 24,
     value: -100, // killing one is a fine, like any other civilian
     bounty: -15,
-    minDistance: 500,        // the city's own traffic: on the road from the first metre
+    minDistance: 1000,        // the city's own traffic: on the road from the first metre
     behaviour: "overtake", // it does not block for anyone; it just goes past
     driving: "brawler",    // heavy, impatient, and it will lean on you
     // Kept at exactly what it was as a hostile, which MOVES THE FACTION MIX and
@@ -511,7 +511,7 @@ export const CAR_TYPES = [
     blastDamage: 16,
     value: 100,
     bounty: 25,
-    minDistance: 300,
+    minDistance: 450,
     behaviour: "pursue", // real: chases the player down and never gives up —
                          // see behaviours.js's `pursue`
     // A ROCKET INSTEAD OF THE SHARED BLASTER, AND NO MINE LAYER — see
@@ -556,11 +556,11 @@ export const CAR_TYPES = [
     speedMin: 355,
     speedMax: 415,
     steerSpeed: 100, // quicker across the road than any other heavy
-    blastRadius: 46,
-    blastDamage: 26,
+    blastRadius: 45,
+    blastDamage: 20,
     value: 100,
-    bounty: 25,
-    minDistance: ENEMY_MIN_DISTANCE,
+    bounty: 15,
+    minDistance: 250,
     behaviour: "trail",    // hangs off your back bumper and fires forward — see
                            // behaviours.js's `trail`. It never tries to get
                            // past, unlike the interceptor and rival's `pursue`
@@ -599,10 +599,10 @@ export const CAR_TYPES = [
     speedMin: 660,
     speedMax: 730,
     steerSpeed: 180, // the nimblest thing on the road, by a wide margin
-    blastRadius: 24,
-    blastDamage: 7,
-    value: 100,
-    bounty: 25,
+    blastRadius: 10,
+    blastDamage: 5,
+    value: 50,
+    bounty: 10,
     minDistance: ENEMY_MIN_DISTANCE,
     behaviour: "raid",
     // NO GUN. It fights entirely by forcing its way past and dropping one
@@ -615,7 +615,7 @@ export const CAR_TYPES = [
     // nimblest thing on the road. It goes round because going round is what it
     // is FOR — the contrast with the bruiser below is why these are per type.
     driving: "darter",
-    weight: 1,
+    weight: 2,
   },
   {
     id: "bruiser",
@@ -640,7 +640,7 @@ export const CAR_TYPES = [
     blastDamage: 32,
     value: 100,
     bounty: 25,
-    minDistance: ENEMY_MIN_DISTANCE,
+    minDistance: 500,
     // REAL: closes on the player from behind or alongside to hit them, or
     // sits in their lane going deliberately slower once it's past — see
     // behaviours.js's `ram`. Its whole job is making contact, not shooting,
@@ -679,8 +679,8 @@ export const CAR_TYPES = [
     steerSpeed: 150,
     blastRadius: 40,
     blastDamage: 20,
-    value: 100,
-    bounty: 25,
+    value: 300,
+    bounty: 100,
     minDistance: 1000,
     // REAL, and the one hostile that fights like both the cycle and the
     // interceptor in the same encounter — see behaviours.js's `duel`. It
