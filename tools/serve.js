@@ -11,6 +11,14 @@
 // before it can play any of it. Everything else stays static file serving.
 //
 // Usage:  node tools/serve.js [port]      (default 5173)
+//
+// THE PORT CAN ALSO COME FROM THE ENVIRONMENT, and the order below is the whole
+// rule: an explicit argument wins (that is what `play.bat 8080` is), then $PORT,
+// then the default. $PORT exists for a launcher that assigns one — Claude Code's
+// preview tooling hands the server a free port that way when 5173 is already
+// taken, which it often is when the game is being served from more than one
+// worktree at once. Neither of the other two callers is affected: an argument
+// still beats it, and nothing sets $PORT by accident.
 
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
@@ -19,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { MUSIC_DIR, MUSIC_LISTING_URL } from '../src/audio/musictypes.js';
 
-const PORT = Number(process.argv[2]) || 5173;
+const PORT = Number(process.argv[2]) || Number(process.env.PORT) || 5173;
 
 // Serve the repository root — this file lives in tools/, so go up one level.
 const __filename = fileURLToPath(import.meta.url);

@@ -7,7 +7,7 @@
 // stretch of road.
 //
 // THIS FILE IS THE TRANSITION, NOT THE SHOP. What the player does while they
-// are up there belongs to the shop screen (Phase 11); this module's entire job
+// are up there belongs to the shop screen (game/shop.js); this module's entire job
 // is to make the car leaving the road and coming back to it feel like something
 // that happened rather than a cut. main.js owns the state machine that hangs
 // off it — see the "lifting"/"shopping"/"lowering" states there.

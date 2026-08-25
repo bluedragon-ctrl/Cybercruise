@@ -14,6 +14,8 @@ import {
   buildAllCarState,
   buildAllObstacleState,
   buildAllPickupState,
+  buildAllUpgradeConsumableState,
+  buildAllUpgradeStatState,
   CAR_IDS,
   BEHAVIOR_FIELDS,
   HULL_SPEED_FIELDS,
@@ -23,8 +25,16 @@ import {
   PICKUP_IDS,
   PICKUP_SPAWN_FIELDS,
   PICKUP_EFFECT_FIELDS,
+  UPGRADE_CONSUMABLE_IDS,
+  UPGRADE_STAT_IDS,
 } from "./state.js";
-import { patchCarType, patchDrivingProfile, patchObstacleType, patchPickupType } from "./patcher.js";
+import {
+  patchCarType,
+  patchDrivingProfile,
+  patchObstacleType,
+  patchPickupType,
+  patchUpgradeEntry,
+} from "./patcher.js";
 import * as git from "./git.js";
 import { carTypeById } from "../../src/game/cartypes.js";
 
@@ -36,10 +46,12 @@ const CARTYPES_REL = "src/game/cartypes.js";
 const DRIVING_REL = "src/game/driving.js";
 const OBSTACLETYPES_REL = "src/game/obstacletypes.js";
 const PICKUPTYPES_REL = "src/game/pickuptypes.js";
+const UPGRADES_REL = "src/game/upgrades.js";
 const CARTYPES_PATH = path.join(REPO_ROOT, CARTYPES_REL);
 const DRIVING_PATH = path.join(REPO_ROOT, DRIVING_REL);
 const OBSTACLETYPES_PATH = path.join(REPO_ROOT, OBSTACLETYPES_REL);
 const PICKUPTYPES_PATH = path.join(REPO_ROOT, PICKUPTYPES_REL);
+const UPGRADES_PATH = path.join(REPO_ROOT, UPGRADES_REL);
 
 // The single tuning attempt in flight, if any. This is a local, one-user
 // tool — there is never more than one browser tab driving it in practice —
@@ -70,6 +82,8 @@ async function handleState(res) {
     cars: buildAllCarState(),
     obstacles: buildAllObstacleState(),
     pickups: buildAllPickupState(),
+    upgradeConsumables: buildAllUpgradeConsumableState(),
+    upgradeStats: buildAllUpgradeStatState(),
   });
 }
 
@@ -84,7 +98,14 @@ async function readBody(req) {
 // pair (speedMax >= speedMin) when a single request touches both — catching
 // nonsensical values like `health: -50` or an inverted speed range at the
 // boundary, rather than relying on downstream game-invariant tests to notice.
-export const POSITIVE_FIELDS = new Set(["health", "speedMin", "speedMax", "amount", "duration"]);
+//
+// `price` and `step` join the set for the shop's own catalogue: a free or
+// negatively-priced row is a bug, not a sale, and a step of 0 or less is a
+// tier that buys nothing (or moves a stat backwards), neither of which
+// upgrades.js's own ladder logic accounts for.
+export const POSITIVE_FIELDS = new Set([
+  "health", "speedMin", "speedMax", "amount", "duration", "price", "step",
+]);
 
 // minDistance is a gate, not a magnitude — 0 ("from the first metre", see
 // cartypes.js) is its most common and entirely valid value, so it only rules
@@ -183,8 +204,38 @@ export function validatePickupChanges(pickupChanges) {
   });
 }
 
-function commitMessage(changes, obstacleChanges, pickupChanges) {
-  const lines = ["Tune car, obstacle and pickup parameters via the car editor", ""];
+// The shop's two shelves get their own validators for the same reason
+// state.js builds their state separately: a CONSUMABLE's editable fields are
+// price plus whichever single effect field its `kind` uses (amount or
+// duration — mirroring a pickup crate exactly), while a STAT's are price and
+// step, full stop. Letting either accept the other's fields would let a
+// request write `step` onto a consumable, which upgrades.js's patcher would
+// happily do and the game would then silently never read.
+export function validateUpgradeConsumableChanges(changes) {
+  validateEntityChanges(changes, {
+    label: "upgradeConsumableChanges",
+    noun: "shop consumable",
+    ids: UPGRADE_CONSUMABLE_IDS,
+    // Both possible effect fields are accepted here — server-side validation
+    // does not know a given id's `kind` without importing the catalogue a
+    // second time, and a request naming the WRONG one for a given row (e.g.
+    // `duration` on an ammo row) fails downstream in patchUpgradeEntry, which
+    // already throws "field not found on entry" for exactly this case.
+    fields: ["price", "amount", "duration"],
+  });
+}
+
+export function validateUpgradeStatChanges(changes) {
+  validateEntityChanges(changes, {
+    label: "upgradeStatChanges",
+    noun: "shop stat",
+    ids: UPGRADE_STAT_IDS,
+    fields: ["price", "step"],
+  });
+}
+
+function commitMessage(changes, obstacleChanges, pickupChanges, upgradeChanges) {
+  const lines = ["Tune car, obstacle, pickup and shop parameters via the car editor", ""];
   for (const [carId, fields] of Object.entries(changes ?? {})) {
     for (const [field, value] of Object.entries(fields)) {
       lines.push(`- ${carId}: ${field} -> ${value}`);
@@ -198,6 +249,11 @@ function commitMessage(changes, obstacleChanges, pickupChanges) {
   for (const [pickupId, fields] of Object.entries(pickupChanges ?? {})) {
     for (const [field, value] of Object.entries(fields)) {
       lines.push(`- ${pickupId}: ${field} -> ${value}`);
+    }
+  }
+  for (const [upgradeId, fields] of Object.entries(upgradeChanges ?? {})) {
+    for (const [field, value] of Object.entries(fields)) {
+      lines.push(`- ${upgradeId}: ${field} -> ${value}`);
     }
   }
   return lines.join("\n");
@@ -223,12 +279,28 @@ async function handleCommit(req, res) {
     const hasCarChanges = body.changes && Object.keys(body.changes).length > 0;
     const hasObstacleChanges = body.obstacleChanges && Object.keys(body.obstacleChanges).length > 0;
     const hasPickupChanges = body.pickupChanges && Object.keys(body.pickupChanges).length > 0;
-    if (!hasCarChanges && !hasObstacleChanges && !hasPickupChanges) {
-      throw new Error("request must include at least one of changes, obstacleChanges or pickupChanges");
+    // The shop's two shelves arrive as two separate keys, exactly as
+    // obstacles and pickups do — one per catalogue, matching state.js's own
+    // split rather than merged into a single "upgradeChanges" the server
+    // would then have to re-sort by shelf.
+    const hasUpgradeConsumableChanges =
+      body.upgradeConsumableChanges && Object.keys(body.upgradeConsumableChanges).length > 0;
+    const hasUpgradeStatChanges =
+      body.upgradeStatChanges && Object.keys(body.upgradeStatChanges).length > 0;
+    if (
+      !hasCarChanges && !hasObstacleChanges && !hasPickupChanges &&
+      !hasUpgradeConsumableChanges && !hasUpgradeStatChanges
+    ) {
+      throw new Error(
+        "request must include at least one of changes, obstacleChanges, pickupChanges, " +
+          "upgradeConsumableChanges or upgradeStatChanges"
+      );
     }
     if (hasCarChanges) validateChanges(body.changes);
     if (hasObstacleChanges) validateObstacleChanges(body.obstacleChanges);
     if (hasPickupChanges) validatePickupChanges(body.pickupChanges);
+    if (hasUpgradeConsumableChanges) validateUpgradeConsumableChanges(body.upgradeConsumableChanges);
+    if (hasUpgradeStatChanges) validateUpgradeStatChanges(body.upgradeStatChanges);
   } catch (err) {
     sendJson(res, 400, { error: err.message });
     return;
@@ -243,10 +315,12 @@ async function handleCommit(req, res) {
   let drivingText = await readFile(DRIVING_PATH, "utf8");
   let obstaclesText = await readFile(OBSTACLETYPES_PATH, "utf8");
   let pickupsText = await readFile(PICKUPTYPES_PATH, "utf8");
+  let upgradesText = await readFile(UPGRADES_PATH, "utf8");
   let cartypesChanged = false;
   let drivingChanged = false;
   let obstaclesChanged = false;
   let pickupsChanged = false;
+  let upgradesChanged = false;
 
   try {
     for (const [carId, fields] of Object.entries(body.changes ?? {})) {
@@ -277,12 +351,26 @@ async function handleCommit(req, res) {
       pickupsText = patchPickupType(pickupsText, pickupId, fields);
       pickupsChanged = true;
     }
+    // Both shelves patch the SAME FILE, so both loops accumulate onto one
+    // running `upgradesText` before it is written once below — patching
+    // twice against the original text would silently drop whichever shelf's
+    // edit ran first.
+    for (const [id, fields] of Object.entries(body.upgradeConsumableChanges ?? {})) {
+      upgradesText = patchUpgradeEntry(upgradesText, id, fields);
+      upgradesChanged = true;
+    }
+    for (const [id, fields] of Object.entries(body.upgradeStatChanges ?? {})) {
+      upgradesText = patchUpgradeEntry(upgradesText, id, fields);
+      upgradesChanged = true;
+    }
   } catch (err) {
     sendJson(res, 400, { error: err.message });
     return;
   }
 
-  const dirty = await git.dirtyTrackedFiles(REPO_ROOT, [CARTYPES_REL, DRIVING_REL, OBSTACLETYPES_REL, PICKUPTYPES_REL]);
+  const dirty = await git.dirtyTrackedFiles(REPO_ROOT, [
+    CARTYPES_REL, DRIVING_REL, OBSTACLETYPES_REL, PICKUPTYPES_REL, UPGRADES_REL,
+  ]);
   if (dirty.length > 0) {
     sendJson(res, 409, { error: `uncommitted changes already present: ${dirty.join(", ")}` });
     return;
@@ -311,11 +399,19 @@ async function handleCommit(req, res) {
       await writeFile(PICKUPTYPES_PATH, pickupsText, "utf8");
       changedRelPaths.push(PICKUPTYPES_REL);
     }
+    if (upgradesChanged) {
+      await writeFile(UPGRADES_PATH, upgradesText, "utf8");
+      changedRelPaths.push(UPGRADES_REL);
+    }
 
+    const upgradeChangesForMessage = {
+      ...(body.upgradeConsumableChanges ?? {}),
+      ...(body.upgradeStatChanges ?? {}),
+    };
     await git.commitFiles(
       REPO_ROOT,
       changedRelPaths,
-      commitMessage(body.changes, body.obstacleChanges, body.pickupChanges)
+      commitMessage(body.changes, body.obstacleChanges, body.pickupChanges, upgradeChangesForMessage)
     );
   } catch (err) {
     try {

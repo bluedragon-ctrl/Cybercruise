@@ -43,6 +43,8 @@ of test names is identical either way.
 | `hazards.test.js` | road obstacles and their placement, driving profiles, enemy armament, exotic rounds, pickups |
 | `audio.test.js` | the voice limiter and duck, the sound catalogues, sustained voices, the mix pass, the music backends |
 | `economy.test.js` | credits, the link that is the one way a node is taken, the dish that reports it |
+| `shop.test.js` | the upgrade catalogue, the tier ladder, and what a purchase moves |
+| `shop-screen.test.js` | the storefront: its cursor, the action string main.js drives on, and what it draws |
 
 The `car-editor-*.test.js` files are ordinary unit tests of `tools/car-editor/`
 rather than part of this suite.

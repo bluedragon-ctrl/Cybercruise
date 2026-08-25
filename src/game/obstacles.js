@@ -57,7 +57,6 @@ import {
 import { OBSTACLE_SHAPES, MINE } from "./obstacleshapes.js";
 import { CAR_TYPES } from "./cartypes.js";
 import { ramSpeed, overlaps } from "./collisions.js";
-import { PLAYER_MASS } from "./player.js";
 import { centerXAt, headingAt, laneOffset, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 
 
@@ -329,7 +328,12 @@ export class Obstacles {
       }
 
       if (hitPlayer || hitCars.length) {
-        if (hitPlayer) player.speed = ramSpeed(player.speed, PLAYER_MASS, o.type.mass);
+        // `player.mass`, not the module's PLAYER_MASS constant — the shop's RAM
+        // PLATE tiers (game/upgrades.js) move the car's own figure, and the
+        // whole promise of that upgrade is that a heavier car is slowed less by
+        // what it drives through. Reading the constant here would have left
+        // road furniture as the one thing on the road the upgrade didn't touch.
+        if (hitPlayer) player.speed = ramSpeed(player.speed, player.mass, o.type.mass);
         for (const c of hitCars) c.speed = ramSpeed(c.speed, c.mass, o.type.mass);
         o.health = 0;
         o.alive = false;

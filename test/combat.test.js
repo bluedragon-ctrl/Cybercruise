@@ -300,6 +300,11 @@ test("an empty weapon selects, shows zero and refuses to fire", () => {
   const finite = WEAPON_TYPES.find((t) => t.ammo !== Infinity);
   assert.ok(finite, "expected at least one finite weapon in the catalogue");
   const w = new Weapon(finite);
+  // FILLED FIRST, because this is about firing a magazine DRY and most of the
+  // catalogue now starts empty (weapons.js's `startAmmo`). Taking the weapon to
+  // its own magazine is what makes the loop below a full magazine's worth
+  // whichever weapon the catalogue happens to put first.
+  w.ammo = finite.ammo;
   for (let i = 0; i < finite.ammo; i++) {
     w.cooldown = 0;
     assert.ok(w.tryFire());
@@ -308,6 +313,43 @@ test("an empty weapon selects, shows zero and refuses to fire", () => {
   assert.ok(!w.tryFire(), "an empty weapon must refuse to fire");
   assert.ok(w.empty);
   assert.equal(w.ammoText, "0");
+});
+
+test("a weapon starts with what its catalogue entry issues, not with its magazine", () => {
+  // weapons.js's start/max split: `ammo` is the MAGAZINE (the refill ceiling) and
+  // `startAmmo` is what is in it at the start of a run. Most of the catalogue is
+  // earned rather than issued now, and a falsy check on startAmmo would quietly
+  // hand a 0 back as a full magazine — which is the whole bug this pins.
+  for (const type of WEAPON_TYPES) {
+    const w = new Weapon(type);
+    const expected = type.startAmmo ?? type.ammo;
+    assert.equal(w.ammo, expected, `${type.id} starts with the wrong magazine`);
+    assert.ok(w.ammo <= type.ammo, `${type.id} starts over its own magazine`);
+  }
+  // And a weapon issued empty must be able to be filled to its FULL magazine —
+  // the ceiling is `ammo`, not the (possibly zero) figure it started on.
+  for (const type of WEAPON_TYPES) {
+    if ((type.startAmmo ?? type.ammo) !== 0) continue;
+    const w = new Weapon(type);
+    w.refill(type.ammo);
+    assert.equal(w.ammo, type.ammo, `${type.id} could not be filled to its magazine`);
+  }
+});
+
+test("the player drives out with the cannon and the mines, and earns the rest", () => {
+  // The catalogue's own claim (weapons.js's AMMUNITION note): a run opens with
+  // something to shoot with and something to deploy, and everything else is
+  // found on the road or bought at the dock. Asserted over the LOADOUT rather
+  // than the catalogue, because "what the player starts holding" is what the
+  // claim is actually about.
+  const loadout = new Loadout();
+  const armed = loadout.weapons.filter((w) => w.ammo > 0).map((w) => w.type.id);
+  assert.deepEqual(armed.sort(), ["cannon", "mine"]);
+  // The gun in hand is never one of the empty ones — a run that opened on a
+  // weapon that cannot fire would read as broken.
+  assert.ok(loadout.current.ammo > 0, "the run opens on an empty weapon");
+  // ...and so is the deployable, which is the whole reason the mine is issued.
+  assert.ok(loadout.deployable.ammo > 0, "the deploy key opens on an empty layer");
 });
 
 test("swapping cannot be used to dodge a cooldown", () => {

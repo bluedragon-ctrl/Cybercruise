@@ -11,6 +11,7 @@ import { CAR_TYPES, carTypeById } from "../../src/game/cartypes.js";
 import { DRIVING_PROFILES, drivingFor } from "../../src/game/driving.js";
 import { OBSTACLE_TYPES, obstacleTypeById } from "../../src/game/obstacletypes.js";
 import { PICKUP_TYPES, pickupTypeById } from "../../src/game/pickuptypes.js";
+import { CONSUMABLES, STATS, statById } from "../../src/game/upgrades.js";
 
 // Derived from the catalogue itself, civilian and hostile alike, so a type
 // added to cartypes.js shows up here without a second list to remember to
@@ -150,4 +151,75 @@ export function buildPickupState(pickupId) {
 
 export function buildAllPickupState() {
   return PICKUP_IDS.map(buildPickupState);
+}
+
+// The shop's catalogue (game/upgrades.js) — two shelves, and they are edited
+// as two different shapes for the same reason the file that owns them treats
+// them as two different kinds of thing (see its own header): a CONSUMABLE is
+// a flat price plus "how much", and a STAT is a tier ladder whose only tunable
+// numbers are its price and what one tier adds.
+//
+// `base` (a stock car's own figure) is deliberately NOT surfaced as editable
+// here — it is imported into upgrades.js from cartypes.js/player.js precisely
+// so the ladder can never drift from the car, and an editor field for it would
+// be a second place that fact could be set wrong. Tune the car, not the shop,
+// to move where a stat starts.
+export const UPGRADE_CONSUMABLE_IDS = CONSUMABLES.map((e) => e.id);
+export const UPGRADE_STAT_IDS = STATS.map((s) => s.id);
+
+// A consumable's "how much" lives on a different field per `kind` — `amount`
+// for AMMO and HEAL, `duration` for SHIELD — mirroring PICKUP_EFFECT_FIELDS
+// above exactly, because upgrades.js's consumables spend through the very same
+// applyPickup() switch a crate does (see that file's header).
+export const UPGRADE_CONSUMABLE_EFFECT_FIELD_BY_KIND = {
+  ammo: "amount",
+  heal: "amount",
+  shield: "duration",
+};
+
+export function buildUpgradeConsumableState(id) {
+  const entry = CONSUMABLES.find((e) => e.id === id);
+  if (!entry) {
+    throw new Error(`buildUpgradeConsumableState: unknown consumable id "${id}"`);
+  }
+  const effectField = UPGRADE_CONSUMABLE_EFFECT_FIELD_BY_KIND[entry.kind];
+  return {
+    id: entry.id,
+    label: entry.label,
+    kind: entry.kind,
+    // Shown for context (which weapon a row rearms) but not itself editable —
+    // renaming what a row spends on is a catalogue restructure, not a tuning
+    // pass, and belongs in code review rather than a number field.
+    weaponId: entry.weaponId ?? null,
+    price: entry.price,
+    effectField,
+    effectValue: effectField ? entry[effectField] : null,
+  };
+}
+
+export function buildAllUpgradeConsumableState() {
+  return UPGRADE_CONSUMABLE_IDS.map(buildUpgradeConsumableState);
+}
+
+export function buildUpgradeStatState(id) {
+  const stat = statById(id);
+  if (!stat) {
+    throw new Error(`buildUpgradeStatState: unknown stat id "${id}"`);
+  }
+  return {
+    id: stat.id,
+    label: stat.label,
+    price: stat.price,
+    step: stat.step,
+    // Read-only context so the editor can show what tier 1 actually buys
+    // (base -> base + step) without the caller re-importing upgrades.js's own
+    // formatting rules.
+    base: stat.base,
+    unit: stat.unit,
+    decimals: stat.decimals,
+  };
+}
+
+export function buildAllUpgradeStatState() {
+  return UPGRADE_STAT_IDS.map(buildUpgradeStatState);
 }

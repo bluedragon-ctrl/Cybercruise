@@ -680,16 +680,19 @@ export class Wallet {
     return this.banked;
   }
 
-  // Spends credits — the shop's entry point (Phase 11), here now because the
-  // floor rule belongs with the rest of the money arithmetic rather than in a
-  // screen. Refuses rather than overdrawing, and persists immediately: a
+  // Spends credits — the shop's entry point (game/upgrades.js's purchase()),
+  // here rather than in a screen because the floor rule belongs with the rest
+  // of the money arithmetic. Refuses rather than overdrawing, and persists immediately: a
   // purchase is a decision the player made, not run earnings waiting on the
   // outcome of a drive.
   spend(amount) {
     if (amount <= 0 || amount > this.credits) return false;
-    // Comes out of the bank first, then out of the current run's earnings —
-    // matters only if a shop is ever opened mid-run, which Phase 11 may or may
-    // not do; either way the total the player sees is the one that moves.
+    // Comes out of the bank first, then out of the current run's earnings. The
+    // shop IS opened mid-run (every SHOP_INTERVAL — game/hauler.js), so this
+    // ordering is live rather than hypothetical; with the persisted bank
+    // switched off (main.js's CREDIT_STORE) every purchase currently comes
+    // wholly out of the run's own earnings, and the total the player sees is
+    // the one that moves either way.
     const fromBank = Math.min(this.banked, amount);
     this.banked -= fromBank;
     this.earned -= amount - fromBank;

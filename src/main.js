@@ -10,7 +10,7 @@ import { GREEN, GREEN_BRIGHT, GREEN_PALE, HAZARD, PLAYER, SHIELD_FLICKER } from 
 import { Player } from "./game/player.js";
 import { Projectiles } from "./game/projectiles.js";
 import { Score } from "./game/score.js";
-// Credits — the persisted currency the Phase 11 shop will spend. Separate from
+// Credits — the currency the upgrade shop spends (game/shop.js). Separate from
 // Score on purpose; see wallet.js's own header for the whole argument.
 import { Wallet } from "./game/wallet.js";
 import { renderNodeHints, renderAwardMarks, renderUplink } from "./game/walletrender.js";
@@ -24,10 +24,15 @@ import { Explosions } from "./game/effects.js";
 import { Disconnect } from "./game/disconnect.js";
 import { JackIn } from "./game/jackin.js";
 // The shopping interlude: the cargo drone that lifts the car off the road every
-// SHOP_INTERVAL, and the placeholder screen it delivers it to. See hauler.js's
-// header for the three phases and shop.js's for what is deliberately a mockup.
+// SHOP_INTERVAL, and the storefront it delivers it to. See hauler.js's header
+// for the three phases, shop.js's for the screen, and upgrades.js's for what is
+// on the shelves and why none of it survives the run.
 import { Hauler } from "./game/hauler.js";
 import { createShop } from "./game/shop.js";
+// What the shop SELLS, and the record of what this run has bought — see that
+// file's header for why the tier ladder is scoped to one run, exactly as the
+// credits paying for it are (CREDIT_STORE below).
+import { Garage } from "./game/upgrades.js";
 import { Loadout } from "./game/weapons.js";
 import { createMenu } from "./game/menu.js";
 import { createMusic } from "./audio/synth.js";
@@ -55,7 +60,7 @@ const PLAY_HINT = "&larr;/&rarr; or A/D steer &middot; &uarr;/&darr; speed &midd
 // The shop screen's own bar. The lift and lower sequences either side of it
 // leave the bar EMPTY, the way "connecting" and "dying" do — there is nothing
 // to press while the car is in the air.
-const SHOP_HINT = "SPACE/ESC undock";
+const SHOP_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER buy &middot; ESC undock";
 
 initInput();
 initMouse(canvas);
@@ -178,8 +183,9 @@ const CREDIT_STORE = null;
 // The shopping interlude's two halves, owned exactly the way `disconnect` and
 // `jackin` above are: one instance each, reset() from newGame(), never rebuilt.
 // The hauler needs the canvas height to know how far off the top of the frame
-// it has to carry the car; the shop screen holds no state at all yet, and is
-// still built here rather than at its call site so the real one can.
+// it has to carry the car; the shop screen holds only its cursor and the
+// receipts for the visit in progress, both of which SHOULD outlive a single
+// dock and are cleared per run by its own reset() from newGame().
 const hauler = new Hauler(H);
 const shop = createShop();
 
@@ -200,6 +206,10 @@ let traffic;
 let shots;
 let enemyShots;
 let loadout;
+// The upgrade tiers bought this run. Per-run like everything else in this
+// block, and rebuilt by newGame() rather than reset in place: a Garage is
+// nothing but counters, so a fresh one IS the reset.
+let garage;
 // How far we've driven, in world units. Grows with speed and drives
 // everything that scrolls (road curve, lane dashes) — see road.js for the
 // screen<->world coordinate model. Declared up here, ahead of newGame(),
@@ -400,7 +410,14 @@ function newGame() {
   // ammo and the selected weapon are the player's, and are exactly the kind of
   // progress an interlude must not quietly take away.
   loadout = new Loadout();
+  // Empty: a fresh run starts on a stock car. The player is built above with
+  // the same base figures this agrees with, so there is nothing to apply yet —
+  // the first applyUpgrades() call comes from the first purchase.
+  garage = new Garage();
   hauler.reset();
+  // The shop's own cursor and this-visit receipts, for the same reason every
+  // other per-run screen is reset here.
+  shop.reset();
   disconnect.reset();
   jackin.reset();
   gameConsole.reset();
@@ -641,7 +658,19 @@ function updateShopping() {
   // The SYS LOG is frozen too here, unlike the two sequences either side of it:
   // the shop covers the world completely (see render()), so there is no console
   // on screen for an animation to be visible in.
-  if (!shop.update()) return;
+  // The shop does its own buying — it has the wallet, the car, the guns and the
+  // garage, and purchase() (game/upgrades.js) is what moves money between them.
+  // main.js's job is the two things shop.js deliberately cannot do: play a tone
+  // for what happened, and change state when the player is done.
+  const action = shop.update(wallet, player, loadout, garage);
+  if (action === "move") music.play(MENU_SOUND.move);
+  else if (action === "buy") music.play(MENU_SOUND.confirm);
+  // menu_back for a refusal. There is no "deny" tone in the menu set
+  // (audio/menusfx.js's MENU_ACTIONS is exactly four), and inventing one for
+  // this screen alone would be a fifth sound the rest of the game never uses —
+  // "back" already reads as a press that did not go through.
+  else if (action === "deny") music.play(MENU_SOUND.back);
+  if (action !== "undock") return;
 
   // THE ROAD IS REBUILT BEFORE THE RETURN TRIP, not after it — so the lowering
   // sequence descends onto the clear tarmac the player is about to be driving
@@ -967,8 +996,8 @@ function drawHud() {
   glowText(ctx, `SPD ${Math.round(player.speed)}`, W - 12, 88, GREEN_PALE, 13, "right");
 
   // CREDITS: the wallet's total — this run's earnings on top of whatever
-  // earlier runs banked, i.e. exactly what the Phase 11 shop will have to
-  // spend. An instrument readout like DIST/SPD rather than a second
+  // earlier runs banked, i.e. exactly what the shop has to spend at the next
+  // stop. An instrument readout like DIST/SPD rather than a second
   // centrepiece: the score is still the thing being played for, and money is
   // a fact about the run, not the point of it.
   //
@@ -1127,10 +1156,11 @@ function render(alpha) {
 
   // The shop (game/shop.js) covers the world entirely, exactly as the menu
   // above does and for the same reason: the car is not on the road at all
-  // while this is up, so there is no world worth showing behind it. Reads the
-  // wallet rather than being handed a total, and cannot spend — see shop.js.
+  // while this is up, so there is no world worth showing behind it. Handed the
+  // wallet and the garage to READ; both were already moved by update() above,
+  // which is the only place on that screen money changes hands.
   if (state === "shopping") {
-    shop.render(ctx, W, H, wallet, hauler.milestone);
+    shop.render(ctx, W, H, wallet, hauler.milestone, garage);
     return;
   }
 
@@ -1293,3 +1323,4 @@ function render(alpha) {
 
 const loop = createLoop(update, render);
 loop.start();
+

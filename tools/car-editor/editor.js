@@ -110,13 +110,39 @@ const PICKUP_EFFECT_DESCRIPTIONS = {
   shield: "Seconds of invulnerability granted when this crate is picked up.",
 };
 
+// The shop (game/upgrades.js) — two shelves, edited as two shapes because
+// they ARE two shapes in the source: a consumable is a flat price plus "how
+// much", a stat is a tier ladder whose only tunable numbers are its price and
+// what one tier adds. See state.js's own note on why a stat's `base` (the
+// stock car's own figure) is read-only here rather than editable.
+const UPGRADE_CONSUMABLE_PRICE_DESCRIPTION =
+  "Credits this costs at the dock. Always buyable, any number of times, at this flat price.";
+
+// Same shape as PICKUP_EFFECT_DESCRIPTIONS above, and for the same reason —
+// what "the effect field" means depends on the row's `kind`.
+const UPGRADE_CONSUMABLE_EFFECT_DESCRIPTIONS = {
+  ammo: "Ammo added to the matching weapon's magazine when this is bought.",
+  heal: "Hull points restored when this is bought, capped at the player's max health.",
+  shield: "Seconds of invulnerability granted when this is bought.",
+};
+
+const UPGRADE_STAT_DESCRIPTIONS = {
+  price: "Credits tier 1 costs. Tier 2 and tier 3 are this multiplied by upgrades.js's own TIER_PRICES ladder (not editable here — it applies to every stat at once).",
+  step: "What ONE tier adds to the stat, in the car's own units. Every tier adds the same amount; the price is what escalates.",
+};
+
 let cars = [];
 let obstacles = [];
 let pickups = [];
-let selection = null; // { kind: "car" | "obstacle" | "pickup", id }
+let upgradeConsumables = [];
+let upgradeStats = [];
+// { kind: "car" | "obstacle" | "pickup" | "upgradeConsumable" | "upgradeStat", id }
+let selection = null;
 const pendingChanges = {}; // { carId: { field: value } }
 const pendingObstacleChanges = {}; // { obstacleId: { field: value } }
 const pendingPickupChanges = {}; // { pickupId: { field: value } }
+const pendingUpgradeConsumableChanges = {}; // { id: { field: value } }
+const pendingUpgradeStatChanges = {}; // { id: { field: value } }
 
 async function loadState() {
   const res = await fetch("/api/state");
@@ -124,6 +150,8 @@ async function loadState() {
   cars = data.cars;
   obstacles = data.obstacles;
   pickups = data.pickups;
+  upgradeConsumables = data.upgradeConsumables;
+  upgradeStats = data.upgradeStats;
 }
 
 function fieldValue(car, field) {
@@ -203,6 +231,54 @@ function setPickupChange(pickupId, field, value) {
   pendingPickupChanges[pickupId][field] = value;
 }
 
+// A consumable's "how much" is stored under whichever field its `kind` uses
+// (see UPGRADE_CONSUMABLE_EFFECT_FIELD_BY_KIND-style mapping on the server;
+// here the field name comes back pre-resolved on the entry itself as
+// `effectField`), so callers just ask "the value of this field" the same way
+// currentPickupValue does for a crate.
+function upgradeConsumableFieldValue(entry, field) {
+  if (field === "price") return entry.price;
+  return entry.effectValue;
+}
+
+function currentUpgradeConsumableValue(id, field) {
+  if (pendingUpgradeConsumableChanges[id] && field in pendingUpgradeConsumableChanges[id]) {
+    return pendingUpgradeConsumableChanges[id][field];
+  }
+  const entry = upgradeConsumables.find((e) => e.id === id);
+  return upgradeConsumableFieldValue(entry, field);
+}
+
+function setUpgradeConsumableChange(id, field, value) {
+  pendingUpgradeConsumableChanges[id] ??= {};
+  pendingUpgradeConsumableChanges[id][field] = value;
+}
+
+function upgradeStatFieldValue(stat, field) {
+  return field === "price" ? stat.price : stat.step;
+}
+
+function currentUpgradeStatValue(id, field) {
+  if (pendingUpgradeStatChanges[id] && field in pendingUpgradeStatChanges[id]) {
+    return pendingUpgradeStatChanges[id][field];
+  }
+  const stat = upgradeStats.find((s) => s.id === id);
+  return upgradeStatFieldValue(stat, field);
+}
+
+function setUpgradeStatChange(id, field, value) {
+  pendingUpgradeStatChanges[id] ??= {};
+  pendingUpgradeStatChanges[id][field] = value;
+}
+
+// "1.4 -> 1.8", using the stat's own printed precision (upgrades.js's
+// `decimals`/`unit`) so the preview reads exactly like the shop screen does,
+// not like a raw JS number a fractional field (RAM PLATE's mass) would print
+// as.
+function formatStatValue(stat, value) {
+  return `${value.toFixed(stat.decimals)}${stat.unit}`;
+}
+
 const FACTION_GROUPS = [
   { faction: "enemy", heading: "Hostile" },
   { faction: "neutral", heading: "Civilian" },
@@ -249,6 +325,25 @@ function renderNav() {
     nav.appendChild(headingEl);
 
     for (const pickup of pickups) addButton(pickup.label, "pickup", pickup.id);
+  }
+
+  // The shop's two shelves, as their own nav group — a fifth kind of thing to
+  // pick, exactly the way obstacles and pickups became their own groups
+  // rather than being folded into the car list.
+  if (upgradeConsumables.length > 0) {
+    const headingEl = document.createElement("h3");
+    headingEl.textContent = "Shop — Consumables";
+    nav.appendChild(headingEl);
+
+    for (const entry of upgradeConsumables) addButton(entry.label, "upgradeConsumable", entry.id);
+  }
+
+  if (upgradeStats.length > 0) {
+    const headingEl = document.createElement("h3");
+    headingEl.textContent = "Shop — Car Systems";
+    nav.appendChild(headingEl);
+
+    for (const stat of upgradeStats) addButton(stat.label, "upgradeStat", stat.id);
   }
 }
 
@@ -347,21 +442,108 @@ function makePickupField(pickupId, field, description) {
   );
 }
 
+function makeUpgradeConsumableField(id, field, description) {
+  return makeNumberField(
+    field,
+    currentUpgradeConsumableValue(id, field),
+    description,
+    (value) => setUpgradeConsumableChange(id, field, value),
+  );
+}
+
+function makeUpgradeStatField(id, field, description) {
+  return makeNumberField(
+    field,
+    currentUpgradeStatValue(id, field),
+    description,
+    (value) => setUpgradeStatChange(id, field, value),
+  );
+}
+
 function renderForm() {
   const carSection = document.getElementById("car-form");
   const obstacleSection = document.getElementById("obstacle-form");
   const pickupSection = document.getElementById("pickup-form");
+  const upgradeConsumableSection = document.getElementById("upgrade-consumable-form");
+  const upgradeStatSection = document.getElementById("upgrade-stat-form");
+  const allSections = [
+    carSection, obstacleSection, pickupSection, upgradeConsumableSection, upgradeStatSection,
+  ];
 
   if (!selection) {
-    carSection.hidden = true;
-    obstacleSection.hidden = true;
-    pickupSection.hidden = true;
+    for (const section of allSections) section.hidden = true;
+    return;
+  }
+
+  if (selection.kind === "upgradeConsumable") {
+    for (const section of allSections) section.hidden = true;
+    upgradeConsumableSection.hidden = false;
+
+    const entry = upgradeConsumables.find((e) => e.id === selection.id);
+    document.getElementById("upgrade-consumable-form-title").textContent = entry.label;
+
+    const fieldsDiv = document.getElementById("upgrade-consumable-fields");
+    fieldsDiv.innerHTML = "";
+    fieldsDiv.appendChild(
+      makeUpgradeConsumableField(entry.id, "price", UPGRADE_CONSUMABLE_PRICE_DESCRIPTION)
+    );
+    if (entry.effectField) {
+      fieldsDiv.appendChild(
+        makeUpgradeConsumableField(
+          entry.id, entry.effectField, UPGRADE_CONSUMABLE_EFFECT_DESCRIPTIONS[entry.kind]
+        )
+      );
+    }
+    return;
+  }
+
+  if (selection.kind === "upgradeStat") {
+    for (const section of allSections) section.hidden = true;
+    upgradeStatSection.hidden = false;
+
+    const stat = upgradeStats.find((s) => s.id === selection.id);
+    document.getElementById("upgrade-stat-form-title").textContent = stat.label;
+
+    const fieldsDiv = document.getElementById("upgrade-stat-fields");
+    fieldsDiv.innerHTML = "";
+    fieldsDiv.appendChild(makeUpgradeStatField(stat.id, "price", UPGRADE_STAT_DESCRIPTIONS.price));
+    const stepField = makeUpgradeStatField(stat.id, "step", UPGRADE_STAT_DESCRIPTIONS.step);
+    fieldsDiv.appendChild(stepField);
+    const stepInput = stepField.querySelector("input");
+
+    // A live "base -> base + step" readout, in the shop's own formatting, so
+    // changing the step shows what tier 1 will actually buy without anyone
+    // having to do the arithmetic by hand. Read-only — see state.js's note on
+    // why `base` itself isn't a field.
+    const preview = document.createElement("div");
+    preview.className = "description";
+    const renderPreview = () => {
+      // Read the INPUT directly, not currentUpgradeStatValue: that only picks
+      // up a change once makeNumberField's own "change" listener commits it to
+      // pendingUpgradeStatChanges, which fires on blur/Enter — a "keep typing"
+      // preview needs the value as it stands mid-edit, before that commit.
+      const step = Number(stepInput.value);
+      const text = Number.isFinite(step)
+        ? `Tier 1 moves this from ${formatStatValue(stat, stat.base)} to ${formatStatValue(stat, stat.base + step)}.`
+        : "Enter a number to preview what tier 1 buys.";
+      preview.textContent = text;
+    };
+    renderPreview();
+    fieldsDiv.appendChild(preview);
+
+    // Kept in sync with the step INPUT directly rather than by re-running
+    // renderForm() on every keystroke — a full re-render would rebuild every
+    // field in this section and drop focus out of whichever one the user is
+    // typing in, which is exactly the kind of thing that makes a form
+    // frustrating to use. This is the one line on the whole screen where a
+    // stale value would read as wrong rather than just as "not yet applied",
+    // since it does arithmetic the user can't easily do in their head.
+    stepInput.addEventListener("input", renderPreview);
     return;
   }
 
   if (selection.kind === "obstacle") {
-    carSection.hidden = true;
-    pickupSection.hidden = true;
+    for (const section of allSections) section.hidden = true;
     obstacleSection.hidden = false;
 
     const obstacle = obstacles.find((o) => o.id === selection.id);
@@ -374,8 +556,7 @@ function renderForm() {
   }
 
   if (selection.kind === "pickup") {
-    carSection.hidden = true;
-    obstacleSection.hidden = true;
+    for (const section of allSections) section.hidden = true;
     pickupSection.hidden = false;
 
     const pickup = pickups.find((p) => p.id === selection.id);
@@ -398,8 +579,7 @@ function renderForm() {
     return;
   }
 
-  obstacleSection.hidden = true;
-  pickupSection.hidden = true;
+  for (const section of allSections) section.hidden = true;
   carSection.hidden = false;
 
   const car = cars.find((c) => c.id === selection.id);
@@ -481,6 +661,32 @@ function realPickupChanges() {
   return result;
 }
 
+function realUpgradeConsumableChanges() {
+  const result = {};
+  for (const [id, fields] of Object.entries(pendingUpgradeConsumableChanges)) {
+    const entry = upgradeConsumables.find((e) => e.id === id);
+    for (const [field, value] of Object.entries(fields)) {
+      if (upgradeConsumableFieldValue(entry, field) === value) continue;
+      result[id] ??= {};
+      result[id][field] = value;
+    }
+  }
+  return result;
+}
+
+function realUpgradeStatChanges() {
+  const result = {};
+  for (const [id, fields] of Object.entries(pendingUpgradeStatChanges)) {
+    const stat = upgradeStats.find((s) => s.id === id);
+    for (const [field, value] of Object.entries(fields)) {
+      if (upgradeStatFieldValue(stat, field) === value) continue;
+      result[id] ??= {};
+      result[id][field] = value;
+    }
+  }
+  return result;
+}
+
 function renderReview() {
   const section = document.getElementById("review");
   const tbody = document.querySelector("#review-table tbody");
@@ -518,6 +724,20 @@ function renderReview() {
     const pickup = pickups.find((p) => p.id === pickupId);
     for (const [field, value] of Object.entries(fields)) {
       addRow(pickup.label, field, pickupFieldValue(pickup, field), value, "");
+    }
+  }
+
+  for (const [id, fields] of Object.entries(pendingUpgradeConsumableChanges)) {
+    const entry = upgradeConsumables.find((e) => e.id === id);
+    for (const [field, value] of Object.entries(fields)) {
+      addRow(entry.label, field, upgradeConsumableFieldValue(entry, field), value, "");
+    }
+  }
+
+  for (const [id, fields] of Object.entries(pendingUpgradeStatChanges)) {
+    const stat = upgradeStats.find((s) => s.id === id);
+    for (const [field, value] of Object.entries(fields)) {
+      addRow(stat.label, field, upgradeStatFieldValue(stat, field), value, "");
     }
   }
 
@@ -561,6 +781,8 @@ async function pushAttempt() {
   for (const key of Object.keys(pendingChanges)) delete pendingChanges[key];
   for (const key of Object.keys(pendingObstacleChanges)) delete pendingObstacleChanges[key];
   for (const key of Object.keys(pendingPickupChanges)) delete pendingPickupChanges[key];
+  for (const key of Object.keys(pendingUpgradeConsumableChanges)) delete pendingUpgradeConsumableChanges[key];
+  for (const key of Object.keys(pendingUpgradeStatChanges)) delete pendingUpgradeStatChanges[key];
 }
 
 async function cancelAttempt() {
@@ -586,6 +808,8 @@ async function createPullRequest() {
       changes: realChanges(),
       obstacleChanges: realObstacleChanges(),
       pickupChanges: realPickupChanges(),
+      upgradeConsumableChanges: realUpgradeConsumableChanges(),
+      upgradeStatChanges: realUpgradeStatChanges(),
     }),
   });
   const commitData = await commitRes.json();

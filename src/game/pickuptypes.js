@@ -68,9 +68,13 @@ export const PICKUP_TYPES = [
     shape: pickupShapeIndex("MINE_AMMO"),
     kind: AMMO,
     weaponId: "mine",
-    // The mine layer's own magazine is 5 (weapons.js) — the smallest in the
-    // catalogue, so a smaller absolute refill still lands proportionally in
-    // line with the other two (40% here vs 36-40% above).
+    // TWO MINES, against the layer's eight-round magazine (weapons.js) — 25%,
+    // where the two gun crates above are 36-40% of theirs. The layer crates are
+    // deliberately the stingier half of this catalogue now that the magazines
+    // have grown: a mine is the hardest single hit on the road, the player is
+    // ISSUED a full eight at the start of every run, and the dock will sell a
+    // whole set (game/upgrades.js). A crate is a top-up between those, not a
+    // resupply.
     amount: 2,
     weight: 1,
     minDistance: 0,
@@ -87,11 +91,14 @@ export const PICKUP_TYPES = [
     shape: pickupShapeIndex("SPIKES_AMMO"),
     kind: AMMO,
     weaponId: "spikes",
-    // ONE STRIP, against the mine crate's two. The strip's whole balance is
-    // its three-round magazine (weapons.js) — a road the player can keep
-    // permanently belted is a road nothing can chase them down — so its refill
-    // has to be the stingiest in the catalogue, not proportional to a magazine
-    // that is deliberately tiny. 33% here against the others' 36-40%.
+    // ONE STRIP, against the mine crate's two, and the stingiest thing in this
+    // catalogue by some way: 20% of the strip's five-round magazine (weapons.js)
+    // against the gun crates' 36-40% of theirs. Two reasons, and they compound.
+    // A road the player can keep permanently belted is a road nothing can chase
+    // them down, so the refill must never be proportional to the magazine. And
+    // the player starts a run with NO strips at all (weapons.js's `startAmmo`),
+    // which makes finding one on the road a real event rather than a top-up —
+    // exactly what a single strip should be.
     amount: 1,
     weight: 1,
     minDistance: 0,
