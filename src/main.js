@@ -48,6 +48,9 @@ import * as drones from "./game/drones.js";
 import * as links from "./game/links.js";
 import * as sectors from "./game/sectors.js";
 import * as gameConsole from "./engine/console.js";
+import * as gutter from "./engine/gutter.js";
+import * as telemetry from "./game/telemetry.js";
+import { sectorIndex } from "./game/citygrid.js";
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -72,6 +75,22 @@ const H = LOGICAL_H;
 // frame stays inside the window, not just the playfield.
 initViewport(canvas, () => {}, document.getElementById("frame"));
 const hint = document.getElementById("hint");
+
+// The gutter panels (engine/gutter.js): the deck's log and status readout, in
+// the screen either side of the cabinet on a window wider than 3:4. Handed the
+// same cabinet element the viewport measures, because they hang off the box it
+// produces — they measure it, they never influence it. Below MIN_GUTTER of
+// spare width either side they simply never appear, and every line below is a
+// no-op that costs a returned `false`.
+gutter.initGutter(document.getElementById("frame"));
+
+// The divert (see engine/console.js's setDivert header): while the gutter log is
+// up, the in-canvas SYS LOG hands it everything except CRITICAL and shrinks to
+// an alert plate, giving a quarter of the playfield's width back. Registered
+// ONCE, here, rather than in newGame() alongside the audio subscriber — the
+// answer is a fact about the browser window, not about the run, and console.js's
+// reset() deliberately leaves it standing for exactly that reason.
+gameConsole.setDivert(gutter.logVisible);
 
 const MENU_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm";
 const PAUSE_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm &middot; ESC resume";
@@ -314,9 +333,28 @@ function onPickupCollected(type) {
 // time, the same way it re-registers everything else PER-RUN below. See
 // console.js's own onPush() header for why the wiring lives here at all
 // rather than inside console.js.
+// Two listeners off one seam, fanned out HERE rather than by growing
+// console.js's `subscriber` into a list. The seam has had exactly one consumer
+// for its whole life and the second one is in this same file — a subscriber
+// array would be more machinery than the two lines it saves, and it would move
+// the question of "what listens to the log" out of the one file that already
+// answers every other wiring question in this game.
+//
+// The gutter gets the line VERBATIM apart from telemetry.js's own prefix: it is
+// the same log, shown somewhere with room for it, not a second commentary. What
+// makes it a bigger log rather than a duplicate one is that the in-canvas panel
+// stops drawing most of it while the gutter is up (see setDivert above).
 function onConsolePush(text, severity) {
   music.play(CONSOLE_SOUND[severity]);
+  const line = telemetry.eventLine(text, severity);
+  gutter.pushLog(line.text, line.tone);
 }
+
+// What the rig panel's FEED row reports, kept current by onTrackChange below.
+// Page-scoped, not per-run: the track backend only ever starts once per page
+// (synth.js's jackIn() header) and keeps playing across restarts, so zeroing
+// this in newGame() would blank a row describing something still audible.
+let currentTrack = "STANDBY";
 
 // The deck reporting its own audio feed — synth.js's own onTrackChange
 // facade, forwarding trackmusic.js's subscriber seam (see that file's
@@ -338,7 +376,13 @@ function onConsolePush(text, severity) {
 // so there's no way for this to write into a SYS LOG the player isn't even
 // looking at yet.
 function onTrackChange(name) {
-  gameConsole.push(`AUDIO FEED // ${trackDisplayName(name)}`, gameConsole.HINT);
+  // Also parked for the rig panel's FEED row, which reports what is playing
+  // continuously rather than only at the moment it changed. Read off the same
+  // notification instead of asking the audio engine every sample: the answer
+  // only ever moves when this fires, so polling for it would be a per-sample
+  // question with a per-track answer.
+  currentTrack = trackDisplayName(name);
+  gameConsole.push(`AUDIO FEED // ${currentTrack}`, gameConsole.HINT);
 }
 music.onTrackChange(onTrackChange);
 
@@ -446,6 +490,13 @@ function newGame() {
   // a row, so there is no way for this to end up with two callbacks firing
   // per push.
   gameConsole.onPush(onConsolePush);
+  // The gutter's own per-run state, reset for the same reason every screen
+  // above is: the previous run's death rattle has no business sitting in the
+  // log while a fresh car is being assembled, and telemetry's "t+" clock has to
+  // start over or it stops meaning uptime. resetLog() blanks the row pool
+  // WITHOUT rebuilding it — see its header on why that distinction matters.
+  telemetry.reset();
+  gutter.resetLog();
   links.reset();
   sectors.reset();
   // Every per-run audio concern that must not leak into a fresh run: the
@@ -490,7 +541,153 @@ function dropMine(car, type) {
 // stays here, so the shape of the state machine is visible in one screen
 // instead of being spelled out as six sequential early-return branches inside
 // one 400-line function.
+// How often the rig panel's readouts are resampled, in seconds.
+//
+// FOUR TIMES A SECOND, NOT SIXTY. The panel is DOM, and the one rule the whole
+// gutter design rests on is that it never repaints on the game's clock — a
+// per-frame write of nine values would put a steady text repaint next to the
+// canvas forever, to show numbers nobody can read changing faster than 4Hz
+// anyway. Fast enough that the panel never looks frozen, slow enough that it is
+// not in the frame budget at all. gutter.setStatus() then diffs on top of this,
+// so the sample rate is the CEILING on DOM writes, not the actual rate: a parked
+// car in the menu resamples four times a second and writes nothing.
+const RIG_SAMPLE = 0.25;
+let rigDue = 0;
+
+// What the deck knows about itself this instant, in the shape game/telemetry.js
+// wants. Assembled here because main.js is the only module that holds all of it
+// — the player, the wallet, the score, the odometer and the state machine live
+// at this level and nowhere below it.
+//
+// `link` is the state machine's own vocabulary, translated. Reporting the raw
+// state name would leak an implementation detail into the fiction, and half of
+// them ("lifting", "lowering") describe a crane rather than a connection.
+const LINK_STATE = {
+  menu: "STANDBY",
+  connecting: "HANDSHAKE",
+  playing: "ACTIVE",
+  paused: "HELD",
+  dying: "SIGNAL LOST",
+  gameover: "OFFLINE",
+  lifting: "DOCKING",
+  shopping: "DOCKED",
+  lowering: "UNDOCKING",
+};
+
+// Which VOICE the deck talks in, which is a coarser question than which state
+// the game is in — nine states, three voices.
+//
+// The distinction the map exists to draw is "is the world actually running":
+// telemetry.js's routine pool is all road strips, lot lookups and nav vectors,
+// and printing those over a menu or a wreck describes something that is not
+// happening. "connecting" is idle rather than live on the same principle — the
+// world is built but frozen, and jackin.js's own scripted boot beats should own
+// the log for that stretch rather than compete with filler about traffic.
+const DECK_MODE = {
+  menu: "idle",
+  connecting: "idle",
+  playing: "live",
+  paused: "idle",
+  dying: "down",
+  gameover: "down",
+  lifting: "idle",
+  shopping: "idle",
+  lowering: "idle",
+};
+
+// Bytes to a human string, for the BUFFER readout.
+//
+// performance.memory is CHROME-ONLY and non-standard, so this is written to
+// degrade rather than to be relied on: no reading means the row prints "n/a" and
+// the log's buffer line quietly says the same. Worth having anyway — the browser
+// this is developed and played in is the one that reports it, and a heap figure
+// climbing across a long run is the one leak signal this game could plausibly
+// produce (the sprite cache and the road strips both grow with `scale`).
+function heapText() {
+  const mem = performance.memory;
+  if (!mem || !mem.usedJSHeapSize) return "n/a";
+  return `${(mem.usedJSHeapSize / 1048576).toFixed(1)} MB`;
+}
+
+function deckSnapshot() {
+  const hullPct = Math.max(0, Math.round((player.health / player.maxHealth) * 100));
+  // The same floorDist -> sectorIndex lookup sectors.js does, and deliberately
+  // the same one rather than a cached copy of what it last announced: it is a
+  // PURE FUNCTION of distance (see citygrid.js), so asking again costs nothing
+  // and cannot drift out of step with the palette the floor is actually using.
+  const sector = sectors.sectorName(sectorIndex(scenery.floorDist(distance)));
+
+  // The measured half. engine/loop.js is the only place the real frame figures
+  // exist (the timestep is fixed, so `dt` down here is a constant and says
+  // nothing about how the frame went) — see its own stats() header.
+  const frame = loop.stats();
+  const fps = Math.round(frame.fps);
+  // "Packet loss" is the shortfall against 60, which is what the game is
+  // budgeted for. Fiction and diagnostic in the same number: 8% loss and "the
+  // game is running at 55fps" are the same sentence.
+  const loss = fps ? Math.max(0, Math.round(((60 - fps) / 60) * 100)) : 0;
+  // Everything the world currently has SPAWNED. A real entity count, and the
+  // README's claim that frame cost is FLAT in it is exactly the kind of thing a
+  // playtester can now watch hold or fail live.
+  //
+  // The three spawned lists only. The city floor, the drones and the conduits
+  // are pure functions of position rather than object lists (see drones.js's
+  // droneField and links.js's conduitField) — there is nothing there to count,
+  // and inventing a number for it would break the one property that makes this
+  // row worth reading.
+  const entities = traffic.cars.length + obstacles.list.length + pickups.list.length;
+
+  return {
+    mode: DECK_MODE[state] ?? "idle",
+    link: LINK_STATE[state] ?? "STANDBY",
+    fps,
+    loss,
+    frameMs: frame.workMs.toFixed(1),
+    peakMs: frame.worstMs.toFixed(1),
+    heap: heapText(),
+    entities,
+    // Flavour derived from the two real numbers either side of it, so it moves
+    // when they do rather than drifting on its own clock.
+    kbps: Math.round(entities * 1.7 + fps * 3.1),
+    sector,
+    // DIST_UNITS, matching the HUD's own DIST readout rather than raw world
+    // units — two readouts of the same thing that disagreed would be worse than
+    // one.
+    dist: Math.floor(distance / road.DIST_UNITS),
+    strip: Math.floor(distance / 128),
+    speed: Math.round(player.speed),
+    hullPct,
+    credits: wallet.credits,
+    points: score.points,
+    weapon: loadout.current ? loadout.current.type.label : "NONE",
+    feed: currentTrack,
+  };
+}
+
+// The deck's own tick: the gutter log's filler chatter and the rig panel's
+// readouts.
+//
+// Runs ABOVE the state machine, not inside a branch of it, and that is the
+// point — the deck is up whenever the page is. The menu, the shop and the death
+// sequence all keep it talking, at the idle rate telemetry.js's interval()
+// gives a stopped car, so the screen never has a dead frame around a live game.
+// It reads state rather than being driven by it.
+//
+// Cheap enough to be unconditional: when the gutter panels are hidden (a narrow
+// window) pushLog and setStatus both return immediately, and the only cost left
+// is this snapshot — a handful of arithmetic on values already in hand.
+function updateDeck(dt) {
+  const snap = deckSnapshot();
+  telemetry.update(dt, snap, gutter.pushLog);
+  rigDue -= dt;
+  if (rigDue <= 0) {
+    rigDue = RIG_SAMPLE;
+    gutter.setStatus(telemetry.statusRows(snap));
+  }
+}
+
 function update(dt) {
+  updateDeck(dt);
   switch (state) {
     case "menu": return updateMenu();
     case "paused": return updatePaused();

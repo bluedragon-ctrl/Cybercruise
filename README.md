@@ -279,6 +279,91 @@ shrink-to-fit, and a hint line longer than the canvas (the 91-char gameplay
 legend) would otherwise stretch the cabinet ~150px wider than the playfield and
 hang a slab of bezel off one side.
 
+### The gutters
+
+Scaling the playfield to the window left the screen either side of it empty. It
+is filled by two panels — the deck's `SYS LOG` down the left, a `RIG STATUS`
+readout down the right — built from `src/engine/gutter.js` (where they go),
+`src/game/telemetry.js` (what they say) and a block in `css/style.css` (what
+they look like).
+
+**They are DOM, and that is the whole performance story.** The playfield cannot
+grow (see above), so anything in the gutters is outside the canvas — and the
+alternative, a second canvas, would be a full-height surface repainted on the
+game's clock with its own raster to rebuild on every scale change. That is
+exactly the shape rule 3 exists to prevent. These panels repaint only when their
+TEXT changes: about one row a second on the log, and the rig's readouts are
+resampled at 4Hz and diffed before they are written, so a parked car writes
+nothing at all. The game loop never touches them.
+
+The supporting details all serve that one property. Rows are a recycled pool
+rotated by a single `appendChild`, so a push never allocates (the pool grows only
+when the window does). The age fade is a static CSS mask on the container, not
+per-row opacity. The type-on reveal is a CSS `clip-path` animation on one row at
+a time, and is off entirely under `prefers-reduced-motion`.
+
+**Out of flow, necessarily.** `viewport.js` computes `fit` from
+`window.innerWidth` directly, so a panel added as an ordinary sibling of
+`#frame` would not be subtracted from the width the canvas sizes itself against
+and the two would collide. The panels are `position: fixed` and placed from a
+measurement of the cabinet: they are told where it ended up and never get a vote
+in it. Below 260px of spare width a panel does not appear at all, which is what
+happens on any portrait or narrow window.
+
+**The log is one log, shown in two places.** Every line still enters
+`engine/console.js` — still ages, still ticks the audio subscriber, still counts
+toward `isBusy()`, which is the budget `links.js` and `wallet.js` pace the
+city's whole chatter against. What changes when the gutter is up is only what
+the in-canvas panel PAINTS: it keeps `CRITICAL` and shrinks to an `ALERT` plate,
+handing the quiet half over and giving back a 160px-wide slice of a 600px-wide
+playfield. A hull warning stays where the player's eyes already are, because the
+half-second it warns about is a half-second they cannot spend looking sideways;
+pickup hints and sector names are read between hazards, where a glance sideways
+is free. `console.js`'s `setDivert()` is that switch, and it is presentation
+only — nothing about the size of somebody's browser window changes how often the
+city talks.
+
+Filler lines are built from real state (the odometer, the speed, the sector, the
+balance) and the EMISSION RATE is a function of the car's speed, mapped across
+the game's own band — 260, a fresh car's starting speed, to 740, what a maxed
+engine tops out at. Drive faster and the deck chatters faster. That correlation
+is the difference between a live system and a screensaver, and it is what
+`test/gutter.test.js` mostly exists to pin down.
+
+**Three voices, not one.** The deck talks about what is actually happening, which
+means the routine pool — road strips, lot lookups, nav vectors — is only reachable
+while the car is being driven. The menu, the shop, a paused run and the boot draw
+from an idle pool instead, and a run that has ended draws from a dead-link pool,
+slowest of the three. Printing `hull.integrity 0%  shield nominal` over a wreck
+is the failure this split exists to prevent: a log that disagrees with the screen
+is worse than no log.
+
+Death itself is scripted, answering `jackin.js`'s `BEATS` at the other end of a
+run — the deck boots with a sequence, so it closes with one, down to
+`NEURAL LINK // CLOSED` against the boot's `NEURAL LINK // OPEN`. The burst is
+edge-triggered on the transition and built from the snapshot of the frame the
+player died on, so the figures it seals are the run's final ones. It owns the log
+while it runs, then the column goes cold.
+
+**The measured readouts double as a profiler.** `SIGNAL`, `FRAME`, `BUFFER` and
+`TRAFFIC` on the rig panel — and five of the log's own templates — are real
+instrumentation wearing the panel's vocabulary: frame rate as link quality, the
+shortfall against 60fps as packet loss, `update`+`render` cost against the 16.7ms
+budget, `performance.memory` as buffer occupancy, and the live spawned-entity
+count. `engine/loop.js` measures the first two, because the timestep is fixed and
+the `dt` every other module sees is a constant that says nothing about how the
+frame went; it keeps the frame RATE and the frame COST as separate numbers,
+because a rate that has dropped while the cost stayed flat means something
+different from both moving.
+
+The point is the tone on `SIGNAL`: amber below 55fps, red below 40. A playtester
+who never reads a number still sees the right-hand column change colour the
+moment the game stops holding 60 — a performance regression report during play,
+rather than behind a devtools panel covering the thing being judged. The figures
+are printed as measured, never smoothed, and read `--` rather than a confident
+zero until `loop.js` has closed its first one-second window. `performance.memory`
+is Chrome-only and degrades to `n/a` everywhere else.
+
 ### Traffic
 
 The other cars on the road are three files, split so that adding a kind of

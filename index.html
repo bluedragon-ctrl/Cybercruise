@@ -15,6 +15,28 @@
     <canvas id="game" width="600" height="800"></canvas>
     <div id="hint">&uarr;/&darr; select &middot; &larr;/&rarr; adjust &middot; SPACE/ENTER confirm</div>
   </div>
+
+  <!-- The gutter panels: the deck's own readouts, filling the screen either side
+       of the cabinet on a window wider than 3:4. Declared here as empty shells
+       and positioned entirely from src/engine/gutter.js, which measures #frame
+       and hangs them off its edges.
+
+       OUTSIDE #frame, AND FIXED IN THE STYLESHEET, both of which matter.
+       engine/viewport.js sizes the playfield against window.innerWidth directly,
+       so anything in normal flow beside the cabinet would not be accounted for
+       and the two would overlap. Being out of flow is what makes these panels
+       structurally incapable of shrinking the game. They are also aria-hidden:
+       the log is atmosphere built from numbers the HUD already states plainly,
+       and reading 34 rows of pseudo-syscalls aloud would bury the real ones. -->
+  <aside id="gutter-log" class="gutter" aria-hidden="true">
+    <div class="gutter-title">SYS LOG // DECK 01</div>
+    <div class="gutter-rows"></div>
+  </aside>
+  <aside id="gutter-rig" class="gutter" aria-hidden="true">
+    <div class="gutter-title">RIG STATUS</div>
+    <div class="rig-rows"></div>
+  </aside>
+
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

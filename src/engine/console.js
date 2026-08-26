@@ -75,8 +75,59 @@ export function onPush(fn) {
   };
 }
 
+// DIVERT — whether something OFF the playfield is currently showing this log
+// too, and this panel can therefore stop carrying the quiet half of it.
+//
+// engine/gutter.js's left-hand panel is that something: on a wide window it
+// shows every line this log holds, with room for thirty of them instead of
+// five. When it is up, keeping the full stream on the canvas as well is not
+// redundancy, it is a 160px-wide plate over a 600px-wide playfield (see
+// PANEL_W above, and what it had to be squeezed to in order to stay off the
+// tarmac) spending a quarter of the screen to say what the gutter is already
+// saying better.
+//
+// So when diverted, this panel keeps CRITICAL and nothing else. That split is
+// the whole design and it is not a size compromise: a hull call-out has to land
+// where the player's eyes already are, because the half-second it is warning
+// them about is a half-second they cannot spend looking sideways. Everything
+// else — pickup hints, node pings, sector names, the audio feed — is read
+// BETWEEN hazards, and between hazards a glance at the gutter is free.
+//
+// A PRESENTATION SWITCH, AND ONLY THAT. Every line still enters `messages`,
+// still ages, still ticks the subscriber, and still counts toward isBusy(). It
+// has to: isBusy() is the budget links.js and wallet.js pace the city's whole
+// chatter against (see announceCityLine), and a divert that quietly emptied the
+// log would read as "never busy" to those callers and let them push at every
+// opportunity — roughly doubling the log's real rate AND the console beep
+// audio.js plays per push, on the strength of a WINDOW BEING WIDE. Nothing
+// about the size of somebody's browser should change how often the city talks.
+// The only thing that changes below is which of those lines this panel paints.
+//
+// A predicate rather than a flag, for the same reason onPush is a callback:
+// the answer changes when the window resizes, and resizes have no business
+// reaching into the renderer. Asked once per render, never cached.
+let divert = () => false;
+
+export function setDivert(fn) {
+  divert = fn ?? (() => false);
+}
+
 export function push(text, severity = HINT) {
-  messages.push({ text, severity, slot: -1, target: 0, removing: false, age: 0 });
+  // `dslot`/`dtarget` are the divert-mode twin of `slot`/`target`, and they
+  // exist because the two modes pack rows differently. A row's `slot` is its age
+  // rank among ALL messages — so a critical with four hints pushed after it sits
+  // at slot 4, four rows up from the bottom. That is right on the five-row SYS
+  // LOG plate and nonsense on the ALERT plate, which is only as tall as the
+  // criticals actually up: the row lands above the plate's own top edge, a hull
+  // warning floating unanchored over the road. Divert mode therefore needs the
+  // row's rank among the CRITICALS ALONE.
+  //
+  // Eased rather than computed at render time, for one multiply-add per message
+  // per frame on a list capped at MAX_MESSAGES: a packed index derived on the
+  // spot would snap a standing alert a full row-height the instant a second one
+  // arrived beneath it, and the one line the player cannot afford to lose track
+  // of is the last one that should move differently from everything else.
+  messages.push({ text, severity, slot: -1, target: 0, dslot: -1, dtarget: 0, removing: false, age: 0 });
   // Normally this drops at most one entry — the loop only matters if two
   // lines are pushed inside the same frame, before update() has had a
   // chance to actually retire the previous overflow.
@@ -100,24 +151,60 @@ export function update(dt) {
   kept.forEach((m, i) => {
     m.target = kept.length - 1 - i;
   });
+  // The divert-mode packing, computed unconditionally rather than behind a
+  // divert() check. Two reasons: the mode can flip mid-run (the player resizes
+  // the window), and a dslot that had stopped tracking while diverted was off
+  // would snap the whole plate into place on the frame it came back — the one
+  // frame it is most obvious. Keeping it warm costs a filter over a list capped
+  // at MAX_MESSAGES.
+  const keptCritical = kept.filter((m) => m.severity === CRITICAL);
+  keptCritical.forEach((m, i) => {
+    m.dtarget = keptCritical.length - 1 - i;
+  });
   for (const m of messages) {
-    if (m.removing) m.target = MAX_MESSAGES;
-    m.slot += (m.target - m.slot) * Math.min(1, EASE_RATE * dt);
+    if (m.removing) {
+      m.target = MAX_MESSAGES;
+      m.dtarget = MAX_MESSAGES;
+    }
+    const rate = Math.min(1, EASE_RATE * dt);
+    m.slot += (m.target - m.slot) * rate;
+    m.dslot += (m.dtarget - m.dslot) * rate;
   }
+  // Retirement stays keyed to `slot` alone. `dslot` is a second VIEW of a
+  // message, not a second lifetime — letting either one decide when the entry
+  // is dropped would mean the log's contents depended on the window's width,
+  // which is exactly what setDivert's header promises never happens.
   messages = messages.filter((m) => !(m.removing && m.slot >= MAX_MESSAGES - 0.02));
 }
 
-// Fades a row in as it slides up from below the panel (slot -1 -> 0) and out
-// as a removing row slides past the top row (slot MAX_MESSAGES-1 -> MAX_MESSAGES).
-function messageAlpha(m) {
-  if (m.removing) return clamp01(1 - (m.slot - (MAX_MESSAGES - 1)));
-  return clamp01(m.slot + 1);
+// Fades a row in as it slides up from below the panel (slot -1 -> 0) and out as
+// a removing row slides past the top row (slot rows-1 -> rows).
+//
+// `slot` and `rows` are parameters rather than read off the message and the
+// module constant, because divert mode measures both differently: it eases
+// `dslot` against a plate only as tall as the criticals currently showing. The
+// arithmetic is identical either way, which is the point of passing them in
+// rather than branching inside.
+function messageAlpha(m, slot, rows) {
+  if (m.removing) return clamp01(1 - (slot - (rows - 1)));
+  return clamp01(slot + 1);
 }
 
 export function render(ctx, W, H) {
   if (messages.length === 0) return;
 
-  const bodyH = MAX_MESSAGES * ROW_HEIGHT;
+  const diverted = divert();
+  // What this panel is painting this frame, and how tall it therefore is. When
+  // diverted the plate shrinks to the criticals actually up — the whole reason
+  // for the mode is to stop spending playfield, so leaving a five-row plate
+  // standing with one line in it would give back none of it.
+  const shown = diverted ? messages.filter((m) => m.severity === CRITICAL) : messages;
+  if (shown.length === 0) return;
+  const rows = diverted
+    ? Math.max(1, Math.min(MAX_MESSAGES, shown.filter((m) => !m.removing).length))
+    : MAX_MESSAGES;
+
+  const bodyH = rows * ROW_HEIGHT;
   const panelH = HEADER_H + bodyH + PADDING * 2;
   const x = W - PANEL_W - PANEL_MARGIN;
   const panelY = H - panelH - PANEL_MARGIN;
@@ -129,13 +216,21 @@ export function render(ctx, W, H) {
   ctx.fillRect(x, panelY, PANEL_W, panelH);
   ctx.restore();
 
-  glowText(ctx, "SYS LOG", x + PADDING, panelY + PADDING - 2, GREEN_DIM, 10, "left", 4);
+  // The header names what the plate IS, and when diverted the plate is no
+  // longer the system log — it is the alarm channel, with the log itself now
+  // running down the side of the screen. Saying so is what stops the player
+  // reading the shrunken panel as the log having broken.
+  glowText(
+    ctx, diverted ? "ALERT" : "SYS LOG",
+    x + PADDING, panelY + PADDING - 2, GREEN_DIM, 10, "left", 4,
+  );
 
   const bodyTop = panelY + PADDING + HEADER_H;
-  for (const m of messages) {
-    const alpha = messageAlpha(m);
+  for (const m of shown) {
+    const slot = diverted ? m.dslot : m.slot;
+    const alpha = messageAlpha(m, slot, rows);
     if (alpha <= 0) continue;
-    const rowY = bodyTop + (MAX_MESSAGES - 1 - m.slot) * ROW_HEIGHT;
+    const rowY = bodyTop + (rows - 1 - slot) * ROW_HEIGHT;
     ctx.save();
     ctx.globalAlpha = alpha;
     glowText(ctx, m.text, x + PADDING, rowY, COLORS[m.severity] ?? GREEN_PALE, 11, "left", 5);
@@ -164,4 +259,11 @@ export function reset() {
   // without this, a stale subscriber from before the reset would keep firing
   // rather than failing loudly by going silent.
   subscriber = null;
+  // `divert` is deliberately NOT cleared alongside it. The two look alike and
+  // are not: a subscriber is per-run wiring that newGame() re-registers every
+  // time, while divert answers "is there a second display on this page", which
+  // is a fact about the BROWSER WINDOW and outlives any number of runs. Zeroing
+  // it here would put the full log back on the playfield for the rest of the
+  // session on the first restart, and the gutter would then be showing every
+  // line twice.
 }

@@ -123,3 +123,145 @@ body {
   letter-spacing: 1px;
   color: rgba(125, 255, 176, 0.6);
 }
+
+/* --- The gutter panels ---------------------------------------------------
+
+   The deck's readouts either side of the cabinet. src/engine/gutter.js owns
+   WHERE these go (it measures #frame every resize and writes left/top/width/
+   height); this owns what they look like. Nothing here may introduce a size of
+   its own — a panel that could grow past what gutter.js measured would be a
+   panel that could reach the playfield.
+
+   FIXED, and that is structural rather than stylistic: engine/viewport.js sizes
+   the canvas against window.innerWidth directly, so an in-flow sibling of the
+   cabinet would not be subtracted from the space the game thinks it has. Out of
+   flow, these cannot take a pixel from it however wide they get. */
+.gutter {
+  position: fixed;
+  display: none; /* gutter.js clears this once it has measured a wide enough gutter */
+  flex-direction: column;
+  /* Never a click target. The game's only pointer surface is the canvas
+     (engine/mouse.js), and a transparent column of text either side of it that
+     could swallow a click or show a text caret would be a bug that only ever
+     manifests on wide screens. */
+  pointer-events: none;
+  user-select: none;
+  /* Everything about a panel's rendering stays inside its own box: its repaints
+     cannot invalidate the cabinet next to it, and its (fixed, JS-written) size
+     means the browser never has to consult its contents to lay the page out.
+     This is what keeps a log push from touching anything but the log. */
+  contain: layout style paint;
+  overflow: hidden;
+  /* Sized off the same --fit engine/viewport.js publishes for #hint, so the
+     panels grow with the playfield instead of shrinking against it on a big
+     screen. Clamped at both ends for the same reason #hint is. */
+  font-size: clamp(9px, calc(8.6px * var(--fit, 1)), 15px);
+  line-height: 1.55;
+  letter-spacing: 0.4px;
+  /* Background, not foreground. The panels exist to make the room around the
+     game feel inhabited; the instant they compete with the road for attention
+     they have failed, and this number is the main dial for that. */
+  opacity: 0.62;
+}
+
+.gutter-title {
+  flex: none;
+  padding-bottom: 0.6em;
+  color: rgba(31, 143, 82, 0.9);
+  letter-spacing: 2px;
+}
+
+/* Newest row at the BOTTOM, like a terminal. Overflow therefore falls off the
+   top, which is exactly where the mask has already faded it to nothing — so
+   gutter.js's row pool can carry a row or two more than the panel can show and
+   the clip is never visible.
+
+   The mask is the whole age-fade, done once in CSS on the container rather than
+   as per-row opacity in JS. Fading rows by hand would be one style write per row
+   per pushed line to reproduce something the compositor does for free. */
+.gutter-rows {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 24%, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 24%, #000 100%);
+}
+
+/* `pre` preserves the column spacing telemetry.js builds into each line, and
+   nowrap is load-bearing: a wrapped row would be two rows tall and break the
+   fixed pitch the pool's overflow behaviour depends on. Rows are clipped
+   instead, which is why gutter.js refuses to show a panel under 260px wide. */
+.gutter-row {
+  flex: none;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: clip;
+  color: rgba(125, 255, 176, 0.34);
+  /* One static shadow, never animated. Glow is what makes this read as the same
+     screen as the game; an animated one would be a per-frame repaint of a panel
+     whose entire justification is that it does not repaint per frame. */
+  text-shadow: 0 0 6px currentColor;
+}
+
+/* Tones, mirroring engine/console.js's severity colours (GREEN_PALE / NEUTRAL /
+   HAZARD) so the same line means the same thing whichever log the player reads
+   it in. `sys` is this panel's own extra: the deck's idle chatter, dimmer than
+   anything the game itself ever said, so a real event stands out of the stream
+   without needing to shout. */
+.tone-sys { color: rgba(125, 255, 176, 0.34); }
+.tone-hint { color: rgba(182, 255, 204, 0.82); }
+.tone-warn { color: rgba(255, 176, 32, 0.85); }
+.tone-critical { color: rgba(255, 77, 77, 0.92); }
+
+/* The type-on. clip-path rather than width so the row's box never changes size
+   — an animating width would relayout the flex column on every frame of every
+   line, which is precisely the per-frame cost this whole design avoids. steps()
+   rather than a smooth reveal because a character appearing is the read, not a
+   curtain sliding. gutter.js adds this class to ONE row at a time and removes it
+   on animationend, so at most one animation is ever live. */
+@keyframes gutter-type {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+.gutter-row.typing {
+  animation: gutter-type 0.22s steps(22, end);
+}
+
+/* Motion is decoration here and nothing is lost without it — the line still
+   arrives, it just arrives whole. */
+@media (prefers-reduced-motion: reduce) {
+  .gutter-row.typing { animation: none; }
+}
+
+/* The rig panel's readouts. A label/value pair per row, the value right-aligned
+   into a column so the numbers line up and can be read at a glance rather than
+   hunted for. */
+.rig-rows {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  overflow: hidden;
+}
+
+.rig-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(31, 143, 82, 0.16);
+  padding-bottom: 0.2em;
+}
+
+.rig-label {
+  color: rgba(31, 143, 82, 0.95);
+  letter-spacing: 2px;
+}
+
+.rig-value {
+  color: rgba(182, 255, 204, 0.82);
+  text-shadow: 0 0 6px currentColor;
+}
