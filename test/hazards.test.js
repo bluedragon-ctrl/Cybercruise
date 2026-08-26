@@ -45,6 +45,7 @@ import {
   AMMO,
   HEAL,
   SHIELD,
+  BOOST,
   applyPickup,
   pickupTypeById,
 } from "../src/game/pickuptypes.js";
@@ -1573,6 +1574,11 @@ test("applyPickup dispatches every kind in the catalogue correctly", () => {
   applyPickup(shieldType, player, loadout);
   assert.equal(player.shieldCharge, shieldType.duration);
   assert.equal(player.shieldTime, 0);
+
+  const boostType = PICKUP_TYPES.find((t) => t.kind === BOOST);
+  applyPickup(boostType, player, loadout);
+  assert.equal(player.boostTime, boostType.duration);
+  assert.equal(player.boost, boostType.amount);
 });
 
 test("a charged shield opens its window on the first hit, and eats that hit", () => {
@@ -1615,6 +1621,82 @@ test("the DEFLECTOR bonus applies when a charge fires, not when it is banked", (
   player.shieldBonus = 3;
   player.damage(10);
   assert.equal(player.shieldTime, 8);
+});
+
+// --- The overdrive buff (pickuptypes.js's BOOST) ---------------------------
+
+test("every BOOST pickup carries both of the numbers its effect needs", () => {
+  for (const type of PICKUP_TYPES) {
+    if (type.kind !== BOOST) continue;
+    assert.ok(type.amount > 0, `${type.id} lifts the speed band by nothing`);
+    assert.ok(type.duration > 0, `${type.id} lifts the speed band for no time at all`);
+  }
+});
+
+test("a boost lifts BOTH ends of the player's speed band by its amount", () => {
+  const player = new Player(0, 0);
+  const stockMin = player.minSpeed;
+  const stockTop = player.topSpeed;
+  assert.equal(stockMin, MIN_SPEED);
+
+  player.activateBoost(200, 6);
+  assert.equal(player.minSpeed, stockMin + 200);
+  assert.equal(player.topSpeed, stockTop + 200);
+});
+
+test("a boost puts the car at the raised floor immediately, without touching the throttle", () => {
+  const player = new Player(0, 0);
+  const bounds = { left: -10000, right: 10000 };
+  player.speed = MIN_SPEED;
+
+  player.activateBoost(200, 6);
+  player.update(1 / 60, bounds);
+  assert.equal(player.speed, MIN_SPEED + 200,
+    "the raised floor is what makes a boost felt without the player doing anything");
+});
+
+test("a boost expires on its own clock and drops the car back to its stock band", () => {
+  const player = new Player(0, 0);
+  const bounds = { left: -10000, right: 10000 };
+
+  player.activateBoost(200, 0.5);
+  // Put the car at the top of the RAISED band. The clamp is what allows it to
+  // sit there; the throttle is what would actually get it there in play.
+  player.speed = player.topSpeed;
+  player.update(0.25, bounds);
+  assert.ok(player.boostTime > 0, "half a boost's duration must not end it");
+  assert.equal(player.speed, player.maxSpeed + 200, "a boosted car may exceed its stock ceiling");
+
+  player.update(0.25, bounds);
+  assert.equal(player.boostTime, 0);
+  assert.equal(player.boost, 0);
+  assert.equal(player.topSpeed, player.maxSpeed);
+  assert.equal(player.speed, player.maxSpeed, "the stock ceiling must be back in force");
+});
+
+test("boosts never stack — a second crate takes the better of each half, not the sum", () => {
+  const player = new Player(0, 0);
+
+  player.activateBoost(200, 6);
+  player.activateBoost(120, 2); // weaker and shorter — must change nothing
+  assert.equal(player.boost, 200);
+  assert.equal(player.boostTime, 6);
+
+  player.activateBoost(300, 1); // stronger but shorter — takes the lift, keeps the clock
+  assert.equal(player.boost, 300);
+  assert.equal(player.boostTime, 6);
+
+  player.activateBoost(50, 9); // weaker but longer — keeps the lift, takes the clock
+  assert.equal(player.boost, 300);
+  assert.equal(player.boostTime, 9);
+});
+
+test("a boost rides on top of whatever the shop's ENGINE tiers already bought", () => {
+  const player = new Player(0, 0);
+  player.applyUpgrades({ maxSpeed: 800, mass: player.mass, shieldBonus: 0, maxHealth: player.maxHealth });
+
+  player.activateBoost(200, 6);
+  assert.equal(player.topSpeed, 1000, "the buff is added to the UPGRADED ceiling, not to the stock one");
 });
 
 test("driving onto a pickup applies its effect, removes the crate and bursts once", () => {

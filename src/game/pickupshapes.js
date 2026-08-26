@@ -4,7 +4,7 @@
 // NAME (pickupShapeIndex) and asks for it to be drawn; adding a new buff's
 // artwork means adding an entry here and nothing else.
 //
-// ONE BODY, FIVE GLYPHS. Every pickup shares a single silhouette — a flat
+// ONE BODY, SIX GLYPHS. Every pickup shares a single silhouette — a flat
 // DIAMOND RETICLE with four corner brackets, alpha-pulsing as one piece — so
 // the road reads "collectible" before the player is close enough to see which
 // buff it is; only the glyph at the centre answers that. The body is
@@ -195,6 +195,30 @@ function drawShieldGlyph(ctx, cx, cy, phase) {
   glowPoly(ctx, ngon(cx, cy, 3, 10), SHIELD_FLICKER, 1, 7, "#0d2830");
 }
 
+// Boost: a single WIDE chevron with two speed streaks running back from it —
+// the player's own thruster magenta (PLAYER_THRUST), because that is exactly
+// what the buff shows on the road: the plume pinned wide open (player.js's
+// update()).
+//
+// DELIBERATELY UNLIKE THE ROCKET CRATE, which is the only other chevron glyph
+// here. That one is three NARROW chevrons stacked into a tapering column, in
+// the rocket's orange; this is one chevron spanning nearly the whole reticle
+// with streaks behind it, in magenta. Width, count and colour all differ, so
+// the two never trade places at speed — the same rule the mine and spikes
+// glyphs above follow to stay apart.
+function drawBoostGlyph(ctx, cx, cy) {
+  const half = 9;
+  glowPoly(ctx, [
+    [cx - half, cy + 3], [cx, cy - 6], [cx + half, cy + 3],
+    [cx, cy - 1],
+  ], PLAYER_THRUST, 1.8, 9);
+  // Streaks trailing the chevron — shorter toward the outside, so they read as
+  // draught coming off the tips rather than as a second, smaller chevron.
+  for (const [dx, len] of [[-5, 7], [0, 9], [5, 7]]) {
+    glowLine(ctx, cx + dx, cy + 5, cx + dx, cy + 5 + len, PLAYER, 1.4, 8);
+  }
+}
+
 // Fields:
 //   name   stable key (pickuptypes.js looks these up by name)
 //   size   [w, h] footprint pickups.js tests player contact against
@@ -256,6 +280,15 @@ export const PICKUP_SHAPES = [
     draw(ctx, cx, cy, pulse, phase) {
       drawReticle(ctx, cx, cy, pulse);
       drawShieldGlyph(ctx, cx, cy, phase);
+    },
+  },
+  {
+    name: "BOOST",
+    size: [28, 28],
+    extent: { x: RETICLE_REACH, up: RETICLE_REACH, down: RETICLE_REACH },
+    draw(ctx, cx, cy, pulse) {
+      drawReticle(ctx, cx, cy, pulse);
+      drawBoostGlyph(ctx, cx, cy);
     },
   },
 ];

@@ -224,10 +224,29 @@ test("buildPickupState reports duration for the SHIELD pickup, not amount", () =
   assert.ok(!("amount" in state.values));
 });
 
-test("buildAllPickupState covers every kind with the effect fields PICKUP_EFFECT_FIELDS declares", () => {
+test("buildPickupState reports BOTH amount and duration for the BOOST pickup", () => {
+  const state = buildPickupState("overdrive");
+  assert.equal(state.kind, "boost");
+  assert.equal(typeof state.values.amount, "number");
+  assert.equal(typeof state.values.duration, "number");
+});
+
+test("buildAllPickupState reports every effect field its type carries, and no others", () => {
   for (const state of buildAllPickupState()) {
+    const type = PICKUP_TYPES.find((t) => t.id === state.id);
     const effectKeys = Object.keys(state.values).filter((f) => PICKUP_EFFECT_FIELDS.includes(f));
-    assert.equal(effectKeys.length, 1, `${state.id} should report exactly one effect field`);
+    // At least one: a crate that grants nothing measurable has nothing to tune.
+    // Most kinds carry exactly one; BOOST carries both (pickuptypes.js's header
+    // explains why an overdrive is meaningless without the pair).
+    assert.ok(effectKeys.length > 0, `${state.id} reports no effect field at all`);
+    for (const field of effectKeys) {
+      assert.ok(field in type, `${state.id} reports "${field}", which its catalogue entry does not have`);
+    }
+    for (const field of PICKUP_EFFECT_FIELDS) {
+      if (field in type) {
+        assert.ok(effectKeys.includes(field), `${state.id} has "${field}" but the editor never surfaces it`);
+      }
+    }
   }
 });
 

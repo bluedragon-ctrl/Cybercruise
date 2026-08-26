@@ -764,8 +764,8 @@ function generatePickupAmmo(ctx, dest, t) {
 
 registerGenerator("pickup_ammo", generatePickupAmmo);
 
-// The two crate confirmations that CLIMB (game/pickuptypes.js's HEAL and
-// SHIELD kinds). ONE SHARED SHAPE, TWO REGISTRATIONS — the same treatment
+// The three crate confirmations that CLIMB (game/pickuptypes.js's HEAL,
+// SHIELD and BOOST kinds). ONE SHARED SHAPE, THREE REGISTRATIONS — the same treatment
 // generateConsoleTick below gives its three severities, and for the same
 // reason: these differ ONLY in how far they climb and how long they take.
 // Waveform, envelope and start pitch are identical and are meant to be.
@@ -776,10 +776,16 @@ registerGenerator("pickup_ammo", generatePickupAmmo);
 // brighter than the other. They are told apart by WHICH INTERVAL they climb,
 // which is precisely the parameter this builder takes:
 //
-//   pickup_heal    A2 -> E3, a fifth,  over 250ms
-//   pickup_shield  A2 -> A3, an OCTAVE, over 300ms
+//   pickup_heal    A2 -> E3, a fifth,          over 250ms
+//   pickup_shield  A2 -> A3, an OCTAVE,         over 300ms
+//   pickup_boost   A2 -> G3, a minor SEVENTH,   over 400ms
 //
-// The wider interval is the stronger buff. shield_drone (sustainedfx.js) then
+// The wider interval is the stronger buff — which puts the overdrive between
+// the heal and the shield, where it belongs: it is worth more than 70 hull
+// and less than five seconds of not being hit. What sets it apart from both
+// is the CLIMB TIME, the longest of the three, because it is the only one of
+// them whose effect keeps changing after the tone has stopped — the car is
+// still gathering speed while the note is still rising. shield_drone (sustainedfx.js) then
 // takes over for the shield's duration, driven independently off
 // player.shieldTime in main.js's update loop, not from anything here — this is
 // only the confirmation tone for the INSTANT of collection.
@@ -802,6 +808,7 @@ function risingCrateTone(toFreq, dur) {
 
 registerGenerator("pickup_heal", risingCrateTone(164.81, 0.25)); // E3
 registerGenerator("pickup_shield", risingCrateTone(220, 0.3)); // A3
+registerGenerator("pickup_boost", risingCrateTone(196, 0.4)); // G3
 
 // --- Phase 8 step 4: console log ticks ------------------------------------
 //

@@ -5,7 +5,7 @@
 // to obstacleshapes.js) and, if it is a new KIND of effect, one more branch in
 // applyPickup below.
 //
-// THREE KINDS, deliberately kept this small rather than growing a field per
+// FOUR KINDS, deliberately kept this small rather than growing a field per
 // possible effect:
 //
 //   AMMO    tops up a weapon already in the player's Loadout (weapons.js).
@@ -18,6 +18,12 @@
 //   SHIELD  banks `duration` seconds of invulnerability via
 //           Player.chargeShield — the window opens on the first hit taken,
 //           not on contact with the crate.
+//   BOOST   lifts BOTH ends of the player's speed band by `amount` world
+//           units/sec for `duration` seconds, via Player.activateBoost. The
+//           only kind that spends TWO numbers — every other effect above is
+//           "how much" or "how long", and an overdrive is meaningless without
+//           both. That is also why tools/car-editor surfaces a crate's whole
+//           effect group rather than a single field; see its state.js.
 //
 // WEIGHTS ARE UNIFORM FOR NOW. The Standard Loadout proposal this catalogue
 // implements called for gating the stronger buffs (MINE, SHIELD) behind a
@@ -34,6 +40,7 @@ import { pickWeighted } from "./weightedpick.js";
 export const AMMO = "ammo";
 export const HEAL = "heal";
 export const SHIELD = "shield";
+export const BOOST = "boost";
 
 export const PICKUP_TYPES = [
   {
@@ -113,6 +120,29 @@ export const PICKUP_TYPES = [
     weight: 1,
     minDistance: 0,
   },
+  {
+    id: "overdrive",
+    label: "OVERDRIVE",
+    shape: pickupShapeIndex("BOOST"),
+    kind: BOOST,
+    // +200 on both ends of the band (player.js's MIN_SPEED 120 / MAX_SPEED
+    // 620): a floor of 320 — above the stock car's 260 starting speed and
+    // level with the quicker half of traffic (cartypes.js) — and a ceiling of
+    // 820, a third again over stock. Big enough that the road visibly rushes
+    // at the player rather than reading as a nudge, and small enough that the
+    // ENGINE ladder in the dock (upgrades.js) is still the thing that makes a
+    // car permanently fast; this is six seconds of borrowed pace.
+    amount: 200,
+    duration: 6,
+    // THE STINGIEST DRAW IN THE CATALOGUE (half a mine crate's), and gated
+    // behind the rocket crate's own 500. A boost is the one buff that makes
+    // the game HARDER while it runs — everything on the road arrives sooner
+    // and there is no way to refuse it — so meeting one in the first few
+    // hundred metres, before the player can place the car reliably, would
+    // read as a punishment rather than a reward.
+    weight: 0.5,
+    minDistance: 500,
+  },
 ];
 
 // Whether `type` may appear yet, given the RAW world odometer. Mirrors
@@ -153,6 +183,9 @@ export function applyPickup(type, player, loadout) {
       break;
     case SHIELD:
       player.chargeShield(type.duration);
+      break;
+    case BOOST:
+      player.activateBoost(type.amount, type.duration);
       break;
   }
 }

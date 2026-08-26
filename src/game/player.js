@@ -94,6 +94,25 @@ const SHIELD_ORB_ALPHA = 0.3; // peak alpha; halved at the bottom of the breath
 export const SHIELD_EXPIRING = 1; // seconds left when the flicker starts
 const SHIELD_FLICKER_RATE = 26; // rad/sec of the flicker's own sine
 
+// The overdrive buff (game/pickuptypes.js's BOOST entry activates this).
+// While it runs, the car's whole speed BAND slides up by a flat amount: the
+// floor the throttle can fall back to and the ceiling it can climb to both
+// move by the same number, which is what makes the buff felt without the
+// player having to do anything about it.
+//
+// LIFTING THE FLOOR IS THE HALF THAT MATTERS. A raised ceiling alone sells a
+// top speed the car needs the better part of a second at ACCEL (380/sec) to
+// climb into, and only holds while the throttle is held — most of a short
+// buff would be spent getting there. The floor is enforced by update()'s own
+// clamp every tick, so raising it puts the car at the new speed on the frame
+// the crate is collected, whatever the player is doing with the throttle.
+//
+// Exported for the same reason SHIELD_EXPIRING is: main.js's HUD readout
+// flickers on this clock rather than hand-picking a second number that could
+// quietly drift from it.
+export const BOOST_EXPIRING = 1; // seconds left when the HUD readout starts flickering
+export const BOOST_FLICKER_RATE = 26; // rad/sec — the shield readout's own, so the two blink alike
+
 export class Player {
   // `onDamage` is optional: `(hp, deflected) => void`, called every time
   // damage() below is invoked with hp > 0 — `deflected` is true when the
@@ -149,6 +168,10 @@ export class Player {
     // instead of starting it, and damage() spends the charge on the first hit
     // that would actually land. See chargeShield below.
     this.shieldCharge = 0;
+
+    this.boostTime = 0; // seconds of overdrive left (game/pickuptypes.js's BOOST)
+    this.boostAmount = 0; // world units/sec the whole band is lifted by while it runs
+    this.boostPhase = 0; // accumulated only while boosted — drives the HUD's expiry flicker
 
     this.healthWarned = DAMAGE_THRESHOLDS.map(() => false);
   }
@@ -220,6 +243,43 @@ export class Player {
     this.shieldTime = Math.max(this.shieldTime, seconds + this.shieldBonus);
   }
 
+  // Grant `seconds` of overdrive worth `amount` world units/sec on both ends
+  // of the speed band (see BOOST_EXPIRING's header for what that means and
+  // why it is both ends). NOT ADDITIVE, on either axis, and for exactly the
+  // reason activateShield gives above: a cluster of crates must cap out at
+  // "the strongest one, for as long as the longest one" rather than chaining
+  // into a car that is permanently 600 units faster than the catalogue says.
+  //
+  // The two maxima are taken INDEPENDENTLY, which is the one place this
+  // differs from the shield. Collecting a weak-but-long crate while a
+  // strong-but-short one is running keeps the strong lift AND the long clock
+  // — the player is never made worse off by driving over a pickup, which is
+  // the rule the whole catalogue is built on (see pickuptypes.js's header on
+  // a crate always being spent, even wastefully).
+  activateBoost(amount, seconds) {
+    if (amount <= 0 || seconds <= 0) return;
+    this.boostAmount = Math.max(this.boostTime > 0 ? this.boostAmount : 0, amount);
+    this.boostTime = Math.max(this.boostTime, seconds);
+  }
+
+  // How much the band is lifted RIGHT NOW — 0 whenever no boost is running,
+  // so the two accessors below are the only thing anything else has to read.
+  get boost() {
+    return this.boostTime > 0 ? this.boostAmount : 0;
+  }
+
+  // The live ends of the speed band, boost included. EVERYTHING that clamps,
+  // normalises against or displays the band goes through these rather than
+  // through MIN_SPEED/this.maxSpeed, so a boosted car's exhaust plume, HUD and
+  // clamp all agree on where its band currently sits.
+  get minSpeed() {
+    return MIN_SPEED + this.boost;
+  }
+
+  get topSpeed() {
+    return this.maxSpeed + this.boost;
+  }
+
   // Bank `seconds` of shield WITHOUT starting the clock. This is what a SHIELD
   // crate now does (game/pickuptypes.js): the window opens on the first hit
   // that would otherwise hurt (see damage() above), so the buff is spent on
@@ -276,11 +336,32 @@ export class Player {
     this.x += this.vLateral * dt;
     this.vLateral -= this.vLateral * Math.min(1, SHOVE_DAMP * dt);
 
+    // The overdrive clock, ticked BEFORE the speed clamp below rather than
+    // alongside the shield's at the end of this method. The clamp reads the
+    // band this tick's `boost` describes, so running the clock afterwards
+    // would leave the car a whole frame above a ceiling that had already
+    // expired — the buff would visibly outlast its own countdown.
+    if (this.boostTime > 0) {
+      this.boostTime = Math.max(0, this.boostTime - dt);
+      this.boostPhase += dt;
+      if (this.boostTime === 0) this.boostAmount = 0; // the band is back to stock
+    } else {
+      this.boostPhase = 0; // same reset the shield's phase gets at the end of
+                           // this method, and for the same reason: a later
+                           // boost's readout should start from a known point
+    }
+
     // Speed control.
     const throttle = throttleAxis();
     this.speed += throttle * ACCEL * dt;
-    if (this.speed < MIN_SPEED) this.speed = MIN_SPEED;
-    if (this.speed > this.maxSpeed) this.speed = this.maxSpeed;
+    // Against the LIVE band, not the constants: while an overdrive crate is
+    // running both ends of it sit `boost` higher (see activateBoost). The
+    // floor is what puts a boosted car at speed immediately, and the same
+    // clamp is what drops it back the tick the buff expires — a hard step
+    // down rather than a coast, so the end of the buff reads as clearly as
+    // the start of it did.
+    if (this.speed < this.minSpeed) this.speed = this.minSpeed;
+    if (this.speed > this.topSpeed) this.speed = this.topSpeed;
 
     // Constrain to the road; scraping a barrier costs health and scrubs speed.
     //
@@ -323,7 +404,16 @@ export class Player {
     // Normalised against the car's OWN band, not the module's: an upgraded car
     // should still be showing its longest plume when it is flat out, rather
     // than topping the flame off partway up a band it can now exceed.
-    this.exhaust.update(dt, (this.speed - MIN_SPEED) / (this.maxSpeed - MIN_SPEED), throttle);
+    // BOOSTED CARS RUN THE PLUME FLAT OUT, whatever the throttle is doing.
+    // Normalising against the lifted band instead would leave a boosted car
+    // at its new floor showing exactly the plume it showed at the old one —
+    // the buff would move the car without changing anything the player can
+    // see. Pinning the band to 1 for the duration is the tell: the thrusters
+    // are open because something else is holding them there.
+    const band = this.boost > 0
+      ? 1
+      : (this.speed - this.minSpeed) / (this.topSpeed - this.minSpeed);
+    this.exhaust.update(dt, band, throttle);
 
     if (this.flash > 0) this.flash -= dt;
 
