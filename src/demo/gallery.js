@@ -185,6 +185,12 @@ CAR_SHAPES.forEach((s, i) => {
 // than the shape catalogue's cyan, because unlike a silhouette study these are
 // meant to be read as ENEMIES.
 //
+// EXCEPT the cargo drone, which is the one group here that isn't one. It is the
+// shop's, it is the only vehicle in the game that helps the player, and it flies
+// in game/hauler.js in HAULER — the player's cyan a few steps darker. The cell
+// uses the same pair, so the gallery shows the hull as the game actually paints
+// it rather than in a red it stopped wearing.
+//
 // These have no cartypes.js record yet and deliberately will not until the boss
 // phase — see bossshapes.js's header — so this section is the ONLY place they
 // are visible at all. That makes it load-bearing rather than a nicety: without
@@ -197,19 +203,22 @@ CAR_SHAPES.forEach((s, i) => {
 // in the frame.
 const BOSS_CELL = 220;
 for (const group of bossGroups()) {
+  const friendly = group.name === "CARGO DRONE";
   section(`BOSS HULL — ${group.name}`,
-    group.name === "CARGO DRONE"
+    friendly
       ? "player car drawn underneath, since the test is whether it stays visible while carried"
       : "");
   for (const s of group.shapes) {
     cell(s.name, (ctx, size, phase) => {
-      if (group.name === "CARGO DRONE") {
+      if (friendly) {
         drawCar(ctx, size / 2, size / 2, {
           color: pal.PLAYER, thrust: pal.PLAYER_THRUST, wheelPhase: phase,
         });
       }
       drawShapeObject(ctx, size / 2, size / 2, s, {
-        color: pal.ENEMY, thrust: pal.ENEMY_THRUST, wheelPhase: phase,
+        color: friendly ? pal.HAULER : pal.ENEMY,
+        thrust: friendly ? pal.HAULER_THRUST : pal.ENEMY_THRUST,
+        wheelPhase: phase,
       });
     }, { animate: true, size: BOSS_CELL, note: `${s.size[0]}x${s.size[1]} · ${s.pitch}` });
   }
