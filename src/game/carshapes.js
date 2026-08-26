@@ -199,8 +199,11 @@ const CAB = [[0, -1.0], [0.44, -0.98], [0.62, -0.88], [0.66, -0.70], [0.64, -0.5
 //   name        gallery caption / debugging
 //   size        default [w, h] in px; a car type may override
 //   profile     right-half silhouette, or `parts` for articulated vehicles
-//   wheels      [yFrac, halfWidthPx, halfLenPx, exposePx] — x is DERIVED so that
-//               exactly `expose` px of tyre clears the bodywork at that axle
+//   wheels      [yFrac, halfWidthPx, halfLenPx, exposePx, solo] — x is DERIVED so
+//               that exactly `expose` px of tyre clears the bodywork at that
+//               axle. `solo` draws ONE wheel on the centreline instead of a
+//               mirrored pair — a motorcycle's single track, or the odd axle
+//               of a trike; `expose` is unused in that case
 //   wing        rear wing half-width in hw, opaque, drawn above its supports
 //   exhaust     [xFrac, y1, y2] twin thrust glow; `quad` doubles it to four
 //   overhang    how far details reach past the profile, for the sprite bounds
@@ -613,7 +616,17 @@ export function drawShapeObject(ctx, cx, cy, shape, opts = {}) {
   //    tyre, leaving only the part that genuinely pokes past the bodywork. The x
   //    position is derived so every shape shows the same amount of tyre.
   //    Omitted entirely by anything that flies -- see the header.
-  for (const [y, ww = WHEEL_W, wl = WHEEL_L, expose = WHEEL_EXPOSE] of shape.wheels ?? []) {
+  for (const [y, ww = WHEEL_W, wl = WHEEL_L, expose = WHEEL_EXPOSE, solo = false] of
+       shape.wheels ?? []) {
+    // A SOLO wheel sits ON the centreline, and `expose` means nothing to it:
+    // there is no flank for it to clear. It is drawn ONCE rather than as a pair
+    // 0px apart because laying the same tread down twice doubles its shadowBlur,
+    // and that one tyre would then read visibly brighter than every other on the
+    // road -- the neon equivalent of z-fighting.
+    if (solo) {
+      drawWheel(ctx, cx, cy + y * hh, color, wheelPhase, ww, wl);
+      continue;
+    }
     const wx = halfWidthAt(parts, y) * hw + expose - ww;
     drawWheel(ctx, cx - wx, cy + y * hh, color, wheelPhase, ww, wl);
     drawWheel(ctx, cx + wx, cy + y * hh, color, wheelPhase, ww, wl);
@@ -706,8 +719,12 @@ export function shapeExtent(shape, w, h) {
       down = Math.max(down, fy * hh);
     }
   }
-  for (const [y, ww = WHEEL_W, wl = WHEEL_L, expose = WHEEL_EXPOSE] of shape.wheels ?? []) {
-    x = Math.max(x, halfWidthAt(parts, y) * hw + expose);
+  for (const [y, ww = WHEEL_W, wl = WHEEL_L, expose = WHEEL_EXPOSE, solo = false] of
+       shape.wheels ?? []) {
+    // A solo wheel reaches `ww` from the centreline, not out past a flank it
+    // does not have. Getting this wrong only wastes sprite memory -- but it
+    // wastes it on all 16 cached bitmaps of whatever type wears the shape.
+    x = Math.max(x, solo ? ww : halfWidthAt(parts, y) * hw + expose);
     up = Math.max(up, -(y * hh - wl));
     down = Math.max(down, y * hh + wl);
   }
