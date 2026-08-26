@@ -382,9 +382,7 @@ cell("FX · COLLECTED", (ctx, size, phase) => {
     const pulse = 0.7 + 0.3 * Math.sin(seconds * 2.2);
     drawPickupShape(ctx, size / 2, size / 2, PICKUP_TYPES[3].shape, pulse, seconds); // FIX
   } else {
-    drawCollectBurst(ctx, size / 2, size / 2, (time - COLLECT_PAUSE) / COLLECT_DURATION, {
-      color: PICKUP_TYPES[3].color,
-    });
+    drawCollectBurst(ctx, size / 2, size / 2, (time - COLLECT_PAUSE) / COLLECT_DURATION);
   }
 }, { animate: true });
 

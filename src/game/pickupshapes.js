@@ -30,15 +30,10 @@
 import { glowLine, glowPoly } from "../engine/neon.js";
 import { polygon, caltropSpikes } from "./polygon.js";
 import {
-  GREEN,
   GREEN_BRIGHT,
-  GREEN_DIM,
-  GRAY,
-  GRAY_BRIGHT,
-  GRAY_DIM,
-  PURPLE,
-  PURPLE_BRIGHT,
-  PURPLE_DIM,
+  PICKUP_FRAME,
+  PICKUP_FRAME_BRIGHT,
+  PICKUP_FRAME_DIM,
   PLAYER,
   PLAYER_THRUST,
   ROCKET,
@@ -57,24 +52,27 @@ const ngon = (cx, cy, r, n, rot = 0) => polygon(cx, cy, r, r, n, rot);
 // of its (static) spikes; this pulses whole, closer to a HUD element
 // blinking than to a living thing breathing.
 //
-// The FRAME (diamond + corner brackets) is tinted by `scheme` so the three
-// buff KINDS read apart before the glyph at the centre does: ammo -> gray,
-// boosts -> purple, healing -> the world's own green (RETICLE_GREEN, the
-// default every glyph used before kinds had their own tint).
+// The FRAME (diamond + corner brackets) is THE SAME COLOUR ON EVERY CRATE, and
+// that colour is the player's own car cyan a few steps darker (palette.js's
+// PICKUP_FRAME family). It is the "this one is friendly" signal, and it has to
+// mean exactly one thing to work at speed: everything else on the tarmac is a
+// hazard's red, traffic's red/amber or the world's green, so a cyan frame
+// coming up the road is never anything but something to drive INTO.
+//
+// It used to be tinted per KIND (ammo -> gray, boosts -> purple, healing ->
+// green), which spent the frame — the part that reads first and furthest — on
+// a distinction the player only needs once they're close. Kind is the GLYPH's
+// job now; the frame answers friendly-or-hostile alone.
 const RET_R = 14; // diamond half-diagonal
 
-const RETICLE_GREEN = { edge: GREEN, dim: GREEN_DIM, bright: GREEN_BRIGHT };
-const RETICLE_GRAY = { edge: GRAY, dim: GRAY_DIM, bright: GRAY_BRIGHT };
-const RETICLE_PURPLE = { edge: PURPLE, dim: PURPLE_DIM, bright: PURPLE_BRIGHT };
-
-function drawReticle(ctx, cx, cy, pulse, scheme = RETICLE_GREEN) {
+function drawReticle(ctx, cx, cy, pulse) {
   ctx.save();
   ctx.globalAlpha = pulse;
 
   const outer = ngon(cx, cy, RET_R, 4);       // vertices at 0/90/180/270deg — a diamond
   const inner = ngon(cx, cy, RET_R * 0.58, 4);
-  glowPoly(ctx, outer, scheme.edge, 1.5, 9);
-  glowPoly(ctx, inner, scheme.dim, 1, 7, "#0b1118");
+  glowPoly(ctx, outer, PICKUP_FRAME, 1.5, 9);
+  glowPoly(ctx, inner, PICKUP_FRAME_DIM, 1, 7, "#0b1118");
 
   // Corner brackets: a short radial tick past each vertex, capped by a
   // perpendicular stroke — a camera/reticle corner mark aimed outward from
@@ -87,10 +85,13 @@ function drawReticle(ctx, cx, cy, pulse, scheme = RETICLE_GREEN) {
     const py = dx; // perpendicular
     const r1 = RET_R + 2;
     const r2 = RET_R + 7;
-    glowLine(ctx, cx + dx * r1, cy + dy * r1, cx + dx * r2, cy + dy * r2, scheme.bright, 1.3, 7);
+    glowLine(
+      ctx, cx + dx * r1, cy + dy * r1,
+      cx + dx * r2, cy + dy * r2, PICKUP_FRAME_BRIGHT, 1.3, 7,
+    );
     glowLine(
       ctx, cx + dx * r2 - px * 3, cy + dy * r2 - py * 3,
-      cx + dx * r2 + px * 3, cy + dy * r2 + py * 3, scheme.bright, 1.3, 7,
+      cx + dx * r2 + px * 3, cy + dy * r2 + py * 3, PICKUP_FRAME_BRIGHT, 1.3, 7,
     );
   }
 
@@ -137,7 +138,7 @@ function drawTracerGlyph(ctx, cx, cy) {
 
 // Mine ammo: a miniature caltrop — the same six-spike silhouette the road
 // hazard uses (obstacleshapes.js's CALTROP), shrunk and locked inside the
-// friendly green reticle so the FRAME says "yours" while the GLYPH still says
+// player-cyan reticle so the FRAME says "yours" while the GLYPH still says
 // "mine", the same rule obstacleshapes.js gives every hazard's colour.
 function drawMineGlyph(ctx, cx, cy) {
   const r = 3.2;
@@ -208,7 +209,7 @@ export const PICKUP_SHAPES = [
     size: [28, 28],
     extent: { x: RETICLE_REACH, up: RETICLE_REACH, down: RETICLE_REACH },
     draw(ctx, cx, cy, pulse) {
-      drawReticle(ctx, cx, cy, pulse, RETICLE_GRAY);
+      drawReticle(ctx, cx, cy, pulse);
       drawRocketGlyph(ctx, cx, cy);
     },
   },
@@ -217,7 +218,7 @@ export const PICKUP_SHAPES = [
     size: [28, 28],
     extent: { x: RETICLE_REACH, up: RETICLE_REACH, down: RETICLE_REACH },
     draw(ctx, cx, cy, pulse) {
-      drawReticle(ctx, cx, cy, pulse, RETICLE_GRAY);
+      drawReticle(ctx, cx, cy, pulse);
       drawTracerGlyph(ctx, cx, cy);
     },
   },
@@ -226,7 +227,7 @@ export const PICKUP_SHAPES = [
     size: [28, 28],
     extent: { x: RETICLE_REACH, up: RETICLE_REACH, down: RETICLE_REACH },
     draw(ctx, cx, cy, pulse) {
-      drawReticle(ctx, cx, cy, pulse, RETICLE_GRAY);
+      drawReticle(ctx, cx, cy, pulse);
       drawMineGlyph(ctx, cx, cy);
     },
   },
@@ -235,7 +236,7 @@ export const PICKUP_SHAPES = [
     size: [28, 28],
     extent: { x: RETICLE_REACH, up: RETICLE_REACH, down: RETICLE_REACH },
     draw(ctx, cx, cy, pulse) {
-      drawReticle(ctx, cx, cy, pulse, RETICLE_GRAY);
+      drawReticle(ctx, cx, cy, pulse);
       drawSpikesGlyph(ctx, cx, cy);
     },
   },
@@ -253,7 +254,7 @@ export const PICKUP_SHAPES = [
     size: [28, 28],
     extent: { x: RETICLE_REACH, up: RETICLE_REACH, down: RETICLE_REACH },
     draw(ctx, cx, cy, pulse, phase) {
-      drawReticle(ctx, cx, cy, pulse, RETICLE_PURPLE);
+      drawReticle(ctx, cx, cy, pulse);
       drawShieldGlyph(ctx, cx, cy, phase);
     },
   },

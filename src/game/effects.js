@@ -33,6 +33,7 @@ import {
   NEUTRAL,
   NEUTRAL_DEEP,
   NEUTRAL_PALE,
+  PICKUP_FRAME_BRIGHT,
   PLAYER,
   ROCKET,
   ROCKET_HOT,
@@ -677,11 +678,14 @@ export function drawObstacleWreck(ctx, cx, cy, t, opts = {}) {
 // something broke. A clean ring expands and a few sparks kick outward along
 // the reticle's own bracket directions, then it is gone.
 //
-// COLOUR IS THE ONE THING THAT VARIES, and it is the point of the parameter:
-// `color` is passed in from whichever buff was just collected (the same
-// accent the crate's own glyph used — pickupshapes.js), so the burst still
-// answers "which one did I just get" for the instant it is on screen, the way
-// drawWreck reuses a dying car's own colour rather than one fixed hue.
+// ONE COLOUR, THE CAR'S OWN. The burst is drawn in the same player-cyan
+// family the crate's frame rides in (palette.js's PICKUP_FRAME_BRIGHT), so
+// collecting a buff reads as the car taking something INTO itself rather than
+// as another coloured event on a road full of them. This used to vary per
+// buff, echoing whichever glyph had just been picked up — that answered
+// "which one was it?" in the 0.4s the ring is alive, which is a question the
+// SYS LOG line already answers in text and which nobody can read off a hue
+// mid-corner anyway. Faction beats identity here, same call the frame makes.
 export const COLLECT_DURATION = 0.4;
 
 function buildCollectSparks(c, cx, cy, r) {
@@ -695,10 +699,11 @@ function buildCollectSparks(c, cx, cy, r) {
 }
 
 // Draw a collect burst centred at (cx, cy), `t` of the way through
-// COLLECT_DURATION. opts: { color }.
-export function drawCollectBurst(ctx, cx, cy, t, opts = {}) {
+// COLLECT_DURATION. Takes no options — see the header for why the colour is
+// fixed.
+export function drawCollectBurst(ctx, cx, cy, t) {
   if (t < 0 || t >= 1) return;
-  const { color = GREEN_BRIGHT } = opts;
+  const color = PICKUP_FRAME_BRIGHT;
   const r = 4 + t * 26;
   const a = 1 - t;
 
@@ -827,13 +832,11 @@ export class Explosions {
     return this.take(worldY, offset, BURST);
   }
 
-  // A buff crate collected (game/pickups.js). `color` is the crate's own
-  // glyph accent (pickupshapes.js) so the burst still says which buff it was
-  // for the instant it is on screen — see drawCollectBurst's header.
-  spawnCollect(worldY, offset, color) {
-    const slot = this.take(worldY, offset, COLLECT);
-    slot.color = color;
-    return slot;
+  // A buff crate collected (game/pickups.js). Position is the whole record —
+  // every crate bursts in the same player-cyan now, so there is nothing
+  // per-crate to carry here; see drawCollectBurst's header.
+  spawnCollect(worldY, offset) {
+    return this.take(worldY, offset, COLLECT);
   }
 
   update(dt) {
@@ -858,7 +861,7 @@ export class Explosions {
       if (s.kind === BLAST) drawMineBlast(ctx, sx, sy, t, s);
       else if (s.kind === RUBBLE) drawObstacleWreck(ctx, sx, sy, t, s);
       else if (s.kind === BURST) drawFireballBurst(ctx, sx, sy, t, s);
-      else if (s.kind === COLLECT) drawCollectBurst(ctx, sx, sy, t, s);
+      else if (s.kind === COLLECT) drawCollectBurst(ctx, sx, sy, t);
       else drawWreck(ctx, sx, sy, t, s);
     }
   }

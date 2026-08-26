@@ -115,10 +115,10 @@ export class Pickups {
       if (overlaps(p, playerBox)) {
         applyPickup(p.type, player, loadout);
         gameConsole.push(pickupMessage(p.type), gameConsole.HINT);
-        // The burst borrows the crate's own accent (pickuptypes.js's `color`,
-        // matched to the glyph it just showed) — see effects.js's
-        // drawCollectBurst header for why that colour is the whole point.
-        this.explosions.spawnCollect(p.worldY, p.offset, p.type.color);
+        // Every crate bursts in the player's own cyan, whichever buff it was —
+        // see effects.js's drawCollectBurst header for why the burst answers
+        // "that was mine" rather than "that was a rocket refill".
+        this.explosions.spawnCollect(p.worldY, p.offset);
         if (this.onCollect) this.onCollect(p.type);
         p.alive = false;
       }
