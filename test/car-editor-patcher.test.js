@@ -399,6 +399,57 @@ test("patchUpgradeEntry replaces the effect field (amount or duration) on a CONS
   assert.match(durationResult, /id: "buy_shield",[\s\S]*?duration: 9,/);
 });
 
+// The caption is DERIVED, not a second thing to remember: a retune that moves
+// `amount` or `duration` has to move the `detail` string the shelf prints, or
+// the row advertises one figure and pays out another. That drift is not
+// hypothetical — it is what a tuning pass through this very function shipped
+// once, and only test/shop.test.js caught it.
+test("patchUpgradeEntry retunes a consumable's caption along with its effect", () => {
+  const realSource = readFileSync(UPGRADES_PATH, "utf8");
+
+  const repair = patchUpgradeEntry(realSource, "buy_repair", { amount: 90 });
+  assert.ok(entryOf(repair, "buy_repair").includes('detail: "+90 HULL"'),
+    "the repair still advertises its old figure");
+
+  const shield = patchUpgradeEntry(realSource, "buy_shield", { duration: 9 });
+  assert.ok(entryOf(shield, "buy_shield").includes('detail: "9 SEC"'),
+    "the shield still advertises its old figure");
+
+  // Only the FIGURE moves. The units, the sign and the wording around it are
+  // the row's own voice ("SET OF 8" is not "+8 RDS") and a patch that
+  // reformatted them would be rewriting the shelf, not tuning it.
+  const mines = patchUpgradeEntry(realSource, "buy_mine_ammo", { amount: 12 });
+  assert.ok(entryOf(mines, "buy_mine_ammo").includes('detail: "SET OF 12"'),
+    "the caption lost its wording");
+});
+
+test("patchUpgradeEntry leaves the caption alone when only the price moves", () => {
+  // What a row COSTS is not part of what it says it hands over — the shop
+  // screen prints the price from the entry itself — so a price-only retune
+  // must not go near `detail`.
+  const realSource = readFileSync(UPGRADES_PATH, "utf8");
+  const stated = CONSUMABLES.find((e) => e.id === "buy_repair").detail;
+  const result = patchUpgradeEntry(realSource, "buy_repair", { price: 250 });
+  assert.ok(entryOf(result, "buy_repair").includes(`detail: "${stated}"`),
+    "a price change rewrote the caption");
+});
+
+test("patchUpgradeEntry patches a STATS row, which has no caption to keep in step", () => {
+  // Every STATS row states its step through the shop screen rather than in a
+  // `detail` string, so the caption sync has nothing to do there and must not
+  // mistake that for a failure.
+  const realSource = readFileSync(UPGRADES_PATH, "utf8");
+  const result = patchUpgradeEntry(realSource, "engine", { step: 44 });
+  assert.ok(entryOf(result, "engine").includes("step: 44,"));
+});
+
+// Reads back the source text of one catalogue entry, so an assertion about a
+// row cannot accidentally be satisfied by a different row's identical line.
+function entryOf(sourceText, id) {
+  const start = sourceText.indexOf(`id: "${id}"`);
+  assert.notEqual(start, -1, `no entry with id "${id}" in the patched source`);
+  return sourceText.slice(start, sourceText.indexOf("},", start));
+}
 test("patchUpgradeEntry throws when asked to patch duration on a row that only has amount", () => {
   const realSource = readFileSync(UPGRADES_PATH, "utf8");
   assert.throws(
