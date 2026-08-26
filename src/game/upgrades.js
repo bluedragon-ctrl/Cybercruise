@@ -80,7 +80,7 @@ export const CONSUMABLES = [
     // than one the road decided to drop. `detail` is the same figure written out
     // in the player's units, and shop.test.js pins the two together — the number
     // and the caption under it are one edit, never two.
-    amount: 100,
+    amount: 50,
     color: GREEN_BRIGHT,
   },
   {
@@ -99,7 +99,7 @@ export const CONSUMABLES = [
     // THREE TIMES the crate's five seconds (pickuptypes.js): the crate is a
     // reprieve the road handed over mid-fight, this is a stretch of cover the
     // player paid for and gets to spend where they choose.
-    duration: 30,
+    duration: 15,
     color: PLAYER,
   },
   {
