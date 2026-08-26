@@ -29,7 +29,6 @@
 // a catalogue edit, not new machinery.
 import { pickupShapeIndex } from "./pickupshapes.js";
 import { pickWeighted } from "./weightedpick.js";
-import { ROCKET, PLAYER_THRUST, ENEMY, GREEN_BRIGHT, PLAYER } from "../engine/palette.js";
 
 export const AMMO = "ammo";
 export const HEAL = "heal";
@@ -48,7 +47,6 @@ export const PICKUP_TYPES = [
     amount: 18,
     weight: 1,
     minDistance: 0,
-    color: ROCKET, // the rocket weapon's own bullet colour (weapons.js)
   },
   {
     id: "tracer_ammo",
@@ -60,7 +58,6 @@ export const PICKUP_TYPES = [
                 // eight-round bursts (weapons.js)
     weight: 1,
     minDistance: 0,
-    color: PLAYER_THRUST, // the tracker weapon's own bullet colour
   },
   {
     id: "mine_ammo",
@@ -78,12 +75,6 @@ export const PICKUP_TYPES = [
     amount: 2,
     weight: 1,
     minDistance: 0,
-    // ENEMY, not the mine weapon's own HUD colour (weapons.js sets that to
-    // PLAYER_THRUST purely for hull-bar-row legibility). This one matches
-    // what the crate's own glyph is drawn in instead — the mine hazard's
-    // established red (obstacleshapes.js) — so the burst echoes what the
-    // player just saw on the crate, not the HUD text they didn't look at.
-    color: ENEMY,
   },
   {
     id: "spikes_ammo",
@@ -102,9 +93,6 @@ export const PICKUP_TYPES = [
     amount: 1,
     weight: 1,
     minDistance: 0,
-    // ENEMY, matching the crate's own glyph and the hazard's red on the road,
-    // for exactly the reason the mine crate below gives.
-    color: ENEMY,
   },
   {
     id: "fix",
@@ -114,7 +102,6 @@ export const PICKUP_TYPES = [
     amount: 70, // 35% of the player's 200 maxHealth (player.js)
     weight: 1,
     minDistance: 0,
-    color: GREEN_BRIGHT,
   },
   {
     id: "shield",
@@ -124,7 +111,6 @@ export const PICKUP_TYPES = [
     duration: 5,
     weight: 1,
     minDistance: 0,
-    color: PLAYER, // the player's own cyan, matching the shield ring it grants
   },
 ];
 

@@ -318,15 +318,23 @@ export const NEUTRAL_THRUST = "#ffd76a"; // neutral exhaust (warm amber)
 // own family instead of the traffic one.
 export const SHIELD_FLICKER = "#eafff5";
 
-// Pickup reticle families (game/pickupshapes.js). The shared diamond frame
-// every crate rides in is tinted by KIND rather than always green, so the
-// three kinds of buff read apart before the player is close enough to see the
-// glyph at the centre: ammo crates -> gray, boosts (shield, etc.) -> purple,
-// healing stays the world's own green (see GREEN/GREEN_BRIGHT/GREEN_DIM
-// above).
-export const GRAY = "#8a94a0";
-export const GRAY_BRIGHT = "#c3ccd6";
-export const GRAY_DIM = "#4a525c";
-export const PURPLE = "#b866ff";
-export const PURPLE_BRIGHT = "#d9aeff";
-export const PURPLE_DIM = "#5c2e8f";
+// The pickup reticle (game/pickupshapes.js). ONE frame colour for EVERY crate,
+// and it is the PLAYER's own cyan a few steps darker. Hazards are red, traffic
+// is red or amber, the world is green — nothing out there is cyan except the
+// car the player is driving. Painting every buff crate's frame in the car's own
+// colour makes "this one is MINE, drive into it" readable at the same
+// half-second range the traffic faction read works at (see ENEMY/NEUTRAL
+// above), long before the glyph at the centre is legible.
+//
+// DARKER than PLAYER, not equal to it, for two reasons: a crate lying on the
+// tarmac must not out-glow the car itself, and keeping a step between them
+// stops a distant crate from reading as another cyan car. The three shades
+// hold the same base -> bright -> dim relationship every other family here
+// does, with BRIGHT still a step under PLAYER.
+//
+// This deliberately REPLACES per-kind frame tinting (ammo -> gray, boosts ->
+// purple, healing -> green). Which buff it is, is the GLYPH's job; the frame
+// answers the question that matters sooner — friendly, or something to dodge.
+export const PICKUP_FRAME = "#2bb9bf";        // diamond edge
+export const PICKUP_FRAME_BRIGHT = "#32d8e0"; // corner brackets
+export const PICKUP_FRAME_DIM = "#18676b";    // inner diamond
