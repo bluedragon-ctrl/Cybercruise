@@ -50,6 +50,12 @@ a sprite in `src/game/sprites.js`, then register a cell in `src/demo/gallery.js`
 Car types are the exception: the gallery walks the catalogue, so a new entry in
 `src/game/cartypes.js` shows up there on its own.
 
+The silhouette catalogue further down that page draws each car shape at **2x**,
+with its true size in the caption. Those cells are a detail study rather than a
+size-accurate preview — the traffic cells above them are the size-accurate ones —
+because at 1x a 34x62 car is too small to show whether its panel work reads or
+the glow has swallowed it. See the detail budget in `src/game/carshapes.js`.
+
 ### Tuning editor
 
 A local tool (`tools/car-editor/`) for tuning essentially every balance number
