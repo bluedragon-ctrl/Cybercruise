@@ -44,7 +44,11 @@ function replaceNumericField(block, field, value) {
 // throws rather than silently doing nothing. `fnName` is only for error
 // messages, so callers below read as themselves rather than as this shared
 // helper.
-function patchTypeEntry(sourceText, id, changes, fnName) {
+// `postPatch`, when given, gets the fully patched block and the changes that
+// produced it, and returns the block to actually write — the hook that lets a
+// caller keep a DERIVED field (the shop's hand-written `detail` caption) in
+// step with the number it describes.
+function patchTypeEntry(sourceText, id, changes, fnName, postPatch) {
   const idMarker = `id: "${id}"`;
   const idIndex = sourceText.indexOf(idMarker);
   if (idIndex === -1) {
@@ -75,6 +79,7 @@ function patchTypeEntry(sourceText, id, changes, fnName) {
     }
     block = patched;
   }
+  if (postPatch) block = postPatch(block, changes, id, fnName);
 
   return sourceText.slice(0, objStart) + block + sourceText.slice(objEnd + 1);
 }
@@ -104,9 +109,47 @@ export function patchPickupType(sourceText, pickupId, changes) {
 // flat objects with `id` first, exactly like CAR_TYPES/OBSTACLE_TYPES/
 // PICKUP_TYPES above, so the same brace-matching text-surgery applies
 // unchanged; the two shelves share one function here for the same reason they
-// share one file in the game source.
+// share one file in the game source. It patches one field the caller did NOT
+// ask for: see syncDetailCaption below.
 export function patchUpgradeEntry(sourceText, id, changes) {
-  return patchTypeEntry(sourceText, id, changes, "patchUpgradeEntry");
+  return patchTypeEntry(sourceText, id, changes, "patchUpgradeEntry", syncDetailCaption);
+}
+
+// A CONSUMABLES row carries its own caption — `detail: "+70 HULL"`, `"5 SEC"`,
+// `"SET OF 8"` — written out by hand because the three units share no
+// formatter (upgrades.js says why). That makes the caption the one field on
+// the shelf a retune can leave LYING: the row pays out the new figure and goes
+// on advertising the old one, which is exactly what happened when amount and
+// duration were last tuned through here and only test/shop.test.js noticed.
+//
+// So the caption is retuned WITH the effect rather than left to a human: every
+// detail string in the catalogue spells its figure as a single run of digits,
+// so the new value replaces that run and the surrounding units, sign and
+// wording ("+", "HULL", "SET OF") survive untouched. Only `amount` and
+// `duration` are captions — `price` and the STATS shelf's `step` are shown
+// from the entry itself by shopscreen.js, so a row without a `detail` (every
+// STATS row) is simply left alone.
+const CAPTIONED_FIELDS = ["amount", "duration"];
+
+function syncDetailCaption(block, changes, id, fnName) {
+  const captioned = CAPTIONED_FIELDS.filter((f) => f in changes);
+  if (captioned.length === 0) return block;
+  const detail = block.match(/\bdetail:\s*"([^"]*)"/);
+  if (!detail) return block;
+  if (!/\d+/.test(detail[1])) {
+    // Nothing to keep in step, and no way to tell whether the caption is still
+    // true. Refusing beats writing a row that advertises one thing and hands
+    // over another.
+    throw new Error(
+      `${fnName}: cannot retune "${captioned[0]}" on "${id}" — its detail ` +
+        `"${detail[1]}" states no figure to keep in step, so the caption would ` +
+        `have to be rewritten by hand`
+    );
+  }
+  const value = changes[captioned[0]];
+  return block.replace(/(\bdetail:\s*")([^"]*)(")/, (_m, open, text, close) =>
+    open + text.replace(/\d+/, String(value)) + close
+  );
 }
 
 function replaceStringField(block, field, value) {
