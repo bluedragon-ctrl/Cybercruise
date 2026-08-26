@@ -89,12 +89,12 @@ export const CONSUMABLES = [
     detail: "15 SEC",
     price: 50,
     kind: SHIELD,
-    // RUNS FROM THE MOMENT THE WHEELS ARE BACK DOWN, and it costs nothing to
-    // make that true: main.js only advances the player during "playing", so
-    // shieldTime does not tick through the shop screen or through the lowering
-    // sequence either side of it (see updateShopping/updateLowering there). A
-    // shield bought here is therefore still whole when the car lands, which is
-    // the only reading of "buy a shield in a shop" that isn't a swindle.
+    // BANKED, NOT STARTED — same as the crate, since both are spent through
+    // applyPickup (pickuptypes.js) and Player.chargeShield is what that now
+    // calls. The window opens on the first hit taken after the car lands, so a
+    // shield bought here cannot be burned by the shop screen, by the lowering
+    // sequence, or by a quiet stretch of road afterwards. That is the only
+    // reading of "buy a shield in a shop" that isn't a swindle.
     //
     // THREE TIMES the crate's five seconds (pickuptypes.js): the crate is a
     // reprieve the road handed over mid-fight, this is a stretch of cover the
