@@ -164,6 +164,10 @@ export class Player {
 
     this.shieldTime = 0; // seconds of invulnerability left (game/pickuptypes.js's SHIELD)
     this.shieldPhase = 0; // accumulated only while shielded — drives the pulse and the flicker
+    // Seconds of shield BANKED but not yet running: a crate arms the shield
+    // instead of starting it, and damage() spends the charge on the first hit
+    // that would actually land. See chargeShield below.
+    this.shieldCharge = 0;
 
     this.boostTime = 0; // seconds of overdrive left (game/pickuptypes.js's BOOST)
     this.boostAmount = 0; // world units/sec the whole band is lifted by while it runs
@@ -186,6 +190,16 @@ export class Player {
   // flashing on a hit that did nothing would read as damage that wasn't.
   damage(hp) {
     if (hp <= 0) return;
+    // A banked shield (chargeShield) fires HERE, before the hit is applied —
+    // that is the whole point of charging rather than activating: the window
+    // starts on the hit the player did not see coming, not on the crate they
+    // drove over while the road happened to be empty. Only spent when nothing
+    // is already running, so a hit taken mid-window cannot burn the charge.
+    if (this.shieldTime <= 0 && this.shieldCharge > 0) {
+      const banked = this.shieldCharge;
+      this.shieldCharge = 0;
+      this.activateShield(banked);
+    }
     if (this.shieldTime > 0) {
       if (this.onDamage) this.onDamage(hp, true); // deflected — the shield_deflect branch, see the constructor's own comment
       return;
@@ -264,6 +278,19 @@ export class Player {
 
   get topSpeed() {
     return this.maxSpeed + this.boost;
+  }
+
+  // Bank `seconds` of shield WITHOUT starting the clock. This is what a SHIELD
+  // crate now does (game/pickuptypes.js): the window opens on the first hit
+  // that would otherwise hurt (see damage() above), so the buff is spent on
+  // damage rather than on whatever stretch of empty road happened to follow
+  // the crate. Same non-additive rule as activateShield — a second crate
+  // raises the banked figure to the longer of the two rather than stacking —
+  // and the DEFLECTOR bonus is still added at ACTIVATION time, so a bonus
+  // bought between the crate and the hit still counts.
+  chargeShield(seconds) {
+    if (seconds <= 0) return;
+    this.shieldCharge = Math.max(this.shieldCharge, seconds);
   }
 
   // Re-point this car at the stat block the shop's tiers add up to

@@ -72,31 +72,32 @@ export const CONSUMABLES = [
   {
     id: "buy_repair",
     label: "HULL REPAIR",
-    detail: "+50 HULL",
+    detail: "+100 HULL",
     price: 50,
     kind: HEAL,
-    // TUNED BELOW THE FIX CRATE'S OWN 70 (pickuptypes.js) and priced to match:
-    // a repair the player can walk up and buy on demand is worth less per point
-    // than one the road decided to drop. `detail` is the same figure written out
-    // in the player's units, and shop.test.js pins the two together — the number
-    // and the caption under it are one edit, never two.
+    // HALF A STOCK HULL IN ONE PRESS, and comfortably more than the FIX crate's
+    // own 70 (pickuptypes.js): the crate is whatever the road happened to drop,
+    // this is the repair the player walked down a menu and paid for. `detail`
+    // is the same figure written out in the player's units, and shop.test.js
+    // pins the two together — the number and the caption under it are one
+    // edit, never two (the tuning editor makes it one: see patchUpgradeEntry).
     amount: 100,
     color: GREEN_BRIGHT,
   },
   {
     id: "buy_shield",
     label: "SHIELD",
-    detail: "15 SEC",
+    detail: "30 SEC",
     price: 50,
     kind: SHIELD,
-    // RUNS FROM THE MOMENT THE WHEELS ARE BACK DOWN, and it costs nothing to
-    // make that true: main.js only advances the player during "playing", so
-    // shieldTime does not tick through the shop screen or through the lowering
-    // sequence either side of it (see updateShopping/updateLowering there). A
-    // shield bought here is therefore still whole when the car lands, which is
-    // the only reading of "buy a shield in a shop" that isn't a swindle.
+    // BANKED, NOT STARTED — same as the crate, since both are spent through
+    // applyPickup (pickuptypes.js) and Player.chargeShield is what that now
+    // calls. The window opens on the first hit taken after the car lands, so a
+    // shield bought here cannot be burned by the shop screen, by the lowering
+    // sequence, or by a quiet stretch of road afterwards. That is the only
+    // reading of "buy a shield in a shop" that isn't a swindle.
     //
-    // THREE TIMES the crate's five seconds (pickuptypes.js): the crate is a
+    // SIX TIMES the crate's five seconds (pickuptypes.js): the crate is a
     // reprieve the road handed over mid-fight, this is a stretch of cover the
     // player paid for and gets to spend where they choose.
     duration: 30,

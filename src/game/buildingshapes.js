@@ -3,8 +3,8 @@
 //
 // THE PROJECTION
 // --------------
-// The same oblique camera drawBuilding() uses (see sprites.js): the footprint is
-// drawn in plan view on the ground plane, and height maps to a screen offset of
+// One oblique camera for the whole city: the footprint is drawn in plan view
+// on the ground plane, and height maps to a screen offset of
 // (z * skew, -z). A footprint offset (fx, fy) at height z therefore lands at
 //   (cx + fx + z * skew, cy + fy - z)
 //
@@ -13,9 +13,9 @@
 // Because height leans by `skew`, the eye sits along (-skew, +1, +1): below the
 // city, and off to whichever side the roofs lean AWAY from. A face is visible
 // exactly when its outward normal points that way. That one test generalises
-// drawBuilding's hand-derived "roof leans right => you see the left wall" to any
-// footprint, which is what makes hidden-line removal on a 16-sided drum or a
-// hexagonal tower no harder than on a box — and hidden-line removal is the whole
+// the hand-derived "roof leans right => you see the left wall" this started as
+// to ANY footprint, which is what makes hidden-line removal on a 16-sided drum
+// no harder than on a box — and hidden-line removal is the whole
 // game here, since drawing the far edges is what makes a solid read as a
 // see-through wireframe.
 //
@@ -28,8 +28,9 @@
 //
 // Crucially the renderer AND the sprite bounding box are both derived from that
 // same list, so a new shape can never draw outside the offscreen canvas the
-// sprite cache sized for it. Adding a shape means adding a builder below and
-// nothing else.
+// sprite cache sized for it. Adding a shape means adding one DATA ENTRY to
+// the catalogue below — no new drawing code, and no JavaScript at all beyond
+// the literal itself.
 //
 // COST: none per frame. These go through the same sprite cache as the box (see
 // spritecache.js) — a shape is rendered once and blitted (~1.3us) thereafter, so
@@ -81,89 +82,170 @@ function section(base, z0, z1, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// The catalogue. Each builder turns the shared dimensions (w, d, height) into
-// sections, so every shape still answers to the same variant rolls as the box.
+// The catalogue. A shape is DATA: a list of prism sections, each stated in
+// FRACTIONS of the shared dimensions (w, d, height) rather than in pixels, so
+// every shape still answers to the same variant rolls as the box. compile()
+// below turns one into the { sections, beacons } the renderer consumes, so the
+// renderer never learns the difference.
+//
+// WHY DATA RATHER THAN A FUNCTION. A builder could do anything, and that freedom
+// bought nothing: every shape here was already the same four moves — pick a
+// footprint, sweep it between two heights, maybe taper it, maybe slant its roof.
+// As data a shape can be authored, diffed, generated or round-tripped through a
+// tool without writing JavaScript, and the interpreter runs once per sprite
+// cache MISS, never per frame.
+//
+// AND WHY NOT IMAGE ASSETS, which is the other place this reasoning leads. Four
+// things in this codebase need a building to be geometry rather than pixels:
+// sprites are keyed by SECTOR because palette.js's setSector recolours every
+// one of them; they are rasterised at whatever device resolution the window
+// currently has (spritecache.js drops the lot when that changes); citygrid.js
+// sites a building from its FOOTPRINT; and the entry wipe lightens a building's
+// own edge colour. Data keeps all four. A PNG throws all four away and costs
+// megabytes to do it.
+//
+// FRACTIONS OF WHAT:
+//   plan      ["rect", fw, fd] or ["ngon", fw, fd, n, rot] — fw/fd multiply
+//             o.w / o.d, and `rot` is in TURNS, as ngon() takes it
+//   offset    [dx, dy], multiplying o.w / o.d — towers set side by side
+//   z         [z0, z1], multiplying o.height. MAY EXCEED 1: a mast does
+//   topScale  as section(): 0 tapers to a point, 1 is straight-sided
+//   topZ      per-vertex roof heights, also multiplying o.height
+//   smooth, ribEvery   as section()
+//   beacons   [x, y, z], multiplying o.w / o.d / o.height
 // ---------------------------------------------------------------------------
 
-export const SHAPE_NAMES = [
-  "PYRAMID",
-  "ZIGGURAT",
-  "TAPER",
-  "DRUM",
-  "SPIRE",
-  "TWIN",
-  "WEDGE",
-  "HEX",
+const SHAPES = [
+  {
+    // THE BOX — the plain extruded cube the city is mostly made of, and the
+    // reason the rest of this catalogue exists (so the skyline isn't wall to
+    // wall cubes). It is stated here rather than drawn by a renderer of its own:
+    // sprites.js used to carry a hand-derived drawBuilding() that reasoned out
+    // hidden-line removal for this one solid, which is the general case
+    // drawSection already handles for a 16-sided drum.
+    //
+    // ITS WEIGHT IS THE POINT. The box is the city's NEUTRAL form, and a drum
+    // only reads as special when most of what surrounds it does not — so it
+    // takes a third of the variant slots and every sculptural shape divides
+    // what's left. Drop this below about a quarter and the skyline stops having
+    // a rhythm for the others to stand out against.
+    name: "BOX",
+    weight: 8,
+    sections: [{ plan: ["rect", 1, 1], z: [0, 1] }],
+  },
+  {
+    // One section tapering to a point, with a beacon at the apex.
+    name: "PYRAMID",
+    weight: 1,
+    sections: [{ plan: ["rect", 1, 1], z: [0, 1], topScale: 0 }],
+    beacons: [[0, 0, 1]],
+  },
+  {
+    // Three setback tiers.
+    name: "ZIGGURAT",
+    weight: 3,
+    sections: [
+      { plan: ["rect", 1, 1], z: [0, 0.3] },
+      { plan: ["rect", 0.72, 0.72], z: [0.3, 0.68] },
+      { plan: ["rect", 0.44, 0.44], z: [0.68, 1] },
+    ],
+  },
+  {
+    // A single wall sloping inward, the classic setback skyscraper.
+    name: "TAPER",
+    weight: 3,
+    sections: [{ plan: ["rect", 1, 1], z: [0, 1], topScale: 0.55 }],
+  },
+  {
+    // A round tower. 16 facets read as a curve once the per-facet creases are
+    // suppressed; the ribs put some vertical detail back.
+    name: "DRUM",
+    weight: 2,
+    sections: [{ plan: ["ngon", 1, 1, 16], z: [0, 1], smooth: true, ribEvery: 3 }],
+  },
+  {
+    // A slim tower carrying a tapered mast and a beacon.
+    name: "SPIRE",
+    weight: 1,
+    sections: [
+      { plan: ["rect", 0.66, 0.66], z: [0, 0.78] },
+      { plan: ["rect", 0.16, 0.16], z: [0.78, 1.4], topScale: 0.35 },
+    ],
+    beacons: [[0, 0, 1.4]],
+  },
+  {
+    // A slanted roof, low at the front and full height at the back. Per-vertex
+    // roof heights, in the footprint's own vertex order: rect() starts at the
+    // front-left corner and runs front-left, front-right, back-right, back-left.
+    name: "WEDGE",
+    weight: 2,
+    sections: [{ plan: ["rect", 1, 1], z: [0, 1], topZ: [0.5, 0.5, 1, 1] }],
+  },
+  {
+    // A hexagonal prism. Three walls face the camera instead of two, so the
+    // facing-based shading gives it a rounded, lit look.
+    name: "HEX",
+    weight: 3,
+    sections: [{ plan: ["ngon", 1, 1.1, 6], z: [0, 1] }],
+  },
+  {
+    // Four setback tiers, each TURNED against the one below so a corner sits
+    // over the middle of the tier beneath it. The ROTATION, not the setback, is
+    // what separates them — which is why two tiers here can be nearly the same
+    // size and the stack still reads as stepped, where the ziggurat has to
+    // shrink hard at every step to say the same thing.
+    //
+    // A diamond of the same w x d covers HALF the area of the box it alternates
+    // with, so the turned tiers are scaled up. Without that the stack reads as
+    // shrinking twice as fast as it really does, and the overhang the whole
+    // alternation exists for never appears.
+    name: "PINWHEEL",
+    weight: 1,
+    sections: [
+      { plan: ["rect", 1, 1], z: [0, 0.26] },
+      { plan: ["ngon", 1.15, 1.15, 4, 0], z: [0.26, 0.54] },
+      { plan: ["rect", 0.72, 0.72], z: [0.54, 0.78] },
+      { plan: ["ngon", 0.82, 0.82, 4, 0], z: [0.78, 1] },
+    ],
+  },
 ];
 
-const BUILDERS = [
-  // 0 — PYRAMID: one section tapering to a point, with a beacon at the apex.
-  (o) => ({
-    sections: [section(rect(o.w, o.d), 0, o.height, { topScale: 0 })],
-    beacons: [[0, 0, o.height]],
-  }),
+export const SHAPE_NAMES = SHAPES.map((s) => s.name);
+// How many of the city's variant slots each silhouette gets — its RARITY. Stated
+// per shape, next to the shape, the same way cartypes.js states a car's spawn
+// `weight` on the car. sprites.js expands these into the slot table; see the
+// note there for why the totals are what they are.
+export const SHAPE_WEIGHTS = SHAPES.map((s) => s.weight ?? 1);
+export const SHAPE_COUNT = SHAPES.length;
 
-  // 1 — ZIGGURAT: three setback tiers.
-  (o) => ({
-    sections: [
-      section(rect(o.w, o.d), 0, o.height * 0.3),
-      section(rect(o.w * 0.72, o.d * 0.72), o.height * 0.3, o.height * 0.68),
-      section(rect(o.w * 0.44, o.d * 0.44), o.height * 0.68, o.height),
-    ],
-  }),
+// One footprint spec -> plan-view points in px, around the base centre.
+function plan(spec, o) {
+  const [kind, fw, fd, n, rot = 0] = spec;
+  if (kind === "rect") return rect(o.w * fw, o.d * fd);
+  if (kind === "ngon") return ngon(o.w * fw, o.d * fd, n, rot);
+  // Thrown rather than defaulted: a typo'd kind would otherwise silently draw
+  // the wrong building, and the city would just look subtly off.
+  throw new Error(`unknown footprint kind: ${kind}`);
+}
 
-  // 2 — TAPER: a single wall sloping inward, the classic setback skyscraper.
-  (o) => ({
-    sections: [section(rect(o.w, o.d), 0, o.height, { topScale: 0.55 })],
-  }),
-
-  // 3 — DRUM: a round tower. 16 facets read as a curve once the per-facet
-  // creases are suppressed; the ribs put some vertical detail back.
-  (o) => ({
-    sections: [
-      section(ngon(o.w, o.d, 16), 0, o.height, { smooth: true, ribEvery: 3 }),
-    ],
-  }),
-
-  // 4 — SPIRE: a slim tower carrying a tapered mast and a beacon.
-  (o) => ({
-    sections: [
-      section(rect(o.w * 0.66, o.d * 0.66), 0, o.height * 0.78),
-      section(rect(o.w * 0.16, o.d * 0.16), o.height * 0.78, o.height * 1.4, { topScale: 0.35 }),
-    ],
-    beacons: [[0, 0, o.height * 1.4]],
-  }),
-
-  // 5 — TWIN: two towers of unequal height joined by a sky bridge. The bridge is
-  // just another section, so the depth sort puts it in front of both towers.
-  (o) => ({
-    sections: [
-      section(at(rect(o.w * 0.36, o.d * 0.8), -o.w * 0.3, 0), 0, o.height),
-      section(at(rect(o.w * 0.36, o.d * 0.8), o.w * 0.3, 0), 0, o.height * 0.74),
-      section(rect(o.w * 0.62, o.d * 0.3), o.height * 0.46, o.height * 0.56),
-    ],
-  }),
-
-  // 6 — WEDGE: a slanted roof, low at the front and full height at the back.
-  // Per-vertex roof heights, in the footprint's own vertex order: rect() starts
-  // at the front-left corner and runs front-left, front-right, back-right,
-  // back-left.
-  (o) => ({
-    sections: [
-      section(rect(o.w, o.d), 0, o.height, {
-        topZ: [o.height * 0.5, o.height * 0.5, o.height, o.height],
-      }),
-    ],
-  }),
-
-  // 7 — HEX: a hexagonal prism. Three walls face the camera instead of two, so
-  // the facing-based shading gives it a rounded, lit look.
-  (o) => ({
-    sections: [section(ngon(o.w, o.d * 1.1, 6), 0, o.height)],
-  }),
-];
-
-export const SHAPE_COUNT = BUILDERS.length;
+// A data shape -> the geometry the renderer below consumes. Runs on a sprite
+// cache MISS only (see sprites.js), so its cost never reaches a frame.
+function compile(shape, o) {
+  const sections = shape.sections.map((s) => {
+    const pts = plan(s.plan, o);
+    const base = s.offset ? at(pts, o.w * s.offset[0], o.d * s.offset[1]) : pts;
+    const opts = {};
+    if (s.topScale !== undefined) opts.topScale = s.topScale;
+    if (s.topZ) opts.topZ = s.topZ.map((f) => o.height * f);
+    if (s.smooth) opts.smooth = true;
+    if (s.ribEvery) opts.ribEvery = s.ribEvery;
+    return section(base, o.height * s.z[0], o.height * s.z[1], opts);
+  });
+  return {
+    sections,
+    beacons: shape.beacons?.map(([x, y, z]) => [o.w * x, o.d * y, o.height * z]),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Projection / visibility
@@ -229,7 +311,7 @@ function mixHex(a, b, t) {
 // Draws shape `shape` with its base centre at (cx, cy).
 export function drawShape(ctx, cx, cy, shape, opts = {}) {
   const o = shapeOpts(opts);
-  const geom = BUILDERS[shape](o);
+  const geom = compile(SHAPES[shape], o);
   const eye = eyeDir(o.skew);
 
   // Painter's order, nearest last. Distance along the eye direction: a section
@@ -298,14 +380,18 @@ function drawSection(ctx, cx, cy, s, o, eye) {
   }
   if (!pointed) fillPoly(ctx, top, BUILDING_FILL_ROOF);
 
-  // Footprint edges of the visible walls, but only for sections standing on the
-  // ground — an upper tier's underside is inside the solid.
-  if (s.z0 <= 0) {
-    for (let i = 0; i < n; i++) {
-      if (!visible[i]) continue;
-      const j = (i + 1) % n;
-      glowLine(ctx, bot[i][0], bot[i][1], bot[j][0], bot[j][1], BUILDING_EDGE_DIM, 1, 5);
-    }
+  // Footprint edges of the visible walls — for EVERY section, not just the ones
+  // standing on the ground. A tier's base line lands on the roof of the tier
+  // below it, and that line is what says the two are STACKED rather than fused
+  // into one lump: without it a ziggurat's steps read as a single tapering mass,
+  // and a pinwheel's turned tiers lose the very overhang they exist for. It was
+  // originally skipped on the grounds that an upper tier's underside is inside
+  // the solid, which is only true while every tier is strictly inset — the
+  // moment one overhangs, its base is genuinely visible and was missing.
+  for (let i = 0; i < n; i++) {
+    if (!visible[i]) continue;
+    const j = (i + 1) % n;
+    glowLine(ctx, bot[i][0], bot[i][1], bot[j][0], bot[j][1], BUILDING_EDGE_DIM, 1, 5);
   }
 
   // Vertical (or, on a taper, sloping) edges. A sharp shape wants every edge
@@ -351,7 +437,7 @@ function drawBeacon(ctx, p, color) {
 // so the sprite canvas is always big enough for what gets drawn.
 export function shapeExtent(shape, opts = {}) {
   const o = shapeOpts(opts);
-  const geom = BUILDERS[shape](o);
+  const geom = compile(SHAPES[shape], o);
   let minX = 0;
   let maxX = 0;
   let minY = 0;
@@ -385,12 +471,12 @@ export function shapeExtent(shape, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared wall bits, used by the shapes here and by drawBuilding in sprites.js.
+// Shared wall bits.
 // ---------------------------------------------------------------------------
 
 // Fills a polygon with an opaque face colour (no stroke, no glow). Buildings are
 // solid: this is what occludes the floor grid and whatever stands behind them.
-export function fillPoly(ctx, pts, color = BUILDING_FILL) {
+function fillPoly(ctx, pts, color = BUILDING_FILL) {
   ctx.save();
   ctx.fillStyle = color;
   ctx.beginPath();

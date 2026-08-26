@@ -34,7 +34,7 @@ function pickupMessage(type) {
     case HEAL:
       return `HULL REPAIRED +${type.amount}`;
     case SHIELD:
-      return `SHIELD ONLINE ${type.duration}s`;
+      return `SHIELD CHARGED ${type.duration}s`;
     case BOOST:
       // The one line that has to carry BOTH of its type's numbers — see
       // pickuptypes.js's BOOST entry on why an overdrive is meaningless

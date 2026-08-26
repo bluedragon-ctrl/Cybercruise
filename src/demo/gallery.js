@@ -5,7 +5,7 @@
 // To add an asset: draw it in src/game/sprites.js, then register a cell below.
 
 import { clear, glowLine } from "../engine/neon.js";
-import { drawCar, drawBuilding, drawObstacle } from "../game/sprites.js";
+import { drawCar, drawObstacle } from "../game/sprites.js";
 import { drawShape, SHAPE_NAMES } from "../game/buildingshapes.js";
 import { CAR_SHAPES, drawShapeObject } from "../game/carshapes.js";
 import { bossGroups } from "../game/bossshapes.js";
@@ -172,12 +172,26 @@ CAR_TYPES.forEach((t) => {
 // compare SHAPES rather than faction colours. A car type picks one of these by
 // index, exactly as a building picks a shape — so a new entry in carshapes.js
 // appears here on its own, at its own default size.
+//
+// DRAWN AT 2x, for the same reason the cycle hulls below are: this section is a
+// DETAIL study, not a size-accurate cell. The traffic cells above are the ones
+// that promise "exactly the size the game will drive it with", which frees these
+// to answer the question they actually exist for — does the panel work on this
+// hull read, or does the glow swallow it? At 1x a 34x62 car cannot answer that,
+// so every shape looked equally finished no matter how much was drawn into it.
+// The caption carries the true size, so nothing here hides what the road sees.
+const SHAPE_CELL = 200;
+const SHAPE_ZOOM = 2;
 CAR_SHAPES.forEach((s, i) => {
-  cell(`CAR · ${s.name}`, (ctx, size, phase) =>
-    drawCar(ctx, size / 2, size / 2, {
+  cell(`CAR · ${s.name}`, (ctx, size, phase) => {
+    ctx.save();
+    ctx.translate(size / 2, size / 2);
+    ctx.scale(SHAPE_ZOOM, SHAPE_ZOOM);
+    drawCar(ctx, 0, 0, {
       shape: i, color: pal.PLAYER, thrust: pal.PLAYER_THRUST, wheelPhase: phase,
-    }),
-    { animate: true });
+    });
+    ctx.restore();
+  }, { animate: true, size: SHAPE_CELL, note: `${s.size[0]}x${s.size[1]} · shown at 2x` });
 });
 
 // Phase 10 boss hulls, straight from bossshapes.js. Drawn bigger than the rest
@@ -378,14 +392,18 @@ OBSTACLE_SHAPES.forEach((s, i) => {
 
 // Cube buildings. Base is placed low in the cell so the extruded roof has room
 // above it. Varied width/depth/height show the skyline range.
+// The three box proportions the city leans on, drawn through the catalogue
+// like every other shape — there is no separate box renderer any more.
+const BOX = SHAPE_NAMES.indexOf("BOX");
+
 cell("BLDG · SHORT", (ctx, size) =>
-  drawBuilding(ctx, size / 2, size * 0.68, { w: 64, d: 48, height: 34, color: pal.GREEN, seed: 3 }));
+  drawShape(ctx, size / 2, size * 0.68, BOX, { w: 64, d: 48, height: 34, color: pal.GREEN }));
 
 cell("BLDG · TALL", (ctx, size) =>
-  drawBuilding(ctx, size / 2, size * 0.74, { w: 56, d: 44, height: 78, color: pal.GREEN, lit: 0.6, seed: 7 }));
+  drawShape(ctx, size / 2, size * 0.74, BOX, { w: 56, d: 44, height: 78, color: pal.GREEN }));
 
 cell("BLDG · WIDE", (ctx, size) =>
-  drawBuilding(ctx, size / 2, size * 0.70, { w: 96, d: 40, height: 50, color: pal.GREEN, lit: 0.4, seed: 5 }));
+  drawShape(ctx, size / 2, size * 0.70, BOX, { w: 96, d: 40, height: 50, color: pal.GREEN }));
 
 // The alternative silhouettes, one cell each — every third slot of the city's
 // variant catalogue draws one of these instead of a box.

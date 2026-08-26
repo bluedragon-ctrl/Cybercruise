@@ -1568,14 +1568,59 @@ test("applyPickup dispatches every kind in the catalogue correctly", () => {
   applyPickup(healType, player, loadout);
   assert.equal(player.health, player.maxHealth);
 
+  // A shield crate ARMS the shield rather than starting it (player.js's
+  // chargeShield): nothing is running until something hits the car.
   const shieldType = PICKUP_TYPES.find((t) => t.kind === SHIELD);
   applyPickup(shieldType, player, loadout);
-  assert.equal(player.shieldTime, shieldType.duration);
+  assert.equal(player.shieldCharge, shieldType.duration);
+  assert.equal(player.shieldTime, 0);
 
   const boostType = PICKUP_TYPES.find((t) => t.kind === BOOST);
   applyPickup(boostType, player, loadout);
   assert.equal(player.boostTime, boostType.duration);
   assert.equal(player.boost, boostType.amount);
+});
+
+test("a charged shield opens its window on the first hit, and eats that hit", () => {
+  // The whole point of charging: the crate is spent on damage, not on the
+  // empty road that followed it. The hit that trips the shield must itself be
+  // deflected — the charge is checked BEFORE the hull is touched.
+  const player = new Player(0, 0);
+  player.chargeShield(5);
+  assert.equal(player.shieldTime, 0, "a charged shield must not be running yet");
+
+  player.damage(9999);
+  assert.equal(player.health, player.maxHealth, "the hit that trips the shield must be deflected too");
+  assert.equal(player.shieldTime, 5);
+  assert.equal(player.shieldCharge, 0, "the charge is spent");
+});
+
+test("a hit taken mid-window does not burn a second charge", () => {
+  const player = new Player(0, 0);
+  player.activateShield(2);
+  player.chargeShield(5);
+  player.damage(10);
+  assert.equal(player.shieldTime, 2, "the running shield ate the hit");
+  assert.equal(player.shieldCharge, 5, "...so the banked one is still banked");
+});
+
+test("a second charge banks the longer duration rather than stacking", () => {
+  const player = new Player(0, 0);
+  player.chargeShield(5);
+  player.chargeShield(2); // shorter — must not shrink the bank
+  assert.equal(player.shieldCharge, 5);
+  player.chargeShield(9); // longer — must raise it
+  assert.equal(player.shieldCharge, 9);
+});
+
+test("the DEFLECTOR bonus applies when a charge fires, not when it is banked", () => {
+  // Bonus at ACTIVATION time (player.js's chargeShield header): a deflector
+  // bought between the crate and the hit still counts toward that shield.
+  const player = new Player(0, 0);
+  player.chargeShield(5);
+  player.shieldBonus = 3;
+  player.damage(10);
+  assert.equal(player.shieldTime, 8);
 });
 
 // --- The overdrive buff (pickuptypes.js's BOOST) ---------------------------

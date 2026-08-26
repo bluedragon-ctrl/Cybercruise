@@ -554,6 +554,12 @@ function dropMine(car, type) {
 const RIG_SAMPLE = 0.25;
 let rigDue = 0;
 
+// A free-running clock in seconds, advanced every tick whatever the state is.
+// The HUD's own idle animations hang off it — anything that has to breathe
+// without a game-side phase of its own to read (the SHIELD CHARGED tell in
+// drawHud, which by definition has no running timer behind it).
+let hudClock = 0;
+
 // What the deck knows about itself this instant, in the shape game/telemetry.js
 // wants. Assembled here because main.js is the only module that holds all of it
 // — the player, the wallet, the score, the odometer and the state machine live
@@ -677,6 +683,7 @@ function deckSnapshot() {
 // window) pushLog and setStatus both return immediately, and the only cost left
 // is this snapshot — a handful of arithmetic on values already in hand.
 function updateDeck(dt) {
+  hudClock += dt;
   const snap = deckSnapshot();
   telemetry.update(dt, snap, gutter.pushLog);
   rigDue -= dt;
@@ -1332,6 +1339,17 @@ function drawHud() {
       ctx, `SHIELD ${player.shieldTime.toFixed(1)}s`, bx + bw, by - 16,
       expiring ? SHIELD_FLICKER : PLAYER, 12, "right", 8,
     );
+  } else if (player.shieldCharge > 0) {
+    // ...and, in the same slot, the ARMED state: a shield crate no longer
+    // starts a clock (player.js's chargeShield), so without a tell here the
+    // player would have no way to know they are carrying one. Breathes
+    // instead of counting down — there is nothing running to count — at the
+    // shield halo's own pulse rate so the HUD reads as the same system.
+    const breath = (Math.sin(hudClock * 4.2) + 1) / 2; // player.js's SHIELD_PULSE_RATE
+    ctx.save();
+    ctx.globalAlpha = 0.55 + 0.45 * breath;
+    glowText(ctx, "SHIELD CHARGED", bx + bw, by - 16, PLAYER, 12, "right", 8);
+    ctx.restore();
   }
 
   // Empty track.

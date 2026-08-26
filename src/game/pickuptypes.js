@@ -15,8 +15,9 @@
 //           starting ammo. There is no separate "max ammo" concept to keep in
 //           sync here.
 //   HEAL    restores hull via Player.heal, capped at maxHealth there.
-//   SHIELD  grants `duration` seconds of invulnerability via
-//           Player.activateShield.
+//   SHIELD  banks `duration` seconds of invulnerability via
+//           Player.chargeShield — the window opens on the first hit taken,
+//           not on contact with the crate.
 //   BOOST   lifts BOTH ends of the player's speed band by `amount` world
 //           units/sec for `duration` seconds, via Player.activateBoost. The
 //           only kind that spends TWO numbers — every other effect above is
@@ -181,7 +182,7 @@ export function applyPickup(type, player, loadout) {
       player.heal(type.amount);
       break;
     case SHIELD:
-      player.activateShield(type.duration);
+      player.chargeShield(type.duration);
       break;
     case BOOST:
       player.activateBoost(type.amount, type.duration);
