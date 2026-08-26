@@ -314,6 +314,16 @@ export const SOUND_TYPES = [
     maxConcurrent: 2,
     minInterval: 0.1,
   },
+  {
+    id: "pickup_boost",
+    generator: null, // sfx.js's registerGenerator("pickup_boost", ...)
+    gain: 0.65,
+    duck: 0,
+    delaySend: 0.1,
+    priority: 3,
+    maxConcurrent: 2,
+    minInterval: 0.1,
+  },
 
   // --- Phase 8 step 4: console log ticks ----------------------------------
   //

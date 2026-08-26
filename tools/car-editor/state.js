@@ -57,8 +57,8 @@ const live = {
 //
 // Re-importing the five INDEPENDENTLY is correct only because no editable
 // value crosses between them: upgrades.js imports pickuptypes.js, but only
-// for the AMMO/HEAL/SHIELD kind strings and applyPickup(), none of which this
-// editor writes. If an editable field ever became a cross-module import, a
+// for the kind strings (AMMO/HEAL/SHIELD/BOOST) and applyPickup(), none of
+// which this editor writes. If an editable field ever became a cross-module import, a
 // fresh module here would still see the stale copy of its dependency.
 //
 // This refreshes VALUES, not structure: the *_IDS lists below are derived
@@ -273,10 +273,12 @@ export const PICKUP_SPAWN_FIELDS = ["weight", "minDistance"];
 
 // Unlike spawn tuning, the payload each crate grants is NOT the same field
 // across every kind — see pickuptypes.js's header: AMMO and HEAL both spend
-// `amount` (rounds refilled / hull restored), while SHIELD spends `duration`
-// (seconds of invulnerability) instead. A given entry only ever has one of
-// the two, so buildPickupState reports whichever is actually present rather
-// than a fixed pair of keys.
+// `amount` (rounds refilled / hull restored), SHIELD spends `duration`
+// (seconds of invulnerability) instead, and BOOST spends BOTH (world units/sec
+// added to the speed band, and for how long). So buildPickupState reports
+// whichever of the pair the entry actually carries rather than a fixed set of
+// keys — one field for most kinds, two for an overdrive — and the editor
+// builds its Effect section from what it finds.
 export const PICKUP_EFFECT_FIELDS = ["amount", "duration"];
 
 export const PICKUP_FIELDS = [...PICKUP_EFFECT_FIELDS, ...PICKUP_SPAWN_FIELDS];

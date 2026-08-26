@@ -20,7 +20,7 @@
 // real road time to measure the buffs against, not by guessing.
 
 import { drawPickupShape, PICKUP_SHAPES } from "./pickupshapes.js";
-import { pickPickupType, applyPickup, AMMO, HEAL, SHIELD } from "./pickuptypes.js";
+import { pickPickupType, applyPickup, AMMO, HEAL, SHIELD, BOOST } from "./pickuptypes.js";
 import { centerXAt, headingAt, ROAD_HALF_WIDTH } from "./road.js";
 import { overlaps } from "./collisions.js";
 import * as gameConsole from "../engine/console.js";
@@ -35,6 +35,11 @@ function pickupMessage(type) {
       return `HULL REPAIRED +${type.amount}`;
     case SHIELD:
       return `SHIELD ONLINE ${type.duration}s`;
+    case BOOST:
+      // The one line that has to carry BOTH of its type's numbers — see
+      // pickuptypes.js's BOOST entry on why an overdrive is meaningless
+      // without the pair.
+      return `OVERDRIVE +${type.amount} ${type.duration}s`;
     default:
       return type.label;
   }

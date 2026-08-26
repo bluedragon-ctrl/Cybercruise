@@ -7,8 +7,8 @@ import { LOGICAL_W, LOGICAL_H, initViewport, applyTransform, snapToDevice } from
 import { initInput, isDown, consumePress } from "./engine/input.js";
 import { initMouse } from "./engine/mouse.js";
 import { clear, glowText } from "./engine/neon.js";
-import { GREEN, GREEN_BRIGHT, GREEN_PALE, HAZARD, PLAYER, SHIELD_FLICKER } from "./engine/palette.js";
-import { Player } from "./game/player.js";
+import { GREEN, GREEN_BRIGHT, GREEN_PALE, HAZARD, PLAYER, PLAYER_THRUST, SHIELD_FLICKER } from "./engine/palette.js";
+import { Player, BOOST_EXPIRING, BOOST_FLICKER_RATE } from "./game/player.js";
 import { Projectiles } from "./game/projectiles.js";
 import { Score } from "./game/score.js";
 // Credits — the currency the upgrade shop spends (game/shop.js). Separate from
@@ -1219,7 +1219,28 @@ function drawHud() {
   // catalogues' `minDistance` gates are written in, so a player who sees DIST 100
   // is seeing exactly the moment the enemy is allowed on the road.
   glowText(ctx, `DIST ${Math.floor(distance / road.DIST_UNITS)}`, W - 12, 70, GREEN_PALE, 13, "right");
-  glowText(ctx, `SPD ${Math.round(player.speed)}`, W - 12, 88, GREEN_PALE, 13, "right");
+  // SPD carries the OVERDRIVE buff (game/pickuptypes.js's BOOST) rather than
+  // getting its own readout, and it is the right line for it: the buff's whole
+  // effect is this number, so the countdown belongs where the player is already
+  // looking to see it. The whole row goes thruster-magenta while it runs — the
+  // car's own plume colour, matching what the crate's glyph promised — and
+  // flickers through its last second on the same clock the shield readout below
+  // uses, so the two buffs expire in the same visual language.
+  //
+  // The line is RIGHT-ALIGNED, so the extra text grows leftward into empty
+  // screen and nothing else in this top-right stack has to move for it.
+  const boosted = player.boostTime > 0;
+  const boostExpiring = boosted && player.boostTime < BOOST_EXPIRING
+    && Math.sin(player.boostPhase * BOOST_FLICKER_RATE) > 0;
+  glowText(
+    ctx,
+    boosted
+      ? `SPD ${Math.round(player.speed)}  +${player.boost} ${player.boostTime.toFixed(1)}s`
+      : `SPD ${Math.round(player.speed)}`,
+    W - 12, 88,
+    boostExpiring ? SHIELD_FLICKER : boosted ? PLAYER_THRUST : GREEN_PALE,
+    13, "right", boosted ? 8 : 0,
+  );
 
   // CREDITS: the wallet's total — this run's earnings on top of whatever
   // earlier runs banked, i.e. exactly what the shop has to spend at the next

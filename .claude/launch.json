@@ -16,7 +16,8 @@
       "runtimeArgs": [
         "tools/car-editor/server.js"
       ],
-      "port": 5174
+      "port": 5174,
+      "autoPort": true
     }
   ]
 }

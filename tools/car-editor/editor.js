@@ -78,13 +78,33 @@ const PICKUP_FIELD_DESCRIPTIONS = {
 };
 
 // The payload a crate grants isn't the same field for every kind — AMMO and
-// HEAL spend `amount`, SHIELD spends `duration` — so what "the effect field"
-// means depends on the row's own kind.
+// HEAL spend `amount`, SHIELD spends `duration`, BOOST spends BOTH — so what
+// a given effect field MEANS depends on the row's own kind. Hence a table per
+// kind rather than one per field: "amount" is rounds on one row, hull points
+// on the next and world units/sec on a third.
+//
+// A kind lists only the fields it actually uses; the effect section is built
+// from whichever of them the entry really carries (see `sections` below), so
+// a kind that grows a second number needs an entry here and nothing else.
 const PICKUP_EFFECT_DESCRIPTIONS = {
-  ammo: "Ammo added to the matching weapon's magazine when this crate is picked up.",
-  heal: "Hull points restored when this crate is picked up, capped at the player's max health.",
-  shield: "Seconds of invulnerability granted when this crate is picked up.",
+  ammo: {
+    amount: "Ammo added to the matching weapon's magazine when this crate is picked up.",
+  },
+  heal: {
+    amount: "Hull points restored when this crate is picked up, capped at the player's max health.",
+  },
+  shield: {
+    duration: "Seconds of invulnerability granted when this crate is picked up.",
+  },
+  boost: {
+    amount: "World units/sec added to BOTH ends of the player's speed band while the boost runs — the slowest the car can drop to and the fastest it can reach both move up by this. The car jumps to the new floor the moment the crate is collected.",
+    duration: "Seconds the raised speed band lasts. When it ends the car drops straight back to its normal top speed.",
+  },
 };
+
+// The effect fields a crate can carry, in the order they should be shown.
+// Matches state.js's own PICKUP_EFFECT_FIELDS; a crate carries some subset.
+const PICKUP_EFFECT_FIELDS = ["amount", "duration"];
 
 const WEAPON_FIELD_DESCRIPTIONS = {
   damage: "Hull points one shot deals on a direct hit.",
@@ -244,14 +264,19 @@ const KINDS = {
     requestKey: "pickupChanges",
     groups: () => [{ heading: "Pickups", entries: data.pickups }],
     sections(pickup) {
-      const effectField = Object.keys(pickup.values).find(
-        (field) => field === "amount" || field === "duration"
-      );
+      // EVERY effect field the entry actually carries, not just the first —
+      // most kinds have exactly one (AMMO/HEAL's `amount`, SHIELD's
+      // `duration`), but BOOST spends both and is meaningless with either
+      // half missing (see src/game/pickuptypes.js's header).
+      const effectFields = PICKUP_EFFECT_FIELDS.filter((field) => field in pickup.values);
       const sections = [];
-      if (effectField) {
+      if (effectFields.length > 0) {
         sections.push({
           legend: "Effect",
-          fields: [{ field: effectField, description: PICKUP_EFFECT_DESCRIPTIONS[pickup.kind] }],
+          fields: effectFields.map((field) => ({
+            field,
+            description: PICKUP_EFFECT_DESCRIPTIONS[pickup.kind]?.[field],
+          })),
         });
       }
       sections.push({
