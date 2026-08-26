@@ -15,8 +15,9 @@
 //           starting ammo. There is no separate "max ammo" concept to keep in
 //           sync here.
 //   HEAL    restores hull via Player.heal, capped at maxHealth there.
-//   SHIELD  grants `duration` seconds of invulnerability via
-//           Player.activateShield.
+//   SHIELD  banks `duration` seconds of invulnerability via
+//           Player.chargeShield — the window opens on the first hit taken,
+//           not on contact with the crate.
 //
 // WEIGHTS ARE UNIFORM FOR NOW. The Standard Loadout proposal this catalogue
 // implements called for gating the stronger buffs (MINE, SHIELD) behind a
@@ -151,7 +152,7 @@ export function applyPickup(type, player, loadout) {
       player.heal(type.amount);
       break;
     case SHIELD:
-      player.activateShield(type.duration);
+      player.chargeShield(type.duration);
       break;
   }
 }

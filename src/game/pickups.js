@@ -34,7 +34,7 @@ function pickupMessage(type) {
     case HEAL:
       return `HULL REPAIRED +${type.amount}`;
     case SHIELD:
-      return `SHIELD ONLINE ${type.duration}s`;
+      return `SHIELD CHARGED ${type.duration}s`;
     default:
       return type.label;
   }

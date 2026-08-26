@@ -309,6 +309,25 @@ test("the deflector lengthens every shield the car is ever handed, from any sour
   assert.equal(player.shieldTime, crate.duration + deflector.step);
 });
 
+test("a bought shield is BANKED, not started — same as the crate", () => {
+  // A consumable is spent through the crate's own code (upgrades.js's
+  // purchase -> pickuptypes.js's applyPickup), so the dock's SHIELD row gets
+  // the charge behaviour for free: nothing ticks while the car is still on the
+  // lift, and the window opens on the first hit that would have hurt. A shield
+  // the player PAID for must not be able to expire over empty road.
+  const { wallet, player, loadout, garage } = shopper();
+  const row = CONSUMABLES.find((e) => e.kind === SHIELD);
+
+  assert.equal(purchase(row, wallet, player, loadout, garage), true);
+  assert.equal(player.shieldCharge, row.duration, "the purchase banks its full duration");
+  assert.equal(player.shieldTime, 0, "...and starts no clock");
+
+  player.damage(9999);
+  assert.equal(player.health, player.maxHealth, "the hit that trips it is deflected too");
+  assert.equal(player.shieldTime, row.duration);
+  assert.equal(player.shieldCharge, 0);
+});
+
 test("a refused purchase costs nothing at all", () => {
   // purchase() settles availability AND affordability before Wallet.spend is
   // called, so there is no path on which a player pays for a refusal — and none
