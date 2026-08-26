@@ -45,8 +45,8 @@ export const PICKUP_TYPES = [
     // without refilling it outright, the same "use it, don't lean on it"
     // scarcity the weapon's own catalogue entry already asks for.
     amount: 18,
-    weight: 1,
-    minDistance: 0,
+    weight: 0.5,
+    minDistance: 500,
   },
   {
     id: "tracer_ammo",
@@ -56,7 +56,7 @@ export const PICKUP_TYPES = [
     weaponId: "tracker",
     amount: 48, // 40% of the tracker's 120-round magazine — six of its
                 // eight-round bursts (weapons.js)
-    weight: 1,
+    weight: 0.5,
     minDistance: 0,
   },
   {
@@ -100,7 +100,7 @@ export const PICKUP_TYPES = [
     shape: pickupShapeIndex("FIX"),
     kind: HEAL,
     amount: 70, // 35% of the player's 200 maxHealth (player.js)
-    weight: 1,
+    weight: 2,
     minDistance: 0,
   },
   {
