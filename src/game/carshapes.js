@@ -10,6 +10,35 @@
 // the RIGHT HALF of the silhouette, nose (-1) to tail (+1); fracLoop mirrors it,
 // so bodies are symmetric by construction and only half the points are authored.
 //
+// DETAIL BUDGET. The two halves of a shape cost wildly different things, and
+// the catalogue was authored as though they cost the same — every entry here
+// carries roughly 5-13 marks, which is a budget the PROFILE deserves and the
+// surface does not.
+//
+//   THE PROFILE IS EXPENSIVE, and not because of drawing. effects.js walks it
+//   as segments, so every point added is another flying fragment in every
+//   wreck and another copy in the jack-in/disconnect split; shapeExtent (below)
+//   sizes the sprite from it; halfWidthAt derives every wheel and track from
+//   it. Twelve points is still the ceiling, and most entries want fewer.
+//
+//   THE SURFACE IS ALMOST FREE. flat/raised/top are rasterised ONCE per cached
+//   sprite (engine/spritecache.js: ~226us built, ~8us blitted thereafter) and
+//   touch nothing else in the game. A shape may spend up to about THIRTY marks
+//   there. That is a real increase on what the catalogue does today, and it is
+//   deliberate: on a hidpi display a sprite rasterises at device resolution, so
+//   there are more pixels to draw into than 34x62 suggests.
+//
+// WHAT ACTUALLY LIMITS IT IS THE GLOW, not the budget and not the pixels. Every
+// mark carries a shadowBlur, so two marks a couple of px apart do not read as
+// two -- their halos merge and the hull drifts toward one bright blob. Past
+// roughly thirty, detail starts costing legibility instead of buying it, which
+// is why the number is a ceiling rather than a target.
+//
+// CHECK IT IN THE GALLERY, whose silhouette catalogue draws these at 2x for
+// exactly this reason (src/demo/gallery.js). At 1x every hull looks equally
+// finished no matter how much was drawn into it, which is how a budget nobody
+// could see stayed unspent.
+//
 // LAYERING. Parts are drawn strictly bottom-up, which is what makes a flat
 // wireframe read as a solid object:
 //
@@ -40,7 +69,7 @@
 // and test/road-and-caches.test.js can tell the two apart because of it.
 //
 // The three fills form a height ramp (see palette.js), the same trick
-// drawBuilding uses for its three faces: the higher a surface sits off the road,
+// a city building uses for its faces: the higher a surface sits off the road,
 // the lighter it is. Because they are OPAQUE, a spoiler or a tank drum hides
 // whatever passes beneath it instead of looking like an x-ray.
 
