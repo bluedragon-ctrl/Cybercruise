@@ -318,6 +318,37 @@ export const NEUTRAL_THRUST = "#ffd76a"; // neutral exhaust (warm amber)
 // own family instead of the traffic one.
 export const SHIELD_FLICKER = "#eafff5";
 
+// The shop's cargo drone (game/hauler.js) — the hull that comes down and lifts
+// the player's car off the road. It used to borrow ENEMY red, purely because it
+// was drawn for the boss-hull gallery, where everything reads as hostile
+// hardware — which left the one vehicle in the game that HELPS the player
+// painted like the thing about to ram them.
+//
+// So it sits in the PLAYER's cyan family, a few steps darker, for exactly the
+// reason PICKUP_FRAME below does: nothing out there is cyan except the car the
+// player is driving, so cyan is this game's word for "this one is on your
+// side". A service hue of its own (purple was the candidate) was rejected
+// because sector 3's city is already violet — see SECTOR_PALETTES, and the note
+// there on how little room that hue has left — so the drone would have flown a
+// same-hue hull against a same-hue skyline in a third of the game.
+//
+// DARKER than PLAYER — much darker, and by a wider margin than PICKUP_FRAME
+// needs. A crate sits on the tarmac BESIDE the car; this hull closes around it,
+// and the whole brief for the CLAW LIFTER (see bossshapes.js) is that the car
+// stays visible through the open middle. Two cyans of similar value, overlapping
+// like that, merge into one bright mass and the car stops being findable inside
+// its own rescue. Judged in the browser at the lift's own scale, against four
+// candidate shades with the car drawn underneath: this is the darkest step that
+// still reads as lit hardware rather than a grey silhouette, and the first one
+// where the car is unmistakably the brightest thing in the frame. Push it back
+// toward PLAYER and that separation is what gets spent.
+//
+// HAULER_THRUST is the pale accent for the hull's lit details — hinge
+// shoulders, avionics — where ENEMY_THRUST's orange used to sit. It stays a
+// step under the car too, for the same reason.
+export const HAULER = "#197c88";        // cargo-drone hull lines
+export const HAULER_THRUST = "#43aab5"; // its lit details / hinge shoulders
+
 // The pickup reticle (game/pickupshapes.js). ONE frame colour for EVERY crate,
 // and it is the PLAYER's own cyan a few steps darker. Hazards are red, traffic
 // is red or amber, the world is green — nothing out there is cyan except the

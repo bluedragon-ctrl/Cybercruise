@@ -51,7 +51,7 @@
 import { glowText } from "../engine/neon.js";
 import { drawShapeObject } from "./carshapes.js";
 import { BOSS_SHAPES } from "./bossshapes.js";
-import { ENEMY, ENEMY_THRUST, GREEN_PALE } from "../engine/palette.js";
+import { HAULER, HAULER_THRUST, GREEN_PALE } from "../engine/palette.js";
 import { HINT } from "../engine/console.js";
 import * as gameConsole from "../engine/console.js";
 
@@ -384,10 +384,13 @@ export class Hauler {
   // what keeps the car visible through it. See bossshapes.js's own note on why
   // that hull carries `hover: { blot: false }`.
   //
-  // Drawn in the ENEMY red rather than the player's cyan: this is not the
-  // player's vehicle, and the gallery already reads these hulls as hostile
-  // hardware. Whether the shop's own drone should get a friendlier colour of
-  // its own is a question for the phase that gives the shop content.
+  // Drawn in HAULER, a deep cyan out of the PLAYER's own family, NOT the ENEMY
+  // red this used to borrow from the boss-hull gallery it was drawn for. The
+  // drone is the shop's, and the shop is on the player's side; red made the one
+  // vehicle in the game that helps them read as the one about to ram them. It
+  // sits WELL below PLAYER in value rather than a shade under it, because this
+  // hull closes AROUND the car: at similar brightness the two cyans merge and
+  // the car is lost inside its own rescue. See palette.js's note on both.
   // THE ROTORS RUN OFF THIS MODULE'S OWN CLOCK, not the caller's. Every other
   // hull in the game takes `wheelPhase` from the distance its car has driven,
   // and during the lift and the lower that number has stopped — the world is
@@ -401,8 +404,8 @@ export class Hauler {
     const f = this.frame();
     if (!f) return;
     drawShapeObject(ctx, this.x, f.y, LIFTER, {
-      color: ENEMY,
-      thrust: ENEMY_THRUST,
+      color: HAULER,
+      thrust: HAULER_THRUST,
       // The jaw scale rides on the WIDTH alone — see JAW_OPEN_SCALE.
       w: f.w * f.scale * f.jaw,
       h: f.h * f.scale,
