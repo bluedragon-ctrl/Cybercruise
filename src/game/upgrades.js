@@ -80,14 +80,14 @@ export const CONSUMABLES = [
     // than one the road decided to drop. `detail` is the same figure written out
     // in the player's units, and shop.test.js pins the two together — the number
     // and the caption under it are one edit, never two.
-    amount: 50,
+    amount: 100,
     color: GREEN_BRIGHT,
   },
   {
     id: "buy_shield",
     label: "SHIELD",
     detail: "15 SEC",
-    price: 75,
+    price: 50,
     kind: SHIELD,
     // RUNS FROM THE MOMENT THE WHEELS ARE BACK DOWN, and it costs nothing to
     // make that true: main.js only advances the player during "playing", so
@@ -99,14 +99,14 @@ export const CONSUMABLES = [
     // THREE TIMES the crate's five seconds (pickuptypes.js): the crate is a
     // reprieve the road handed over mid-fight, this is a stretch of cover the
     // player paid for and gets to spend where they choose.
-    duration: 15,
+    duration: 30,
     color: PLAYER,
   },
   {
     id: "buy_rocket_ammo",
     label: "ROCKET AMMO",
     detail: "+18 RDS",
-    price: 80,
+    price: 50,
     kind: AMMO,
     weaponId: "rocket",
     amount: 18,
@@ -116,7 +116,7 @@ export const CONSUMABLES = [
     id: "buy_tracer_ammo",
     label: "TRACER AMMO",
     detail: "+48 RDS",
-    price: 80,
+    price: 35,
     kind: AMMO,
     weaponId: "tracker",
     amount: 48,
@@ -129,7 +129,7 @@ export const CONSUMABLES = [
     // The whole magazine (weapons.js's `mine`), at well under four times what
     // the road's own two-mine crate is worth — a set bought in one press is
     // priced as a set, not as four separate crates carried out one at a time.
-    price: 75,
+    price: 50,
     kind: AMMO,
     weaponId: "mine",
     amount: 8,
@@ -201,7 +201,7 @@ export const STATS = [
     // MAX_SPEED rather than to this, so buying speed moves the player through
     // the field instead of dragging the field along with them.
     step: 40,
-    price: 140,
+    price: 100,
     unit: "",
     decimals: 0,
   },
@@ -216,7 +216,7 @@ export const STATS = [
     // third of one, and a maxed chassis is the difference between two mines
     // ending a run and three.
     step: 50,
-    price: 150,
+    price: 100,
     unit: "",
     decimals: 0,
   },
@@ -247,7 +247,7 @@ export const STATS = [
     // car. Retune HERE if that reads as too long, and retune it against real
     // road time rather than against the crate's own 5s.
     step: 12,
-    price: 120,
+    price: 100,
     unit: "S",
     prefix: "+",
     decimals: 0,
@@ -268,7 +268,7 @@ export const STATS = [
     // and you lose, not the rig". A ladder that climbed past the rig would
     // delete the one thing on the road the player is meant to drive around.
     step: 0.8,
-    price: 150,
+    price: 100,
     unit: "",
     decimals: 1,
   },
