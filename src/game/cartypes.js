@@ -336,11 +336,11 @@ export const CAR_TYPES = [
     // It is carrying something. Killing a rig in traffic is the biggest event on
     // the road — the blast covers most of the tarmac around it and will take a
     // third of the player's hull if they are alongside when it goes.
-    blastRadius: 120,
+    blastRadius: 200,
     blastDamage: 60,
     value: -200,
     bounty: -20,
-    minDistance: 400, // the city's own traffic: on the road from the first metre
+    minDistance: 500, // the city's own traffic: on the road from the first metre
     // Even the rolling wall dodges — `juggernaut` keeps nerve at 0. A rig
     // ploughing a trestle is tempting flavour, but it is also the one civilian
     // heavy enough to be somewhere near a hazard the player wanted left standing,
@@ -436,7 +436,7 @@ export const CAR_TYPES = [
     blastDamage: 20,
     value: -150,
     bounty: -15,
-    minDistance: 1200, // the city's own traffic: on the road from the first metre
+    minDistance: 1600, // the city's own traffic: on the road from the first metre
     behaviour: "overtake",
     // The other pale civilian, and the deliberate opposite of the roadster: same
     // shade, same tactic, similar pace, and it holds a perfect line and sweeps
@@ -480,7 +480,7 @@ export const CAR_TYPES = [
     blastDamage: 24,
     value: -100, // killing one is a fine, like any other civilian
     bounty: -15,
-    minDistance: 1000,        // the city's own traffic: on the road from the first metre
+    minDistance: 1200,        // the city's own traffic: on the road from the first metre
     behaviour: "overtake", // it does not block for anyone; it just goes past
     driving: "brawler",    // heavy, impatient, and it will lean on you
     // Kept at exactly what it was as a hostile, which MOVES THE FACTION MIX and
