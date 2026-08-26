@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { CAR_TYPES } from "../src/game/cartypes.js";
 import { CAR_SHAPES, carShapeExtent, shapeExtent } from "../src/game/carshapes.js";
 import { BOSS_SHAPES } from "../src/game/bossshapes.js";
+import { CYCLE_SHAPES } from "../src/game/cycleshapes.js";
 import { ACCEL as TRAFFIC_ACCEL } from "../src/game/traffic.js";
 import { DRIVING_PROFILES, typesDriving } from "../src/game/driving.js";
 import { MIN_SPEED, MAX_SPEED, ACCEL as PLAYER_ACCEL } from "../src/game/player.js";
@@ -182,6 +183,60 @@ test("boss hulls are not in the traffic catalogue", () => {
   for (const shape of BOSS_SHAPES) {
     assert.ok(!names.has(shape.name),
       `${shape.name} is in CAR_SHAPES — it needs a cartypes.js record, or it does not belong there`);
+  }
+});
+
+// --- The staged two- and three-wheeler catalogue ------------------------------
+//
+// cycleshapes.js gets the same three guards bossshapes.js gets above, for the
+// same reason: nothing in the game draws these yet, so nothing else would
+// notice a clipped sprite or a hull sliding along on its belly until the phase
+// that spawns one. The gallery is the only thing that renders them, and the
+// gallery cannot fail a build.
+
+test("shapeExtent bounds every point of every two- and three-wheeler hull", () => {
+  for (const shape of CYCLE_SHAPES) {
+    const [w, h] = shape.size;
+    const ext = shapeExtent(shape, w, h);
+    for (const profile of shape.parts ?? [shape.profile]) {
+      for (const [fx, fy] of profile) {
+        assert.ok(Math.abs(fx * (w / 2)) <= ext.x, `${shape.name}: x extent clips the profile`);
+        assert.ok(-fy * (h / 2) <= ext.up, `${shape.name}: up extent clips the profile`);
+        assert.ok(fy * (h / 2) <= ext.down, `${shape.name}: down extent clips the profile`);
+      }
+    }
+  }
+});
+
+test("every two- and three-wheeler hull says how it meets the ground", () => {
+  for (const shape of CYCLE_SHAPES) {
+    assert.ok(shape.wheels || shape.tracks || shape.hover,
+      `${shape.name} has no wheels, tracks or hover`);
+  }
+});
+
+test("two- and three-wheeler hulls are not in the traffic catalogue", () => {
+  // cycleshapes.js's header: these stay out of CAR_SHAPES until they have a
+  // cartypes.js record. Copying one across and forgetting its type should break
+  // HERE, with a name in the message.
+  const names = new Set(CAR_SHAPES.map((s) => s.name));
+  for (const shape of CYCLE_SHAPES) {
+    assert.ok(!names.has(shape.name),
+      `${shape.name} is in CAR_SHAPES — it needs a cartypes.js record, or it does not belong there`);
+  }
+});
+
+test("the wheel count each hull's pitch claims is the wheel count it draws", () => {
+  // The whole point of this catalogue is "every wheel visible", and a `solo`
+  // flag silently dropped from a tuple turns a tricycle into a four-wheeler
+  // without changing anything else about the shape. Counting is the only way
+  // that shows up outside the gallery.
+  const drawn = (shape) =>
+    (shape.wheels ?? []).reduce((n, [, , , , solo = false]) => n + (solo ? 1 : 2), 0);
+  const expected = { MOTORCYCLE: 2, TRICYCLE: 3 };
+  for (const shape of CYCLE_SHAPES) {
+    assert.equal(drawn(shape), expected[shape.family],
+      `${shape.name} is a ${shape.family} but draws ${drawn(shape)} wheels`);
   }
 });
 

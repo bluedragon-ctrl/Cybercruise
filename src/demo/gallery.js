@@ -9,6 +9,7 @@ import { drawCar, drawBuilding, drawObstacle } from "../game/sprites.js";
 import { drawShape, SHAPE_NAMES } from "../game/buildingshapes.js";
 import { CAR_SHAPES, drawShapeObject } from "../game/carshapes.js";
 import { bossGroups } from "../game/bossshapes.js";
+import { cycleFamilies } from "../game/cycleshapes.js";
 import { OBSTACLE_SHAPES, obstacleShapeIndex, BLOCK } from "../game/obstacleshapes.js";
 import {
   drawWreck,
@@ -211,6 +212,35 @@ for (const group of bossGroups()) {
         color: pal.ENEMY, thrust: pal.ENEMY_THRUST, wheelPhase: phase,
       });
     }, { animate: true, size: BOSS_CELL, note: `${s.size[0]}x${s.size[1]} · ${s.pitch}` });
+  }
+}
+
+// Two- and three-wheeler hulls, staged the same way and shown for the same
+// reason (src/game/cycleshapes.js). Drawn at 2x, because the whole question
+// these have to answer is whether every wheel stays clear of the bodywork and
+// a 32x66 cell is too small to see a tyre edge in.
+//
+// The two families get the two traffic palettes rather than one shared colour:
+// nothing has decided yet which of these is civilian and which is hostile, and
+// seeing each hull in a plausible skin is more useful than seeing all four in
+// enemy red.
+const CYCLE_CELL = 200;
+const CYCLE_ZOOM = 2;
+for (const family of cycleFamilies()) {
+  section(`${family.name} HULL`, "no car type yet — see cycleshapes.js");
+  for (const s of family.shapes) {
+    const hostile = s.family === "TRICYCLE";
+    cell(s.name, (ctx, size, phase) => {
+      ctx.save();
+      ctx.translate(size / 2, size / 2);
+      ctx.scale(CYCLE_ZOOM, CYCLE_ZOOM);
+      drawShapeObject(ctx, 0, 0, s, {
+        color: hostile ? pal.ENEMY_DEEP : pal.NEUTRAL,
+        thrust: hostile ? pal.ENEMY_THRUST : pal.NEUTRAL_THRUST,
+        wheelPhase: phase,
+      });
+      ctx.restore();
+    }, { animate: true, size: CYCLE_CELL, note: `${s.size[0]}x${s.size[1]} · ${s.pitch}` });
   }
 }
 
