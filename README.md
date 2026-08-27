@@ -42,6 +42,27 @@ variant. If python isn't available on your machine, point it at whichever server
 you use locally — but please don't commit that switch, since python works for
 most of the machines this is developed on.
 
+### Test options
+
+Two cheat rows sit on the start/pause menu below SOUND and MUSIC, for testing
+by hand what a normal run makes expensive to reach:
+
+| Row | What it does |
+| --- | --- |
+| `INVULNERABILITY` | The car takes no hull damage from anything — bullets, blast, ramming, wall-scrape. A scrape still scrubs speed, so the car still drives like a car. |
+| `EXTRA CASH` | Pays a float big enough to buy out the shop, so the top tiers can be looked at without grinding to them. Paid once per arming: switch the row off and back on for another. |
+
+Arrow left/right (or SPACE) flips the selected row; both are also clickable, and
+both persist across a reload. Toggling either from the PAUSE screen takes effect
+on the next tick, so a run can be made invulnerable partway through.
+
+**Both rows come from `src/testoptions.js`, and that file is the switch.** Set
+`SHOW_TEST_OPTIONS` to `false` to drop them from the menu entirely, or either of
+the two per-row flags to drop just one. The menu builds its row list from those
+flags, so nothing else needs editing — and with a row gone its cheat reads as
+off whatever a previous session left in `localStorage`. The payout `EXTRA CASH`
+is worth lives there too.
+
 ### Asset gallery
 
 A static showcase of the neon assets (cars, buildings, palette) for iterating on
@@ -728,6 +749,7 @@ index.html          canvas + module entry
 css/style.css       page + CRT frame styling
 src/
   main.js           bootstrap + game loop
+  testoptions.js    the menu's cheat rows, and the switch that removes them
   engine/           loop, input, neon draw helpers
   game/             player, road, traffic, weapons, ... (built per phase)
   audio/            wavesynth synth (later phase)

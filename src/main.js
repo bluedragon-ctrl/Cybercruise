@@ -36,6 +36,10 @@ import { createShop } from "./game/shop.js";
 import { Garage } from "./game/upgrades.js";
 import { Loadout } from "./game/weapons.js";
 import { createMenu } from "./game/menu.js";
+// What an armed test row is WORTH — the rows themselves live on menu.js, this
+// is only the figure EXTRA CASH pays out. See that file for the switch that
+// removes both rows from a shipping build.
+import { EXTRA_CASH_AMOUNT } from "./testoptions.js";
 import { createMusic } from "./audio/synth.js";
 import { PLAYER_FIRE_SOUND, ENEMY_FIRE_SOUND } from "./audio/weaponsfx.js";
 import { PICKUP_SOUND } from "./audio/pickupsfx.js";
@@ -507,7 +511,46 @@ function newGame() {
   // has ever run (the very first newGame() call, at module load), same
   // contract every audio entry point here has.
   music.resetForNewRun();
+  // The test rows, applied to the car and wallet this function just built —
+  // see applyTestOptions() for why it also runs every tick.
+  cashGranted = false;
+  applyTestOptions();
 }
+
+// --- The test options, applied ---------------------------------------------
+//
+// menu.js REPORTS which rows are armed and nothing more (its own header: it
+// never touches the world); turning that into a car that cannot be hurt and a
+// wallet that can afford the top of the shop is main.js's job, exactly like
+// every other piece of wiring between a screen and the world here.
+//
+// RUN EVERY TICK rather than once at newGame(), because both rows can be
+// flipped from the PAUSE screen mid-run and from the START screen before
+// newGame() has any idea what the player chose — a per-tick reconcile is the
+// only version of this with no "but what if they toggle it there" hole in it,
+// and it costs two comparisons.
+
+// Whether the wallet has already been paid for the CURRENT arming of EXTRA
+// CASH. Cleared by newGame() for a fresh run, and by switching the row off —
+// so switching it off and on again pays a second float, which is what a test
+// that has just spent the first one actually wants.
+let cashGranted = false;
+
+function applyTestOptions() {
+  player.invulnerable = menu.invulnerable();
+
+  if (!menu.extraCash()) {
+    cashGranted = false;
+    return;
+  }
+  if (cashGranted) return;
+  cashGranted = true;
+  // Through award(), not by writing the balance: it is the one path that keeps
+  // `earned` and the HUD's flash in step (wallet.js), and the flash is welcome
+  // here — it is the confirmation that the cheat actually fired.
+  wallet.award(EXTRA_CASH_AMOUNT);
+}
+
 newGame();
 
 // --- The two things a hostile car may do to the world ------------------------
@@ -695,6 +738,9 @@ function updateDeck(dt) {
 
 function update(dt) {
   updateDeck(dt);
+  // Before the state switch, so a row toggled on the pause screen is live on
+  // the very next playing tick — see applyTestOptions()'s own header.
+  applyTestOptions();
   switch (state) {
     case "menu": return updateMenu();
     case "paused": return updatePaused();
@@ -717,7 +763,7 @@ function updateMenu() {
   // instead of the plain menu_confirm tone (see music.jackIn()'s own
   // comment for why the two never both fire for the same confirm).
   if (menuResult.moved) music.play(MENU_SOUND.move);
-  if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
+  if (menuResult.soundAdjusted || menuResult.toggled) music.play(MENU_SOUND.adjust);
   if (menuResult.confirmed) {
     // Into game/jackin.js's boot sequence, NOT straight into "playing" — see
     // the `state` comment above. The hint bar stays empty for its duration,
@@ -756,7 +802,7 @@ function updatePaused() {
   }
   const menuResult = menu.update(W);
   if (menuResult.moved) music.play(MENU_SOUND.move);
-  if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
+  if (menuResult.soundAdjusted || menuResult.toggled) music.play(MENU_SOUND.adjust);
   if (menuResult.confirmed) {
     state = "playing";
     hint.innerHTML = PLAY_HINT;
@@ -825,7 +871,7 @@ function updateGameOver() {
   // confirming it starts a fresh run instead of resuming a frozen one.
   const menuResult = menu.update(W);
   if (menuResult.moved) music.play(MENU_SOUND.move);
-  if (menuResult.soundAdjusted) music.play(MENU_SOUND.adjust);
+  if (menuResult.soundAdjusted || menuResult.toggled) music.play(MENU_SOUND.adjust);
   if (menuResult.confirmed) {
     newGame();
     // RESTART jacks in again, exactly like START GAME did — a run always

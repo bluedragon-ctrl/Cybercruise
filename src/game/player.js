@@ -134,6 +134,12 @@ export class Player {
     this.color = PLAYER; // cyan accent — stands out against the green world
 
     this.health = BASE_MAX_HEALTH;
+    // THE TEST OPTION (src/testoptions.js's INVULNERABILITY), set by main.js
+    // from the menu row rather than by anything in here — this class knows
+    // only that a flag makes damage() a no-op, not that a menu exists. Off on
+    // a fresh car, so a build with the row switched off behaves exactly as it
+    // did before the flag existed.
+    this.invulnerable = false;
     // PER-INSTANCE, not the module constant — the shop's CHASSIS tiers raise
     // this mid-run (see applyUpgrades below).
     this.maxHealth = BASE_MAX_HEALTH;
@@ -195,6 +201,14 @@ export class Player {
   // flashing on a hit that did nothing would read as damage that wasn't.
   damage(hp) {
     if (hp <= 0) return;
+    // INVULNERABILITY sits ahead of even the shield: every damage source in
+    // the game funnels through here (see the header above), so one guard on
+    // this line covers bullets, blast, ramming and wall-scrape alike. It
+    // returns BEFORE the shield charge is spent, so a test run does not quietly
+    // burn its banked shield on hits that were never going to land — and with
+    // no onDamage call at all, since a hit that did nothing must not flash,
+    // shake or hiss.
+    if (this.invulnerable) return;
     // A banked shield (chargeShield) fires HERE, before the hit is applied —
     // that is the whole point of charging rather than activating: the window
     // starts on the hit the player did not see coming, not on the crate they
