@@ -19,7 +19,7 @@ import { Traffic, MAX_CARS } from "../src/game/traffic.js";
 import { Obstacles } from "../src/game/obstacles.js";
 import { Explosions } from "../src/game/effects.js";
 import { Player } from "../src/game/player.js";
-import { SHOP_INTERVAL } from "../src/game/hauler.js";
+import { Hauler, SHOP_INTERVAL } from "../src/game/hauler.js";
 import { DIST_UNITS, LANE_COUNT, ROAD_HALF_WIDTH } from "../src/game/road.js";
 
 // The director announces through links.js's shared rate limiter and pushes to
@@ -431,6 +431,70 @@ test("the shop interval is still hauler.js's number", () => {
   // The catalogue reads SHOP_INTERVAL rather than restating it: the pacing dial
   // stayed with the drone even though the counter did not.
   assert.equal(eventTypeById("shop").every, SHOP_INTERVAL);
+});
+
+test("a whole shop visit ends, so the road comes back", () => {
+  // THE REGRESSION THIS EXISTS FOR. Every other shop test above stubs the
+  // handler pair, which is right for questions about the SCHEDULE — but it
+  // means none of them ever ran the real drone, and the real drone never went
+  // back to "idle" after the return trip. main.js hands `phase !== "idle"` to
+  // the director as this encounter's `live`, so a drone stuck in "lower" is an
+  // encounter that never finishes: the shop entry's density of zero stays
+  // clamped on the road for the rest of the run, and no car, no hazard and no
+  // further event ever appears again.
+  //
+  // So this drives main.js's own state machine — the four calls it makes in
+  // updatePlaying/updateLifting/updateShopping/updateLowering — against the
+  // real Hauler, and then asks the two questions that were both false.
+  events.reset();
+  const hauler = new Hauler(800);
+  const handlers = {
+    shop: {
+      fire: () => hauler.approach(0, 496),
+      live: () => hauler.phase !== "idle",
+    },
+  };
+
+  const world = makeWorld(0);
+  withRandom(1, () => drive(world, 0, SHOP_INTERVAL + 5, handlers));
+  assert.equal(hauler.phase, "approach", "the milestone must have called the drone down");
+
+  // The approach, with the world still live (main.js's updatePlaying).
+  while (!hauler.grabbed) hauler.update(1 / 60, 0);
+  hauler.lift();
+  // The frozen lift (updateLifting), then the shop screen, then the return trip
+  // (updateShopping's respawnWorld()/lower(), and updateLowering).
+  while (!hauler.done) hauler.update(1 / 60, 0);
+  hauler.lower(0, 496);
+  while (!hauler.done) hauler.update(1 / 60, 0);
+  hauler.settle();
+
+  assert.equal(hauler.phase, "idle", "the drone must retire itself when the car is back down");
+
+  // One more tick of the director with the road handed back: the encounter has
+  // to clear, and both budgets have to come off zero.
+  world.distance += 2 * DIST_UNITS;
+  events.update(0, world, handlers, ...QUIET);
+  assert.equal(events.active(), null, "the shop encounter must be over");
+  assert.equal(world.traffic.density, 1, "traffic must be spawning again");
+  assert.equal(world.obstacles.density, 1, "hazards must be spawning again");
+
+  // ...and the NEXT milestone still comes round, which is the other half of the
+  // same bug: a stuck encounter also swallowed every later shop visit.
+  withRandom(1, () => drive(world, SHOP_INTERVAL + 6, 2 * SHOP_INTERVAL + 5, handlers));
+  assert.equal(hauler.phase, "approach", "the second shop visit must still happen");
+});
+
+test("the shop screen can say which stop this is", () => {
+  // main.js prints "STOP N" from the milestone counter, which moved out of
+  // hauler.js into the director — an undefined here is a visible defect on the
+  // shop's own header.
+  events.reset();
+  assert.equal(events.milestoneCount("shop"), 0);
+  const world = makeWorld(0);
+  const handlers = { shop: { fire: () => {}, live: () => false } };
+  withRandom(1, () => drive(world, 0, 2 * SHOP_INTERVAL + 5, handlers));
+  assert.equal(events.milestoneCount("shop"), 2, "two milestones crossed is STOP 2");
 });
 
 // --- Lifecycle ---------------------------------------------------------------

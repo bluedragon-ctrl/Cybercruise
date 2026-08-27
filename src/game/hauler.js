@@ -246,6 +246,23 @@ export class Hauler {
     this.y = carY;
   }
 
+  // THE SEQUENCE IS OVER — back to idle, and this is a call rather than
+  // something update() does for itself because `done` is derived FROM the
+  // phase: a lower that quietly idled itself the tick it completed would never
+  // report done, and main.js would sit in "lowering" forever.
+  //
+  // It has to be called, not merely nice to call. `phase !== "idle"` is what
+  // main.js hands game/events.js as the shop encounter's `live` (see its
+  // EVENT_HANDLERS), so a drone that never idles is an encounter that never
+  // ends: the director keeps the shop entry live, holds the ambient budgets at
+  // that entry's density of zero — no cars, no hazards — and never fires
+  // another event or another shop visit for the rest of the run.
+  settle() {
+    this.phase = "idle";
+    this.elapsed = 0;
+    this.beat = 0;
+  }
+
   // Advances whichever phase is live, and pushes any log line whose beat has
   // arrived. The cursor only moves forward, so a frame long enough to cross two
   // beats pushes both in order rather than dropping one — jackin.js's update()
