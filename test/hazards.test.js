@@ -10,7 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { CAR_TYPES } from "../src/game/cartypes.js";
+import { CAR_TYPES, typeAvailable } from "../src/game/cartypes.js";
 import { carShapeExtent } from "../src/game/carshapes.js";
 import { RETIRE_MARGIN as TRAFFIC_RETIRE_MARGIN, Traffic } from "../src/game/traffic.js";
 import { driveCar, dodgeDistance, TACTIC_NAMES, TRAIL_ENGAGE } from "../src/game/behaviours.js";
@@ -38,7 +38,10 @@ import {
 import { Obstacles, SPAWN_MARGIN as OBSTACLE_SPAWN_MARGIN } from "../src/game/obstacles.js";
 import { Explosions } from "../src/game/effects.js";
 import { Projectiles } from "../src/game/projectiles.js";
-import { armFor, armamentFor, GUN_RANGE, GUN_MIN_RANGE } from "../src/game/armament.js";
+import {
+  armFor, armamentFor, BARRAGE, barragePhase, GUN_RANGE, GUN_MIN_RANGE,
+} from "../src/game/armament.js";
+import { Shells } from "../src/game/shells.js";
 import { NEUTRAL_PALE, PLAYER } from "../src/engine/palette.js";
 import { PICKUP_SHAPES } from "../src/game/pickupshapes.js";
 import {
@@ -1443,7 +1446,11 @@ test("a spawn never closes the road, whatever the placement asks for", () => {
   const obstacles = new Obstacles(new Explosions());
   const mine = obstacleTypeById("caltrop");
   const [mineW] = OBSTACLE_SHAPES[mine.shape].size;
-  const widest = Math.max(...CAR_TYPES.map((t) => t.w));
+  // AMBIENT TYPES ONLY, matching obstacles.js's own WIDEST_CAR — a `staged`
+  // type is never produced by the spawner and is deliberately outside this
+  // promise. See that file for why the boss's 62px hull is not allowed to set
+  // the guaranteed gap for every hazard in the game.
+  const widest = Math.max(...CAR_TYPES.filter((t) => !t.staged).map((t) => t.w));
 
   // Park mines wall-to-wall across the whole road, spaced so every gap between
   // them is narrower than the widest car in the catalogue — a fixture that
@@ -1470,7 +1477,11 @@ test("the passage rule is sized against the widest car in the catalogue", () => 
   // the spawner guarantees and the road starts producing hazards the heaviest
   // traffic cannot get around however well it drives.
   const obstacles = new Obstacles(new Explosions());
-  const widest = Math.max(...CAR_TYPES.map((t) => t.w));
+  // AMBIENT TYPES ONLY, matching obstacles.js's own WIDEST_CAR — a `staged`
+  // type is never produced by the spawner and is deliberately outside this
+  // promise. See that file for why the boss's 62px hull is not allowed to set
+  // the guaranteed gap for every hazard in the game.
+  const widest = Math.max(...CAR_TYPES.filter((t) => !t.staged).map((t) => t.w));
 
   // One wall spanning the road from the left barrier, leaving exactly `gap` of
   // clear tarmac against the right one.
@@ -1860,7 +1871,12 @@ test("a hold ahead of the player is a hold the player can still see", () => {
   // file's own hostile fixtures, and this is deliberately the more pessimistic
   // reading of the two (a shorter canvas shows less road ahead).
   const visibleAhead = 800 * 0.62;
-  for (const { type, drive } of typesDoing("outrun")) {
+  // BOTH front-holding tactics, and this is the half of the rule that survives
+  // the boss having no gun: `siege` (behaviours.js) opts out of the gun-band
+  // test above precisely because it carries nothing to shoot with, but "the
+  // player must be able to SEE the thing attacking them" is about framing
+  // rather than about weapons and binds every tactic that parks up the road.
+  for (const { type, drive } of [...typesDoing("outrun"), ...typesDoing("siege")]) {
     assert.ok(
       drive.leadHold < visibleAhead,
       `${type.id} holds ${drive.leadHold} ahead of a player who can only see ` +
@@ -1950,4 +1966,190 @@ test("an outrider sweeps across the player's line rather than parking on it", ()
   const span = car.drive.weaveSpan;
   assert.ok(right > span / 2, `the sweep never reached the right (${right.toFixed(1)}px)`);
   assert.ok(left < -span / 2, `the sweep never reached the left (${left.toFixed(1)}px)`);
+});
+
+// --- The boss: the siege battery ----------------------------------------------
+//
+// Cross-file invariants for the one enemy that attacks the ROAD rather than a
+// car. Everything here is a relation between armament.js, shells.js and the
+// catalogue — the arithmetic that decides whether the fight is dodgeable at all,
+// and the rules that keep the boss out of the ambient road.
+
+// A boss in position: ahead of the player, holding station, full hull. Built on
+// the same driver fixture the bikes use, with the world hook shells.js is
+// actually driven through in the game.
+function bossScenario(over = {}, playerOver = {}) {
+  const type = CAR_TYPES.find((t) => t.id === "mortar");
+  const speed = type.speedMax;
+  const shells = new Shells();
+  const car = driver({
+    worldY: 420, offset: 0, w: type.w, h: type.h,
+    speed, cruiseSpeed: speed, baseSpeed: speed, targetSpeed: speed, targetOffset: 0,
+    type, drive: drivingFor(type), arms: armFor(type),
+    health: type.health,
+    ...over,
+  });
+  const playerBody = {
+    worldY: 0, offset: 0, w: 34, h: 60, speed: 400, alive: true,
+    damage() {},
+    ...playerOver,
+  };
+  const laid = [];
+  const world = {
+    cars: [car], obstacles: [], playerBody,
+    player: new Player(300, 496), H: 800,
+    fireShot: () => {},
+    dropMine: (c, ty) => (laid.push({ car: c, type: ty }), true),
+    fireShell: (...a) => shells.fire(...a),
+  };
+  const tick = (dt = 1 / 60) => driveCar(car, dt, world);
+  return { car, world, shells, laid, tick };
+}
+
+// Run the car until the battery has fired, or give up. Returns the ticks spent,
+// which is how a phase is observed without reaching into the Weapon's cooldown.
+function tickUntilShell(h, limit = 600) {
+  const before = h.shells.list.filter((s) => s.alive).length;
+  for (let i = 0; i < limit; i++) {
+    h.tick();
+    if (h.shells.list.filter((s) => s.alive).length > before) return i + 1;
+  }
+  return null;
+}
+
+test("the boss is never in the ambient draw, at any distance", () => {
+  // cartypes.js's `staged`: the director places this by name (events.js) and
+  // the spawner must never produce one. Asserted through typeAvailable itself
+  // rather than through pickCarType's odds, so it holds even for a roll that
+  // reweights down to a single eligible entry.
+  const mortar = CAR_TYPES.find((t) => t.id === "mortar");
+  assert.ok(mortar.staged, "the boss must be a staged type");
+  for (const dist of [0, 1200, 1e9]) {
+    assert.ok(!typeAvailable(mortar, dist * DIST_UNITS), `rollable at DIST ${dist}`);
+  }
+});
+
+test("the battery carries no gun, so it can never trade fire with the player", () => {
+  // carshapes.js's SIEGE MORTAR pitch — "no barrel aimed at you" — held to in
+  // the kit rather than only in the artwork. A mortar that also plinked away
+  // with a blaster would turn the boss back into every other pursuit.
+  const mortar = CAR_TYPES.find((t) => t.id === "mortar");
+  const kit = armamentFor(mortar);
+  assert.equal(kit.gun, null, "the boss must carry nothing to shoot with");
+  assert.ok(kit.battery, "...and must carry artillery");
+});
+
+test("a shell is aimed where the player will be, not where they are", () => {
+  // armament.js's fireBarrage leads the target by the fuse. This is the whole
+  // mechanic: hold your speed and you arrive with the shell, so the dodge is a
+  // change of speed or lane rather than a reaction to a bullet.
+  const h = bossScenario({}, { speed: 400 });
+  assert.ok(tickUntilShell(h), "the battery never fired");
+  const shell = h.shells.list.find((s) => s.alive);
+  const fuse = armamentFor(h.car.type).battery.fuse;
+  assert.ok(
+    Math.abs(shell.worldY - (h.world.playerBody.worldY + 400 * fuse)) < 1,
+    `shell landed at ${shell.worldY}, not at the player's ${fuse}s lead`,
+  );
+});
+
+test("the fuse leaves the player real road to move in", () => {
+  // The fuse is the fight. A player must be able to cross two lanes before the
+  // shell arrives, or the barrage is not a dodge but a tax — the same two-lane
+  // span behaviours.js sizes hazard placement by, asked of the boss's weapon
+  // instead of of the road.
+  const battery = armamentFor(CAR_TYPES.find((t) => t.id === "mortar")).battery;
+  const lateral = 260; // the player's own steering rate (game/player.js)
+  const crossable = lateral * battery.fuse;
+  assert.ok(
+    crossable >= LANE_WIDTH * 2,
+    `a ${battery.fuse}s fuse only allows ${crossable.toFixed(0)}px of dodge, ` +
+      `under the ${(LANE_WIDTH * 2).toFixed(0)}px two-lane span the road is built around`,
+  );
+});
+
+test("the barrage escalates as the boss is hurt, and only then", () => {
+  // armament.js's BARRAGE is keyed to DAMAGE rather than to elapsed time, so
+  // the player's own progress is what makes the fight harder. A table that
+  // escalated on a clock would punish a player for being slow, which is the
+  // opposite of what this fight rewards.
+  for (let i = 1; i < BARRAGE.length; i++) {
+    assert.ok(BARRAGE[i].above < BARRAGE[i - 1].above, "thresholds must descend");
+    assert.ok(BARRAGE[i].shells > BARRAGE[i - 1].shells, "each phase throws more");
+    assert.ok(BARRAGE[i].interval < BARRAGE[i - 1].interval, "...and throws it sooner");
+  }
+  assert.equal(BARRAGE[BARRAGE.length - 1].above, 0, "the last phase must be the catch-all");
+  assert.equal(barragePhase(1).shells, BARRAGE[0].shells, "a full boss opens on the first phase");
+  assert.equal(
+    barragePhase(0.01).shells,
+    BARRAGE[BARRAGE.length - 1].shells,
+    "a dying one is on the last",
+  );
+});
+
+test("a straddle brackets the player's lane rather than landing to one side of it", () => {
+  // The last phase's three shells are centred on the player's line, so the
+  // pattern is symmetric and the dodge stops being "change lane". An off-centre
+  // straddle would leave the same side free every time and be solvable once.
+  const type = CAR_TYPES.find((t) => t.id === "mortar");
+  const h = bossScenario({ health: type.health * 0.1 }, { offset: 0 });
+  assert.ok(tickUntilShell(h), "the battery never fired");
+  const offsets = h.shells.list.filter((s) => s.alive).map((s) => s.offset).sort((a, b) => a - b);
+  assert.equal(offsets.length, 3, "the last phase throws three");
+  assert.ok(Math.abs(offsets[0] + offsets[2]) < 1e-9, "the pattern must be centred");
+  assert.equal(offsets[1], 0, "...with one shell dead on the player's line");
+});
+
+test("the battery shells a player it cannot see, which is why it cannot be outrun", () => {
+  // The deliberate absence of a range gate (armament.js's fireBarrage). Every
+  // other weapon refuses a shot the player could not see coming; indirect fire
+  // does not, and that is the whole of why speed is not an escape from this
+  // encounter. A player who runs still gets their fuse — the MARK is on screen
+  // even when the battery is not — and loses only the ability to shoot back.
+  const h = bossScenario({ worldY: 9000 }, { worldY: 0 });
+  assert.ok(tickUntilShell(h), "a battery far up the road must still fire");
+  const shell = h.shells.list.find((s) => s.alive);
+  assert.ok(shell.worldY < 1000, "the shell must land on the PLAYER, not near the battery");
+});
+
+test("a shell hits whatever is standing on it, escort included", () => {
+  // shells.js: indirect fire is not careful. A blast that spared the boss's own
+  // side would be the game quietly explaining that the shells are only ever
+  // about the player, and would take away the one thing a clever player can do
+  // with them.
+  const shells = new Shells();
+  shells.fire(500, 0, 1, 70, 60);
+  const escort = {
+    worldY: 500, offset: 0, w: 40, h: 70, alive: true, hp: 100,
+    damage(d) { this.hp -= d; },
+  };
+  shells.update(1.1, [escort]);
+  assert.ok(escort.hp < 100, "a shell must damage a hostile standing on it");
+});
+
+test("a shell already in the air still lands after its battery dies", () => {
+  // Killing the gun does not recall what it has already thrown — both fair and
+  // the more interesting last second of the fight.
+  const shells = new Shells();
+  shells.fire(500, 0, 1, 70, 60);
+  const player = {
+    worldY: 500, offset: 0, w: 34, h: 60, alive: true, hp: 100,
+    damage(d) { this.hp -= d; },
+  };
+  shells.update(0.5, []);   // the battery dies here; nothing else changes
+  assert.ok(shells.live, "the round must still be in the air");
+  shells.update(0.6, [player]);
+  assert.ok(player.hp < 100, "and must still land");
+});
+
+test("the boss lays mines only once it is nearly dead", () => {
+  // BARRAGE's last phase is the only one carrying `mines`. A boss laying from
+  // full hull would be a second encounter running alongside the first.
+  for (const phase of BARRAGE) {
+    if (phase.above > 0) assert.ok(!phase.mines, "only the last phase lays");
+  }
+  const type = CAR_TYPES.find((t) => t.id === "mortar");
+  const healthy = bossScenario({ health: type.health });
+  for (let i = 0; i < 400; i++) healthy.tick();
+  assert.equal(healthy.laid.length, 0, "a healthy battery must lay nothing");
 });

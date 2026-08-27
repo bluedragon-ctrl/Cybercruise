@@ -28,6 +28,7 @@ import { centerXAt } from "./road.js";
 import {
   CRITICAL_FLASH,
   GREEN_BRIGHT,
+  HAZARD,
   GREEN_DIM,
   GREEN_PALE,
   NEUTRAL,
@@ -762,6 +763,67 @@ export function drawTargetMark(ctx, cx, cy, w, h, phase, color = PLAYER_THRUST) 
       }
     }
   }, color, 1.6, 4, 0.14, alpha);
+}
+
+// --- The boss's hull meter ----------------------------------------------------
+//
+// A small bar under one car, saying how much of it is left. The road's first
+// boss (cartypes.js's `mortar`) is the only thing that asks for one.
+//
+// IT IS AN INSTRUMENT, NOT NEON, and that is the one rule it is built on. The
+// node drain meter (game/walletrender.js) already made this argument and made it
+// well: a plain fill with a dark backing, no glow and no neonStroke, because it
+// has to be readable at a glance by a player who is watching traffic rather than
+// watching it. Everything glowing on this screen is part of the world; the two
+// bars that report on the world deliberately are not.
+//
+// UNDER THE HULL, not over it. The boss holds station at the TOP of the screen
+// (behaviours.js's `siege`), so below it is the road between the boss and the
+// player — already where the player is looking, and clear of the shape's raked
+// tube and its up-screen overhang.
+//
+// IT ONLY EVER SHORTENS, AND IT NEVER CHANGES COLOUR. The player's own hull bar
+// (main.js) ramps green to red as it empties, and copying that here would be a
+// real mistake: on an ENEMY, red would arrive at the exact moment the player is
+// winning and would read as danger. One colour — HAZARD, the game's own
+// bad-news red — shrinking, says "threat remaining" and needs no learning.
+//
+// THE NOTCHES ARE THE POINT. `marks` are the fractions where the fight changes
+// (armament.js's BARRAGE thresholds, passed in rather than restated here), so
+// the bar is not a readout but a PROMISE: the player can see the next
+// escalation coming and choose whether to push into it now or back off. Two
+// fillRects, and the difference between a health bar and a fight with a shape.
+const METER_W = 56;    // px. Inside the mortar's own 62px box, so the bar reads
+                       // as belonging to the hull rather than floating under it
+const METER_H = 3;
+const METER_DROP = 10; // px below the car's box edge
+const METER_PAD = 1;   // dark backing around the track
+
+// `cx`/`cy` are the car's drawn centre — the same pair drawTargetMark takes, and
+// the same the sprite was just blitted at. `frac` is hull remaining, 0..1.
+export function drawHullMeter(ctx, cx, cy, h, frac, marks = []) {
+  const x = cx - METER_W / 2;
+  const y = cy + h / 2 + METER_DROP;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(x - METER_PAD, y - METER_PAD, METER_W + METER_PAD * 2, METER_H + METER_PAD * 2);
+
+  const left = Math.max(0, Math.min(1, frac));
+  if (left > 0) {
+    ctx.fillStyle = HAZARD;
+    ctx.fillRect(x, y, METER_W * left, METER_H);
+  }
+
+  // The phase marks, drawn OVER the fill so they stay visible on the full bar
+  // and on the empty track alike. A mark at 0 would sit on the bar's own end
+  // and say nothing, so the catch-all threshold is skipped.
+  ctx.fillStyle = "rgba(0,0,0,0.75)";
+  for (const m of marks) {
+    if (m <= 0 || m >= 1) continue;
+    ctx.fillRect(x + METER_W * m, y - METER_PAD, 1, METER_H + METER_PAD * 2);
+  }
+  ctx.restore();
 }
 
 // --- The shield arc (game/shieldstorm.js) ------------------------------------

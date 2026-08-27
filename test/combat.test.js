@@ -202,11 +202,25 @@ test("every gated type is back in the draw once its distance is passed", () => {
   // The other half: a gate must OPEN, or a type is simply switched off and the
   // sprite-cache budget in cartypes.js's header is paying for artwork nobody
   // ever meets.
-  const far = Math.max(...CAR_TYPES.map((t) => t.minDistance ?? 0)) * DIST_UNITS;
+  //
+  // EXCEPT A `staged` TYPE, which is not gated at all — it is withheld from the
+  // spawner entirely and placed by name by the director (events.js). The
+  // budget's argument still holds for it, because the encounter that stages it
+  // is a fixed milestone every run passes: the artwork IS met, just not by this
+  // code path. What this test would otherwise assert is that the boss turns up
+  // in ordinary traffic, which is the one thing `staged` exists to prevent.
+  const ambient = CAR_TYPES.filter((t) => !t.staged);
+  const far = Math.max(...ambient.map((t) => t.minDistance ?? 0)) * DIST_UNITS;
   const seen = new Set();
   for (let i = 0; i < 5000; i++) seen.add(pickCarType(far).id);
-  for (const type of CAR_TYPES) {
+  for (const type of ambient) {
     assert.ok(seen.has(type.id), `${type.id} never appeared even past every gate`);
+  }
+  // ...and the other direction, which is the new half: a staged type must NEVER
+  // come out of the ambient draw, at any distance.
+  for (const type of CAR_TYPES) {
+    if (!type.staged) continue;
+    assert.ok(!seen.has(type.id), `${type.id} is staged but the spawner rolled it`);
   }
 });
 

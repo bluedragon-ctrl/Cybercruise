@@ -59,7 +59,22 @@ import * as gameConsole from "../engine/console.js";
 // same units the HUD's DIST readout and every catalogue's `minDistance` gate
 // are written in (road.js). A FEEL dial: it decides how often the run is
 // interrupted, which is the whole rhythm of the shopping loop.
-export const SHOP_INTERVAL = 400;
+// LOWERED FROM 400. A shorter lap means the run is interrupted more often and
+// the player spends smaller amounts more frequently, which suits a shelf whose
+// cheapest consumables are 35-50 CR (upgrades.js).
+//
+// IT DOES NOT AVOID THE SET-PIECES, and it is worth being clear that no value
+// could. Milestones DEFER rather than cancel (events.js), so a visit that comes
+// due inside a live encounter is simply late — but at 350 the SECOND lap lands
+// on exactly 700, which is `warband`'s own trigger, so that visit is reliably
+// pushed back by the length of that fight. The boss at 1200 has a 300-unit
+// duration and will swallow whichever lap falls inside it too.
+//
+// That is the system working, and arguably the better beat: clear the set-piece,
+// bank what it paid, and the drone comes down for you immediately afterwards.
+// The only thing it must not do is quietly LOSE a visit, which is what deferral
+// is for and what test/events.test.js pins.
+export const SHOP_INTERVAL = 350;
 
 // Seconds of LIVE gameplay between the drone appearing and the jaws closing.
 // This is the only part of the sequence the player can still play through, so

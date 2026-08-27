@@ -32,8 +32,8 @@ import { drawCarCached } from "./sprites.js";
 import { driveCar } from "./behaviours.js";
 import { pickCarType, ENEMY_FACTION } from "./cartypes.js";
 import { drivingFor } from "./driving.js";
-import { armFor } from "./armament.js";
-import { Explosions, drawTargetMark } from "./effects.js";
+import { armFor, BARRAGE } from "./armament.js";
+import { Explosions, drawTargetMark, drawHullMeter } from "./effects.js";
 import { resolveCollisions, PlayerBody } from "./collisions.js";
 import { PLAYER_MASS } from "./player.js";
 import { centerXAt, headingAt, laneOffset, laneAt, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
@@ -74,6 +74,13 @@ export const ACCEL = 340;    // world units/sec² traffic uses to reach targetSp
 const SHOVE_DAMP = 5;        // per second; how fast a rammed car's slide dies away
 const CRITICAL = 0.35;       // hull fraction below which a car reads as wrecked
 const BLINK_PERIOD = 0.12;   // seconds per half-cycle of the critical-hull blink
+
+// The fractions the boss's hull meter is notched at (effects.js's drawHullMeter)
+// — armament.js's own barrage thresholds, DERIVED rather than restated. Two
+// copies of 0.66 that could drift apart would make the notch a lie, and an
+// instrument that lies is worse than none. Built once at module load, since the
+// table is frozen data and the meter is drawn every frame.
+const METER_MARKS = BARRAGE.map((p) => p.above).filter((f) => f > 0);
 
 // CRUISE DRIFT. Every car rolls its own speed at spawn, but that roll is made
 // ONCE — so two cars of a type that happen to roll close together stay locked in
@@ -695,6 +702,19 @@ export class Traffic {
       // designation runs out — see effects.js's drawTargetMark.
       if (lock && car === lock.car) {
         drawTargetMark(ctx, sx, sy, car.type.w, car.type.h, lock.time);
+      }
+
+      // ...and the hull meter, for the one type that asks for one (the boss —
+      // cartypes.js's `hullMeter`). Drawn in the SAME place and off the SAME
+      // (sx, sy) as the reticle above, for the same reason: it is an overlay on
+      // one specific car, and the car has just been drawn.
+      //
+      // NOT ON A WRECK. `critical` blinking is fine on a car that is about to
+      // die, but a meter on one that already has would be an instrument
+      // reporting on nothing — traffic keeps a dead car in the list for the
+      // tick its explosion is spawned in (see detonate), so this needs saying.
+      if (car.type.hullMeter && car.alive) {
+        drawHullMeter(ctx, sx, sy, car.type.h, car.health / car.type.health, METER_MARKS);
       }
     }
 

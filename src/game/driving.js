@@ -405,6 +405,28 @@ export const DRIVING_PROFILES = {
     nerve: 0,
     contact: 0,
   }),
+
+  // The siege mortar. The outrunner's disposition — everything it wants is up
+  // the road — with two figures moved for reasons that are about the BOSS
+  // rather than about driving.
+  //
+  // `leadHold` 420 rather than the reference 300: this one holds higher on the
+  // screen than any other hostile, which is what puts a 90px hull at the top
+  // edge with the whole barrage landing in the road between it and the player.
+  // It is NOT bounded by armament.js's gun band the way the outrunner's is —
+  // this car has no gun (see behaviours.js's `siege`) — but it is still well
+  // inside the road the player can actually see ahead of them, which is the
+  // rule that does apply and the one the suite checks.
+  //
+  // NERVE AND CONTACT AT ZERO, like every other hostile here, and worth saying
+  // out loud for this one: a boss that shouldered its way through hazards would
+  // clear the very minefield it is trying to drive the player into.
+  battery: profile({
+    patience: 0.15,
+    leadHold: 420,
+    nerve: 0,
+    contact: 0,
+  }),
 };
 
 // The profile a car type drives by. A named profile always wins; an unknown name

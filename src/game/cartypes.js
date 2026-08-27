@@ -55,7 +55,10 @@
 //
 // SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) is a cache key
 // in sprites.js, times WHEEL_FRAMES (8), plus one more colour for the
-// critical-hull blink: 15 types * 8 * 2 = 240 sprites at worst, built lazily.
+// critical-hull blink: 16 types * 8 * 2 = 256 sprites at worst, built lazily.
+// (Was 240 at 15 types; the boss took it to 256. A `staged` type costs exactly
+// what any other does here — the cache is keyed on artwork, and the boss's
+// artwork is built the first time the encounter fires.)
 // Keeping the catalogue a small FIXED list is what bounds it — vary cars by
 // ADDING A TYPE, never by rolling continuous per-instance sizes or colours.
 // Per-instance variety comes from speedMin..speedMax, which costs nothing
@@ -200,7 +203,21 @@ export const FOCUS = [];
 //               mine layer) and every neutral-faction type carries nothing;
 //               name a profile to override that default, e.g. a car that
 //               fights without a gun at all
-//   weight      relative spawn frequency
+//   staged      TRUE means the ambient spawner never rolls this type at all —
+//               the only thing that puts one on the road is an events.js
+//               encounter naming it in a `stage` spec. The boss is the first,
+//               and the field exists because "a type nobody meets" and "a type
+//               only the director may place" are opposite things that a
+//               `weight: 0` would have made look identical. Read by
+//               typeAvailable, which is the one gate the spawner consults, so a
+//               staged type is invisible to pickCarType and to nothing else:
+//               planStage looks a type up BY ID and never asks about gates,
+//               which is exactly the seam that makes this a one-word change
+//               rather than a special case in the spawner
+//   weight      relative spawn frequency. Meaningless on a `staged` type, which
+//               is never in a draw to be weighted — written as 0 there so the
+//               entry reads as "never rolled" at a glance rather than looking
+//               like a rarity somebody forgot to tune
 //   minDistance how far the player must have driven before this type may spawn
 //               at all, in DIST-READOUT units (road.js's DIST_UNITS) — the same
 //               number the HUD shows, so a gate reads as "this turns up at DIST
@@ -681,7 +698,15 @@ export const CAR_TYPES = [
     blastDamage: 20,
     value: 300,
     bounty: 100,
-    minDistance: 1000,
+    // PUSHED OUT FROM 1000. The rival is being tuned up into a proper
+    // mini-boss, and the further it goes in that direction the worse it reads
+    // as ordinary traffic: at 1000 the ambient road could produce a second one
+    // within a few hundred units of the scripted meeting, which turns the
+    // fight the `rival` encounter is built around into something that just
+    // happens sometimes. 1400 puts the first ambient rival AFTER the siege
+    // battery at 1200, so the run reads as an escalation — rival, boss, and
+    // only then rivals as part of the furniture.
+    minDistance: 1400,
     // REAL, and the one hostile that fights like both the cycle and the
     // interceptor in the same encounter — see behaviours.js's `duel`. It
     // forces its way past exactly like the cycle's `raid` for one deliberate
@@ -832,6 +857,114 @@ export const CAR_TYPES = [
     weight: 0.8, // uncommon: a strip is an event, and three of them at once
                  // would be weather
   },
+
+  // --- The boss -------------------------------------------------------------
+  {
+    // THE SIEGE MORTAR. The road's first proper boss, and the first entry in
+    // this catalogue the ambient spawner is not allowed to touch (`staged`).
+    //
+    // WHAT MAKES IT A BOSS is not any one field but the fact that every one of
+    // them is off the end of the scale it belongs to: eight times the hull of
+    // anything else, the only tracked silhouette, the only kit with artillery
+    // in it, and the only payout worth a shop visit on its own. It is still a
+    // plain CAR_TYPES row driven by a plain behaviours.js tactic, which is the
+    // point — the boss cost the game one new weapon system and no new concept
+    // of what an enemy is.
+    id: "mortar",
+    label: "SIEGE MORTAR",
+    // Authored in bossshapes.js and graduated into carshapes.js the day this
+    // record was written — see that file's note where the TANK group used to be.
+    shape: carShapeIndex("SIEGE MORTAR"),
+    faction: ENEMY_FACTION,
+    color: ENEMY_DEEP,
+    thrust: ENEMY_THRUST,
+    // The shape's own authored size, unchanged. It is the widest thing on the
+    // road by some way — a lane is 65px — which is half of why it reads as a
+    // wall the moment it comes over the top of the screen.
+    w: 62,
+    h: 90,
+    // EIGHT TIMES THE RIVAL. The player's cannon does 41 a round at ~6
+    // rounds/sec (weapons.js), so 3200 is about thirteen seconds of PERFECT
+    // fire — and perfect is exactly what the barrage is there to prevent. At a
+    // realistic third of that uptime it is a fight of well over half a minute,
+    // which is what makes this the longest engagement in the game by some way.
+    //
+    // RAISED FROM 1600, and the encounter's `duration` went with it: that
+    // backstop is measured in ROAD (eventtypes.js), so a player holding top
+    // speed covers it in a fixed ~30 seconds however much hull the boss has.
+    // At 1600 the fight comfortably fit inside it; doubling the hull would have
+    // let a fast player run the clock out on a boss they were winning, which
+    // turns a backstop against being trapped into a cap on the fight. The two
+    // numbers move together — change one and check the other.
+    health: 3200,
+    // Half again the rig's 4, which cartypes.js already calls "immovable in
+    // practice". Ramming a boss must never be a strategy; this is what makes
+    // the attempt cost the player and move the mortar almost not at all.
+    mass: 6,
+    // AT THE TOP OF THE CATALOGUE, level with the cycle's 730 ceiling and no
+    // higher. It is a tracked siege gun doing highway speed, which needs saying
+    // out loud: the alternative was a boss the player drives away from, and
+    // this road already has a 400-hull rival wearing the player's own body at
+    // 650. What the band actually buys is that the fight STAYS ON SCREEN —
+    // see behaviours.js's `siege`. It deliberately does NOT cover a boosted
+    // player (pickuptypes.js lifts the whole band by 200 for twelve seconds),
+    // and that gap is the one escape the encounter allows.
+    speedMin: 640,
+    speedMax: 730,
+    // SLOW HANDS, and the split from the speed above is the whole of what keeps
+    // it fair: it can hold the pace but it cannot dodge, so it stays a big
+    // target the cannon can actually stay on. A boss that was quick in both
+    // would simply be unhittable.
+    //
+    // BOUNDED FROM BELOW, though, and by a rule rather than by feel. This is the
+    // first type in the catalogue that is both FAST and WALLOWING, and
+    // obstacles.js's SPAWN_MARGIN is sized so the worst dodger on the road still
+    // has room to cross two lanes before it reaches a hazard (behaviours.js's
+    // dodgeDistance, asserted in test/hazards.test.js). At 730 units/sec the
+    // floor works out at 120; anything under that asks the spawner to place
+    // hazards this car physically cannot avoid, which is a rule about the whole
+    // road rather than a preference about this one.
+    //
+    // 130 CLEARS IT WITH ROOM and still sits at the slow end of the hostile
+    // fleet — level with the interceptor, under the rival's 150 and the
+    // outrider's 200, with only the bruiser (70) and the stocker (100) below
+    // it. What actually makes this car unable to dodge is the SPEED, not the
+    // hands: at 730 units/sec, 130px/sec of slide is a lane every half second
+    // while the road goes past at five lengths a second.
+    steerSpeed: 130,
+    // The biggest death blast in the catalogue, and still under half the
+    // player's hull at the centre: winning next to it should hurt and must
+    // never be what kills you the moment you have won.
+    blastRadius: 90,
+    blastDamage: 45,
+    // THE WINDFALL both of these fields were written to allow — see the header,
+    // where a boss is named as the reason `value` and `bounty` are literals on
+    // every row. They are deliberately not in the flat 100/25 proportion: the
+    // score resets every run and can afford to be generous, while credits BANK
+    // across runs (wallet.js) and inflate every future one, so the money is the
+    // conservative half. 250 is ten ordinary kills — two and a half rungs of a
+    // stat ladder, or a full consumable resupply.
+    value: 1500,
+    bounty: 250,
+    // NEVER ROLLED. The `siege` encounter (eventtypes.js) is the only thing
+    // that puts one on the road, so the gate below is not a gate at all — the
+    // event's own milestone is this type's only trigger. Stated as 0 rather
+    // than as some large number precisely because there is no ambient unlock
+    // being waited for: `staged` is what holds it back, and a second gate
+    // pretending to do the same job would be the misleading one.
+    staged: true,
+    minDistance: 0,
+    weight: 0,
+    behaviour: "siege", // `outrun`'s hold with no gun behind it — the shells go
+                        // on the road ahead of the player instead (behaviours.js)
+    arms: "battery",    // no gun, three mines, and the artillery (armament.js)
+    driving: "battery", // holds higher up the screen than anything else
+    // The bar under the hull, and the only type that asks for one. See
+    // effects.js's drawHullMeter for why this is an opt-in flag rather than a
+    // health threshold: a future boss buys the instrument with one line, and no
+    // ordinary enemy ever grows one by accident.
+    hullMeter: true,
+  },
 ];
 
 // Whether `type` is allowed on the road yet. `distance` is the RAW world
@@ -840,6 +973,12 @@ export const CAR_TYPES = [
 // A focused type keeps its own gate (so focusing on the interceptor still waits
 // for DIST 100); everything else is gated for ever. See FOCUS above.
 export function typeAvailable(type, distance) {
+  // A STAGED TYPE IS NEVER AVAILABLE TO THE SPAWNER, at any distance and even
+  // under FOCUS — the director places it by id and does not come through here
+  // (events.js's planStage), so this is the whole of the "never ambient" rule.
+  // Checked before FOCUS rather than after, so focusing on a boss to look at it
+  // cannot accidentally turn it into traffic.
+  if (type.staged) return false;
   if (FOCUS.length > 0 && !FOCUS.includes(type.id)) return false;
   return distance >= (type.minDistance ?? 0) * DIST_UNITS;
 }

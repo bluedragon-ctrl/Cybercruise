@@ -10,6 +10,7 @@ import { clear, glowText } from "./engine/neon.js";
 import { GREEN, GREEN_BRIGHT, GREEN_PALE, HAZARD, PLAYER, PLAYER_THRUST, SHIELD_FLICKER } from "./engine/palette.js";
 import { Player, BOOST_EXPIRING, BOOST_FLICKER_RATE } from "./game/player.js";
 import { Projectiles } from "./game/projectiles.js";
+import { Shells } from "./game/shells.js";
 import { Score } from "./game/score.js";
 // Credits — the currency the upgrade shop spends (game/shop.js). Separate from
 // Score on purpose; see wallet.js's own header for the whole argument.
@@ -269,6 +270,7 @@ let pickups;
 let traffic;
 let shots;
 let enemyShots;
+let shells;
 let loadout;
 // The upgrade tiers bought this run. Per-run like everything else in this
 // block, and rebuilt by newGame() rather than reset in place: a Garage is
@@ -430,6 +432,14 @@ music.onTrackChange(onTrackChange);
 // regardless of which `traffic`/`obstacles` instance is current.
 const shotTargets = [];
 
+// The same idea for the boss's shells, and a SEPARATE list because the contents
+// genuinely differ: a blast hits everything on the road, the player's own body
+// included, where a bullet pool is deliberately resolved against one side only
+// (see the note on enemyShots in respawnWorld). Reusing shotTargets and pushing
+// the player onto it would quietly put the player in the path of their own
+// cannon fire.
+const shellTargets = [];
+
 // Scratch for the per-shot options projectiles.js's spawn() takes — what this
 // round designates, and what it chases. REUSED rather than built per shot, for
 // the same reason the array above is: the trigger is pulled several times a
@@ -502,6 +512,15 @@ function respawnWorld() {
   // design mines around. The same goes for a hostile round setting off a
   // mine.
   enemyShots = new Projectiles(explosions);
+  // THE BOSS'S ARTILLERY (game/shells.js). A third pool rather than a mode on
+  // the hostile one above, for the reason that file opens with: a shell is not
+  // a bullet, it is an impact with a fuse on it, and it shares none of the
+  // flight, the swept hit test or the retirement bounds.
+  //
+  // Rebuilt with everything else here, which is also what empties it: a shop
+  // visit throws the world away, and a shell still ticking down over a road
+  // that no longer exists would land on the new one.
+  shells = new Shells(explosions);
 }
 
 function newGame() {
@@ -630,6 +649,16 @@ function fireShot(car, type, dir) {
   // ENEMY_FIRE_SOUND for why (timbre tells player fire from enemy fire; it
   // doesn't need to tell one hostile gun from another).
   music.play(ENEMY_FIRE_SOUND[type.id]);
+}
+
+// A shell is lobbed at a PLACE. Unlike fireShot and dropMine this takes no car
+// at all, and that is the point: by the time armament.js calls this it has
+// already decided where the round lands (see its fireBarrage), and nothing
+// downstream cares which battery threw it. Returns nothing — a shell cannot be
+// refused, because there is no road to have room for it until it arrives.
+function fireShell(worldY, offset, fuse, radius, damage) {
+  shells.fire(worldY, offset, fuse, radius, damage);
+  music.play("mine_placed");
 }
 
 // A mine is laid immediately behind `car`. Returns whether the road had room —
@@ -1309,6 +1338,7 @@ function updatePlaying(dt) {
     // the top of game/behaviours.js.
     fireShot,
     dropMine,
+    fireShell,
   };
   obstacles.update(dt, world);
 
@@ -1337,6 +1367,19 @@ function updatePlaying(dt) {
   // PlayerBody they are tested against has just been synced to where the player
   // actually is now rather than to where it was at the top of the frame.
   enemyShots.update(dt, enemyTargets, { distance, playerY: player.y, W, H });
+
+  // The barrage, resolved LAST of the damage sources and against EVERYTHING on
+  // the road — the player, the traffic and the hazards alike, which is the one
+  // way this differs from the hostile bullets above. Indirect fire is not
+  // careful (see shells.js): a shell that lands on the boss's own escort kills
+  // the escort, and a player who baits one into a knot of cars has earned that.
+  // Last, so a shell fired during traffic.update this tick still gets its fuse
+  // ticked in the tick it was fired.
+  shellTargets.length = 0;
+  shellTargets.push(traffic.playerBody);
+  for (const car of traffic.cars) shellTargets.push(car);
+  for (const o of obstacles.list) shellTargets.push(o);
+  shells.update(dt, shellTargets);
 
   // Buff crates. Independent of everything above — a pickup never fights,
   // shoves or blocks anything — so it needs none of the tick-order care
@@ -1696,6 +1739,11 @@ function render(alpha) {
   // Pickups alongside obstacles, before traffic — so a car driving over one
   // is never hidden underneath it, same reasoning obstacles.render gets above.
   pickups.render(ctx, camY, player.y, W, H);
+  // THE SHELL MARKS, under the traffic and under the player: this is paint on
+  // the tarmac rather than an object above it, so a car driving over its own
+  // impact point covers the mark — which is exactly the moment the player most
+  // needs to feel it. See shells.js's render.
+  shells.render(ctx, camY, player.y, W, H);
   traffic.render(ctx, camY, player.y, W, H, alpha, lock);
   // Bullets over the traffic they're flying at, under the player's own car.
   // Hostile rounds draw with them and in the enemy's own red (weapons.js), so

@@ -131,7 +131,26 @@ const CLUSTER_WINDOW = 130;
 // Sized against the CATALOGUE rather than picked: the widest car has to fit, or
 // the rule guarantees a way through that the rig cannot use. Asserted in
 // test/hazards.test.js, since it is a relation between two files.
-const WIDEST_CAR = Math.max(...CAR_TYPES.map((t) => t.w));
+//
+// THE AMBIENT CATALOGUE, and `staged` types are deliberately left out of it.
+// This is a real trade rather than a convenience, so it is worth the lines:
+//
+//   WHY IT CAME UP. The boss (cartypes.js's `mortar`) is 62px wide against the
+//   bus's 46 — it is a siege gun, and that width is the artwork rather than a
+//   tuning choice. Folded in here it would take MIN_PASSAGE from 58 to 74, and
+//   that number is not a boss setting: it is the guaranteed gap in EVERY
+//   minefield, roadblock and lane closure in the game. One car that the ambient
+//   spawner can never even produce would have quietly made every hazard on the
+//   road easier for a player whose own car is 34px wide.
+//
+//   WHAT IT COSTS. A staged type is not guaranteed to fit through an ambient
+//   hazard, and the boss genuinely may not. That is survivable and arguably
+//   right — a mine is 150 against its 1600 hull, its driving profile avoids
+//   hazards anyway (driving.js's `battery`, nerve 0), and the encounter that
+//   stages it runs with the hazard budget at zero, so the case only arises at
+//   all once the fight is over. A 62px vehicle not fitting everywhere a 34px
+//   one does is not a bug.
+const WIDEST_CAR = Math.max(...CAR_TYPES.filter((t) => !t.staged).map((t) => t.w));
 const PASSAGE_CLEARANCE = 6;  // px of daylight either side, so the gap is drivable
                               // rather than exactly car-shaped
 const MIN_PASSAGE = WIDEST_CAR + PASSAGE_CLEARANCE * 2;

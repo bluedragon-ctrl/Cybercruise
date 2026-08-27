@@ -702,6 +702,66 @@ export const CAR_SHAPES = [
       line(-0.62, 0.59, 0.62, 0.59, c);
     },
   },
+
+  // THE FIRST BOSS HULL TO EARN A CAR TYPE. Authored in bossshapes.js and moved
+  // across here UNEDITED except for its two helper calls, exactly as that file's
+  // header says a boss hull graduates: the artwork was finished in the catalogue
+  // session, and it comes over in one piece the day something on the road can
+  // wear it. `group: "TANK"` was the staging catalogue's field and does not
+  // exist here, so it is dropped; nothing else about the shape changed.
+  //
+  // The one edit: bossshapes.js has a `pair()` helper and this file does not, so
+  // the outriggers below are emitted twice by hand. Adding `pair` here for one
+  // shape would be a helper with a single caller — see `box` above, which came
+  // across the same way and earned its keep across the whole two-wheeler set.
+  //
+  // IT IS THE ONLY TRACKED THING IN THE CATALOGUE, which is the whole point of
+  // the silhouette: no wheels at all, so it does not read as traffic even for
+  // the half-second before the player works out what it is.
+  {
+    name: "SIEGE MORTAR",
+    pitch: "no barrel aimed at you — the shells arrive from off-screen",
+    size: [62, 90],
+    // A different KIND of threat, and the silhouette has to say so: squat and
+    // wide, tube raked up-screen instead of level, and outrigger spades planted
+    // at ground level. If the player reads "artillery" they will look for where
+    // the shells land rather than for a firing line, which is the fight this
+    // variant is proposing.
+    profile: [
+      [0, -0.94], [0.46, -0.90], [0.68, -0.72], [0.72, -0.40],
+      [0.72, 0.70], [0.50, 0.92], [0, 0.94],
+    ],
+    tracks: [[-0.84, 0.84, 8, 14]],
+    overhang: { x: 1.34, up: 1.08 },
+    low({ solid }, c) {
+      // Outrigger spades, planted. Ground level, so the hull is drawn over the
+      // inboard end of each and they read as bolted under it.
+      for (const [y1, y2] of [[-0.62, -0.44], [0.44, 0.62]]) {
+        solid(box(0.60, y1, 1.32, y2), c, CAR_FILL);
+        solid(box(-1.32, y1, -0.60, y2), c, CAR_FILL);
+      }
+    },
+    flat({ line }, c) {
+      line(-0.72, -0.10, 0.72, -0.10, c);
+      line(-0.72, 0.30, 0.72, 0.30, c);
+    },
+    raised({ solid }, c) {
+      // The tube: wide at the breech, narrowing forward and raked up-screen.
+      solid([[-0.24, 0.34], [0.24, 0.34], [0.32, -0.58], [-0.32, -0.58]], c, CAR_FILL_HIGH);
+      solid(box(-0.20, 0.34, 0.20, 0.56), c);          // breech block
+      solid(box(-0.62, 0.40, -0.36, 0.72), c);         // loader hatches
+      solid(box(0.36, 0.40, 0.62, 0.72), c);
+    },
+    top({ line }, c) {
+      // Muzzle rings, widest at the mouth — reads as a bore you are looking
+      // down the side of, not a barrel pointed anywhere.
+      for (const [y, x] of [[-0.54, 0.31], [-0.42, 0.29], [-0.28, 0.27]]) {
+        line(-x, y, x, y, c, 1.5, 7);
+      }
+      line(-0.28, 0.30, -0.32, -0.56, c);
+      line(0.28, 0.30, 0.32, -0.56, c);
+    },
+  },
 ];
 
 // Look a shape up by name. Car types (cartypes.js) select their silhouette
