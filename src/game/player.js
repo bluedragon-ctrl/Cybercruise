@@ -149,6 +149,11 @@ export class Player {
     // DEFLECTOR tiers. Added in activateShield rather than baked into the
     // pickup catalogue, so one upgrade covers every shield source at once.
     this.shieldBonus = 0;
+    // The SIPHON RIG tier, 0..3 (game/upgrades.js's `siphon` stat). Read
+    // straight off by game/wallet.js wherever a node's reach, drain time or
+    // payout is decided — see its own SIPHON_TIERS header for why this is a
+    // tier index rather than a figure like the other upgrades above.
+    this.siphonLevel = 0;
     this.hitWall = false; // true on frames the car is pressed against a barrier
     this.wallTimer = 0; // counts down between scrape-damage ticks
     this.wheelPhase = 0; // accumulated roll distance, drives the wheel tread
@@ -284,13 +289,15 @@ export class Player {
   // crate now does (game/pickuptypes.js): the window opens on the first hit
   // that would otherwise hurt (see damage() above), so the buff is spent on
   // damage rather than on whatever stretch of empty road happened to follow
-  // the crate. Same non-additive rule as activateShield — a second crate
-  // raises the banked figure to the longer of the two rather than stacking —
-  // and the DEFLECTOR bonus is still added at ACTIVATION time, so a bonus
-  // bought between the crate and the hit still counts.
+  // the crate. ADDITIVE, unlike activateShield: a shield already banked and
+  // not yet running has not started costing the player anything, so a second
+  // crate driven over before the first hit lands is a crate that was worth
+  // taking, not a wasted pickup capped at whichever one was longer. The
+  // DEFLECTOR bonus is still added at ACTIVATION time, so a bonus bought
+  // between the crate(s) and the hit still counts.
   chargeShield(seconds) {
     if (seconds <= 0) return;
-    this.shieldCharge = Math.max(this.shieldCharge, seconds);
+    this.shieldCharge += seconds;
   }
 
   // Re-point this car at the stat block the shop's tiers add up to
@@ -309,6 +316,7 @@ export class Player {
     this.maxSpeed = stats.maxSpeed;
     this.mass = stats.mass;
     this.shieldBonus = stats.shieldBonus;
+    this.siphonLevel = stats.siphonLevel;
     const gained = stats.maxHealth - this.maxHealth;
     this.maxHealth = stats.maxHealth;
     if (gained > 0) this.heal(gained);

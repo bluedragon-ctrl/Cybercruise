@@ -262,6 +262,7 @@ test("a Garage starts stock, and its stats block is what a fresh Player already 
   assert.equal(stats.maxHealth, player.maxHealth);
   assert.equal(stats.shieldBonus, player.shieldBonus);
   assert.equal(stats.mass, player.mass);
+  assert.equal(stats.siphonLevel, player.siphonLevel);
 });
 
 test("applyUpgrades is absolute, so applying one purchase twice cannot double it", () => {

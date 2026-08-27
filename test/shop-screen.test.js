@@ -86,7 +86,7 @@ function tick(s) {
 
 function draw(s, visit = 1) {
   const ctx = recordingCtx();
-  s.screen.render(ctx, 600, 800, s.wallet, visit, s.garage);
+  s.screen.render(ctx, 600, 800, s.wallet, visit, s.garage, s.player, s.loadout);
   return ctx;
 }
 

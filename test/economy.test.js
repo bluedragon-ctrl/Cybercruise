@@ -14,6 +14,7 @@ import { ROAD_HALF_WIDTH, centerXAt } from "../src/game/road.js";
 import { visibleNodes } from "../src/game/scenery.js";
 import { nodeId, nodeValue, pingingNodes, reset as linksReset } from "../src/game/links.js";
 import { Wallet, LINK_RADIUS, CREDITS_KEY, loadBanked } from "../src/game/wallet.js";
+import { TIER_COUNT } from "../src/game/upgrades.js";
 import { renderNodeHints, renderAwardMarks, renderUplink } from "../src/game/walletrender.js";
 import { edgesAt } from "../src/game/road.js";
 import { driver, fastest } from "../test-support/fixtures.js";
@@ -694,4 +695,81 @@ test("a node the floor is no longer drawing takes its dish with it", () => {
   const player = beside(node, distance, 150);
   hold(w, node, player, distance, 1);
   assert.equal(w.linkGeometry([], player, player.x), null);
+});
+
+// --- The SIPHON RIG (game/upgrades.js's `siphon` stat) -----------------------
+//
+// A player stand-in with a rig tier bolted on — everything else about `beside`
+// unchanged, since the rig is read straight off `player.siphonLevel` by
+// wallet.js and nothing here needs to know the table it drives.
+function rigged(node, distance, level, speed = 150) {
+  return { ...beside(node, distance, speed), siphonLevel: level };
+}
+
+test("an unrigged player reads the same as one with no siphonLevel at all", () => {
+  // player.js defaults siphonLevel to 0, but wallet.js's own test fixtures
+  // (this file's `beside`/`atNode`) carry no such field, and that omission has
+  // to keep meaning "stock" rather than throwing or reading as tier 0 by luck.
+  const distance = 4000;
+  const node = nodeBeside(distance, { offRoadBy: 200 });
+  const bare = beside(node, distance);
+  const stock = rigged(node, distance, 0);
+  assert.equal(new Wallet(null).linkRate(150, bare), new Wallet(null).linkRate(150, stock));
+});
+
+test("the rig reaches further: a node out of a stock car's range is in reach for a maxed one", () => {
+  const distance = 4000;
+  // Well past LINK_RADIUS (300) but inside the maxed rig's 390.
+  const node = nodeBeside(distance, { offRoadBy: 340 });
+  const w = new Wallet(null);
+  const stock = rigged(node, distance, 0);
+  const maxed = rigged(node, distance, 3);
+  assert.equal(w.payable(node, stock, distance, TEST_W), false, "a stock car reached a node past LINK_RADIUS");
+  assert.equal(w.payable(node, maxed, distance, TEST_W), true, "the maxed rig did not reach a node inside its own range");
+});
+
+test("the rig drains faster at every tier, at the same distance", () => {
+  const w = new Wallet(null);
+  let prev = w.linkRate(150, { siphonLevel: 0 });
+  for (let level = 1; level <= 3; level++) {
+    const rate = w.linkRate(150, { siphonLevel: level });
+    assert.ok(rate > prev, `tier ${level} drained no faster than tier ${level - 1}`);
+    prev = rate;
+  }
+});
+
+test("the rig's yield pays out more per node, and the floor's own price tag agrees with what lands", () => {
+  const distance = 4000;
+  const node = nodeBeside(distance, { offRoadBy: 40 }); // well within even a stock car's reach
+  const stockValue = nodeValue(node.bx, node.by);
+
+  const stockPaid = hold(new Wallet(null), node, rigged(node, distance, 0), distance, 2);
+  assert.equal(stockPaid, stockValue, "a stock car's payout drifted from the catalogue's own price");
+
+  const clock = 0;
+  for (let level = 1; level <= 3; level++) {
+    const w = new Wallet(null);
+    const player = rigged(node, distance, level);
+    // THE HINT MUST MATCH THE PAYOUT. hints() is what the player reads on the
+    // floor before committing to a node; collect() is what actually lands. A
+    // rig that quoted one and paid the other would be exactly the HUD lying
+    // this file's own header (see wallet.js) says never happens.
+    const quoted = w.hints(clock, [node], player, distance, TEST_W)[0].value;
+    const paid = hold(w, node, player, distance, 2, clock);
+    assert.equal(paid, quoted, `tier ${level} paid a different figure than it quoted`);
+    assert.ok(paid > stockPaid, `tier ${level} paid no more than a stock car`);
+  }
+});
+
+test("the four SIPHON_TIERS levels the shop can actually sell all clear a stock car's own payout", () => {
+  // upgrades.js's TIER_COUNT is 3 (three tiers to BUY, on top of the level-0
+  // stock car every stat already starts at) — a fourth entry in wallet.js's
+  // own table that the shop could never reach would be dead code.
+  const distance = 4000;
+  const node = nodeBeside(distance, { offRoadBy: 40 });
+  const stockPaid = hold(new Wallet(null), node, rigged(node, distance, 0), distance, 2);
+  for (let level = 1; level <= TIER_COUNT; level++) {
+    const paid = hold(new Wallet(null), node, rigged(node, distance, level), distance, 2);
+    assert.ok(paid > stockPaid, `level ${level} (within TIER_COUNT) did not out-earn stock`);
+  }
 });
