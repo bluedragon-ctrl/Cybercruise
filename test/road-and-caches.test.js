@@ -101,17 +101,21 @@ test("every car type has a coherent speed range", () => {
 // --- The sprite-cache budget -------------------------------------------------
 
 test("sprite-cache budget matches the figure cartypes.js documents", () => {
-  // cartypes.js: "15 types * 8 * 2 = 240 sprites at worst" — one per (type,
+  // cartypes.js: "16 types * 8 * 2 = 256 sprites at worst" — one per (type,
   // wheel frame), doubled for the critical-hull blink colour. This is what
-  // keeps the cache bounded, so it must not grow silently. The figure last
-  // moved when the motorcycle fleet landed (192 -> 240): three types is ~1.5 MB
-  // of sprite cache, which is the cost cycleshapes.js's staging deferred until
-  // each of those hulls had a record.
+  // keeps the cache bounded, so it must not grow silently. The figure moved
+  // when the motorcycle fleet landed (192 -> 240), and again for the boss
+  // (240 -> 256).
+  //
+  // A `staged` type is counted like any other, on purpose: the cache is keyed
+  // on ARTWORK, and the boss's artwork is built the first time its encounter
+  // fires. "Rarely spawned" is not "free", and a budget that quietly excused
+  // the types it found inconvenient would stop being a budget.
   const worstCase = CAR_TYPES.length * WHEEL_FRAMES * 2;
   assert.equal(
     worstCase,
-    240,
-    `traffic sprite worst case is now ${worstCase}, not the documented 240 ` +
+    256,
+    `traffic sprite worst case is now ${worstCase}, not the documented 256 ` +
       `(${CAR_TYPES.length} types x ${WHEEL_FRAMES} wheel frames x 2 colours)`,
   );
 });

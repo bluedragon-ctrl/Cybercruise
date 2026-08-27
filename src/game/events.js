@@ -29,12 +29,16 @@ import { EVENT_TYPES, eventAvailable } from "./eventtypes.js";
 import { carTypeById } from "./cartypes.js";
 import { obstacleTypeById } from "./obstacletypes.js";
 import { OBSTACLE_SHAPES } from "./obstacleshapes.js";
-import { SPAWN_MARGIN as TRAFFIC_SPAWN_MARGIN } from "./traffic.js";
+import {
+  SPAWN_MARGIN as TRAFFIC_SPAWN_MARGIN,
+  RETIRE_MARGIN as TRAFFIC_RETIRE_MARGIN,
+} from "./traffic.js";
 import { SPAWN_MARGIN as HAZARD_SPAWN_MARGIN } from "./obstacles.js";
 import { DIST_UNITS, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 import { announceCityLine } from "./links.js";
 import { WARN } from "../engine/console.js";
 import * as gameConsole from "../engine/console.js";
+import { SHOW_TEST_OPTIONS, EVENT_AT_OVERRIDES } from "../testoptions.js";
 
 // How much road passes between rolls. Big enough that the roll is cheap at any
 // frame rate (it is one Math.floor per tick and a weighted draw eight times per
@@ -56,7 +60,14 @@ const EVENT_GAP = 25 * DIST_UNITS;
 // `staged` and obstacles.js's `laid` both give: pooling them would let one
 // feature quietly starve another. Sized so the largest formation in the
 // catalogue fits with room to spare, and so a director bug cannot fill the road.
-const MAX_STAGED_CARS = 6;
+//
+// RAISED FROM 6 when `warband` gained its bike wing: a bruiser, two
+// interceptors and four outriders is seven cars, and at six the last of them was
+// simply refused. This number is documented as tracking the catalogue's largest
+// formation, so it moves when that formation does — the "room to spare" is what
+// makes it a guard against a director bug rather than a second place to tune
+// encounter sizes.
+const MAX_STAGED_CARS = 8;
 // Sized off the LARGEST field in the catalogue with room over it — the
 // minefield asks for four rows of three. Deliberately not tighter: that entry's
 // whole claim is that the PASSAGE RULE decides how many mines land, and a
@@ -118,6 +129,20 @@ export function update(clockValue, world, handlers = {}, push = gameConsole.push
   if (live) {
     applyDensity(world, live.type.density);
     if (finished(live, world, handlers)) {
+      // AN ENCOUNTER THAT TIMED OUT WITH SOMETHING STILL ALIVE SAYS SO. The
+      // rival's entry named this as the one rough edge in the scheduler: a
+      // fight whose `duration` ran out while the car was still healthy "would
+      // just quietly hand the road back", with the pursuit simply evaporating.
+      // One line fixes it — the encounter reads as a withdrawal rather than as
+      // a fadeout, and the player is told the thing they failed to kill has
+      // left rather than being allowed to wonder whether it is still coming.
+      //
+      // Only when something SURVIVED: an encounter that ended because the
+      // player killed everything in it has already announced itself, loudly,
+      // in fireballs.
+      if (live.type.exitLabel && live.placed.some((body) => body.alive)) {
+        announceCityLine(clockValue, live.type.exitLabel, WARN, push, busy);
+      }
       live = null;
       cooldownUntil = world.distance + EVENT_GAP;
     }
@@ -155,10 +180,21 @@ export function update(clockValue, world, handlers = {}, push = gameConsole.push
 // The milestone entry due at `dist`, if any, plus the callback that SPENDS it —
 // deliberately not spent here, so an `atomic` stage that cannot be placed
 // leaves the milestone to come round again on the next beat.
+// Where a one-shot milestone actually fires. The catalogue's own `at` unless
+// this is a test build with an override for that id — see src/testoptions.js's
+// EVENT_AT_OVERRIDES for why the override lives there and not in the catalogue.
+// Guarded by the same master switch every other cheat is, so a shipping build
+// reads the catalogue and nothing else, whatever the override object happens to
+// still contain.
+function milestoneAt(type) {
+  if (!SHOW_TEST_OPTIONS) return type.at;
+  return EVENT_AT_OVERRIDES[type.id] ?? type.at;
+}
+
 function dueMilestone(dist) {
   for (const type of EVENT_TYPES) {
     if (type.at !== undefined) {
-      if (dist < type.at) continue;
+      if (dist < milestoneAt(type)) continue;
       if (milestones.get(type.id)) continue;
       return { type, spend: () => milestones.set(type.id, 1) };
     }
@@ -194,7 +230,31 @@ function applyDensity(world, density) {
 function finished(enc, world, handlers) {
   if (enc.handler) return !handlers[enc.handler]?.live?.();
   if (world.distance >= enc.endsAt) return true;
-  return !enc.placed.some((body) => body.alive);
+  return !enc.placed.some((body) => stillOnRoad(body, world));
+}
+
+// Is this staged body still a thing on the road at all?
+//
+// `alive` ALONE IS NOT ENOUGH, and the gap is easy to miss: Traffic.retire()
+// and Obstacles.retire() drop a body by FILTERING IT OUT OF THE LIST, without
+// touching `alive` — nothing else in the game cares, because nothing else holds
+// a reference to a car after the road has finished with it. An encounter does.
+//
+// So an encounter whose cars simply drove off the top of the screen used to stay
+// "live" until its `duration` ran out, holding the ambient density at whatever
+// it had set — which for a set-piece means a road that stays EMPTY, for tens of
+// seconds, with nothing on it to explain why. It is a quiet failure, and it gets
+// louder the longer an encounter's duration is: the boss's is the longest in the
+// catalogue.
+//
+// This also makes the boss's one intended escape resolve cleanly. A player who
+// takes twelve seconds of overdrive (pickuptypes.js) genuinely outruns the
+// battery; the battery falls behind, is retired like any other car, and the
+// encounter ends there rather than leaving a dead road behind a fight that is
+// over. They keep their escape and lose the payout, which is the trade.
+function stillOnRoad(body, world) {
+  if (!body.alive) return false;
+  return world.traffic?.cars.includes(body) || world.obstacles?.list.includes(body);
 }
 
 // --- Firing ------------------------------------------------------------------
@@ -279,15 +339,49 @@ function fire(type, world, handlers, clockValue, push, busy, spend) {
 //            BOTH barriers — the road narrowing
 //   scatter  `count` rows of `perRow` hazards at random offsets — the minefield
 //   handoff  places nothing; see fire() above
+// Room left between the last car of a staged formation and the retire boundary.
+// See aheadRoom in planStage.
+const AHEAD_SLACK = 60;
+
+// How much faster than the player a car staged BEHIND arrives, so that it is
+// actually gaining rather than merely keeping up. Small: this decides how long
+// the approach takes, and an arrival that closes 424 units of road in a few
+// seconds is a car coming up in the mirror, where twice that would be a car
+// teleporting into frame. See arrivalSpeed.
+const CLOSING_MARGIN = 20;
+
 export function planStage(spec, world) {
   const { distance, player, H } = world;
 
-  // WHERE A STAGED THING ENTERS, and the two margins are not the same number by
-  // accident. Behind, the traffic spawner's own margin: a car arriving in the
-  // mirror only has to be off-screen. Ahead, the HAZARD margin, which is much
-  // larger and was measured against the slowest-steering car in the catalogue
-  // (obstacles.js's SPAWN_MARGIN) — anything placed up the road has to be
-  // dodgeable by the traffic already driving towards it, and by the player.
+  // WHERE A STAGED THING ENTERS, and the margins differ by WHAT is entering
+  // rather than by which end it comes in at.
+  //
+  //   BEHIND        the traffic spawner's own margin. A car arriving in the
+  //                 mirror only has to be off-screen.
+  //   A HAZARD AHEAD  the much larger obstacles.js margin, measured against the
+  //                 slowest-steering car in the catalogue: anything STATIC
+  //                 placed up the road has to be dodgeable by the traffic
+  //                 already driving towards it, and by the player.
+  //   A CAR AHEAD   the traffic margin again, and this is the one that was
+  //                 wrong. A car staged at the hazard margin lands 1500 units
+  //                 up the road — far outside traffic.js's RETIRE_MARGIN of
+  //                 320 — so Traffic.retire() dropped it on the very tick it
+  //                 was placed, every time. `warband` had been staging a
+  //                 bruiser and two interceptors into that hole since it was
+  //                 written: the encounter fired, announced itself, took the
+  //                 ambient road to zero density and then put nothing on it.
+  //                 A car is not a hazard; it drives, it is dodged by being
+  //                 driven around, and it enters where every other car enters.
+  const aheadCar = distance + player.y + TRAFFIC_SPAWN_MARGIN;
+  // Road between where a car staged ahead APPEARS and where Traffic would drop
+  // it — the whole budget a formation up the road has to fit inside.
+  //
+  // SHORT OF THE BOUNDARY, not on it. retire() is a strict comparison, so a car
+  // landing exactly at RETIRE_MARGIN is dropped the moment it edges a pixel
+  // further out — which for anything staged ahead of a player it is faster than
+  // is the very next tick. The slack is a car length or so: enough that the
+  // last of a pack arrives with road to spare rather than on a knife edge.
+  const aheadRoom = TRAFFIC_RETIRE_MARGIN - TRAFFIC_SPAWN_MARGIN - AHEAD_SLACK;
   const ahead = distance + player.y + HAZARD_SPAWN_MARGIN;
   const behind = distance - (H - player.y) - TRAFFIC_SPAWN_MARGIN;
 
@@ -296,15 +390,28 @@ export function planStage(spec, world) {
       const type = carTypeById(spec.type);
       if (!type) return [];
       const back = spec.side === "behind";
-      const origin = back ? behind : ahead;
+      const origin = back ? behind : aheadCar;
       const lanes = spreadLanes(spec.count);
       const out = [];
+      // HOW FAR THE PACK MAY STRING OUT. Behind, as far as it likes: the road
+      // in the mirror runs off to the horizon and a car back there is being
+      // caught up with anyway. Ahead, the formation has to FIT — everything
+      // past traffic.js's RETIRE_MARGIN is dropped on the tick it is placed, so
+      // a two-car escort at a spread of 300 keeps its leader and silently loses
+      // the one behind it. Clamped rather than refused, because a slightly
+      // tighter escort is the encounter and a missing one is not.
+      const step = back
+        ? spec.spread
+        : Math.min(spec.spread, aheadRoom / Math.max(1, spec.count - 1));
       for (let i = 0; i < spec.count; i++) {
         // Staggered AWAY from the screen, so the pack streams in rather than
         // arriving as a rank: the first of them is at the margin and the rest
         // are further out still.
-        const worldY = back ? origin - i * spec.spread : origin + i * spec.spread;
-        out.push({ kind: "car", type, worldY, lane: lanes[i], speed: rollSpeed(type) });
+        const worldY = back ? origin - i * step : origin + i * step;
+        out.push({
+          kind: "car", type, worldY, lane: lanes[i],
+          speed: arrivalSpeed(type, back, player),
+        });
       }
       return out;
     }
@@ -393,7 +500,24 @@ export function planStage(spec, world) {
 function applyRequest(req, world) {
   if (req.kind === "car") {
     if (stagedCars(world) >= MAX_STAGED_CARS) return null;
-    return world.traffic.place(req.type, req.worldY, req.lane, req.speed, true);
+    const placed = world.traffic.place(req.type, req.worldY, req.lane, req.speed, true);
+    if (placed) return placed;
+    // THE LANE WAS TAKEN, SO TRY THE OTHERS — the same fallback the ambient
+    // spawner has always had (traffic.js's freeLane), which staging did not.
+    //
+    // planStage is PURE: it spreads a formation over distinct lanes without
+    // knowing what is already on the road, and each `stage` spec draws its lanes
+    // independently of the last. So a set-piece reliably lost a car to its own
+    // leader — the boss's escort is four interceptors across four lanes, one of
+    // which is always the lane the battery itself was just placed in, at the
+    // same row. Measured before this: three escorts landed out of four, every
+    // single time, and it read as the encounter being tuned that way.
+    //
+    // A refusal is still a normal outcome once EVERY lane is busy; this only
+    // stops the formation colliding with itself.
+    const lane = world.traffic.freeLane(req.worldY, req.type.w, req.type.h);
+    if (lane === -1) return null;
+    return world.traffic.place(req.type, req.worldY, lane, req.speed, true);
   }
   if (world.obstacles.stagedCount() >= MAX_STAGED_OBSTACLES) return null;
   const ok = world.obstacles.place(
@@ -413,6 +537,53 @@ function stagedCars(world) {
 // exists only for this caller.
 function rollSpeed(type) {
   return type.speedMin + Math.random() * (type.speedMax - type.speedMin);
+}
+
+// What a staged car is DRIVING at when it appears.
+//
+// THE STAGER OWNS THIS BECAUSE IT OVERRODE THE END IT CAME IN AT. traffic.js's
+// own spawner derives one from the other — "a car slower than the player is
+// placed AHEAD, a faster one BEHIND... a fast one ahead would simply vanish
+// over the horizon" — and an encounter that names a side has taken that
+// decision away from it. Having done so, it has to answer the consequence.
+//
+// So: a car staged AHEAD arrives at no more than the player's own speed. It may
+// still be a much faster type, and the moment its tactic wants the speed it has
+// it (nothing here touches the type's band, only the number it starts at) — but
+// it cannot open the gap during the second or two it spends settling, which for
+// anything at the top of the catalogue is long enough to cross RETIRE_MARGIN
+// and be dropped. The boss is the case that made this necessary: it holds
+// station ahead of the player by design (behaviours.js's `siege`) and would
+// otherwise brake its way straight off the top of the screen first.
+//
+// Staged BEHIND, the mirror image of the same problem, and it bit exactly as
+// hard: a car placed in the mirror is there to CATCH UP, and one that arrives
+// slower than the player never does. The rival is staged 424 units back and its
+// band is 580-650 against a player ceiling of 620 — so a roll under 620, which
+// is most of its range, produced an encounter that ran its full duration with
+// the rival sitting permanently off the bottom of the screen. Measured: it never
+// got closer than 476 units back, and the screen edge is at 304. The player was
+// told a rival was inbound and then met nothing at all.
+//
+// So a car staged behind arrives fast enough to close, CAPPED BY ITS OWN
+// CEILING. The cap is what keeps this honest: staging may pick where in a type's
+// band a car starts, never widen the band. A type whose ceiling is under the
+// player's is simply the wrong car to stage behind a player at full throttle,
+// and that stays visible instead of being papered over here.
+function arrivalSpeed(type, back, player) {
+  const rolled = rollSpeed(type);
+  if (!back) return Math.min(rolled, player.speed);
+
+  // ONLY IF THE TYPE CAN ACTUALLY CLOSE, and this guard matters more than the
+  // boost does. Clamping every arrival up to the type's ceiling would pin a
+  // whole pack to one number — the gang's four outriders would spawn at
+  // identical speeds and drive as a locked formation, which is precisely what
+  // cartypes.js's speed band and traffic.js's DRIFT exist to prevent. So a type
+  // that cannot beat the player's current speed keeps its roll and its spread;
+  // an encounter staging one behind a flat-out player has chosen the wrong car,
+  // and that stays visible rather than being papered over here.
+  const needed = player.speed + CLOSING_MARGIN;
+  return type.speedMax >= needed ? Math.max(rolled, needed) : rolled;
 }
 
 // Distinct lanes for a pack, starting somewhere random so a gang doesn't always

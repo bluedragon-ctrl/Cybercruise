@@ -933,6 +933,54 @@ function outrun(car, dt, world) {
   );
 }
 
+// --- Sieging -------------------------------------------------------------------
+//
+// The siege mortar — the road's first proper boss, and the only thing on it that
+// attacks the GROUND rather than a car.
+//
+// THE DRIVING IS `outrun`'s, UNCHANGED, and that is the whole of what this
+// function is: get past whatever is in the way, then hold station at the top of
+// the screen at the profile's `leadHold`. Everything that makes this a boss —
+// the hull, the three phases, the shells — lives in cartypes.js, armament.js and
+// shells.js, exactly where the road's other tactics keep their differences. A
+// boss that needed a fourth chase model would be a boss built on a special case.
+//
+// WHY IT HOLDS STATION AT ALL, given the barrage has no range gate and would
+// happily shell the player from off-screen (armament.js's fireBarrage): because
+// a boss the player cannot SEE is a boss they cannot read, and this hull is the
+// best silhouette in the game. Station-keeping is what keeps it on screen, in
+// the cannon's line, and shootable — which is what makes killing it the fast way
+// out of the encounter rather than merely the profitable one. The off-screen
+// case is the fallback for the twelve seconds of overdrive that can genuinely
+// break the hold, not the intended state of the fight.
+//
+// IT NEVER TURNS TO FACE THE PLAYER, and nothing here has to enforce that: the
+// kit carries no gun (armament.js's BATTERY_KIT), so there is no firing line to
+// line up and `trackTarget`'s lane-matching is only ever about staying in front.
+//
+// WHY THIS IS A ROW OF ITS OWN RATHER THAN THE MORTAR NAMING `outrun`, given it
+// delegates the whole manoeuvre — a fair question, and the answer is not taste:
+//
+//   `outrun` IS BOUND BY A GUN. Its hold has to sit inside armament.js's
+//   GUN_MIN_RANGE..GUN_RANGE band, or the car parks up the road and never fires
+//   (test/hazards.test.js pins every type driving that tactic against it). The
+//   mortar carries no gun at all, so that band is not a constraint it has — it
+//   is arithmetic about a weapon this car does not own. Naming `outrun` would
+//   hold the boss to it, which is precisely the invented constraint that test's
+//   own header warns against.
+//
+//   WHAT DOES STILL BIND IT is that the hold must be ON SCREEN, and that rule
+//   is about the player's eyes rather than about any weapon — so it applies to
+//   both tactics and the suite checks both.
+//
+// Delegating rather than copying is the file's own habit: `strew` runs `raid`,
+// `duel` runs `pursue`. The row is what the catalogue and the invariants read;
+// the body is where the manoeuvre actually lives, and it belongs to `outrun`.
+
+function siege(car, dt, world) {
+  outrun(car, dt, world);
+}
+
 // --- Strewing -----------------------------------------------------------------
 //
 // The sower (the GLIDE trike, and its trunk is why it is this hull that carries
@@ -1041,6 +1089,10 @@ const BEHAVIOURS = {
   strew: { drive: strew, arms: true },      // the sower's: `raid`'s run-in with
                                             // a spike strip for a payload, then
                                             // away flat out and unarmed
+  siege: { drive: siege, arms: true },      // the boss's: `outrun`'s hold with
+                                            // no gun to hold it for, shelling
+                                            // the road ahead of the player
+                                            // instead of shooting back at them
 };
 
 // Every manoeuvre the road knows. Exported for test/hazards.test.js, which

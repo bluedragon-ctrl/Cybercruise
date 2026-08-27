@@ -148,6 +148,87 @@ const REARGUARD = { gun: ENEMY_GUN, layer: null };
 // clearest reading of what its errand is. See SPIKE_LAYER above.
 const SPIKER = { gun: null, layer: SPIKE_LAYER };
 
+// THE BATTERY — the siege mortar's indirect fire, and the third slot a kit can
+// carry. See game/shells.js for what a shell IS; this is only the rate of fire
+// and the size of the hole.
+//
+// IT IS A `Weapon` FOR THE SAME REASON THE MINE LAYER IS: from the carrier's
+// point of view a battery is a cooldown and a magazine, and Weapon already
+// models both. The magazine is INFINITE, unlike the layer's three, and that is
+// the fight's whole clock — a boss that ran out of shells would be a boss the
+// player could simply wait out from a safe lane, which is the one thing this
+// encounter must not reward.
+//
+// `interval` here is only the OPENING one. The real rate comes from BARRAGE
+// below, which overrides the cooldown per salvo — see fireBarrage.
+const BATTERY = {
+  id: "battery",
+  label: "SHELLS",
+  interval: 3.4,
+  ammo: Infinity,
+  // SECONDS OF WARNING ON THE ROAD. The player steers at 260px/sec and a lane
+  // is 65px wide, so 1.25s is roughly four lane-changes' worth of time to
+  // vacate a 72px circle: unmissable if you are watching, fatal if you are not.
+  // This is the single most important number in the fight and the first one to
+  // reach for if the barrage feels cheap (too low) or ignorable (too high).
+  fuse: 1.25,
+  // Wider than a mine's 66 and softer than its 150. A shell is area denial, not
+  // a one-hit kill: the player has 100 hull, so a dead-centre hit costs over
+  // half of it and a clipped rim costs almost nothing. Standing still is what
+  // kills, not any single round.
+  blastRadius: 72,
+  blastDamage: 55,
+  // How far apart the shells of a STRADDLE land, laterally. Just under a lane,
+  // so a three-shell pattern brackets the player's lane and both neighbours —
+  // the dodge stops being "change lane" and becomes "change SPEED", which is
+  // the escalation the last phase is for.
+  spread: 52,
+};
+
+// THE PHASES. What the battery throws, by how much of the boss's hull is left.
+//
+// ESCALATION IS THE FIGHT'S STRUCTURE, and it is keyed to DAMAGE rather than to
+// elapsed time on purpose: the player's own progress is what makes the fight
+// harder, so pushing the attack is a decision with a visible price rather than
+// a stat check. It is also why the hull meter under the boss carries notches at
+// these fractions (game/effects.js) — the player can see the next phase coming
+// and choose whether to cross into it now or back off and heal.
+//
+// EXPORTED so the meter reads these thresholds rather than restating them. Two
+// copies of 0.66 that could drift apart would make the notch a lie, and a lying
+// instrument is worse than none.
+//
+// Ordered high to low; barragePhase walks it and takes the first match, so the
+// last entry's `above: 0` is the catch-all and needs no special case.
+export const BARRAGE = [
+  // RANGING. One shell, slowly. This phase is the tutorial: the player gets to
+  // watch a single mark land with nothing else demanding their attention, and
+  // learns what the ring means before it matters.
+  { above: 0.66, shells: 1, interval: 3.4, mines: false },
+  // FIRING FOR EFFECT. Two, closer together — the first phase where a lane
+  // change alone is not always enough.
+  { above: 0.33, shells: 2, interval: 2.6, mines: false },
+  // THE STRADDLE, plus mines. Three shells bracketing the lane, and the battery
+  // starts laying what is left of its magazine behind itself as it tries to
+  // open the gap. A cornered boss fights dirty; see fireBarrage for the drop.
+  { above: 0, shells: 3, interval: 2.0, mines: true },
+];
+
+// Which phase a car with `frac` of its hull left is in. Total rather than
+// per-car state, so nothing has to be reset, remembered or kept in step — the
+// hull IS the phase, and a boss healed by anything later would step back down
+// on its own.
+export function barragePhase(frac) {
+  return BARRAGE.find((p) => frac > p.above) ?? BARRAGE[BARRAGE.length - 1];
+}
+
+// The boss's kit. No gun AT ALL, and that is the design rather than an omission:
+// carshapes.js's SIEGE MORTAR pitch is "no barrel aimed at you", and a mortar
+// that also plinked at the player with a blaster would quietly turn the fight
+// back into every other pursuit in the game. The mine layer is the standard
+// three-round one and is only ever used in the last phase (see BARRAGE above).
+const BATTERY_KIT = { gun: null, layer: MINE_LAYER, battery: BATTERY };
+
 // Keyed BY NAME, exactly like behaviours.js's BEHAVIOURS table, so a car type
 // can name its kit in the catalogue the same way it already names its tactics.
 const ARMAMENTS = {
@@ -157,6 +238,7 @@ const ARMAMENTS = {
   rocketeer: ROCKETEER,
   rearguard: REARGUARD,
   spiker: SPIKER,
+  battery: BATTERY_KIT,
 };
 
 // The profile a car type carries, or null if it carries nothing.
@@ -186,6 +268,10 @@ export class Armament {
     // seconds later when it tries to use it. Null along with the layer itself
     // when there is no layer to resolve one for.
     this.payload = profile.layer ? obstacleTypeById(profile.layer.payload) : null;
+    // The third slot, and null for everything that is not the boss — checked
+    // exactly as the other two are rather than given a stub, so "does this car
+    // have artillery" is one truthiness test wherever it is asked.
+    this.battery = profile.battery ? new Weapon(profile.battery) : null;
   }
 
   // Cooldowns run whether or not the car is in a position to use anything, for
@@ -195,6 +281,7 @@ export class Armament {
   update(dt) {
     if (this.gun) this.gun.update(dt);
     if (this.layer) this.layer.update(dt);
+    if (this.battery) this.battery.update(dt);
   }
 }
 
@@ -298,7 +385,74 @@ export function useArms(car, world) {
   if (!target) return;
 
   shoot(car, arms, target, world);
+
+  // THE BATTERY OWNS ITS OWN MINE DROP, so it returns instead of falling
+  // through to the shared rule: a mortar lays only in its last phase (see
+  // BARRAGE), and that is a decision about the boss fight rather than about
+  // mine-laying in general. Everything else in the catalogue is unaffected —
+  // `arms.battery` is null for all of them.
+  if (arms.battery) {
+    fireBarrage(car, arms, target, world);
+    return;
+  }
+
   layMine(car, arms, target, world);
+}
+
+// --- The barrage --------------------------------------------------------------
+//
+// Lob a salvo at where the target is GOING TO BE. Returns whether one was fired.
+//
+// THERE IS NO RANGE GATE HERE, and its absence is the single most deliberate
+// thing in this file. Every other weapon checks that the shot can be seen coming
+// and can connect (see shoot's IT MUST BE SEEN COMING, and layMine's window),
+// because every other weapon is a line between two cars. Indirect fire is not.
+// The battery drops shells on a map reference, and it does that whether the
+// player is alongside it, half a screen ahead, or over the horizon on twelve
+// seconds of overdrive — which is exactly why the boss cannot be escaped by
+// simply being faster than it. Adding a range check here would hand the player
+// a way to switch the fight off by driving, and the fight is the encounter.
+//
+// The player is not left with nothing to read, though: the MARK is always on
+// screen even when the battery is not, because it is drawn where the shell will
+// land rather than where it came from (shells.js). A player who has run away is
+// still given their 1.25 seconds; what they have lost is the ability to shoot
+// back.
+function fireBarrage(car, arms, target, world) {
+  if (!world.fireShell || !arms.battery.ready) return false;
+
+  const type = arms.battery.type;
+  const phase = barragePhase(car.health / car.type.health);
+
+  // THE LEAD, and the reason this weapon asks the player to change SPEED rather
+  // than only to change lane: the impact point is where the target will be in
+  // `fuse` seconds if they hold what they are doing now. Drive on exactly as you
+  // were and you arrive with the shell. Everything else — braking, flooring it,
+  // swerving — is a dodge.
+  const aimY = target.worldY + target.speed * type.fuse;
+
+  // A straddle is centred on the target's line, so an odd count puts one shell
+  // dead on it and the rest either side. `(i - (n-1)/2)` is that centring; with
+  // one shell it is zero and the whole thing collapses to a single aimed round.
+  for (let i = 0; i < phase.shells; i++) {
+    const spread = (i - (phase.shells - 1) / 2) * type.spread;
+    world.fireShell(aimY, target.offset + spread, type.fuse, type.blastRadius, type.blastDamage);
+  }
+
+  arms.battery.tryFire();
+  // THE PHASE SETS THE REAL COOLDOWN, overriding the one tryFire just took from
+  // the type. Written this way round rather than by giving Weapon a variable
+  // interval because the rate belongs to the FIGHT, not to the gun: BARRAGE is
+  // the table a designer retunes, and weapons.js stays a catalogue of fixed
+  // things.
+  arms.battery.cooldown = phase.interval;
+
+  // THE LAST PHASE ALSO LAYS. Ordinary window, ordinary rules — layMine still
+  // refuses a drop with somebody else's traffic in the way, and still needs the
+  // player actually behind and roughly in line, so this is a mine in the
+  // player's path or nothing at all.
+  if (phase.mines) layMine(car, arms, target, world);
+  return true;
 }
 
 // Take a shot at `target` if this is a shot worth taking. Returns whether one

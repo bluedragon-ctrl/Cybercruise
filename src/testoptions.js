@@ -34,3 +34,29 @@ export const SHOW_INVULNERABILITY_OPTION = true;
 // the lot and needs another float.
 export const SHOW_EXTRA_CASH_OPTION = true;
 export const EXTRA_CASH_AMOUNT = 999999;
+
+// MILESTONE OVERRIDES: pull a one-shot encounter (game/eventtypes.js's `at`)
+// forward so it can be reached in seconds instead of driven to. Keyed by event
+// id; anything not listed fires at its catalogue figure.
+//
+// WHY IT LIVES HERE AND NOT IN THE CATALOGUE. Editing `at` directly would work
+// exactly once and then be a number nobody remembers to put back — and worse,
+// test/events.test.js reads the catalogue to check that an encounter never
+// stages a car the road has not unlocked yet, so a boss temporarily moved to
+// DIST 150 would either fail the suite or teach somebody to weaken the
+// invariant. The catalogue therefore always states what SHIPS, the suite always
+// checks what ships, and the override is applied by the director at the one
+// place it decides a milestone is due (game/events.js's dueMilestone).
+//
+// SHIPPING A BUILD: empty this object. It is guarded by SHOW_TEST_OPTIONS above
+// like everything else in this file, so switching the master flag off already
+// restores every catalogue figure — but an empty object is what the file is
+// supposed to look like at rest.
+//
+//   export const EVENT_AT_OVERRIDES = {};   // ship it like this
+//
+// EMPTY, which is how this ships. Every encounter fires at the distance its
+// catalogue entry names. Put an id in here to reach one quickly by hand:
+//
+//   export const EVENT_AT_OVERRIDES = { siege: 150 };  // the boss in seconds
+export const EVENT_AT_OVERRIDES = {};

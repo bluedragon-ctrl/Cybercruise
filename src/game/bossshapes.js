@@ -14,11 +14,17 @@
 // the number of car TYPES and would otherwise be paying for eight hulls that
 // nothing on the road can spawn.
 //
-// EIGHT HULLS, FIVE VEHICLES. Two of them (the armoured rig, the combat drone)
-// keep two hulls each, since both readings were worth having; the tank, the
-// hovercraft and the cargo drone keep one apiece plus, for the hovercraft, the
-// pontoon variant. `group` says which vehicle a hull belongs to, so the gallery
-// can show a vehicle's options side by side and the boss session can find them.
+// SEVEN HULLS, FOUR VEHICLES — was eight and five. Two of them (the armoured
+// rig, the combat drone) keep two hulls each, since both readings were worth
+// having; the hovercraft keeps one plus the pontoon variant, and the cargo drone
+// one. `group` says which vehicle a hull belongs to, so the gallery can show a
+// vehicle's options side by side and the boss session can find them.
+//
+// THE TANK IS GONE FROM THIS LIST, and that is this file working as intended
+// rather than a hull being lost: the SIEGE MORTAR was the first candidate to be
+// picked up, and it moved to carshapes.js the day cartypes.js grew a record that
+// wears it. See the note where its group used to be, and expect this count to
+// keep falling as the rest are claimed.
 //
 // THE GRAMMAR IS carshapes.js's. Read that file's header first: `profile` is the
 // right half of a symmetric hull (nose -1, tail +1) in fractions of hw/hh,
@@ -29,7 +35,8 @@
 //
 // THE THREE THINGS THAT ARE NEW here, all now supported by carshapes.js:
 //
-//   tracks   a wheel stretched into a tread band — the tanks
+//   tracks   a wheel stretched into a tread band — the tank, now graduated to
+//            carshapes.js, and the only user this list ever had for it
 //   hover    a ground blot offset down-screen, replacing the tyres entirely as
 //            the "this thing touches the ground" cue — the hovercraft and the
 //            combat drones
@@ -206,55 +213,15 @@ export const BOSS_SHAPES = [
 
 
   // =========================================================================
-  // TANK — the first thing in the game with no wheels at all. One hull, and it
-  // is the artillery reading rather than the level-barrel one: a boss whose
-  // threat lands from off-screen asks the player to move, not to trade shots.
+  // TANK — GRADUATED. The SIEGE MORTAR that stood here is now a car type and
+  // its artwork lives in carshapes.js, beside the cartypes.js record that
+  // spawns it. This note is what is left of the group, and it is deliberately
+  // not an empty entry: bossGroups() derives its groups from the list, so a
+  // vehicle with no hulls left simply stops being one, and the gallery stops
+  // offering a choice that has already been made.
+  //
+  // SEVEN HULLS REMAIN, four vehicles. See the header.
   // =========================================================================
-
-
-  {
-    group: "TANK",
-    name: "SIEGE MORTAR",
-    pitch: "no barrel aimed at you — the shells arrive from off-screen",
-    size: [62, 90],
-    // A different KIND of threat, and the silhouette has to say so: squat and
-    // wide, tube raked up-screen instead of level, and outrigger spades planted
-    // at ground level. If the player reads "artillery" they will look for where
-    // the shells land rather than for a firing line, which is the fight this
-    // variant is proposing.
-    profile: [
-      [0, -0.94], [0.46, -0.90], [0.68, -0.72], [0.72, -0.40],
-      [0.72, 0.70], [0.50, 0.92], [0, 0.94],
-    ],
-    tracks: [[-0.84, 0.84, 8, 14]],
-    overhang: { x: 1.34, up: 1.08 },
-    low({ solid }, c) {
-      // Outrigger spades, planted. Ground level, so the hull is drawn over the
-      // inboard end of each and they read as bolted under it.
-      for (const p of pair(0.60, -0.62, 1.32, -0.44)) solid(p, c, CAR_FILL);
-      for (const p of pair(0.60, 0.44, 1.32, 0.62)) solid(p, c, CAR_FILL);
-    },
-    flat({ line }, c) {
-      line(-0.72, -0.10, 0.72, -0.10, c);
-      line(-0.72, 0.30, 0.72, 0.30, c);
-    },
-    raised({ solid }, c) {
-      // The tube: wide at the breech, narrowing forward and raked up-screen.
-      solid([[-0.24, 0.34], [0.24, 0.34], [0.32, -0.58], [-0.32, -0.58]], c, CAR_FILL_HIGH);
-      solid(box(-0.20, 0.34, 0.20, 0.56), c);          // breech block
-      solid(box(-0.62, 0.40, -0.36, 0.72), c);         // loader hatches
-      solid(box(0.36, 0.40, 0.62, 0.72), c);
-    },
-    top({ line }, c) {
-      // Muzzle rings, widest at the mouth — reads as a bore you are looking
-      // down the side of, not a barrel pointed anywhere.
-      for (const [y, x] of [[-0.54, 0.31], [-0.42, 0.29], [-0.28, 0.27]]) {
-        line(-x, y, x, y, c, 1.5, 7);
-      }
-      line(-0.28, 0.30, -0.32, -0.56, c);
-      line(0.28, 0.30, 0.32, -0.56, c);
-    },
-  },
 
   // =========================================================================
   // MILITARY HOVERCRAFT — no wheels, no tracks: `hover` and its ground blot are
