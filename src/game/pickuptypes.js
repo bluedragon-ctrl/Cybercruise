@@ -54,7 +54,7 @@ export const PICKUP_TYPES = [
     // scarcity the weapon's own catalogue entry already asks for.
     amount: 18,
     weight: 0.5,
-    minDistance: 500,
+    minDistance: 800,
   },
   {
     id: "tracer_ammo",
@@ -65,7 +65,7 @@ export const PICKUP_TYPES = [
     amount: 48, // 40% of the tracker's 120-round magazine — six of its
                 // eight-round bursts (weapons.js)
     weight: 0.5,
-    minDistance: 0,
+    minDistance: 400,
   },
   {
     id: "mine_ammo",
@@ -81,7 +81,7 @@ export const PICKUP_TYPES = [
     // whole set (game/upgrades.js). A crate is a top-up between those, not a
     // resupply.
     amount: 2,
-    weight: 1,
+    weight: 2,
     minDistance: 0,
   },
   {
@@ -141,7 +141,7 @@ export const PICKUP_TYPES = [
     // hundred metres, before the player can place the car reliably, would
     // read as a punishment rather than a reward.
     weight: 0.5,
-    minDistance: 500,
+    minDistance: 300,
   },
 ];
 

@@ -124,7 +124,7 @@ export const OBSTACLE_TYPES = [
     // placement, so narrowing this shape leaves it untouched.
     placement: PLACE_LANE,
     weight: 3, // the backbone of the roadblock spread — see cartypes.js's sedan
-    minDistance: 200,
+    minDistance: 400,
   },
   {
     id: "barrels",
@@ -143,7 +143,7 @@ export const OBSTACLE_TYPES = [
     // free points collected on the racing line.
     placement: PLACE_SIDE,
     weight: 1,
-    minDistance: 600,
+    minDistance: 800,
   },
   {
     id: "tetra",
@@ -161,7 +161,7 @@ export const OBSTACLE_TYPES = [
     // which is the most interesting thing a static object can ask of a driver.
     placement: PLACE_CENTRE,
     weight: 1,
-    minDistance: 1000,
+    minDistance: 1200,
   },
   {
     id: "caltrop",
