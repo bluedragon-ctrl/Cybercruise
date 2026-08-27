@@ -15,6 +15,14 @@ import * as gameConsole from "../engine/console.js";
 export const MIN_SPEED = 100; // world units/sec (also the road scroll speed)
 export const MAX_SPEED = 620;
 export const ACCEL = 380; // speed change per second at full throttle
+// How fast a car sitting OUTSIDE its speed band is pulled back into it — the
+// overdrive buff's raised floor pulling up, its expired ceiling pulling down,
+// and a wall scrape's scrubbed speed climbing back to the floor. One engine's
+// worth (ACCEL), so a band that moves under the car feels like the car driving
+// to meet it rather than like a number being reassigned; at the overdrive's
+// 200 that is a little over half a second at each end. See update()'s own
+// comment for why this is a ramp and not the clamp it used to be.
+export const BAND_RECOVER = ACCEL;
 const STEER_SPEED = 300; // horizontal px/sec at full lock
 
 // Steering RAMPS rather than snapping. A keyboard axis is on or off, so applying
@@ -101,11 +109,15 @@ const SHIELD_FLICKER_RATE = 26; // rad/sec of the flicker's own sine
 // player having to do anything about it.
 //
 // LIFTING THE FLOOR IS THE HALF THAT MATTERS. A raised ceiling alone sells a
-// top speed the car needs the better part of a second at ACCEL (380/sec) to
-// climb into, and only holds while the throttle is held — most of a short
-// buff would be spent getting there. The floor is enforced by update()'s own
-// clamp every tick, so raising it puts the car at the new speed on the frame
-// the crate is collected, whatever the player is doing with the throttle.
+// top speed that only holds while the throttle is held — most of a short buff
+// would be spent asking the player to hold a key. The floor is enforced by
+// update() every tick, so raising it drives the car up to the new speed
+// whatever the player is doing with the throttle, and takes away the option of
+// slowing down while the buff runs: an overdrive is something that happens TO
+// the car, not something to be opted out of.
+//
+// Both ends move by RAMP, not by jump — see BAND_RECOVER and update()'s own
+// comment on the band clamp.
 //
 // Exported for the same reason SHIELD_EXPIRING is: main.js's HUD readout
 // flickers on this clock rather than hand-picking a second number that could
@@ -389,15 +401,28 @@ export class Player {
 
     // Speed control.
     const throttle = throttleAxis();
+    const before = this.speed;
     this.speed += throttle * ACCEL * dt;
     // Against the LIVE band, not the constants: while an overdrive crate is
-    // running both ends of it sit `boost` higher (see activateBoost). The
-    // floor is what puts a boosted car at speed immediately, and the same
-    // clamp is what drops it back the tick the buff expires — a hard step
-    // down rather than a coast, so the end of the buff reads as clearly as
-    // the start of it did.
-    if (this.speed < this.minSpeed) this.speed = this.minSpeed;
-    if (this.speed > this.topSpeed) this.speed = this.topSpeed;
+    // running both ends of it sit `boost` higher (see activateBoost).
+    //
+    // NOT A HARD CLAMP. A car found outside its band is DRIVEN back into it at
+    // BAND_RECOVER, without overshoot, rather than teleported to the edge: an
+    // overdrive spools the car up to its raised floor over half a second, and
+    // its expiry lets the car coast back down from the raised ceiling over the
+    // same half second. Both ends read as the engine doing something, which a
+    // one-frame jump of 200 units never did.
+    //
+    // The recovery is measured from `before` — the speed at the TOP of this
+    // tick — not from the post-throttle figure, which is what stops the two
+    // from compounding. Below the floor a full-throttle tick and a coasting
+    // one both climb at exactly BAND_RECOVER, and a player holding the brake
+    // at the floor stays pinned to it instead of sinking through.
+    if (this.speed < this.minSpeed) {
+      this.speed = Math.min(this.minSpeed, Math.max(this.speed, before + BAND_RECOVER * dt));
+    } else if (this.speed > this.topSpeed) {
+      this.speed = Math.max(this.topSpeed, Math.min(this.speed, before - BAND_RECOVER * dt));
+    }
 
     // Constrain to the road; scraping a barrier costs health and scrubs speed.
     //

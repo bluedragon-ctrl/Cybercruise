@@ -125,10 +125,12 @@ export const PICKUP_TYPES = [
     label: "OVERDRIVE",
     shape: pickupShapeIndex("BOOST"),
     kind: BOOST,
-    // +200 on both ends of the band (player.js's MIN_SPEED 120 / MAX_SPEED
-    // 620): a floor of 320 — above the stock car's 260 starting speed and
+    // +200 on both ends of the band (player.js's MIN_SPEED 100 / MAX_SPEED
+    // 620): a floor of 300 — above the stock car's 260 starting speed and
     // level with the quicker half of traffic (cartypes.js) — and a ceiling of
-    // 820, a third again over stock. Big enough that the road visibly rushes
+    // 820, a third again over stock. The floor is the half that bites: while
+    // the crate runs the brake cannot take the car below 300, and the car
+    // spools up to it on its own (player.js's BAND_RECOVER). Big enough that the road visibly rushes
     // at the player rather than reading as a nudge, and small enough that the
     // ENGINE ladder in the dock (upgrades.js) is still the thing that makes a
     // car permanently fast; this is twelve seconds of borrowed pace.
