@@ -33,15 +33,15 @@ import {
 import {
   WEAPON_TYPES,
   FLIGHT_SEEKING,
-  MARK_DAMAGE_MULT,
   Loadout,
   muzzleOffsets,
-  shotMark,
+  shotLock,
+  lockTurnRate,
 } from "../src/game/weapons.js";
 import { Player } from "../src/game/player.js";
+import { Lock } from "../src/game/targeting.js";
 import { Wallet } from "../src/game/wallet.js";
 import { Projectiles } from "../src/game/projectiles.js";
-import { Traffic } from "../src/game/traffic.js";
 import { CAR_TYPES, ENEMY_FACTION } from "../src/game/cartypes.js";
 import {
   ShieldStorm,
@@ -72,13 +72,9 @@ function target(worldY, offset, health = 1000, extra = {}) {
     w: 34,
     h: 62,
     health,
-    markTime: 0,
     damage(hp) {
       this.health -= hp;
       if (this.health <= 0) this.alive = false;
-    },
-    markTag(seconds) {
-      this.markTime = Math.max(this.markTime, seconds);
     },
     ...extra,
   };
@@ -113,7 +109,7 @@ test("every flag on the shelf is claimed by a system, and every claim names a fl
   const claimed = new Set();
   for (const type of WEAPON_TYPES) {
     if (type.twin) claimed.add(type.twin);
-    if (type.mark) claimed.add(type.mark);
+    if (type.lock) claimed.add(type.lock);
   }
   // game/shieldstorm.js reads its own flag straight off the player rather than
   // through a catalogue field, so it is named here — the one claim that cannot
@@ -266,73 +262,163 @@ test("a lone car is still hunted by both — the split is a preference, not a ru
   assert.ok(live.every((s) => s.target === only), "a rocket gave up on the only car on the road");
 });
 
-// --- MARKER ROUNDS -----------------------------------------------------------
+// --- AUTOLOCK ----------------------------------------------------------------
 
-test("only the tracker paints, and only once the upgrade is bought", () => {
+test("only the tracker designates, and only once the upgrade is bought", () => {
   const tracker = weaponById("tracker");
-  assert.equal(shotMark(tracker, {}), 0, "a stock tracker paints");
-  assert.equal(shotMark(tracker, null), 0);
-  assert.equal(shotMark(tracker, { markerRounds: true }), tracker.markTime);
+  assert.equal(shotLock(tracker, {}), 0, "a stock tracker designates");
+  assert.equal(shotLock(tracker, null), 0);
+  assert.equal(shotLock(tracker, { autolock: true }), tracker.lockTime);
+  assert.equal(lockTurnRate(tracker, { autolock: true }), tracker.lockTurnRate);
+  assert.equal(lockTurnRate(tracker, {}), 0, "a stock tracker steers");
   for (const type of WEAPON_TYPES) {
     if (type.id === "tracker") continue;
-    assert.equal(shotMark(type, { markerRounds: true }), 0,
-      `${type.id} paints, and MARKER ROUNDS is the tracker's upgrade`);
+    assert.equal(shotLock(type, { autolock: true }), 0,
+      `${type.id} designates, and AUTOLOCK is the tracker's upgrade`);
   }
 });
 
-test("a tracer hit paints what it hits, and the round that painted it gets no bonus", () => {
-  // The order projectiles.js commits to: damage first, paint after. A marker
-  // round that amplified itself would be a damage upgrade wearing a reticle.
+test("a locked round steers slower than the weapon built to seek", () => {
+  // The upgrade's entire balance, and the one relation that must never invert:
+  // the rocket has to stay the best seeker in the game or its own reason to
+  // exist goes with it. This is also what makes the lock "will try, not
+  // necessarily succeed" rather than "cannot miss".
+  const tracker = weaponById("tracker");
+  const rocket = weaponById("rocket");
+  assert.ok(tracker.lockTurnRate > 0, "the tracker cannot steer at all");
+  assert.ok(tracker.lockTurnRate < rocket.turnRate,
+    "a tracer round out-turns a rocket, which makes the rocket pointless");
+  // ...and a designation has to outlive the burst that made it, or the player
+  // re-designates every burst and the upgrade is invisible.
+  const cycle = tracker.interval + tracker.burstCount * tracker.burstInterval;
+  assert.ok(tracker.lockTime > cycle,
+    "a lock expires inside its own burst-and-rest cycle");
+});
+
+test("a hit designates the car it hit, for the weapon's own duration", () => {
+  // The lock is EARNED BY A HIT rather than by aiming — you cannot designate
+  // something you have not touched, which is what gives round one of a burst
+  // its job.
   const shots = new Projectiles();
   const tracker = weaponById("tracker");
   const car = target(120, 0);
+  const seen = [];
+  shots.onLock = (c, seconds) => seen.push([c, seconds]);
 
-  const s = shots.spawn(0, 0, 0, tracker, 600, 1, tracker.markTime);
-  assert.equal(s.mark, tracker.markTime);
+  const s = shots.spawn(0, 0, 0, tracker, 600, 1, { lockOn: tracker.lockTime });
+  assert.equal(s.lockOn, tracker.lockTime);
+  assert.equal(s.locked, false, "a round fired with nothing designated should not chase");
   shots.update(0.3, [car], { distance: 0, playerY: 400, W: 600, H: 800 });
 
-  assert.equal(car.markTime, tracker.markTime, "the hit did not paint the car");
-  assert.equal(car.health, 1000 - tracker.damage, "the painting round amplified itself");
+  assert.deepEqual(seen, [[car, tracker.lockTime]], "the hit did not designate the car");
+  assert.equal(car.health, 1000 - tracker.damage, "designating changed the round's own damage");
 });
 
-test("a marked car takes more from EVERYTHING, and stops when the paint dries", () => {
-  // traffic.js applies the multiplier inside damage() — the one door every
-  // damage source in the game already comes through — which is the only way
-  // "everything hurts it more" can be true of a ram and a mine as well as a gun.
-  const traffic = new Traffic();
-  traffic.spawn({ distance: 0, player: { y: 400 }, W: 600, H: 800 });
-  const car = traffic.cars[0];
-  assert.ok(car, "no car was spawned to shoot at");
-
-  const full = car.maxHealth;
-  car.damage(10);
-  const plain = full - car.health;
-
-  car.markTag(4);
-  assert.equal(car.marked, true);
-  car.damage(10);
-  const painted = full - car.health - plain;
-  assert.ok(Math.abs(painted - 10 * MARK_DAMAGE_MULT) < 1e-9,
-    `a marked car took ${painted} from a 10-point hit`);
-
-  // The paint dries on the car's own clock, counted down in update().
-  car.markTime = 0.05;
-  car.update(0.1, { player: { y: 400, x: 300, speed: 0 }, distance: 0, W: 600, H: 800, cars: traffic.cars, obstacles: [] });
-  assert.equal(car.marked, false, "the paint never dries");
-});
-
-test("a rocket prefers a painted car to a nearer unpainted one", () => {
-  // The pay-off for owning both upgrades, and the reason seek() ranks marks
-  // above distance: painting a car with the tracker is how the player TELLS
-  // the rockets where to go.
+test("a round designates only cars, never road furniture", () => {
+  // `seekable` is the same opt-in flag a rocket's own lock respects, so a
+  // trestle can never become the thing eight rounds chase.
   const shots = new Projectiles();
-  const rocket = weaponById("rocket");
-  const near = target(500, -40);
-  const painted = target(800, 40, 1000, { markTime: 3 });
+  const tracker = weaponById("tracker");
+  const trestle = target(120, 0, 1000, { seekable: false });
+  let fired = false;
+  shots.onLock = () => { fired = true; };
 
-  const s = shots.spawn(0, 0, 0, rocket, 600);
-  shots.update(0.016, [near, painted], { distance: 0, playerY: 400, W: 600, H: 800 });
-  assert.equal(s.target, painted, "the rocket ignored the car the tracker designated");
+  shots.spawn(0, 0, 0, tracker, 600, 1, { lockOn: tracker.lockTime });
+  shots.update(0.3, [trestle], { distance: 0, playerY: 400, W: 600, H: 800 });
+  assert.ok(trestle.health < 1000, "the round did not hit the obstacle at all");
+  assert.equal(fired, false, "a roadblock was designated");
+});
+
+test("a round fired at a designated car chases it out of its lane", () => {
+  // The upgrade itself. The round is spawned down the middle and the target
+  // sits well off to one side, so a stock tracking round would hold offset 0
+  // for its whole flight.
+  const shots = new Projectiles();
+  const tracker = weaponById("tracker");
+  const car = target(900, 150);
+
+  const s = shots.spawn(0, 0, 0, tracker, 600, 1, {
+    target: car, turnRate: tracker.lockTurnRate,
+  });
+  assert.equal(s.locked, true);
+  assert.equal(s.seeking, true, "a locked round has to borrow the seeking steer");
+  assert.equal(s.turnRate, tracker.lockTurnRate, "it took the rocket's turn rate");
+
+  shots.update(0.1, [car], { distance: 0, playerY: 400, W: 600, H: 800 });
+  assert.ok(s.offset > 0, "the round did not steer toward the car at all");
+  // ...but only at its own capped rate. Never a teleport onto the target.
+  assert.ok(s.offset <= tracker.lockTurnRate * 0.1 + 1e-9,
+    "the round steered further in one tick than its turn rate allows");
+});
+
+test("the lane rake survives: a round locked to a car dead ahead does not deviate", () => {
+  // The reason AUTOLOCK costs the tracker nothing it already had. A locked car
+  // in your own lane leaves target.offset - s.offset at zero, so the round
+  // flies the same tracking line it always did — and `pierce` still punches
+  // down the row of cars in the way, which is the weapon's whole identity.
+  const shots = new Projectiles();
+  const tracker = weaponById("tracker");
+  const first = target(200, 0, 10);  // dies to one round...
+  const second = target(400, 0, 10); // ...so the round carries on to this
+  const locked = target(900, 0);
+
+  const s = shots.spawn(0, 0, 0, tracker, 600, 1, {
+    target: locked, turnRate: tracker.lockTurnRate,
+  });
+  shots.update(0.5, [first, second, locked], { distance: 0, playerY: 400, W: 600, H: 800 });
+
+  assert.equal(s.offset, 0, "a round locked straight ahead drifted out of its lane");
+  assert.equal(first.alive, false, "the round did not hit the car in its way");
+  assert.equal(second.alive, false, "pierce stopped working once the round was locked");
+});
+
+test("when the locked car dies mid-burst the rest of the burst does NOT re-lock", () => {
+  // The rule that stops one trigger pull from clearing a lane by itself. A
+  // burst that re-locked would not be eight rounds following a car, it would
+  // be eight rounds that cannot be spent wrongly.
+  const shots = new Projectiles();
+  const tracker = weaponById("tracker");
+  const car = target(900, 150);
+  const bystander = target(700, -150);
+
+  const s = shots.spawn(0, 0, 0, tracker, 600, 1, {
+    target: car, turnRate: tracker.lockTurnRate,
+  });
+  car.alive = false; // killed by something else before the round got there
+
+  shots.update(0.1, [car, bystander], { distance: 0, playerY: 400, W: 600, H: 800 });
+  assert.equal(s.target, null, "the round went looking for a replacement target");
+  assert.equal(s.seeking, false, "the round is still steering at nothing");
+  assert.ok(s.alive, "the round should fly on, not vanish");
+});
+
+test("the lock drops a dead car, expires on its own, and can be moved", () => {
+  const lock = new Lock();
+  const first = target(400, 0);
+  const second = target(500, 60);
+
+  assert.equal(lock.car, null, "a fresh lock designates something");
+  assert.equal(lock.acquire(first, 3), true);
+  assert.equal(lock.car, first);
+
+  // MOVED, not refused — the newest car the player actually shot is the one
+  // they mean, and a lock that could not move would leave them hosing a car
+  // they had stopped caring about.
+  lock.acquire(second, 3);
+  assert.equal(lock.car, second);
+
+  // A car destroyed by ANYTHING — another weapon, a mine, a ram — stops being
+  // the target with no tick needed: `car` re-checks on every read.
+  second.alive = false;
+  assert.equal(lock.car, null, "a wreck is still being chased");
+  lock.update(0.016);
+  assert.equal(lock.target, null, "the dead target was not cleared");
+
+  // ...and a live one still runs out on its own clock.
+  lock.acquire(first, 0.5);
+  lock.update(0.6);
+  assert.equal(lock.car, null, "the designation never expires");
+  assert.equal(lock.acquire(second, 3), false, "a dead car can be designated");
 });
 
 // --- SHIELD STORM ------------------------------------------------------------

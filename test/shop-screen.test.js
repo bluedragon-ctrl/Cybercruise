@@ -236,7 +236,32 @@ test("the shelf quotes the catalogue's own prices, and nothing else's", () => {
     assert.ok(drawn.includes(stat.label), `${stat.id} is missing from the shelf`);
     assert.ok(drawn.includes(`${tierPrice(stat, 0)} CR`), `${stat.id}'s tier 1 price is missing`);
   }
+  for (const item of SPECIALS) {
+    assert.ok(drawn.includes(item.label), `${item.id} is missing from the shelf`);
+    assert.ok(drawn.includes(`${item.price} CR`), `${item.id}'s price is missing`);
+    assert.ok(drawn.includes(item.detail), `${item.id}'s detail column is missing`);
+  }
   assert.ok(drawn.includes("UNDOCK"), "no way out is drawn");
+});
+
+test("a special reads NOT FITTED until it is bought, then SOLD and FITTED", () => {
+  // A one-off purchase has one fact a consumable does not — whether it is
+  // already on the car — and the shelf has to answer it in both columns at
+  // once. "MAX" would be wrong here: that is a ladder topped out, not a thing
+  // you own, and shop.js tells the two apart deliberately.
+  clearInput();
+  const s = shop();
+  const item = SPECIALS[0];
+
+  let drawn = draw(s).texts.map((t) => t.text);
+  assert.ok(drawn.includes("NOT FITTED"), "an unbought special does not say so");
+  assert.ok(!drawn.includes("SOLD"), "a special is sold out before it is bought");
+
+  s.garage.addSpecial(item);
+  drawn = draw(s).texts.map((t) => t.text);
+  assert.ok(drawn.includes("FITTED"), "a bought special does not say it is fitted");
+  assert.ok(drawn.includes("SOLD"), "a bought special is still priced");
+  assert.ok(!drawn.includes(`${item.price} CR`), `${item.id} still quotes a price once owned`);
 });
 
 test("the shelf quotes what this run has to spend, and says it will not keep it", () => {

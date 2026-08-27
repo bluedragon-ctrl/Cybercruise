@@ -213,25 +213,43 @@ export const WEAPON_TYPES = [
     glow: PLAYER,
     length: 16,
     width: 4.5,
-    // THE SHOP CAN TURN THE SPRAY INTO A PAINT JOB — game/upgrades.js's MARKER
-    // ROUNDS, and the one special that changes what a weapon is FOR rather
-    // than how much of it comes out of the barrel. A tagged car takes
-    // MARK_DAMAGE_MULT from EVERYTHING for `markTime` seconds (traffic.js's
-    // damage), so the tracker stops competing with the cannon and the rocket
-    // for the kill and starts setting them up.
+    // THE SHOP CAN TEACH THE TRACKER TO TRACK — game/upgrades.js's AUTOLOCK,
+    // and it is the upgrade this weapon's own NAME has been implying since it
+    // was written. The first round of a burst that connects DESIGNATES the car
+    // it hit; every round after it steers to follow that same car instead of
+    // holding the lane it was fired up.
     //
-    // It is the right upgrade for THIS gun and no other, because it is built
-    // out of what the tracker already is. The burst rakes a lane and pierces
-    // what it kills, so one pull paints everything in it; and the weapon's own
-    // failure case — 22 a round is nothing against armour — becomes the verb,
-    // since the burst that bounced off a rig is the burst that painted it for
-    // the rocket. Nothing else in the catalogue can tag a line of cars.
-    mark: "markerRounds",
-    // FOUR SECONDS: long enough to launch at a painted car and have the round
-    // land while the paint is still wet (a seeker crosses the screen in
-    // roughly a second), short enough that a tag is a follow-up the player has
-    // to actually make rather than a debuff sprayed permanently over the road.
-    markTime: 4,
+    // IT IS THE RIGHT UPGRADE FOR THIS GUN AND NO OTHER, because the burst is
+    // already the shape it needs: eight rounds 0.05s apart means round one
+    // designates and rounds two through eight chase, with no new timing
+    // concept anywhere. And it answers the tracker's real weakness — a lane
+    // hose is helpless against anything that changes lanes — without touching
+    // its damage, which is what keeps it from becoming a better cannon.
+    //
+    // THE LANE RAKE SURVIVES IT, for free and with no special case. A locked
+    // car sitting dead ahead leaves `target.offset - s.offset` at nearly zero,
+    // so the rounds do not steer at all: they fly the same tracking line they
+    // always did and `pierce` still punches down the row of cars in the way.
+    // The lock only bends a round when the target actually leaves the lane,
+    // which is precisely when the player wanted it to.
+    lock: "autolock",
+    // HOW LONG A DESIGNATION LASTS. It has to outlive the burst that made it —
+    // the rest between bursts is 0.6s — or the player re-designates from
+    // scratch every time and the upgrade is invisible. Three and a half
+    // seconds carries a lock across four or five bursts of held trigger, and
+    // still expires soon enough that a car left alone stops being yours.
+    lockTime: 3.5,
+    // LATERAL UNITS/SEC A LOCKED ROUND MAY STEER, and the whole balance of the
+    // upgrade lives in this one number. WELL UNDER THE ROCKET'S 260 on
+    // purpose: the seeking weapon has to stay the best seeker in the game, or
+    // the rocket's own reason to exist goes with it.
+    //
+    // At 150 a round crosses a lane in about two thirds of a second, which
+    // holds a car that is drifting or committed to a line and loses one that
+    // commits to a hard change the moment it sees the burst. That is the
+    // difference between "the rounds follow" and "the rounds cannot miss", and
+    // it is the second of those that would break the weapon.
+    lockTurnRate: 150,
   },
   {
     id: "rocket",
@@ -566,19 +584,9 @@ export const ENEMY_WEAPON_TYPES = [
 // a branch at the trigger, for the same reason weaponsfx.js's tables exist:
 // main.js's fire branch should not grow a case per upgrade.
 //
-// THE WEAPON NAMES ITS OWN SPECIAL (`twin`, `mark` above), so a flag is only
+// THE WEAPON NAMES ITS OWN SPECIAL (`twin`, `lock` above), so a flag is only
 // ever consulted against the gun that advertises it. Buying TWIN CANNON cannot
 // accidentally pair the rocket, and neither function needs to know a weapon id.
-
-// How much harder a MARKED car is hit — by anything at all, not just by the
-// tracker that painted it (game/traffic.js's Car.damage is where it lands).
-//
-// +40% IS A SET-UP, NOT A KILL. Tuned so the follow-up shot the player has to
-// actually line up is what pays: a rocket into a painted rig is 137 rather than
-// 98, which is the difference between three rockets and two. It is deliberately
-// short of a multiplier that would make painting a car MANDATORY before a
-// heavy shot — the tracker is one gun, not a tax on the other two.
-export const MARK_DAMAGE_MULT = 1.4;
 
 // The lateral offsets, relative to the muzzle, this trigger pull puts a round
 // at: one dead centre ordinarily, a symmetric PAIR when the weapon names a
@@ -602,12 +610,25 @@ export function muzzleOffsets(type, specials = null) {
   return pair;
 }
 
-// How many seconds of MARK a round from this weapon paints onto what it hits —
-// 0 for every weapon and every unowned upgrade, which is the case that costs
-// projectiles.js nothing at all (see its `mark` field).
-export function shotMark(type, specials = null) {
-  if (!type.mark || !specials || !specials[type.mark]) return 0;
-  return type.markTime ?? 0;
+// Does this weapon designate what it hits, and for how long? Seconds, or 0 for
+// every weapon and every unowned upgrade — which is the case that costs
+// projectiles.js nothing at all (see its `lockOn` field).
+export function shotLock(type, specials = null) {
+  if (!type.lock || !specials || !specials[type.lock]) return 0;
+  return type.lockTime ?? 0;
+}
+
+// How fast a round from this weapon may steer toward a car the player has
+// already designated. 0 means "this round does not chase" — either the weapon
+// has no lock upgrade or it has not been bought, and in both cases the round
+// flies exactly as it always did.
+//
+// SEPARATE FROM `turnRate`, which is the rocket's own seeking rate and belongs
+// to the flight mode. A locked tracer round is NOT a rocket: it borrows the
+// seeking steer and nothing else, at its own much slower rate.
+export function lockTurnRate(type, specials = null) {
+  if (!type.lock || !specials || !specials[type.lock]) return 0;
+  return type.lockTurnRate ?? 0;
 }
 
 // One weapon, as carried by one car.

@@ -452,7 +452,7 @@ cell("FX · COLLECTED", (ctx, size, phase) => {
 // The two SPECIALS effects (game/upgrades.js's shelf). Both are drawn over a
 // car rather than in isolation, because neither means anything on its own — a
 // reticle is a reticle around something, and an arc is a line to something.
-cell("FX · MARKED", (ctx, size, phase) => {
+cell("FX · LOCKED", (ctx, size, phase) => {
   const seconds = phase / 260;
   const type = CAR_TYPES[0];
   drawCar(ctx, size / 2, size / 2, {
@@ -464,8 +464,8 @@ cell("FX · MARKED", (ctx, size, phase) => {
     h: type.h,
     wheelPhase: 0,
   });
-  // Fed the car's own remaining mark time in the live game, which is what makes
-  // each painted car pulse on its own clock — here, just the wall clock.
+  // Fed the LOCK's own remaining time in the live game, so the brackets pulse
+  // faster as the designation runs out — here, just the wall clock.
   drawTargetMark(ctx, size / 2, size / 2, type.w, type.h, seconds);
 }, { animate: true });
 

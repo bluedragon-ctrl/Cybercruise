@@ -845,7 +845,7 @@ rounds".
 | TWIN CANNON | the cannon fires a pair, running parallel — same rate of fire, same round | `weapons.js`'s `muzzleOffsets` |
 | TWIN RACK | two rockets a press, each seeking *separately* — a rocket prefers a car no other seeker has locked, so a press into a pack splits across two | `projectiles.js`'s `seek` |
 | SHIELD STORM | the shield arcs into anything that drives close, twice a second, with falloff to the rim — *anything*, civilians included | `src/game/shieldstorm.js` |
-| MARKER ROUNDS | a tracer hit *paints* a car for four seconds; a painted car takes +40% from **everything**, and rockets prefer it | `traffic.js`'s `damage`, `projectiles.js`'s `seek` |
+| AUTOLOCK | a tracer hit *designates* the car it hit; every round fired for the next 3.5s steers to follow it | `src/game/targeting.js`, `projectiles.js` |
 
 They are ownership **flags** and nothing more — `upgrades.js` knows what each
 one costs and nothing about what it does; the four systems above read the flag
@@ -853,10 +853,31 @@ off the car (`player.specials`) and each says for itself what it does with it.
 The join is a bare string, so `test/specials.test.js` pins both directions of
 it: every flag sold is read by something, and every claim names a flag on sale.
 
-The last two are built to talk to each other — painting a rig with the tracker
-is how you tell a twin rack where to go — and the storm is deliberately worth
-less per discharge than a single cannon round, so parking in traffic under a
-bought shield never out-earns driving and gunning.
+**AUTOLOCK is the upgrade the tracker's own name has been implying.** The burst
+is already the right shape for it — eight rounds 0.05s apart means round one
+designates and rounds two through eight chase — so it needs no new timing
+concept, and it answers the weapon's real weakness (a lane hose is helpless
+against anything that changes lanes) without touching its damage.
+
+The lane rake survives it for free: a locked car sitting dead ahead leaves
+`target.offset - s.offset` at nearly zero, so the rounds don't steer at all and
+`pierce` still punches down the row of cars in the way. **The lock only bends a
+round when the target actually leaves the lane.**
+
+Two rules keep it from becoming "cannot miss". It steers at 150 lateral units/sec
+against the rocket's 260 — the seeking weapon has to stay the best seeker in the
+game — so a car that commits to a hard lane change still shakes rounds off. And
+when the designated car dies mid-burst the remaining rounds **do not re-lock**;
+they fly out the tracking line they are on. A burst that re-locked wouldn't be
+eight rounds following a car, it would be eight rounds that can't be spent
+wrongly.
+
+The corner-bracket reticle is not polish — it is the upgrade's only explanation.
+Rounds that bend out of their lane are unaccountable unless you can see *which*
+car they're bending toward.
+
+The storm is deliberately worth less per discharge than a single cannon round,
+so parking in traffic under a bought shield never out-earns driving and gunning.
 
 Everything is on sale at every dock for now. When only a subset should be
 offered at a given stop, that is a filter over `SPECIALS` in `shop.js`'s

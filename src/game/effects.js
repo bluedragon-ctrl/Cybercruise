@@ -718,22 +718,28 @@ export function drawCollectBurst(ctx, cx, cy, t) {
   ctx.restore();
 }
 
-// --- The target mark (weapons.js's MARKER ROUNDS) ----------------------------
+// --- The target reticle (weapons.js's AUTOLOCK) ------------------------------
 //
-// FOUR CORNER BRACKETS around a painted car, not a box and not a tint. A closed
-// rectangle would read as a UI element sitting on the road, and a colour wash
-// would collide with the critical-hull blink that already owns "this car looks
-// different" (traffic.js's BLINK_PERIOD). Corner ticks are the one shape that
-// says "designated" at a glance, and they are four moveTo/lineTo pairs.
+// FOUR CORNER BRACKETS around the car the player's tracer rounds are chasing,
+// not a box and not a tint. A closed rectangle would read as a UI element
+// sitting on the road, and a colour wash would collide with the critical-hull
+// blink that already owns "this car looks different" (traffic.js's
+// BLINK_PERIOD). Corner ticks are the one shape that says "designated" at a
+// glance, and they are four moveTo/lineTo pairs.
 //
-// NOT A POOLED SLOT, unlike everything below it. A mark is not an event with a
-// lifetime of its own — it is a STATE of a car that lasts as long as the paint
-// does, and pooling it would mean a car outliving its own bracket, or the
-// bracket outliving the car. Traffic.render calls this directly for every
-// marked car, with the same (cx, cy) it just drew the car at.
+// IT IS THE UPGRADE'S ONLY EXPLANATION. Rounds that bend out of their lane are
+// otherwise unaccountable — the player has to be able to see WHICH car they are
+// bending toward, or a locked burst just looks like the gun has developed a
+// fault. This is why the reticle is not optional polish.
 //
-// `phase` is the car's own remaining mark time, so each painted car breathes on
-// its own clock rather than the whole road pulsing in unison.
+// NOT A POOLED SLOT, unlike everything below it. A lock is not an event with a
+// lifetime of its own — it lasts as long as the designation does — and pooling
+// it would mean a car outliving its own brackets, or the brackets outliving the
+// car. Traffic.render calls this directly for the one locked car, with the same
+// (cx, cy) it just drew that car at.
+//
+// `phase` is the lock's own REMAINING time, counted down, so the brackets pulse
+// faster as the designation runs out — the countdown is the animation.
 const MARK_CORNER = 9;   // px each bracket arm reaches along the box edge
 const MARK_INSET = 4;    // px the brackets stand off the car's own box
 const MARK_PULSE = 7;    // rad/sec

@@ -185,6 +185,12 @@ export class Projectiles {
   // see `detonate()` below.
   constructor(explosions = null) {
     this.explosions = explosions;
+    // Called as onLock(car, seconds) when a round carrying `lockOn` hits a car
+    // that can be designated. A CALLBACK rather than a reference to whatever
+    // holds the lock, exactly as Traffic takes onDestroyed rather than a
+    // scoreboard (traffic.js): this file has no business knowing that a target
+    // lock exists, only that something wants telling when one is earned.
+    this.onLock = null;
     this.shots = Array.from({ length: MAX_SHOTS }, () => ({
       alive: false,
       worldY: 0,
@@ -213,10 +219,14 @@ export class Projectiles {
       impact: "spark",  // "spark" | "fireball" — see detonate() below
       blastRadius: 0,   // splash — see detonate() below. 0 = direct hit only
       blastDamage: 0,
-      mark: 0,          // seconds of MARK this round paints on what it hits
-                        // (weapons.js's MARKER ROUNDS). 0 for every round the
+      lockOn: 0,        // seconds of DESIGNATION this round grants the car it
+                        // hits (weapons.js's AUTOLOCK). 0 for every round the
                         // shop has not been asked to change, which is all of
                         // them by default — see the hit loop in update()
+      locked: false,    // this round is chasing a car the PLAYER designated,
+                        // not one it found for itself. It steers exactly as a
+                        // seeker does and differs in one way only: it never
+                        // re-acquires — see update()
     }));
     this.sparks = Array.from({ length: MAX_SPARKS }, () => ({
       alive: false,
@@ -238,12 +248,19 @@ export class Projectiles {
   //
   // Both flight modes are spawned from the same (worldY, offset) muzzle — the
   // straight shot simply converts it, ONCE, into the screen line it will hold.
-  // `mark` is the one thing a round carries that its own catalogue entry does
-  // NOT decide on its own: whether it paints what it hits depends on whether
-  // the player bought MARKER ROUNDS, which is the caller's knowledge, not the
-  // weapon's. It defaults to 0, so every existing caller — and every hostile
-  // round, forever — reads exactly as it did before the field existed.
-  spawn(worldY, offset, shooterSpeed, type, W, dir = 1, mark = 0) {
+  // `opts` carries the things a round's own catalogue entry cannot decide,
+  // because they depend on what the player has BOUGHT and on what is already
+  // designated — the caller's knowledge, not the weapon's:
+  //
+  //   lockOn   seconds of designation this round grants what it hits
+  //   target   a car the player has already designated, for this round to chase
+  //   turnRate how fast it may steer to do so
+  //
+  // It defaults to null, so every existing caller — and every hostile round,
+  // forever — reads exactly as it did before the parameter existed. The object
+  // is READ AND COPIED here and never held, so callers are free to hand the
+  // same scratch object over on every shot (main.js does).
+  spawn(worldY, offset, shooterSpeed, type, W, dir = 1, opts = null) {
     let s = this.shots.find((b) => !b.alive);
     if (!s) {
       s = this.shots[this.next];
@@ -276,7 +293,20 @@ export class Projectiles {
     s.impact = type.impact ?? "spark";
     s.blastRadius = type.blastRadius ?? 0;
     s.blastDamage = type.blastDamage ?? 0;
-    s.mark = mark;
+
+    // --- What the shop bought (see `opts` above) ---------------------------
+    s.lockOn = opts?.lockOn ?? 0;
+    // A ROUND HANDED A TARGET CHASES IT. This is the whole of AUTOLOCK at the
+    // muzzle: the round borrows the seeking STEER (it is road-relative already,
+    // so `tracking` is untouched) and nothing else about being a rocket. Its
+    // own much slower turnRate overrides the type's, and `locked` is what tells
+    // update() never to go looking for a replacement.
+    s.locked = !!opts?.target;
+    if (s.locked) {
+      s.target = opts.target;
+      s.seeking = true;
+      s.turnRate = opts.turnRate ?? 0;
+    }
     return s;
   }
 
@@ -310,7 +340,21 @@ export class Projectiles {
       // offset it actually flew to this tick.
       if (s.seeking) {
         if (!s.target || !s.target.alive || (s.target.worldY - s.worldY) * s.dir <= 0) {
-          s.target = this.seek(s, targets);
+          // A LOCKED ROUND DOES NOT LOOK FOR A NEW TARGET — it flies out the
+          // rest of its life on the tracking line it is on now.
+          //
+          // That is the difference between a lock and a seeker, and it is the
+          // rule that stops one trigger pull from clearing a lane by itself: a
+          // burst whose designated car dies to round three wastes rounds four
+          // through eight unless the player re-designates. A burst that
+          // re-locked would not be eight rounds following a car, it would be
+          // eight rounds that cannot be spent wrongly.
+          if (s.locked) {
+            s.seeking = false;
+            s.target = null;
+          } else {
+            s.target = this.seek(s, targets);
+          }
         }
         if (s.target) {
           const step = s.turnRate * dt;
@@ -347,17 +391,21 @@ export class Projectiles {
         const hit = this.firstHit(s, targets);
         if (!hit) break;
         hit.damage(s.damage);
-        // ...and paint it, AFTER the hit rather than before. The round that
-        // applies the mark does not get to benefit from it — a tag is a
-        // set-up for the NEXT shot, and a marker round that amplified itself
-        // would just be a damage upgrade wearing a target reticle.
+        // ...and DESIGNATE it, if this round was fired with AUTOLOCK. The lock
+        // is earned by a hit rather than by aiming: the player cannot lock
+        // something they have not actually touched, which is what makes round
+        // one of a burst the one that does the work.
         //
-        // Duck-typed on `markTag` the same way the whole file duck-types
-        // `damage`: a car has one (traffic.js), road furniture and the
-        // player's own body do not, and neither has to be excluded by name.
-        // A piercing burst therefore paints every car it goes through, which
-        // is exactly what the tracker's own comment promises.
-        if (s.mark > 0 && hit.markTag) hit.markTag(s.mark);
+        // ONLY A CAR, never road furniture. `seekable` is the same opt-in flag
+        // a rocket's own lock respects (see seek), so a trestle cannot become
+        // the thing eight rounds chase — and anything added to the target list
+        // later says for itself whether it can be locked, with no change here.
+        //
+        // A PIERCING BURST DESIGNATES WHAT IT PUNCHES THROUGH, so the last car
+        // a round reached is the one the rest of the burst follows. That reads
+        // correctly: the round carried on because the car in front died, and
+        // the thing still standing is the thing worth chasing.
+        if (s.lockOn > 0 && hit.seekable && this.onLock) this.onLock(hit, s.lockOn);
         if (s.pierce > 0 && !hit.alive) {
           // Through it and onward. The flash sits on the body it passed
           // through rather than at the round's own position, so a burst that
@@ -394,22 +442,16 @@ export class Projectiles {
   // aimed at a car, a betrayal of the shot they took. The flag is opt-IN rather
   // than a list of exclusions here, so anything added to the target list later
   // (drones, the helicopter) has to say for itself whether it can be locked on.
-  // TWO THINGS OUTRANK DISTANCE, and both exist so that a rack of rockets
+  // ONE THING OUTRANKS DISTANCE, and it exists so that a rack of rockets
   // (weapons.js's TWIN RACK) reads as several rounds hunting rather than one
-  // round fired twice. `rank` is compared before `ahead`, so the nearest
-  // acceptable car still wins inside a rank:
+  // round fired twice: A CAR ANOTHER LIVE SEEKER HAS ALREADY CLAIMED IS
+  // AVOIDED. Two rockets launched in the same tick would otherwise pick the
+  // same nearest car every time and the second warhead would land on a wreck.
   //
-  //   A MARKED CAR IS PREFERRED (rank -1). Painting a car with the tracker
-  //   (MARKER ROUNDS) is a way of TELLING the rockets where to go — which is
-  //   the whole point of buying two upgrades that talk to each other, and
-  //   costs nothing when nothing on the road is painted.
-  //   A CAR ANOTHER LIVE SEEKER HAS ALREADY LOCKED IS AVOIDED (rank +1).
-  //   Two rockets launched in the same tick would otherwise pick the same
-  //   nearest car every time and the second warhead would land on a wreck.
-  //
-  // It is a PREFERENCE, not a rule: an already-claimed car is still returned
-  // when it is all there is, so a lone target never leaves a rocket flying
-  // blind up an empty lane.
+  // `rank` is compared before `ahead`, so the nearest acceptable car still
+  // wins inside a rank. And it is a PREFERENCE, not a rule: an already-claimed
+  // car is still returned when it is all there is, so a lone target never
+  // leaves a rocket flying blind up an empty lane.
   seek(s, targets) {
     let best = null;
     let bestRank = Infinity;
@@ -419,9 +461,7 @@ export class Projectiles {
       const ahead = (t.worldY - s.worldY) * s.dir;
       if (ahead <= 0 || ahead > SEEK_RANGE) continue;
       if (Math.abs(t.offset - s.offset) > SEEK_CONE) continue;
-      // markTime is undefined on anything that cannot be painted, so this is
-      // false for road furniture without a test of its own.
-      const rank = (this.locked(t, s) ? 1 : 0) - (t.markTime > 0 ? 1 : 0);
+      const rank = this.claimedBy(t, s) ? 1 : 0;
       if (rank > bestRank) continue;
       if (rank < bestRank || ahead < bestDist) {
         bestRank = rank;
@@ -437,7 +477,12 @@ export class Projectiles {
   // per tick), so it stays far cheaper than the per-target bookkeeping the
   // alternative would need — and it self-heals: a dead rocket's claim vanishes
   // with it, because `alive` is the only record there is.
-  locked(t, self) {
+  //
+  // A ROUND THE PLAYER AIMED COUNTS AS A CLAIM TOO (`locked` rounds are
+  // `seeking`), which is the behaviour worth having: a rocket should route
+  // around the car a burst of tracer fire is already committed to rather than
+  // pile onto it.
+  claimedBy(t, self) {
     for (const o of this.shots) {
       if (o !== self && o.alive && o.seeking && o.target === t) return true;
     }

@@ -156,7 +156,7 @@ export class Player {
     this.siphonLevel = 0;
     // The SPECIALS this run has bought (game/upgrades.js's SPECIALS shelf), as
     // a block of ownership flags keyed by the upgrade's own `special` string —
-    // { twinCannon, twinRocket, shieldStorm, markerRounds }.
+    // { twinCannon, twinRocket, shieldStorm, autolock }.
     //
     // EMPTY, NOT A LIST OF FALSES, and deliberately so: this file must not
     // import the shop's catalogue to know what the keys ARE (upgrades.js

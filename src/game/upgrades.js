@@ -388,16 +388,17 @@ export const SPECIALS = [
     color: PLAYER,
   },
   {
-    id: "marker_rounds",
-    label: "MARKER ROUNDS",
-    detail: "TAG +40%",
-    note: "TRACER HITS TAG A CAR — EVERYTHING THEN HURTS IT MORE",
-    // Same price as the storm and for a related reason: it is a MULTIPLIER on
-    // shots the player still has to take, not damage of its own. A player who
-    // never carries the tracker gets nothing from it, which is exactly the
-    // kind of purchase a shelf of specials should have on it.
+    id: "autolock",
+    label: "AUTOLOCK",
+    detail: "ROUNDS CHASE",
+    note: "TRACER HITS DESIGNATE — THE REST OF THE BURST FOLLOWS",
+    // Same price as the storm and for a related reason: it is a multiplier on
+    // shots the player still has to take, not damage of its own. It adds no
+    // damage at all — every round still hits for 22 — it only stops them
+    // MISSING, and a player who never carries the tracker gets nothing from
+    // it, which is exactly the kind of purchase a shelf of specials wants.
     price: 350,
-    special: "markerRounds",
+    special: "autolock",
     color: PLAYER_THRUST,
   },
 ];
