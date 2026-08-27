@@ -164,6 +164,16 @@ export const WEAPON_TYPES = [
     glow: PLAYER_THRUST,
     length: 14,
     width: 4,
+    // THE SHOP CAN BOLT A SECOND BARREL ON — game/upgrades.js's TWIN CANNON.
+    // Named HERE rather than branched on at the trigger, so "this weapon can
+    // be paired" is a property of the weapon and main.js's fire branch stays
+    // one call to muzzleOffsets() below however many weapons end up paired.
+    twin: "twinCannon",
+    // ABOUT HALF A LANE APART: wide enough that the two rounds read as two
+    // separate lines running up the tarmac, narrow enough that a car the
+    // player has lined up still eats both. A wider pair would quietly turn the
+    // upgrade into "you now miss with half your shots".
+    twinSpread: 20,
   },
   {
     id: "tracker",
@@ -203,6 +213,43 @@ export const WEAPON_TYPES = [
     glow: PLAYER,
     length: 16,
     width: 4.5,
+    // THE SHOP CAN TEACH THE TRACKER TO TRACK — game/upgrades.js's AUTOLOCK,
+    // and it is the upgrade this weapon's own NAME has been implying since it
+    // was written. The first round of a burst that connects DESIGNATES the car
+    // it hit; every round after it steers to follow that same car instead of
+    // holding the lane it was fired up.
+    //
+    // IT IS THE RIGHT UPGRADE FOR THIS GUN AND NO OTHER, because the burst is
+    // already the shape it needs: eight rounds 0.05s apart means round one
+    // designates and rounds two through eight chase, with no new timing
+    // concept anywhere. And it answers the tracker's real weakness — a lane
+    // hose is helpless against anything that changes lanes — without touching
+    // its damage, which is what keeps it from becoming a better cannon.
+    //
+    // THE LANE RAKE SURVIVES IT, for free and with no special case. A locked
+    // car sitting dead ahead leaves `target.offset - s.offset` at nearly zero,
+    // so the rounds do not steer at all: they fly the same tracking line they
+    // always did and `pierce` still punches down the row of cars in the way.
+    // The lock only bends a round when the target actually leaves the lane,
+    // which is precisely when the player wanted it to.
+    lock: "autolock",
+    // HOW LONG A DESIGNATION LASTS. It has to outlive the burst that made it —
+    // the rest between bursts is 0.6s — or the player re-designates from
+    // scratch every time and the upgrade is invisible. Three and a half
+    // seconds carries a lock across four or five bursts of held trigger, and
+    // still expires soon enough that a car left alone stops being yours.
+    lockTime: 3.5,
+    // LATERAL UNITS/SEC A LOCKED ROUND MAY STEER, and the whole balance of the
+    // upgrade lives in this one number. WELL UNDER THE ROCKET'S 260 on
+    // purpose: the seeking weapon has to stay the best seeker in the game, or
+    // the rocket's own reason to exist goes with it.
+    //
+    // At 150 a round crosses a lane in about two thirds of a second, which
+    // holds a car that is drifting or committed to a line and loses one that
+    // commits to a hard change the moment it sees the burst. That is the
+    // difference between "the rounds follow" and "the rounds cannot miss", and
+    // it is the second of those that would break the weapon.
+    lockTurnRate: 150,
   },
   {
     id: "rocket",
@@ -285,6 +332,17 @@ export const WEAPON_TYPES = [
     // which obstacletypes.js calls the hardest hit anything on the road can deal.
     blastRadius: 90,
     blastDamage: 26,
+    // THE SHOP CAN SELL A SECOND RAIL — game/upgrades.js's TWIN RACK. Same
+    // field the cannon uses, but the pair is genuinely two seekers rather than
+    // one round drawn twice: projectiles.js's seek() steers each one on its
+    // own AND prefers a car the other rocket has not already locked, so a
+    // press into a pack splits across two targets instead of double-killing
+    // the nearest one.
+    twin: "twinRocket",
+    // WIDER THAN THE CANNON'S PAIR, because these two are meant to diverge.
+    // They leave the rail far enough apart to start hunting different cars
+    // rather than flying as one thick round with a seam down the middle.
+    twinSpread: 34,
   },
   {
     id: "mine",
@@ -516,6 +574,62 @@ export const ENEMY_WEAPON_TYPES = [
     impact: "fireball",
   },
 ];
+
+// --- What the shop's SPECIALS do to a trigger pull ---------------------------
+//
+// The four one-off upgrades (game/upgrades.js's SPECIALS) are OWNERSHIP FLAGS
+// and nothing else — a `specials` block of booleans, handed to the player by
+// Player.applyUpgrades and read from here. Two of them change what comes out of
+// a barrel, and both are resolved by the pair of functions below rather than by
+// a branch at the trigger, for the same reason weaponsfx.js's tables exist:
+// main.js's fire branch should not grow a case per upgrade.
+//
+// THE WEAPON NAMES ITS OWN SPECIAL (`twin`, `lock` above), so a flag is only
+// ever consulted against the gun that advertises it. Buying TWIN CANNON cannot
+// accidentally pair the rocket, and neither function needs to know a weapon id.
+
+// The lateral offsets, relative to the muzzle, this trigger pull puts a round
+// at: one dead centre ordinarily, a symmetric PAIR when the weapon names a
+// `twin` special and the player owns it.
+//
+// Returns a SHARED, FROZEN array rather than building one — the trigger is
+// pulled several times a second forever, and projectiles.js's own "NO
+// ALLOCATION" rule reaches the muzzle as well as the pool. Two live weapons
+// with the same spread share one array and neither writes to it.
+const SINGLE_MUZZLE = Object.freeze([0]);
+const twinMuzzles = new Map(); // spread -> frozen [-spread/2, +spread/2]
+
+export function muzzleOffsets(type, specials = null) {
+  if (!type.twin || !specials || !specials[type.twin]) return SINGLE_MUZZLE;
+  const spread = type.twinSpread ?? 20;
+  let pair = twinMuzzles.get(spread);
+  if (!pair) {
+    pair = Object.freeze([-spread / 2, spread / 2]);
+    twinMuzzles.set(spread, pair);
+  }
+  return pair;
+}
+
+// Does this weapon designate what it hits, and for how long? Seconds, or 0 for
+// every weapon and every unowned upgrade — which is the case that costs
+// projectiles.js nothing at all (see its `lockOn` field).
+export function shotLock(type, specials = null) {
+  if (!type.lock || !specials || !specials[type.lock]) return 0;
+  return type.lockTime ?? 0;
+}
+
+// How fast a round from this weapon may steer toward a car the player has
+// already designated. 0 means "this round does not chase" — either the weapon
+// has no lock upgrade or it has not been bought, and in both cases the round
+// flies exactly as it always did.
+//
+// SEPARATE FROM `turnRate`, which is the rocket's own seeking rate and belongs
+// to the flight mode. A locked tracer round is NOT a rocket: it borrows the
+// seeking steer and nothing else, at its own much slower rate.
+export function lockTurnRate(type, specials = null) {
+  if (!type.lock || !specials || !specials[type.lock]) return 0;
+  return type.lockTurnRate ?? 0;
+}
 
 // One weapon, as carried by one car.
 export class Weapon {

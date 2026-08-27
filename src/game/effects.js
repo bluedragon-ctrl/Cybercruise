@@ -35,8 +35,10 @@ import {
   NEUTRAL_PALE,
   PICKUP_FRAME_BRIGHT,
   PLAYER,
+  PLAYER_THRUST,
   ROCKET,
   ROCKET_HOT,
+  SHIELD_FLICKER,
 } from "../engine/palette.js";
 import { OBSTACLE_SHAPES, SPLINTER, WATER, IMPACT } from "./obstacleshapes.js";
 
@@ -716,6 +718,118 @@ export function drawCollectBurst(ctx, cx, cy, t) {
   ctx.restore();
 }
 
+// --- The target reticle (weapons.js's AUTOLOCK) ------------------------------
+//
+// FOUR CORNER BRACKETS around the car the player's tracer rounds are chasing,
+// not a box and not a tint. A closed rectangle would read as a UI element
+// sitting on the road, and a colour wash would collide with the critical-hull
+// blink that already owns "this car looks different" (traffic.js's
+// BLINK_PERIOD). Corner ticks are the one shape that says "designated" at a
+// glance, and they are four moveTo/lineTo pairs.
+//
+// IT IS THE UPGRADE'S ONLY EXPLANATION. Rounds that bend out of their lane are
+// otherwise unaccountable — the player has to be able to see WHICH car they are
+// bending toward, or a locked burst just looks like the gun has developed a
+// fault. This is why the reticle is not optional polish.
+//
+// NOT A POOLED SLOT, unlike everything below it. A lock is not an event with a
+// lifetime of its own — it lasts as long as the designation does — and pooling
+// it would mean a car outliving its own brackets, or the brackets outliving the
+// car. Traffic.render calls this directly for the one locked car, with the same
+// (cx, cy) it just drew that car at.
+//
+// `phase` is the lock's own REMAINING time, counted down, so the brackets pulse
+// faster as the designation runs out — the countdown is the animation.
+const MARK_CORNER = 9;   // px each bracket arm reaches along the box edge
+const MARK_INSET = 4;    // px the brackets stand off the car's own box
+const MARK_PULSE = 7;    // rad/sec
+
+export function drawTargetMark(ctx, cx, cy, w, h, phase, color = PLAYER_THRUST) {
+  const hw = w / 2 + MARK_INSET;
+  const hh = h / 2 + MARK_INSET;
+  // One sine drives brightness alone — the brackets do NOT move. A mark that
+  // breathed in size would be read as the car changing shape.
+  const alpha = 0.55 + 0.35 * (Math.sin(phase * MARK_PULSE) + 1) / 2;
+
+  neonStroke(ctx, (c) => {
+    for (const sx of [-1, 1]) {
+      for (const sy of [-1, 1]) {
+        const x = cx + sx * hw;
+        const y = cy + sy * hh;
+        c.moveTo(x - sx * MARK_CORNER, y);
+        c.lineTo(x, y);
+        c.lineTo(x, y - sy * MARK_CORNER);
+      }
+    }
+  }, color, 1.6, 4, 0.14, alpha);
+}
+
+// --- The shield arc (game/shieldstorm.js) ------------------------------------
+//
+// One discharge from the player's shield to a car it has just bitten: a jagged
+// bolt between the two, and a small burst where it lands.
+//
+// THE BOLT IS BUILT FROM THE SEED, not stored, so a slot stays the same four
+// numbers every other kind in this pool is (see THE POOL below) — the zigzag is
+// re-derived identically every frame of its short life from `rng`, exactly as
+// drawWreck's debris is. Nothing about a bolt is animated except its FADE and
+// its taper; a bolt that re-randomised per frame would strobe rather than arc.
+export const ARC_DURATION = 0.18; // seconds. Shorter than any other slot kind —
+                                  // an electrical discharge is a snap, and this
+                                  // one fires several times a second
+
+const ARC_SEGMENTS = 7;  // kinks in the bolt
+const ARC_JITTER = 11;   // px each kink strays off the straight line
+
+// The bolt's own path, from the shield (x1,y1) to the car (x2,y2). Perpendicular
+// jitter about the straight line between them, so it stays a bolt BETWEEN two
+// specific points however the two have moved apart.
+function buildArcBolt(c, x1, y1, x2, y2, rand, spread) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+  c.moveTo(x1, y1);
+  for (let i = 1; i < ARC_SEGMENTS; i++) {
+    const t = i / ARC_SEGMENTS;
+    // Pinned at both ends and loosest in the middle — a bolt that wandered at
+    // the car's own body would look like it had missed.
+    const slack = Math.sin(t * Math.PI);
+    const j = (rand() * 2 - 1) * ARC_JITTER * slack * spread;
+    c.lineTo(x1 + dx * t + nx * j, y1 + dy * t + ny * j);
+  }
+  c.lineTo(x2, y2);
+}
+
+// Draw one arc, `t` of the way through ARC_DURATION. (x1,y1) is the shield end
+// and (x2,y2) the car it struck — both in screen space, resolved by the caller
+// for THIS frame, so the bolt tracks a car that is still moving.
+export function drawShieldArc(ctx, x1, y1, x2, y2, t, opts = {}) {
+  if (t < 0 || t >= 1) return;
+  const { color = PLAYER, glow = SHIELD_FLICKER, seed = 1 } = opts;
+  // Fades fast and squarely — the flash is over long before the slot is, which
+  // is what makes a repeating discharge read as a series of snaps rather than
+  // as a continuous beam.
+  const a = (1 - t) * (1 - t);
+
+  ctx.save();
+  neonStroke(ctx, (c) => buildArcBolt(c, x1, y1, x2, y2, rng(seed), 1),
+    color, 1.8, 5, 0.16, a);
+  // A second, tighter bolt on its own seed: two strands reading as one
+  // discharge, which is the cheapest way to make a bolt look hot rather than
+  // drawn.
+  neonStroke(ctx, (c) => buildArcBolt(c, x1, y1, x2, y2, rng(seed * 31 + 7), 0.45),
+    glow, 1.2, 4, 0.13, a * 0.85);
+  // Where it lands.
+  const r = 3 + t * 9;
+  neonStroke(ctx, (c) => {
+    c.moveTo(x2 + r, y2);
+    c.arc(x2, y2, r, 0, Math.PI * 2);
+  }, glow, 1.4, 4, 0.15, a);
+  ctx.restore();
+}
+
 // ---------------------------------------------------------------------------
 // THE POOL
 //
@@ -744,6 +858,7 @@ const BLAST = "blast";
 const RUBBLE = "rubble";
 const BURST = "burst";
 const COLLECT = "collect";
+const ARC = "arc";
 
 // How long a slot lives. Not a plain map, because a roadblock's lifetime depends
 // on its debris STYLE (a trestle is gone before a tetra has finished settling).
@@ -752,6 +867,7 @@ function slotDuration(s) {
   if (s.kind === RUBBLE) return OBSTACLE_WRECK_DURATION[s.style];
   if (s.kind === BURST) return FIREBALL_DURATION;
   if (s.kind === COLLECT) return COLLECT_DURATION;
+  if (s.kind === ARC) return ARC_DURATION;
   return WRECK_DURATION;
 }
 
@@ -770,6 +886,14 @@ export class Explosions {
       thrust: "#ffffff",
       w: 34,
       h: 62,
+      // ARC only: the OTHER end of the bolt — the shield it was thrown from.
+      // An arc is the one slot kind that is a line between two places rather
+      // than a thing that happens at one, and both ends are captured in world
+      // space at the moment of the strike: the discharge stays welded to the
+      // tarmac for its 0.18s exactly as a wreck does, rather than being
+      // dragged along behind a car that is still driving.
+      srcY: 0,
+      srcOffset: 0,
     }));
     this.next = 0; // round-robin cursor, so a full pool retires the oldest
     this.seed = 1;
@@ -839,6 +963,19 @@ export class Explosions {
     return this.take(worldY, offset, COLLECT);
   }
 
+  // One discharge from the player's shield (srcY, srcOffset) into a car it has
+  // just bitten (worldY, offset) — game/shieldstorm.js. Shares the pool with
+  // every other detonation on the road on purpose: a storm running inside a
+  // pack is exactly the moment a hard ceiling on effects matters, and the
+  // right thing to lose when the road is already full of fireballs is a spark,
+  // not the fireball.
+  spawnShieldArc(worldY, offset, srcY, srcOffset) {
+    const slot = this.take(worldY, offset, ARC);
+    slot.srcY = srcY;
+    slot.srcOffset = srcOffset;
+    return slot;
+  }
+
   update(dt) {
     for (const s of this.slots) {
       if (!s.alive) continue;
@@ -858,7 +995,15 @@ export class Explosions {
       if (sy < -H || sy > H * 2) continue;
       const sx = centerXAt(s.worldY, W) + s.offset;
       const t = s.elapsed / slotDuration(s);
-      if (s.kind === BLAST) drawMineBlast(ctx, sx, sy, t, s);
+      if (s.kind === ARC) {
+        // The only kind needing a SECOND screen position — mapped exactly as
+        // the first one is, so both ends of the bolt sit on the road the same
+        // way and a bend cannot shear it.
+        const sy2 = playerY - (s.srcY - distance);
+        const sx2 = centerXAt(s.srcY, W) + s.srcOffset;
+        drawShieldArc(ctx, sx2, sy2, sx, sy, t, s);
+      }
+      else if (s.kind === BLAST) drawMineBlast(ctx, sx, sy, t, s);
       else if (s.kind === RUBBLE) drawObstacleWreck(ctx, sx, sy, t, s);
       else if (s.kind === BURST) drawFireballBurst(ctx, sx, sy, t, s);
       else if (s.kind === COLLECT) drawCollectBurst(ctx, sx, sy, t);

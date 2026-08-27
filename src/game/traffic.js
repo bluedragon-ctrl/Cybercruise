@@ -33,7 +33,7 @@ import { driveCar } from "./behaviours.js";
 import { pickCarType, ENEMY_FACTION } from "./cartypes.js";
 import { drivingFor } from "./driving.js";
 import { armFor } from "./armament.js";
-import { Explosions } from "./effects.js";
+import { Explosions, drawTargetMark } from "./effects.js";
 import { resolveCollisions, PlayerBody } from "./collisions.js";
 import { PLAYER_MASS } from "./player.js";
 import { centerXAt, headingAt, laneOffset, laneAt, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
@@ -282,6 +282,7 @@ class TrafficCar {
     // Timed per car rather than off a global clock, so a car starts blinking at
     // the moment it's crippled and the road doesn't strobe in unison.
     if (this.critical) this.criticalTime += dt;
+
   }
 
   // Keep the car on the tarmac — traffic never scrapes the barriers, even when
@@ -581,7 +582,13 @@ export class Traffic {
   // lateral offset is interpolated: screen y comes from the raw `worldY` and the
   // raw `distance`, exactly as the road and city are drawn, so traffic stays
   // welded to the tarmac instead of sliding against it a fraction of a step.
-  render(ctx, distance, playerY, W, H, alpha) {
+  // `lock` is the player's target lock (game/targeting.js), or null — READ
+  // ONLY, and only to put a reticle on the one car it names. Passed in rather
+  // than held, because exactly one car can be locked and a reference cannot
+  // disagree with itself the way a flag copied onto every car could; and
+  // because traffic has no more business owning the player's targeting system
+  // than it has owning the scoreboard.
+  render(ctx, distance, playerY, W, H, alpha, lock = null) {
     for (const car of this.cars) {
       const sy = playerY - (car.worldY - distance);
       if (sy < -SPAWN_MARGIN || sy > H + SPAWN_MARGIN) continue;
@@ -609,6 +616,15 @@ export class Traffic {
         // would shear the whole column of traffic into a bend it isn't in yet.
         angle: headingAt(car.worldY),
       });
+
+      // ...and the reticle, OVER the car it belongs to but under the wrecks
+      // below, for the car the player's tracer fire is locked onto
+      // (game/targeting.js, weapons.js's AUTOLOCK). Drawn off the lock's own
+      // remaining time, which is what makes the brackets pulse faster as the
+      // designation runs out — see effects.js's drawTargetMark.
+      if (lock && car === lock.car) {
+        drawTargetMark(ctx, sx, sy, car.type.w, car.type.h, lock.time);
+      }
     }
 
     // Wrecks last, so a fireball is never drawn under the traffic still driving

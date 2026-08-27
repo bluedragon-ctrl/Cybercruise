@@ -154,6 +154,16 @@ export class Player {
     // payout is decided — see its own SIPHON_TIERS header for why this is a
     // tier index rather than a figure like the other upgrades above.
     this.siphonLevel = 0;
+    // The SPECIALS this run has bought (game/upgrades.js's SPECIALS shelf), as
+    // a block of ownership flags keyed by the upgrade's own `special` string —
+    // { twinCannon, twinRocket, shieldStorm, autolock }.
+    //
+    // EMPTY, NOT A LIST OF FALSES, and deliberately so: this file must not
+    // import the shop's catalogue to know what the keys ARE (upgrades.js
+    // already imports player.js — the arrow only points one way), and every
+    // reader is testing one key for truth, which a missing key answers
+    // correctly. A stock car simply carries none of them.
+    this.specials = {};
     this.hitWall = false; // true on frames the car is pressed against a barrier
     this.wallTimer = 0; // counts down between scrape-damage ticks
     this.wheelPhase = 0; // accumulated roll distance, drives the wheel tread
@@ -317,6 +327,10 @@ export class Player {
     this.mass = stats.mass;
     this.shieldBonus = stats.shieldBonus;
     this.siphonLevel = stats.siphonLevel;
+    // The Garage's own flag block, by reference — see its `stats` getter. The
+    // ?? keeps a caller that predates the specials shelf (the tests hand
+    // hand-built stat blocks in) from blanking the field with undefined.
+    this.specials = stats.specials ?? this.specials;
     const gained = stats.maxHealth - this.maxHealth;
     this.maxHealth = stats.maxHealth;
     if (gained > 0) this.heal(gained);
