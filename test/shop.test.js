@@ -437,7 +437,11 @@ test("an upgraded car can actually reach the speed it paid for", () => {
   const { wallet, player, loadout, garage } = shopper();
   const engine = statById("engine");
   purchase(engine, wallet, player, loadout, garage);
-  player.speed = 100000; // far past any ceiling
-  player.update(1 / 60, { left: -10000, right: 10000 });
+  // Just past the ceiling the tier paid for. Player.update walks a car back
+  // into its band at BAND_RECOVER rather than snapping it (see that method),
+  // so this is a second of ticks and then a check that the walk STOPPED on the
+  // upgraded ceiling — not on the stock one, and not below it.
+  player.speed = MAX_SPEED + engine.step + 100;
+  for (let i = 0; i < 60; i++) player.update(1 / 60, { left: -10000, right: 10000 });
   assert.equal(player.speed, MAX_SPEED + engine.step);
 });

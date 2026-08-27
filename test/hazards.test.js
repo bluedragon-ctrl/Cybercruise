@@ -15,7 +15,8 @@ import { carShapeExtent } from "../src/game/carshapes.js";
 import { RETIRE_MARGIN as TRAFFIC_RETIRE_MARGIN, Traffic } from "../src/game/traffic.js";
 import { driveCar, dodgeDistance, TACTIC_NAMES, TRAIL_ENGAGE } from "../src/game/behaviours.js";
 import { DRIVING_PROFILES, drivingFor, typesDriving } from "../src/game/driving.js";
-import { MIN_SPEED, PLAYER_MASS, Player } from "../src/game/player.js";
+import { BAND_RECOVER, MIN_SPEED, PLAYER_MASS, Player } from "../src/game/player.js";
+import { initInput } from "../src/engine/input.js";
 import {
   LANE_COUNT,
   LANE_WIDTH,
@@ -1636,6 +1637,17 @@ test("every BOOST pickup carries both of the numbers its effect needs", () => {
   }
 });
 
+// engine/input.js reads the keyboard through whatever target initInput is
+// handed, so a bare EventTarget standing in for `window` is enough to hold the
+// brake down for a test — no globals, and nothing in player.js has to grow a
+// seam it would not otherwise have.
+const keyboard = new EventTarget();
+initInput(keyboard);
+function holdBrake(down) {
+  keyboard.dispatchEvent(
+    Object.assign(new Event(down ? "keydown" : "keyup"), { code: "KeyS", repeat: false }));
+}
+
 test("a boost lifts BOTH ends of the player's speed band by its amount", () => {
   const player = new Player(0, 0);
   const stockMin = player.minSpeed;
@@ -1647,15 +1659,38 @@ test("a boost lifts BOTH ends of the player's speed band by its amount", () => {
   assert.equal(player.topSpeed, stockTop + 200);
 });
 
-test("a boost puts the car at the raised floor immediately, without touching the throttle", () => {
+test("a boost drives the car up to the raised floor without touching the throttle", () => {
   const player = new Player(0, 0);
   const bounds = { left: -10000, right: 10000 };
   player.speed = MIN_SPEED;
 
   player.activateBoost(200, 6);
   player.update(1 / 60, bounds);
-  assert.equal(player.speed, MIN_SPEED + 200,
+  assert.ok(player.speed > MIN_SPEED,
     "the raised floor is what makes a boost felt without the player doing anything");
+  assert.ok(player.speed < MIN_SPEED + 200,
+    "but it is a spool-up, not a one-frame jump of the whole lift");
+  assert.equal(player.speed, MIN_SPEED + BAND_RECOVER / 60, "climbing at exactly BAND_RECOVER");
+
+  // Long enough to cover the 200 at BAND_RECOVER, with room to spare — and the
+  // ramp must STOP at the floor rather than sail past it.
+  for (let i = 0; i < 60; i++) player.update(1 / 60, bounds);
+  assert.equal(player.speed, MIN_SPEED + 200, "and it settles exactly on the raised floor");
+});
+
+test("a running boost takes the brake away — the floor cannot be driven under", () => {
+  const player = new Player(0, 0);
+  const bounds = { left: -10000, right: 10000 };
+  holdBrake(true); // full brake, held for the whole test
+
+  try {
+    player.activateBoost(200, 6);
+    for (let i = 0; i < 120; i++) player.update(1 / 60, bounds);
+    assert.equal(player.speed, MIN_SPEED + 200,
+      "braking against a running overdrive must not move the car off its raised floor");
+  } finally {
+    holdBrake(false);
+  }
 });
 
 test("a boost expires on its own clock and drops the car back to its stock band", () => {
@@ -1674,6 +1709,11 @@ test("a boost expires on its own clock and drops the car back to its stock band"
   assert.equal(player.boostTime, 0);
   assert.equal(player.boost, 0);
   assert.equal(player.topSpeed, player.maxSpeed);
+  // The ceiling is back, but the car COASTS down to it rather than dropping —
+  // one tick of BAND_RECOVER off the raised top speed, not 200 at once.
+  assert.equal(player.speed, player.maxSpeed + 200 - BAND_RECOVER * 0.25);
+
+  for (let i = 0; i < 60; i++) player.update(1 / 60, bounds);
   assert.equal(player.speed, player.maxSpeed, "the stock ceiling must be back in force");
 });
 
