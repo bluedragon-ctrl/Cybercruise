@@ -12,10 +12,10 @@ import * as gameConsole from "../engine/console.js";
 
 // Exported: the traffic catalogue is pinned to both ends of the player's speed
 // band (see cartypes.js), and that relation is asserted in test/road-and-caches.test.js.
-export const MIN_SPEED = 120; // world units/sec (also the road scroll speed)
+export const MIN_SPEED = 100; // world units/sec (also the road scroll speed)
 export const MAX_SPEED = 620;
 export const ACCEL = 380; // speed change per second at full throttle
-const STEER_SPEED = 260; // horizontal px/sec at full lock
+const STEER_SPEED = 300; // horizontal px/sec at full lock
 
 // Steering RAMPS rather than snapping. A keyboard axis is on or off, so applying
 // it straight to position means the smallest input the player can give is a
@@ -49,7 +49,7 @@ const WALL_SPEED_SCRUB = 0.985; // per-tick speed multiplier while grinding a ba
 // Ramming mass, in the same arbitrary units as a car type's (cartypes.js). Sits
 // between the sedan (1) and the bruiser (2): the player shoves a roadster around
 // easily, trades evenly with an interceptor and loses to a truck.
-export const PLAYER_MASS = 1.4;
+export const PLAYER_MASS = 1.5;
 
 // Sideways velocity from being rammed (collisions.js writes it; this class
 // integrates it). Damped hard, because tyres bite — a shove is a lurch, not a
