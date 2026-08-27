@@ -1345,10 +1345,14 @@ function drawHud() {
     // player would have no way to know they are carrying one. Breathes
     // instead of counting down — there is nothing running to count — at the
     // shield halo's own pulse rate so the HUD reads as the same system.
+    // The banked figure is now printed too, not just implied: chargeShield
+    // stacks (player.js), so a player who has driven over two or three crates
+    // needs to see that the bank actually grew, not just that something is
+    // armed.
     const breath = (Math.sin(hudClock * 4.2) + 1) / 2; // player.js's SHIELD_PULSE_RATE
     ctx.save();
     ctx.globalAlpha = 0.55 + 0.45 * breath;
-    glowText(ctx, "SHIELD CHARGED", bx + bw, by - 16, PLAYER, 12, "right", 8);
+    glowText(ctx, `SHIELD CHARGED ${player.shieldCharge.toFixed(1)}s`, bx + bw, by - 16, PLAYER, 12, "right", 8);
     ctx.restore();
   }
 
@@ -1429,7 +1433,7 @@ function render(alpha) {
   // wallet and the garage to READ; both were already moved by update() above,
   // which is the only place on that screen money changes hands.
   if (state === "shopping") {
-    shop.render(ctx, W, H, wallet, hauler.milestone, garage);
+    shop.render(ctx, W, H, wallet, hauler.milestone, garage, player, loadout);
     return;
   }
 

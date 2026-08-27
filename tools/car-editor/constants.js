@@ -172,6 +172,73 @@ export const CONSTANT_GROUPS = [
       },
     ],
   },
+  {
+    id: "siphon",
+    label: "Siphon rig",
+    // The SHOP screen itself (upgrades.js's `siphon` STATS entry, edited like
+    // any other stat under Shop → Car systems) only ever shows YIELD — see
+    // wallet.js's own SIPHON_TIERS header for why reach and drain never got
+    // rows of their own. That means editing this stat's `step` there moves
+    // what the shelf QUOTES; it does NOT move what a node actually pays out
+    // unless the yield figures below are retuned to match.
+    //
+    // STOCK, then the three tiers the rig can be bought up to. The first three
+    // rows (LINK_RADIUS/LINK_NEAR_TIME/LINK_FAR_TIME) are what a car with NO
+    // rig bought reads — index 0 of every array below is fixed to the first
+    // two of them rather than a restated literal — and are also the base every
+    // hunter/crawler style in tools/econsim.js is measured against.
+    note: "What a node's siphon actually costs and pays, stock and at every SIPHON RIG tier (Shop → Car systems). The shop shelf only prints the yield column; a step edited there has to be matched against the yield rows below or the shelf will quote a number the run doesn't pay.",
+    constants: [
+      {
+        id: "siphon.LINK_RADIUS", name: "LINK_RADIUS", file: "src/game/wallet.js", min: 1,
+        description: "Siphon reach on a STOCK car (no rig bought), in px from the car to a node's marker. Also what a node's price fades in from, and the far end of the drain curve below.",
+      },
+      {
+        id: "siphon.LINK_NEAR_TIME", name: "LINK_NEAR_TIME", file: "src/game/wallet.js", min: 0.01,
+        description: "Seconds to drain a node at POINT BLANK — the near end of the falloff curve, and the one figure the rig never moves at any tier: only the far end (below) gets faster as the rig is upgraded.",
+      },
+      {
+        id: "siphon.LINK_FAR_TIME", name: "LINK_FAR_TIME", file: "src/game/wallet.js", min: 0.05,
+        description: "Seconds to drain a node at the OUTER edge of LINK_RADIUS, on a stock car. This is what the rig's FAR_TIME_T1/2/3 rows below count down from — 4s stock, 3/2/1s at tier 1/2/3.",
+      },
+      {
+        id: "siphon.RANGE_T1", name: "SIPHON_RANGES", index: 1, file: "src/game/wallet.js", min: 1,
+        description: "Siphon reach at tier 1, in px — how far off a node this can still be entitled to drain. Stock (index 0) is LINK_RADIUS, above.",
+      },
+      {
+        id: "siphon.RANGE_T2", name: "SIPHON_RANGES", index: 2, file: "src/game/wallet.js", min: 1,
+        description: "Siphon reach at tier 2, px.",
+      },
+      {
+        id: "siphon.RANGE_T3", name: "SIPHON_RANGES", index: 3, file: "src/game/wallet.js", min: 1,
+        description: "Siphon reach at tier 3 (maxed), px.",
+      },
+      {
+        id: "siphon.FAR_TIME_T1", name: "SIPHON_FAR_TIMES", index: 1, file: "src/game/wallet.js", min: 0.05,
+        description: "Seconds to drain a node at the OUTER edge of reach, tier 1. The near end never moves — LINK_NEAR_TIME is the same 0.3s for every tier — so this is the whole size of what the rig buys on this axis.",
+      },
+      {
+        id: "siphon.FAR_TIME_T2", name: "SIPHON_FAR_TIMES", index: 2, file: "src/game/wallet.js", min: 0.05,
+        description: "Seconds to drain a node at the outer edge of reach, tier 2.",
+      },
+      {
+        id: "siphon.FAR_TIME_T3", name: "SIPHON_FAR_TIMES", index: 3, file: "src/game/wallet.js", min: 0.05,
+        description: "Seconds to drain a node at the outer edge of reach, tier 3 (maxed) — 1s by design, not a smoothed curve: the wait itself is the pain the rig is sold to fix.",
+      },
+      {
+        id: "siphon.YIELD_T1", name: "SIPHON_YIELDS", index: 1, file: "src/game/wallet.js", min: 0.01,
+        description: "Payout multiplier at tier 1 — 1.20 means every node pays 20% more. THE ONE FIGURE THE SHOP SHELF ALSO PRINTS (as a %); keep this in step with the `siphon` stat's own `step` under Shop → Car systems or the shelf will lie about what a node pays.",
+      },
+      {
+        id: "siphon.YIELD_T2", name: "SIPHON_YIELDS", index: 2, file: "src/game/wallet.js", min: 0.01,
+        description: "Payout multiplier at tier 2. Same shelf-agreement rule as tier 1.",
+      },
+      {
+        id: "siphon.YIELD_T3", name: "SIPHON_YIELDS", index: 3, file: "src/game/wallet.js", min: 0.01,
+        description: "Payout multiplier at tier 3 (maxed). Same shelf-agreement rule as tier 1.",
+      },
+    ],
+  },
 ];
 
 export const CONSTANTS = CONSTANT_GROUPS.flatMap((group) =>

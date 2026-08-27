@@ -1604,13 +1604,16 @@ test("a hit taken mid-window does not burn a second charge", () => {
   assert.equal(player.shieldCharge, 5, "...so the banked one is still banked");
 });
 
-test("a second charge banks the longer duration rather than stacking", () => {
+test("a second charge stacks onto the bank rather than capping at the longer one", () => {
+  // Unlike activateShield (a RUNNING shield, which is not additive), a charge
+  // not yet running has cost the player nothing yet — so a second crate found
+  // before the first hit lands adds to the bank instead of being wasted.
   const player = new Player(0, 0);
   player.chargeShield(5);
-  player.chargeShield(2); // shorter — must not shrink the bank
-  assert.equal(player.shieldCharge, 5);
-  player.chargeShield(9); // longer — must raise it
-  assert.equal(player.shieldCharge, 9);
+  player.chargeShield(2);
+  assert.equal(player.shieldCharge, 7);
+  player.chargeShield(9);
+  assert.equal(player.shieldCharge, 16);
 });
 
 test("the DEFLECTOR bonus applies when a charge fires, not when it is banked", () => {

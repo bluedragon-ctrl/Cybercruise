@@ -182,6 +182,67 @@ const LINK_DECAY = 1.5;
 
 const SIPHON_HINT = "SIGNAL NODE IN REACH // HOLD THE SHOULDER TO SIPHON";
 
+// THE SIPHON RIG — game/upgrades.js's fifth CAR SYSTEM, and the one stat on
+// that shelf that pays for itself. `player.siphonLevel` is the tier owned
+// (0..3, 0 being a stock car with none of this bought), and every number
+// below that isn't `yield` is undocumented on the shelf on purpose — see the
+// header on why.
+//
+// WHY THIS EXISTS, AND WHY IT IS NOT "MORE RANGE": tools/econsim.js was run
+// against range and drain-time separately before this was built, and both
+// saturate almost immediately — past ~360px / ~3s the hunter style is
+// already taking essentially every node it drives past, so a further tier of
+// EITHER one alone would be a shelf row that sells nothing. Yield has no such
+// ceiling: it is a straight multiplier on every siphon, forever, so it is the
+// number on the shelf (upgrades.js's `unit: "%"`) and the only one this rig
+// promises. Range and drain ride along on the SAME tier rather than getting
+// rows of their own, so the two axes that stall are never sold as if they
+// don't.
+//
+// TIER 0 IS THE STOCK CAR, on purpose the same figures LINK_RADIUS/
+// LINK_FAR_TIME/100% already name above — a car with no rig bought must
+// behave exactly as one did before this existed.
+//
+// THE DRAIN LADDER IS 4/3/2/1s BY DESIGN, not a smoothed curve: the wait
+// itself is the "big pain" the upgrade is for (unlike the SQUARED falloff
+// curve below it, which is about EARNING the closer approach) — a player who
+// bought the rig should feel every second of it get shorter, not do
+// arithmetic on a curve to notice.
+//
+// yield MUST be reflected everywhere a node's price is ever shown or paid —
+// hints() (the floating price on the floor) and collect() (what actually
+// lands) both read it, from the same table, so the HUD can never quote a
+// number the wallet doesn't pay.
+//
+// THREE FLAT ARRAYS, not one array of objects, and that shape is not
+// incidental — tools/car-editor/constants.js can only reach a bare
+// `const NAME = [a, b, c];` (patcher.js's patchArrayConstantElement, the same
+// mechanism upgrades.js's own TIER_PRICES is tuned through), so a designer
+// retuning tier 2's reach or tier 3's drain does it from the editor's World
+// tab, exactly like every other balance figure in this game. That is also why
+// each stays on ONE LINE with no trailing per-element comments: the patcher
+// splits on commas with no comment-awareness, and a comment after an element
+// would be read as part of the next one. Context lives in the paragraphs
+// above instead. Index === player.siphonLevel throughout (0 = stock), and
+// index 0 is deliberately the two constants above rather than a restated
+// literal, for the same "must behave exactly as before this existed" reason
+// their own values are what they are.
+const SIPHON_RANGES = [LINK_RADIUS, 330, 360, 390];
+const SIPHON_FAR_TIMES = [LINK_FAR_TIME, 3.0, 2.0, 1.0];
+const SIPHON_YIELDS = [1.00, 1.20, 1.40, 1.60];
+
+// `player` is read defensively (`?.`) — the test suite and tools/econsim.js
+// both drive this module with plain `{x, y, speed}` stand-ins that carry no
+// siphonLevel at all, and that has to mean "stock", not a crash.
+function siphonTier(player) {
+  const level = player?.siphonLevel ?? 0;
+  return {
+    range: SIPHON_RANGES[level] ?? SIPHON_RANGES[0],
+    farTime: SIPHON_FAR_TIMES[level] ?? SIPHON_FAR_TIMES[0],
+    yield: SIPHON_YIELDS[level] ?? SIPHON_YIELDS[0],
+  };
+}
+
 // How long a payout's own "+14CR" hangs over the SPOT IT CAME FROM, seconds,
 // and how far it drifts upward while it does. Shorter than the HUD's award
 // flash: that one is a running total being updated, this one is a pointer at a
@@ -415,10 +476,14 @@ export class Wallet {
   // NOTE what is NOT here: whether the node is pinging. The ping stopped
   // gating money when the two routes became one (see THE LINK) — it lights the
   // label, nothing more.
+  //
+  // THE REACH IS THE PLAYER'S OWN, not a constant, once the SIPHON RIG
+  // (siphonTier) exists — a car with the rig bought can be entitled to a node
+  // a stock car can't even see as payable.
   payable(node, player, distance, W) {
     if (this.harvested.has(nodeId(node.bx, node.by))) return false;
     if (!offRoad(node, distance + (player.y - node.sy), W)) return false;
-    return Math.hypot(node.cx - player.x, node.sy - player.y) <= LINK_RADIUS;
+    return Math.hypot(node.cx - player.x, node.sy - player.y) <= siphonTier(player).range;
   }
 
   // Whether the car is positioned to be draining this node at all: out past
@@ -450,9 +515,14 @@ export class Wallet {
   // crawling fell from 1.55x a fast style's income to 1.36x, because a car at
   // speed can now finish the nodes it passes instead of only the ones it is
   // scraping. Slowing down still pays — it just no longer pays for everything.
-  linkRate(dist) {
-    const t = Math.min(1, Math.max(0, dist / LINK_RADIUS));
-    return 1 / (LINK_NEAR_TIME + (LINK_FAR_TIME - LINK_NEAR_TIME) * t * t);
+  //
+  // `player` is OPTIONAL and reads as stock when omitted (siphonTier's own
+  // default) — test/economy.test.js calls this with a bare distance to probe
+  // the stock curve, and that has to keep working unchanged.
+  linkRate(dist, player) {
+    const tier = siphonTier(player);
+    const t = Math.min(1, Math.max(0, dist / tier.range));
+    return 1 / (LINK_NEAR_TIME + (tier.farTime - LINK_NEAR_TIME) * t * t);
   }
 
   // Advances (or bleeds) the one link, and pays out when it completes. Split
@@ -489,11 +559,11 @@ export class Wallet {
     // Charged at the rate for where the car is THIS tick, not where it was
     // when the link opened: closing the distance mid-drain speeds it up, which
     // is the same sentence the mechanic already tells the player.
-    this.link.charge += dt * this.linkRate(best);
+    this.link.charge += dt * this.linkRate(best, player);
     if (this.link.charge < 1) return 0;
 
     this.link = null;
-    return this.collect(clockValue, target, push, busy);
+    return this.collect(clockValue, target, player, push, busy);
   }
 
   // The payout itself, shared by both routes so they can never drift apart:
@@ -511,9 +581,15 @@ export class Wallet {
   // uplink existed to stop a second route from eating the first; with one
   // route there is nothing to protect, and a quoted price that turns out to be
   // half is exactly the confusion this merge removes.
-  collect(clockValue, node, push = gameConsole.push, busy = gameConsole.isBusy) {
+  //
+  // THE ONE EXCEPTION TO "ONE PRICE" IS THE SIPHON RIG, and it is not really
+  // an exception — `nodeValue` is what the CITY says the node is worth,
+  // `siphonTier(player).yield` is what the CAR is equipped to actually pull
+  // out of it, and hints() below quotes the same product so the floor never
+  // advertises a number this doesn't pay.
+  collect(clockValue, node, player, push = gameConsole.push, busy = gameConsole.isBusy) {
     this.harvested.add(nodeId(node.bx, node.by));
-    const value = nodeValue(node.bx, node.by);
+    const value = Math.round(nodeValue(node.bx, node.by) * siphonTier(player).yield);
     this.award(value);
     this.siphoned += value;
     this.nodes++;
@@ -555,7 +631,8 @@ export class Wallet {
 
   // Which nodes are worth SHOWING the player, and how loudly — pure data, no
   // canvas, so the whole rule is testable the same way links.js's own fields
-  // are. One entry per unclaimed, reachable node inside LINK_RADIUS:
+  // are. One entry per unclaimed, reachable node inside the player's own
+  // reach (siphonTier(player).range, LINK_RADIUS on a stock car):
   //
   //   value     what it pays — the node's price, flat, because there is only
   //             one price now (see collect)
@@ -585,6 +662,7 @@ export class Wallet {
   // would be the HUD lying, and this game's HUD does not lie.
   hints(clockValue, nodes, player, distance, W) {
     const live = new Set(pingingNodes(nodes, clockValue).map((n) => nodeId(n.bx, n.by)));
+    const tier = siphonTier(player);
     const out = [];
     for (const n of nodes) {
       if (!this.payable(n, player, distance, W)) continue;
@@ -593,11 +671,13 @@ export class Wallet {
       const dist = Math.hypot(n.cx - player.x, n.sy - player.y);
       out.push({
         x: n.cx, y: n.sy,
-        value: nodeValue(n.bx, n.by),
+        // The RIG's yield, applied here too — see collect()'s own note on why
+        // this is the one thing that still has to match it exactly.
+        value: Math.round(nodeValue(n.bx, n.by) * tier.yield),
         live: live.has(id),
         charge: this.link && this.link.id === id ? Math.min(1, this.link.charge) : 0,
         // Fades up over the approach — brightest where the drain is fastest.
-        alpha: 1 - 0.7 * Math.min(1, dist / LINK_RADIUS),
+        alpha: 1 - 0.7 * Math.min(1, dist / tier.range),
       });
     }
     return out;

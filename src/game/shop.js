@@ -49,6 +49,7 @@ import {
   purchase,
   statValue,
 } from "./upgrades.js";
+import { AMMO, HEAL, SHIELD } from "./pickuptypes.js";
 
 // Drawn straight over the frozen world (main.js returns before any world layer
 // when this state is live), so this fill is the whole background. Matching
@@ -177,7 +178,10 @@ export function createShop() {
     // `wallet` and `garage` are READ here — every write went through update()'s
     // purchase() call, which is the only place on this screen that can move
     // money. `visit` is which shop stop this is (hauler.js's milestone count).
-    render(ctx, W, H, wallet, visit, garage) {
+    // `player`/`loadout` are READ too, only to print each consumable's CURRENT
+    // status (see statusFor) — the shelf already told the player what a
+    // purchase gives, this is the other half: what they'd be buying it onto.
+    render(ctx, W, H, wallet, visit, garage, player, loadout) {
       ctx.save();
       ctx.fillStyle = BACKDROP;
       ctx.fillRect(0, 0, W, H);
@@ -216,7 +220,7 @@ export function createShop() {
           y += HEADING_DROP;
         }
         for (const entry of shelf.entries) {
-          drawRow(ctx, entry, y, index === selected, boughtHere.has(index), wallet, garage);
+          drawRow(ctx, entry, y, index === selected, boughtHere.has(index), wallet, garage, player, loadout);
           y += ROW_PITCH;
           index += 1;
         }
@@ -249,7 +253,7 @@ export function createShop() {
 // One shelf row. The colour scheme carries all the state there is — what it
 // costs, whether you can afford it, whether it is finished — so the player
 // reads the shelf rather than a column of status words.
-function drawRow(ctx, entry, y, selected, bought, wallet, garage) {
+function drawRow(ctx, entry, y, selected, bought, wallet, garage, player, loadout) {
   const price = priceOf(entry, garage);
   const affordable = price !== null && price <= wallet.credits;
   const soldOut = price === null; // a stat at its last tier
@@ -273,9 +277,19 @@ function drawRow(ctx, entry, y, selected, bought, wallet, garage) {
   if (entry.undock) return;
 
   if (entry.kind) {
-    // A consumable: what one purchase gives you, in its own units.
+    // A consumable: what one purchase gives you, in its own units...
     glowText(ctx, entry.detail, DETAIL_X, y, affordable ? GREEN_PALE : GREEN_DIM,
       12, "center", 0);
+    // ...and, alongside it, what the player actually HAS right now — the half
+    // the detail column never answered. Without this a player staring at
+    // "+100 HULL" has no way to tell a top-up from a purchase they don't need
+    // yet, short of alt-tabbing to squint at the health bar behind this
+    // screen. Same VALUE_X slot the CAR SYSTEMS shelf uses for its own
+    // now-vs-next reading, so the two shelves read as one system.
+    const status = statusFor(entry, player, loadout);
+    if (status) {
+      glowText(ctx, status, VALUE_X, y, affordable ? GREEN_PALE : GREEN_DIM, 12, "center", 0);
+    }
   } else {
     // A car system: the tiers owned, and what the next one moves the reading to.
     const level = garage.levelOf(entry);
@@ -320,6 +334,30 @@ function drawPips(ctx, x, y, level, color) {
     else ctx.strokeRect(px + 0.5, y + 2.5, PIP_W - 1, PIP_H - 1);
   }
   ctx.restore();
+}
+
+// What the player currently HAS, for a consumable row — the CAR SYSTEMS
+// shelf's "now" half, without the "-> next" (a consumable doesn't move a
+// stat, it tops one up). `player`/`loadout` are undefined in the test suite's
+// older calls and in anything that renders before the run's car exists, so
+// this reads defensively rather than assuming either is there.
+function statusFor(entry, player, loadout) {
+  switch (entry.kind) {
+    case HEAL:
+      if (!player) return null;
+      return `${Math.ceil(player.health)}/${player.maxHealth} HULL`;
+    case SHIELD:
+      if (!player) return null;
+      if (player.shieldTime > 0) return `${player.shieldTime.toFixed(1)}S ACTIVE`;
+      if (player.shieldCharge > 0) return `${player.shieldCharge.toFixed(1)}S CHARGED`;
+      return "NONE ACTIVE";
+    case AMMO: {
+      const weapon = loadout && loadout.get(entry.weaponId);
+      return weapon ? `${weapon.ammoText}/${weapon.type.ammo} RDS` : null;
+    }
+    default:
+      return null;
+  }
 }
 
 // A stat's reading, in the units its catalogue entry names — and behind the

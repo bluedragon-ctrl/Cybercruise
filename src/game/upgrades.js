@@ -273,6 +273,29 @@ export const STATS = [
     unit: "",
     decimals: 1,
   },
+  {
+    id: "siphon",
+    label: "SIPHON RIG",
+    note: "PULLS MORE FROM EVERY NODE — AND REACHES FURTHER",
+    // A PERCENTAGE OF NOTHING BUT ITSELF, unlike every stat above it — there
+    // is no `base` figure to import because there is no stock component this
+    // upgrades; 100 is "exactly what the floor already pays" and every tier
+    // is a straight multiplier on top. See game/wallet.js's SIPHON_TIERS for
+    // why yield is the ONE number sold here: reach and drain time both ride
+    // along on the same tier (330px/3s, 360px/2s, 390px/1s) but neither is
+    // printed on the shelf, because tools/econsim.js showed both stop paying
+    // for themselves within a tier or two of the stock car — a row that
+    // promised more of either alone would be lying by tier 2.
+    //
+    // 100 -> 120 -> 140 -> 160: MUST match SIPHON_TIERS' own `yield` column
+    // exactly (1.00/1.20/1.40/1.60) — retuning one without the other leaves
+    // the shelf quoting a number the wallet doesn't pay.
+    base: 100,
+    step: 20,
+    price: 100,
+    unit: "%",
+    decimals: 0,
+  },
 ];
 
 // One named stat. Mirrors pickupTypeById/obstacleTypeById.
@@ -340,6 +363,11 @@ export class Garage {
       maxHealth: value("chassis"),
       shieldBonus: value("deflector"),
       mass: value("ram"),
+      // THE RAW TIER, not a computed value like the four above — game/
+      // wallet.js's SIPHON_TIERS is indexed by level directly (it drives
+      // three different numbers off one tier, not one), so what Player wants
+      // here is "which row of that table", not a figure of its own.
+      siphonLevel: this.levelOf(statById("siphon")),
     };
   }
 }
