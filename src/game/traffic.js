@@ -39,9 +39,15 @@ import { PLAYER_MASS } from "./player.js";
 import { centerXAt, headingAt, laneOffset, laneAt, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 import { CRITICAL_FLASH } from "../engine/palette.js";
 
-const MAX_CARS = 7;          // cars simulated at once
+// Exported so game/events.js can scale it rather than keep a second figure —
+// see setDensity(). It remains the AMBIENT baseline: staged cars are counted
+// separately and are not bounded by it.
+export const MAX_CARS = 7;   // cars simulated at once
 const SPAWN_INTERVAL = 1.1;  // seconds between spawn attempts
-const SPAWN_MARGIN = 120;    // world units past the screen edge a car appears at
+// Exported alongside RETIRE_MARGIN below because game/events.js stages cars at
+// the same two entry points the spawner uses — a gang has to arrive from off
+// the screen edge like everything else, not materialise in view.
+export const SPAWN_MARGIN = 120; // world units past the screen edge a car appears at
 // Exported because obstacles.js has to place hazards BEYOND the traffic field —
 // a car spawned inside one gets no road to steer around it (see that file's
 // SPAWN_MARGIN, and test/combat.test.js).
@@ -149,6 +155,15 @@ class TrafficCar {
     // every civilian, which is what makes the arms code a no-op for most of the
     // road rather than something every behaviour has to guard.
     this.arms = armFor(type);
+
+    // Placed by game/events.js as part of a staged encounter, rather than by
+    // the ambient spawner below. Same flag shape RoadObstacle.laid already
+    // uses, and for the same reason: two budgets that must not be pooled. A
+    // five-strong gang counted against MAX_CARS would empty the rest of the
+    // road to make room, which is the opposite of what an encounter is for.
+    // Declared here with the rest rather than sprung into existence in
+    // place(), per the "declare the lot" note above.
+    this.staged = false;
 
     this.health = type.health;
     this.maxHealth = type.health;
@@ -340,6 +355,31 @@ export class Traffic {
     // its explosion are the same event, and keeping them together means main.js
     // never has to know that cars can blow up.
     this.explosions = explosions;
+
+    // AMBIENT DENSITY, as a multiplier on MAX_CARS rather than a replacement
+    // for it — game/events.js turns this down while an encounter is live (a
+    // boss gets an empty road, a gang gets a thinned one) and back to 1 when it
+    // ends. MAX_CARS stays the BASELINE the multiplier is read against, so it
+    // still means what it says and the tuning editor still edits the one number
+    // it always did.
+    //
+    // A cap of zero DESTROYS NOTHING. The spawner simply stops replacing what
+    // retires, so the road drains over the next few seconds as traffic falls
+    // off the screen behind — which is a warning the player watches happen,
+    // where six cars blinking out of existence would read as a fault.
+    this.density = 1;
+  }
+
+  // See `density` above. Clamped at zero because a negative cap is a caller
+  // bug that would otherwise read as "no traffic" and hide itself.
+  setDensity(mul) {
+    this.density = Math.max(0, mul);
+  }
+
+  // Live cars the AMBIENT spawner is responsible for — staged ones are somebody
+  // else's budget (see TrafficCar's `staged`).
+  ambientCount() {
+    return this.cars.reduce((n, car) => n + (car.alive && !car.staged ? 1 : 0), 0);
   }
 
   // `world` = { player, distance, W, H }, built by main.js each tick. Behaviours
@@ -379,7 +419,11 @@ export class Traffic {
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
       this.spawnTimer = SPAWN_INTERVAL;
-      if (this.cars.length < MAX_CARS) this.spawn(world);
+      // The cap the AMBIENT road is held to, scaled by whatever encounter is
+      // running (see setDensity) and counting only the cars this spawner put
+      // here. A staged gang neither fills this budget nor is thinned by it.
+      const cap = Math.round(MAX_CARS * this.density);
+      if (this.ambientCount() < cap) this.spawn(world);
     }
 
     // Painter's order: farthest ahead first, so nearer cars overlap the ones
@@ -517,7 +561,28 @@ export class Traffic {
     const lane = this.freeLane(worldY, type.w, type.h);
     if (lane === -1) return; // every lane busy here; try again next interval
 
-    this.cars.push(new TrafficCar(type, worldY, lane, speed));
+    this.place(type, worldY, lane, speed);
+  }
+
+  // PUT ONE CAR ON THE ROAD, wherever the caller says. Extracted from spawn()
+  // above rather than written beside it, because game/events.js stages whole
+  // formations and must go through the SAME path the ambient road does — a
+  // director pushing into `this.cars` itself would be the one thing on the
+  // highway that had skipped the clearance check below (see cartypes.js's FOCUS
+  // note on why a staged road still has to be a road the real spawner built).
+  //
+  // `staged` marks the car as somebody else's budget — see TrafficCar's own
+  // field and ambientCount() above.
+  //
+  // Returns the car, or null when the lane is not clear at `worldY`. A refusal
+  // is a normal outcome, not an error: an encounter that gets three of its five
+  // cycles down because the road was busy is a smaller gang, not a failed one.
+  place(type, worldY, lane, speed, staged = false) {
+    if (!this.laneClear(lane, worldY, type.w, type.h)) return null;
+    const car = new TrafficCar(type, worldY, lane, speed);
+    car.staged = staged;
+    this.cars.push(car);
+    return car;
   }
 
   // A weighted type pick that resists one kind taking over the road.
@@ -564,18 +629,24 @@ export class Traffic {
     const start = Math.floor(Math.random() * LANE_COUNT);
     for (let i = 0; i < LANE_COUNT; i++) {
       const lane = (start + i) % LANE_COUNT;
-      const offset = laneOffset(lane);
-      const near = (other, otherH) =>
-        Math.abs(other.worldY - worldY) - (otherH + h) / 2 < SPAWN_GAP;
-
-      if (this.cars.some((car) => car.lane === lane && near(car, car.h))) continue;
-      const hazard = this.view.obstacles.some(
-        (o) => o.alive && Math.abs(o.offset - offset) < (o.w + w) / 2 && near(o, o.h),
-      );
-      if (hazard) continue;
-      return lane;
+      if (this.laneClear(lane, worldY, w, h)) return lane;
     }
     return -1;
+  }
+
+  // The clearance test for ONE lane, split out of the search above so place()
+  // can ask it about a lane the caller chose. Same question either way: is
+  // there room here for a box `w` x `h`?
+  laneClear(lane, worldY, w, h) {
+    const offset = laneOffset(lane);
+    const near = (other, otherH) =>
+      Math.abs(other.worldY - worldY) - (otherH + h) / 2 < SPAWN_GAP;
+
+    if (this.cars.some((car) => car.lane === lane && near(car, car.h))) return false;
+    const hazard = this.view.obstacles.some(
+      (o) => o.alive && Math.abs(o.offset - offset) < (o.w + w) / 2 && near(o, o.h),
+    );
+    return !hazard;
   }
 
   // `alpha` is the loop's interpolation fraction (see engine/loop.js). Only the

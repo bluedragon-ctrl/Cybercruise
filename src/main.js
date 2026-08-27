@@ -53,6 +53,7 @@ import * as scenery from "./game/scenery.js";
 import * as drones from "./game/drones.js";
 import * as links from "./game/links.js";
 import * as sectors from "./game/sectors.js";
+import * as events from "./game/events.js";
 import * as gameConsole from "./engine/console.js";
 import * as gutter from "./engine/gutter.js";
 import * as telemetry from "./game/telemetry.js";
@@ -232,6 +233,25 @@ const CREDIT_STORE = null;
 // dock and are cleared per run by its own reset() from newGame().
 const hauler = new Hauler(H);
 const shop = createShop();
+
+// WHAT A STAGED EVENT IS ALLOWED TO HAND OFF TO. game/events.js schedules every
+// staged moment on the road, but most of them are cars and hazards it puts down
+// itself; a `handoff` is the other kind — an encounter whose body is a sequence
+// some other module already owns. The director names a HANDLER, never a module,
+// so it never learns that a cargo drone exists: the wiring lives here, the same
+// way every other cross-system connection in this file does (the sector gong
+// below, traffic's onDestroyed, the hostile fireShot/dropMine hooks).
+//
+// `fire` starts it; `live` is how the director knows the encounter is still
+// running, which is what holds every other event off for the whole of a shop
+// visit rather than just the tick it began. Between them they are the entire
+// interface — hauler.js's phases, its frozen lift and its timeline stay its own.
+const EVENT_HANDLERS = {
+  shop: {
+    fire: () => hauler.approach(player.x, player.y),
+    live: () => hauler.phase !== "idle",
+  },
+};
 
 // Everything below is PER-RUN state: it all gets torn down and rebuilt by
 // newGame(), so it's declared with `let` rather than `const` even though
@@ -541,6 +561,10 @@ function newGame() {
   gutter.resetLog();
   links.reset();
   sectors.reset();
+  // The staged-event director's own per-run state: the roll beat, the
+  // cooldowns and — since it took the job over from hauler.js — which shop
+  // milestones this run has already spent. See game/events.js.
+  events.reset();
   // Every per-run audio concern that must not leak into a fresh run: the
   // sustained voices (hull_hiss/shield_drone/wall_scrape), a sector-transition
   // filter collapse still mid-flight, and the music bus's own disconnect
@@ -1078,18 +1102,25 @@ function updatePlaying(dt) {
   if (sectorGlitching && !wasSectorGlitching) music.triggerSectorTransition();
   wasSectorGlitching = sectorGlitching;
 
-  // THE SHOPPING INTERLUDE'S TRIGGER, sitting beside the sector edge above
-  // because it is the same kind of thing: a milestone in `distance` that fires
-  // once and then has to remember it did. The memory lives in the hauler
-  // itself (its `milestone` counter) rather than as another `wasX` up beside
-  // wasSectorGlitching — a shop visit spans several states and several
-  // seconds, so the thing that survives all of that is the right place for it.
+  // THE STAGED MOMENTS — gangs, blockades, the road narrowing, a set-piece at a
+  // milestone, and the shopping interlude — all decided in one place
+  // (game/events.js), sitting beside the sector edge above because they are the
+  // same kind of thing: something that happens at a point on the odometer and
+  // then has to remember it did.
   //
-  // Runs on the JUST-UPDATED distance, like every other consumer this tick, so
-  // the drone appears on the same tick the odometer rolls past the milestone.
-  if (hauler.crossedMilestone(distance, road.DIST_UNITS)) {
-    hauler.approach(player.x, player.y);
-  }
+  // THE SHOP VISIT USED TO BE ITS OWN TRIGGER HERE, hauler.crossedMilestone(),
+  // and it fired blind — it could and did close the drone's jaws over the top of
+  // whatever else was happening. Now it is one entry in the same catalogue as
+  // the rest, so the director can hold it (never drop it) until the road is
+  // clear. See eventtypes.js's `shop` entry.
+  //
+  // Runs on the JUST-UPDATED distance, like every other consumer this tick, and
+  // BEFORE obstacles.update()/traffic.update() below, so anything staged goes
+  // through the ordinary collision, detonation and retire pipeline in the same
+  // tick it appeared.
+  events.update(scenery.clock, {
+    distance, player, W, H, traffic, obstacles,
+  }, EVENT_HANDLERS);
 
   // ...and the approach ITSELF runs here, under "playing", with the whole world
   // still live around it — that is the entire point of the phase (hauler.js's
