@@ -37,7 +37,7 @@ import {
 import { Obstacles, SPAWN_MARGIN as OBSTACLE_SPAWN_MARGIN } from "../src/game/obstacles.js";
 import { Explosions } from "../src/game/effects.js";
 import { Projectiles } from "../src/game/projectiles.js";
-import { armFor, armamentFor } from "../src/game/armament.js";
+import { armFor, armamentFor, GUN_RANGE, GUN_MIN_RANGE } from "../src/game/armament.js";
 import { NEUTRAL_PALE, PLAYER } from "../src/engine/palette.js";
 import { PICKUP_SHAPES } from "../src/game/pickupshapes.js";
 import {
@@ -1740,4 +1740,174 @@ test("Pickups.drop places a crate at an exact spot, bypassing the random spawner
   assert.equal(dropped.type, type);
   assert.equal(dropped.worldY, 1234);
   assert.equal(dropped.offset, -40);
+});
+
+// --- The motorcycle fleet -----------------------------------------------------
+//
+// The three hostiles that fight from somewhere other than dead astern
+// (cartypes.js's own section on them). What is pinned here is the part of each
+// that spans two files — a hold gap against the gun's reach, a sweep against
+// the steering that has to ride it, a payload against the catalogue it comes
+// from — and not the tuning, which is allowed to move.
+
+// One of the fleet, real type, real profile, real kit, driven for one tick with
+// the player wherever the caller puts them. `hostileScenario` above is the
+// interceptor's fixture and hard-codes its speeds; this is the same idea with
+// the type as an argument, since these three differ in speed by design.
+function bikeScenario(id, over = {}, playerOver = {}) {
+  const type = CAR_TYPES.find((t) => t.id === id);
+  const speed = type.speedMax;
+  const car = driver({
+    worldY: 0, offset: 0, w: type.w, h: type.h,
+    speed, cruiseSpeed: speed, baseSpeed: speed, targetSpeed: speed, targetOffset: 0,
+    type, drive: drivingFor(type), arms: armFor(type),
+    ...over,
+  });
+  const playerBody = {
+    worldY: 300, offset: 0, w: 34, h: 60, speed: 400, alive: true,
+    damage() {},
+    ...playerOver,
+  };
+  const fired = [];
+  const laid = [];
+  const world = {
+    cars: [car], obstacles: [], playerBody,
+    player: new Player(300, 496), H: 800,
+    fireShot: (c, ty, dir) => fired.push({ car: c, type: ty, dir }),
+    dropMine: (c, ty) => (laid.push({ car: c, type: ty }), true),
+  };
+  const tick = (dt = 1 / 60) => driveCar(car, dt, world);
+  tick();
+  return { car, world, fired, laid, tick };
+}
+
+// Every type driving the named tactic, with the profile it actually reads. The
+// three fields below are on EVERY profile (driving.js states every knob once,
+// on the commuter), but only the tactic that reads one can be wrong about it —
+// a sedan's `weaveSpan` is inert, and holding it to a bike's arithmetic would
+// be inventing a constraint the game does not have.
+function typesDoing(behaviour) {
+  return CAR_TYPES.filter((t) => t.behaviour === behaviour)
+    .map((t) => ({ type: t, drive: drivingFor(t) }));
+}
+
+test("a hostile that holds station ahead of the player holds it inside its own gun's reach", () => {
+  // behaviours.js's `outrun` parks at the profile's `leadHold` and then shoots
+  // BACK down the road, which armament.js will only allow between
+  // GUN_MIN_RANGE and GUN_RANGE. Outside that band the tactic still drives
+  // perfectly and simply never fires — a hostile posing out of range, which is
+  // the one failure nothing on screen would explain.
+  const holders = typesDoing("outrun");
+  assert.ok(holders.length > 0, "no type attacks from in front any more");
+  for (const { type, drive } of holders) {
+    assert.ok(
+      drive.leadHold > GUN_MIN_RANGE && drive.leadHold < GUN_RANGE,
+      `${type.id} holds station ${drive.leadHold} ahead of the player, outside the ` +
+        `${GUN_MIN_RANGE}..${GUN_RANGE} band its gun will fire in`,
+    );
+  }
+});
+
+test("a hold ahead of the player is a hold the player can still see", () => {
+  // The other half of armament.js's range rule, and usually the binding one: a
+  // rearward shot is refused beyond the road VISIBLE ahead of the player, which
+  // is their own framing and nothing to do with GUN_RANGE. A car holding
+  // station past that would be shooting from off the top of the screen — the
+  // unattributable hit that rule exists to prevent.
+  //
+  // The framing is main.js's `H * 0.62`, which is DOM-bound and cannot be
+  // imported here; the same pair of figures is already written out in this
+  // file's own hostile fixtures, and this is deliberately the more pessimistic
+  // reading of the two (a shorter canvas shows less road ahead).
+  const visibleAhead = 800 * 0.62;
+  for (const { type, drive } of typesDoing("outrun")) {
+    assert.ok(
+      drive.leadHold < visibleAhead,
+      `${type.id} holds ${drive.leadHold} ahead of a player who can only see ` +
+        `${visibleAhead} of road up there`,
+    );
+  }
+});
+
+test("a weave is a sweep the steering can actually ride", () => {
+  // behaviours.js's `strafe` chases a sine across the player's line: the target
+  // travels 4 * weaveSpan in one weaveTime, and a car that cannot cover that
+  // never arrives at either end. The failure is silent and looks like a tuning
+  // preference — the bike drifts about instead of sweeping — so the relation is
+  // checked against the TYPE's own steering rather than left in a comment.
+  const weavers = typesDoing("strafe");
+  assert.ok(weavers.length > 0, "nothing sweeps across the player's line any more");
+  for (const { type, drive } of weavers) {
+    const swept = 4 * drive.weaveSpan;
+    const covered = type.steerSpeed * drive.weaveTime;
+    assert.ok(
+      covered >= swept,
+      `${type.id} sweeps ${swept}px in ${drive.weaveTime}s, which its ${type.steerSpeed}` +
+        `px/sec steering cannot cover — the weave would come out as a drift`,
+    );
+  }
+});
+
+test("the sower carries a spike strip and one only", () => {
+  // armament.js's `spiker`: the raider's shape of kit — nothing to shoot with,
+  // one thing laid in the road — pointed at the other payload in the hazard
+  // catalogue. The magazine of one is what makes behaviours.js's "lay it and
+  // leave" literal rather than a comment.
+  const arms = armFor(CAR_TYPES.find((t) => t.id === "sower"));
+  assert.equal(arms.gun, null, "the sower must carry nothing to shoot with");
+  assert.equal(arms.payload, obstacleTypeById("spikes"), "its payload must be the strip");
+  assert.equal(arms.layer.type.ammo, 1, "one strip for the car's whole life");
+  assert.ok(arms.payload.laidOnly, "the strip it lays must still be a laid-only hazard");
+});
+
+test("a sower lays its strip ahead of the player, then leaves unarmed", () => {
+  // The whole errand in two ticks. The first has it holding station at the far
+  // end of the layer's window with the player lined up behind it, which is what
+  // armament.js needs to let the drop go; the second is the run-out.
+  const { car, laid, tick } = bikeScenario("sower", {}, { worldY: -430, speed: 400 });
+  assert.equal(laid.length, 1, "expected one strip");
+  assert.equal(laid[0].type, obstacleTypeById("spikes"), "the payload must be the strip");
+
+  tick();
+  assert.equal(car.arms, null, "a fleeing sower must be disarmed, not merely quiet");
+  assert.equal(
+    car.targetSpeed,
+    car.type.speedMax,
+    "the run-out is at the top of its band, or it is not an escape",
+  );
+  assert.equal(laid.length, 1, "it must not carpet the road on the way out");
+});
+
+test("an outrunner shoots back down the road from in front", () => {
+  // The one hostile that attacks from ahead. Placed at exactly its own
+  // `leadHold`, which is where its tactic settles, so this asserts the hold and
+  // the shot agree — a hold the gun refuses would be the whole tactic doing
+  // nothing.
+  const type = CAR_TYPES.find((t) => t.id === "outrunner");
+  const hold = drivingFor(type).leadHold;
+  const { fired } = bikeScenario("outrunner", {}, { worldY: -hold, speed: 400 });
+  assert.equal(fired.length, 1, "expected exactly one round");
+  assert.equal(fired[0].dir, -1, "a player behind must be shot at back down the road");
+  assert.ok(!fired[0].type.forwardOnly, "a rearward shooter cannot carry a forward-only gun");
+});
+
+test("an outrider sweeps across the player's line rather than parking on it", () => {
+  // `strafe`'s one difference from `pursue`, and the reason a 30-hull bike can
+  // hold a gap at all: it is never on the line it was on a second ago. Two
+  // seconds of ticks must put it well clear of the player's line on BOTH sides.
+  const { car, tick } = bikeScenario("outrider", {}, { worldY: 300, speed: 400 });
+  let left = 0;
+  let right = 0;
+  for (let i = 0; i < 120; i++) {
+    tick();
+    left = Math.min(left, car.targetOffset);
+    right = Math.max(right, car.targetOffset);
+    assert.ok(
+      Math.abs(car.targetOffset) <= ROAD_HALF_WIDTH,
+      "the sweep must stay on the tarmac",
+    );
+  }
+  const span = car.drive.weaveSpan;
+  assert.ok(right > span / 2, `the sweep never reached the right (${right.toFixed(1)}px)`);
+  assert.ok(left < -span / 2, `the sweep never reached the left (${left.toFixed(1)}px)`);
 });

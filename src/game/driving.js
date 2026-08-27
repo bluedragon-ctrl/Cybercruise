@@ -94,7 +94,22 @@ const COMMUTER = {
   giveUpTime: 0,
   raidGain: 1.5,        // gain on the MINE RUN's hold (behaviours.js `raid`),
                         // separate from pursueGain because holding station AHEAD
-                        // of a target you must not out-pace is tighter
+                        // of a target you must not out-pace is tighter. Read by
+                        // `outrun` too, which is that same hold without the mine
+  // The gap held AHEAD of the player by behaviours.js's `outrun` — the one
+  // tactic that attacks from in front. Bounded at both ends by the gun rather
+  // than by taste: under armament.js's GUN_MIN_RANGE it would be inside contact
+  // range, and over GUN_RANGE (or over the road the player can see ahead of
+  // them, which is the tighter of the two) it would be a hostile posing out of
+  // range. Sits comfortably inside both, and test/hazards.test.js says so.
+  leadHold: 300,
+  // The sweep behaviours.js's `strafe` rides across the player's line: how far
+  // either side of it, and how many seconds a full there-and-back takes. Read
+  // together — a span the steering cannot cover in the time is not a faster
+  // weave, it is a lazy drift, since the car simply chases a sine it never
+  // catches. Pinned against the type's own steerSpeed in test/hazards.test.js.
+  weaveSpan: 40,
+  weaveTime: 1.6,
 
   // --- Ramming --------------------------------------------------------------
   // Read only by behaviours.js's `ram`, once it is ahead of the player and the
@@ -341,6 +356,55 @@ export const DRIVING_PROFILES = {
   // has fought past whatever holds it up (behaviours.js's `raid`), so queueing is
   // time spent not attacking rather than time spent being careful.
   darter: profile({ nerve: 0, contact: 0, patience: 0.1 }),
+
+  // --- The motorcycle fleet --------------------------------------------------
+  // Three hostiles that share one physical fact — nothing here weighs more than
+  // 0.7 or carries more than 45 hull — and therefore share the two settings the
+  // fact forces: nerve 0 and contact 0. A bike does not barge, and it does not
+  // lean on anybody; both would cost it a life it does not have. Everything
+  // that tells the three apart is the chase, which is where they differ
+  // completely.
+  //
+  // Both zeros are also the only settings AVAILABLE to them, which is the
+  // quantisation the two dial tests describe: at 160-200px/sec of steering, the
+  // cheapest contact a bike can be offered is over 6 hull, so any ceiling worth
+  // writing would be a fifth of its life.
+
+  // The outrider: holds a tighter gap than the interceptor's baseline 200,
+  // because the SMG is a spray rather than an aimed round and a burst wants to
+  // be close enough that its spread still lands. The weave is left at the
+  // reference figures — 40px either side of the player at 1.6s a sweep, which
+  // its 200px/sec steering covers three times over.
+  outrider: profile({
+    laneDiscipline: 0.4, // it is never settled in a lane; saying so here keeps
+                         // the approach as loose as the attack
+    patience: 0.3,       // it wants to be behind the player, not behind a bus
+    pursueHold: 150,
+    nerve: 0,
+    contact: 0,
+  }),
+
+  // The outrunner: the one profile on the road whose chase is spent getting
+  // IN FRONT. Patience is the lowest of the three because everything it wants
+  // is up the road — a queue is not a delay to its attack, it IS the thing
+  // stopping the attack — and `leadHold` is left at the reference 300, which
+  // frames it high on the screen with road to spare inside the gun's reach.
+  outrunner: profile({
+    patience: 0.2,
+    passSpeedMargin: 6, // it will take almost any gap that gains it a length
+    nerve: 0,
+    contact: 0,
+  }),
+
+  // The sower: the cycle's own disposition, near enough, and for the cycle's
+  // own reason — it has one thing to lay and queueing is time spent not laying
+  // it. `raidGain` stays at the reference: holding station over the drop is the
+  // same problem for a strip as for a mine.
+  sower: profile({
+    patience: 0.1,
+    nerve: 0,
+    contact: 0,
+  }),
 };
 
 // The profile a car type drives by. A named profile always wins; an unknown name

@@ -837,6 +837,153 @@ function duel(car, dt, world) {
   pursue(car, dt, world);
 }
 
+// --- Strafing ----------------------------------------------------------------
+//
+// The outrider (the RACER hull). `pursue` for the gap and the speed — it holds
+// station off the player's back bumper exactly like the interceptor — and one
+// difference on top: it does not SIT on the player's line, it sweeps back and
+// forth ACROSS it, spraying the SMG forward as it crosses.
+//
+// WHY A BIKE CANNOT DO WHAT THE INTERCEPTOR DOES. `pursue` parks a car dead
+// astern and leaves it there, which is fine for 70 hull of interceptor and
+// suicidal for 30 hull of motorcycle: everything the player drops goes out of
+// the back of their car, and a tail holding one line is a tail holding still
+// over a mine. The weave is the bike's answer — it is never on the line it was
+// on a second ago — and the sweep is also what turns a burst weapon into a
+// scythe, since a fixed tail would put every round of every burst through the
+// same square metre of road.
+//
+// The lateral aim is the player's own offset plus `weaveSpan` * sin(phase),
+// with `weaveTime` seconds to the sweep. Both are profile fields (driving.js),
+// and the pair is bounded by the type's steerSpeed — a sweep the steering
+// cannot keep up with degenerates into a lazy drift, which test/hazards.test.js
+// pins rather than leaves to be noticed.
+//
+// THE PHASE IS PER CAR AND RANDOM AT ITS FIRST TICK, so two outriders on the
+// road together are not one machine drawn twice. Stashed on the car, which is
+// what the header's "behaviours are free to be STATEFUL" allows.
+
+function strafe(car, dt, world) {
+  const target = world.playerBody;
+  if (!target) return cruise(car, dt, world);
+
+  // The chase itself, unmodified: the gap, the speed, and the tracking that
+  // holds its own line when the player's is occupied.
+  pursue(car, dt, world);
+
+  // Out of range `pursue` is simply cruising, and a car cruising up the road
+  // has nothing to weave around yet.
+  const gap = target.worldY - car.worldY;
+  if (gap > car.drive.pursueRange) return;
+
+  car.weavePhase ??= Math.random() * Math.PI * 2;
+  car.weavePhase += (dt / car.drive.weaveTime) * Math.PI * 2;
+
+  const limit = ROAD_HALF_WIDTH - car.w / 2;
+  const swept = target.offset + Math.sin(car.weavePhase) * car.drive.weaveSpan;
+  const want = Math.max(-limit, Math.min(limit, swept));
+  // Deferring to `blocked` on the same terms trackTarget does: the weave is a
+  // way of being hard to hit, not a licence to steer into somebody. With the
+  // swept line occupied, `pursue`'s own decision from above stands.
+  if (!blocked(car, target, want, world, car.drive.passLookAhead)) car.targetOffset = want;
+}
+
+// --- Outrunning ---------------------------------------------------------------
+//
+// The outrunner (the CRUISER hull), and the mirror image of `pursue`: it fights
+// its way PAST the player, holds station AHEAD of them, and shoots back down the
+// road over its shoulder. Nothing else on this road attacks from in front —
+// every other armed tactic camps behind — so this is the one hostile the player
+// cannot answer by lifting off, and the one that makes the road ahead worth
+// watching for something other than hazards.
+//
+// It runs on machinery that was already here rather than on a third chase model:
+//
+//   GETTING THERE   is a pass, so it is `overtake`, aimed at nothing in
+//                   particular. A bike quicker than the player gets by on its
+//                   own; a bike stuck behind traffic passes that first.
+//   STAYING THERE   is `raid`'s hold, minus the mine: line up on the player's
+//                   lane (trackTarget) and ask for THEIR speed corrected by the
+//                   error on `leadHold`. It reads `raidGain` for the same
+//                   reason `raid` does — holding station ahead of a target you
+//                   must not out-pace is the tighter of the two problems.
+//
+// `leadHold` is a profile field, and it is the whole shot: armament.js takes a
+// rearward one only inside GUN_RANGE and only inside the road the player can
+// actually SEE ahead of them, so a hold beyond either end would be a hostile
+// posing out of range. test/hazards.test.js pins it against both.
+
+function outrun(car, dt, world) {
+  const target = world.playerBody;
+  if (!target) return cruise(car, dt, world);
+
+  const lead = car.worldY - target.worldY; // positive once clear ahead of them
+  // Still getting past, or mid-pass against real traffic: drive like any other
+  // overtaker until the gap is made.
+  if (lead < car.drive.leadHold || car.passTarget) {
+    overtake(car, dt, world);
+    return;
+  }
+
+  trackTarget(car, target, world);
+  const error = lead - car.drive.leadHold;
+  car.targetSpeed = Math.max(
+    0,
+    Math.min(car.type.speedMax, target.speed - error * car.drive.raidGain),
+  );
+}
+
+// --- Strewing -----------------------------------------------------------------
+//
+// The sower (the GLIDE trike, and its trunk is why it is this hull that carries
+// the strips). One errand in two halves: get to the top of the screen ahead of
+// the player, lay ONE spike strip in their path, and then go — flat out, and
+// never seen again.
+//
+// THE RUN IN IS `raid`, UNCHANGED. Forcing past whatever is in the way and then
+// holding station at the far end of the layer's own window is exactly the
+// cycle's mine run, and armament.js's `layMine` does not care what the payload
+// is: a strip is dropped through the same window, the same aim tolerance and the
+// same "not over somebody else's traffic" veto as a mine. What differs is the
+// PAYLOAD — a magazine of one strip, armament.js's `spiker` — and what happens
+// afterwards.
+//
+// THE RUN OUT IS THE NEW PART. `raid` retires itself into plain `cruise` once
+// its magazine is spent, which for a car that has just laid a trap in front of
+// the player would mean loitering over it at cruising speed waiting to be
+// rammed. This one leaves — and leaving is a real escape rather than a fadeout,
+// because the sower's speed band tops out above the player's own: hold the
+// throttle down and you still watch it go.
+
+function strew(car, dt, world) {
+  const arms = car.arms;
+  // The same gate `duel` uses to spend its one deliberate mine: a full magazine
+  // means nothing has been laid yet, so this needs no state of its own.
+  if (arms?.layer && arms.layer.ammo === arms.layer.type.ammo) {
+    raid(car, dt, world);
+    return;
+  }
+  flee(car, dt, world);
+}
+
+// Away, and for good. Two things make that read as fleeing rather than as a car
+// that happens to be quick:
+//
+//   IT GOES UNARMED, the same one-way switch `trail` throws when it gives the
+//   player up — `car.arms` is nulled rather than merely left un-fired, so
+//   nothing in the retreat can line up a parting shot or a second strip.
+//   IT DRIVES AT ITS CEILING. `cruiseSpeed` is re-derived from `baseSpeed` at
+//   the top of every tick (traffic.js), so raising it here is an intent for THIS
+//   tick and never a permanent edit to the type's speed band. Asking `overtake`
+//   for the manoeuvre rather than writing a speed directly is what keeps the
+//   flight braking for traffic and dodging hazards like any other car — a car
+//   fleeing through the back of a bus is a bug, not a getaway.
+function flee(car, dt, world) {
+  car.arms = null;
+  car.cruiseSpeed = car.type.speedMax;
+  overtake(car, dt, world);
+}
+
 // --- The tactics table ----------------------------------------------------------
 //
 // Every car type names one of these. A row is `{ drive, arms }`: the manoeuvre
@@ -882,6 +1029,18 @@ const BEHAVIOURS = {
   duel: { drive: duel, arms: true },        // the rival's own — one deliberate
                                             // mine run exactly like `raid`,
                                             // then `pursue` for good
+  strafe: { drive: strafe, arms: true },    // the outrider's: `pursue`'s gap,
+                                            // swept side to side across the
+                                            // player's line rather than parked
+                                            // on it, spraying forward as it
+                                            // crosses
+  outrun: { drive: outrun, arms: true },    // the outrunner's, and the only
+                                            // tactic that attacks from IN
+                                            // FRONT: get past, hold station up
+                                            // the road, shoot back down it
+  strew: { drive: strew, arms: true },      // the sower's: `raid`'s run-in with
+                                            // a spike strip for a payload, then
+                                            // away flat out and unarmed
 };
 
 // Every manoeuvre the road knows. Exported for test/hazards.test.js, which

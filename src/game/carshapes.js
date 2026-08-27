@@ -221,6 +221,12 @@ const CHAMFER_CAB = [
   [0.40, 0.24], [-0.40, 0.24], [-0.46, 0.14], [-0.46, -0.20],
 ];
 
+// A rectangle in fraction space, corners (x1,y1)-(x2,y2). Came across from
+// cycleshapes.js with the two-wheelers below, which is all that uses it: unlike
+// a profile, `solid()` is NOT mirrored, so anything symmetric built from it is
+// emitted twice or centred by hand.
+const box = (x1, y1, x2, y2) => [[x1, y1], [x2, y1], [x2, y2], [x1, y2]];
+
 // The tractor cab shared by the heavy haulers.
 const CAB = [[0, -1.0], [0.44, -0.98], [0.62, -0.88], [0.66, -0.70], [0.64, -0.54], [0, -0.52]];
 
@@ -577,6 +583,123 @@ export const CAR_SHAPES = [
       // Roll cage seen through the canopy, and slats over the back window.
       line(0, -0.26, 0, 0.24, c);
       for (const y of [0.34, 0.50]) line(-0.26, y, 0.26, y, c);
+    },
+  },
+
+  // =========================================================================
+  // THE MOTORCYCLE FLEET — three hulls moved across from cycleshapes.js in one
+  // piece, unedited, on the day cartypes.js gave each of them a record (the
+  // outrider, the outrunner and the sower). That file's header describes the
+  // grammar they are written in and why a bike's profile stops well short of
+  // +/-1.0 with its wheels parked outside it; the only thing that changed here
+  // is which array they live in.
+  //
+  // `family` and `pitch` came with them. Nothing in this catalogue reads
+  // either — they are the staging catalogue's own fields — and they are kept
+  // rather than stripped so a hull that goes back, or a fourth that comes
+  // across, is a move and not a rewrite.
+  // =========================================================================
+
+  {
+    family: "MOTORCYCLE",
+    name: "CRUISER",
+    pitch: "wide bars and saddlebags framing a bare rear tyre",
+    size: [32, 66],
+    // Bars -> tank -> seat. Stops at 0.42: everything behind that is tyre.
+    profile: [
+      [0, -0.52], [0.16, -0.46], [0.34, -0.30], [0.44, -0.10],
+      [0.42, 0.10], [0.32, 0.26], [0.20, 0.38], [0, 0.42],
+    ],
+    // Skinny front, fat rear — the cruiser's whole stance in two numbers.
+    wheels: [[-0.74, 4, 9, 0, true], [0.66, 6, 10, 0, true]],
+    exhaust: [0.52, 0.30, 0.56],
+    overhang: { x: 1.14 },
+    flat({ line }, c, thrust, headlight) {
+      line(-0.20, -0.10, -0.13, -0.80, c); // fork legs, all the way out to the tyre
+      line(0.20, -0.10, 0.13, -0.80, c);
+      line(0, -0.62, 0, -0.46, headlight, 1.5, 8); // headlamp ahead of the bars
+      line(-0.16, 0.40, -0.10, 0.74, c);   // swingarm, out to the rear tyre
+      line(0.16, 0.40, 0.10, 0.74, c);
+    },
+    raised({ solid }, c) {
+      // Teardrop tank: the widest thing on the spine.
+      solid([[0, -0.34], [0.34, -0.16], [0.32, 0.08], [0, 0.20], [-0.32, 0.08], [-0.34, -0.16]], c);
+      // Saddlebags — OUTBOARD of the rear tyre, framing it rather than hiding it.
+      solid(box(-1.02, 0.34, -0.54, 0.78), c, CAR_FILL_HIGH);
+      solid(box(0.54, 0.34, 1.02, 0.78), c, CAR_FILL_HIGH);
+    },
+    top({ line }, c) {
+      line(-1.10, -0.46, 1.10, -0.46, c, 1.5, 7); // bars, the widest point
+      line(-1.10, -0.54, -1.10, -0.36, c, 1.5, 7); // mirrors
+      line(1.10, -0.54, 1.10, -0.36, c, 1.5, 7);
+    },
+  },
+
+  {
+    family: "MOTORCYCLE",
+    name: "RACER",
+    pitch: "pointed fairing and winglets — the anti-cruiser",
+    size: [28, 64],
+    profile: [
+      [0, -0.60], [0.20, -0.52], [0.40, -0.32], [0.46, -0.06],
+      [0.36, 0.16], [0.20, 0.34], [0.10, 0.46], [0, 0.48],
+    ],
+    wheels: [[-0.76, 4, 9, 0, true], [0.68, 5, 10, 0, true]],
+    exhaust: [0.16, 0.40, 0.60],
+    overhang: { x: 1.04 },
+    flat({ line }, c, thrust, headlight) {
+      line(-0.26, -0.44, -0.30, -0.44, headlight, 1.5, 8); // slit lamps
+      line(0.26, -0.44, 0.30, -0.44, headlight, 1.5, 8);
+      line(-0.15, -0.06, -0.10, -0.82, c); // forks, out to the tyre
+      line(0.15, -0.06, 0.10, -0.82, c);
+      line(-0.12, 0.46, -0.08, 0.76, c);   // swingarm
+      line(0.12, 0.46, 0.08, 0.76, c);
+      line(0, -0.56, 0, -0.10, c);         // fairing centre seam
+    },
+    raised({ solid }, c) {
+      // Winglets — swept back and OUTBOARD, well clear of the front tyre.
+      solid([[0.42, -0.34], [1.00, -0.16], [1.00, 0.02], [0.40, -0.06]], c);
+      solid([[-0.42, -0.34], [-1.00, -0.16], [-1.00, 0.02], [-0.40, -0.06]], c);
+      // Tail unit, standing highest — the sport bike's hump.
+      solid([[0, 0.06], [0.22, 0.20], [0.16, 0.44], [-0.16, 0.44], [-0.22, 0.20]], c, CAR_FILL_HIGH);
+    },
+    top({ line }, c) {
+      line(-0.62, -0.28, 0.62, -0.28, c, 1.5, 7); // clip-ons: narrow, not cruiser bars
+    },
+  },
+
+  {
+    family: "TRICYCLE",
+    name: "GLIDE",
+    pitch: "cruiser front end, trunk slung between two rear tyres",
+    size: [38, 66],
+    // Narrow bike front end that swells into a wide rear body.
+    profile: [
+      [0, -0.56], [0.14, -0.50], [0.28, -0.34], [0.34, -0.12], [0.30, 0.06],
+      [0.54, 0.20], [0.78, 0.36], [0.80, 0.74], [0.58, 0.88], [0, 0.90],
+    ],
+    // Front solo and entirely ahead of the body; rears outboard of the flank,
+    // so all three read at a glance.
+    wheels: [[-0.76, 4, 9, 0, true], [0.58, 5, 10, 10]],
+    exhaust: [0.44, 0.84, 0.98],
+    overhang: { x: 1.30 },
+    flat({ line }, c, thrust, headlight) {
+      line(0, -0.66, 0, -0.50, headlight, 1.5, 8);
+      line(-0.16, -0.08, -0.10, -0.82, c); // forks, out to the tyre
+      line(0.16, -0.08, 0.10, -0.82, c);
+      line(-0.74, 0.30, 0.74, 0.30, c);    // body/axle seam
+    },
+    raised({ solid }, c) {
+      solid([[0, -0.36], [0.28, -0.20], [0.26, 0.02], [0, 0.14], [-0.26, 0.02], [-0.28, -0.20]], c);
+      solid(box(-0.62, 0.40, 0.62, 0.78), c, CAR_FILL_HIGH); // the trunk
+    },
+    top({ line }, c) {
+      // The SAME bars as CRUISER, deliberately: this is that bike with an axle
+      // bolted under the back of it, and the front end is where you read that.
+      line(-1.10, -0.46, 1.10, -0.46, c, 1.5, 7);
+      line(-1.10, -0.54, -1.10, -0.36, c, 1.5, 7);
+      line(1.10, -0.54, 1.10, -0.36, c, 1.5, 7);
+      line(-0.62, 0.59, 0.62, 0.59, c);
     },
   },
 ];

@@ -2,18 +2,32 @@
 // bikes and trikes will wear, chosen from a top-down Harley/Bugatti reference
 // and kept here, drawable, until the phase that gives them behaviour.
 //
-// NO CAR TYPES YET, ON PURPOSE. This is bossshapes.js's arrangement, for
+// THREE OF THE ORIGINAL FOUR HAVE LEFT, and the way they left is the point of
+// this file: CRUISER, RACER and GLIDE moved across to carshapes.js's CAR_SHAPES
+// the day cartypes.js gave each of them a record (the outrunner, the outrider
+// and the sower). They went in one piece and unedited, which is what a staging
+// catalogue is for. DELTA is what is left, and it is still here for the reason
+// all four were.
+//
+// NO CAR TYPE YET, ON PURPOSE. This is bossshapes.js's arrangement, for
 // bossshapes.js's reason: carshapes.js's CAR_SHAPES is 1:1 with cartypes.js and
 // that pairing is enforced by test/road-and-caches.test.js's "one car type per
 // silhouette", so a shape in that catalogue with no type is a broken invariant,
-// not a work in progress. The finished ARTWORK lives here and the TYPES get
-// written later, at which point a hull moves across to CAR_SHAPES beside its
+// not a work in progress. The finished ARTWORK lives here and the TYPE gets
+// written later, at which point the hull moves across to CAR_SHAPES beside its
 // cartypes.js record, in one piece, unedited.
 //
-// Staging them here also keeps them out of sprites.js's cache budget (see
+// Staging it here also keeps it out of sprites.js's cache budget (see
 // cartypes.js's SPRITE-CACHE BUDGET note), which is sized off the number of car
-// TYPES and would otherwise be paying for four hulls nothing can spawn. Each of
-// these costs ~0.5 MB of sprite cache the day it gets a type, and not before.
+// TYPES and would otherwise be paying for a hull nothing can spawn. It costs
+// ~0.5 MB of sprite cache the day it gets a type, and not before.
+//
+// THE WHOLE FLEET'S NOTES, INCLUDING THE HULLS THAT LEFT. Everything from here
+// down describes how a two- or three-wheeler is drawn, and CRUISER, RACER and
+// GLIDE are still named in it by way of example. They are worked examples, not
+// a stale index: the three are in carshapes.js now and its own entry for them
+// points back here rather than restating any of this. Keeping one copy is the
+// point — a bike's drawing rules do not change with which array it sits in.
 //
 // THE GRAMMAR IS carshapes.js's. Read that file's header first: `profile` is
 // the right half of a symmetric hull (nose -1, tail +1) in fractions of hw/hh,
@@ -60,124 +74,13 @@
 // over them, so they frame a wheel instead of hiding it.
 import { CAR_FILL_HIGH } from "../engine/palette.js";
 
-// A rectangle in fraction space, corners (x1,y1)-(x2,y2). The same helper
-// bossshapes.js keeps, for the same reason: `solid()` is NOT mirrored the way a
-// profile is, so anything symmetric built here is emitted twice or centred.
-const box = (x1, y1, x2, y2) => [[x1, y1], [x2, y1], [x2, y2], [x1, y2]];
-
 export const CYCLE_SHAPES = [
   // =========================================================================
-  // MOTORCYCLE — two wheels, single track, both entirely clear of the spine.
+  // TRICYCLE — three wheels, and the pair of them differed by WHICH END carried
+  // the twin axle. GLIDE (rear pair, trunk between the tyres) has gone to
+  // CAR_SHAPES as the sower; this is the other half of that contrast, and it
+  // keeps its odd wheel solo and its twin axle outboard as it always did.
   // =========================================================================
-  {
-    family: "MOTORCYCLE",
-    name: "CRUISER",
-    pitch: "wide bars and saddlebags framing a bare rear tyre",
-    size: [32, 66],
-    // Bars -> tank -> seat. Stops at 0.42: everything behind that is tyre.
-    profile: [
-      [0, -0.52], [0.16, -0.46], [0.34, -0.30], [0.44, -0.10],
-      [0.42, 0.10], [0.32, 0.26], [0.20, 0.38], [0, 0.42],
-    ],
-    // Skinny front, fat rear — the cruiser's whole stance in two numbers.
-    wheels: [[-0.74, 4, 9, 0, true], [0.66, 6, 10, 0, true]],
-    exhaust: [0.52, 0.30, 0.56],
-    overhang: { x: 1.14 },
-    flat({ line }, c, thrust, headlight) {
-      line(-0.20, -0.10, -0.13, -0.80, c); // fork legs, all the way out to the tyre
-      line(0.20, -0.10, 0.13, -0.80, c);
-      line(0, -0.62, 0, -0.46, headlight, 1.5, 8); // headlamp ahead of the bars
-      line(-0.16, 0.40, -0.10, 0.74, c);   // swingarm, out to the rear tyre
-      line(0.16, 0.40, 0.10, 0.74, c);
-    },
-    raised({ solid }, c) {
-      // Teardrop tank: the widest thing on the spine.
-      solid([[0, -0.34], [0.34, -0.16], [0.32, 0.08], [0, 0.20], [-0.32, 0.08], [-0.34, -0.16]], c);
-      // Saddlebags — OUTBOARD of the rear tyre, framing it rather than hiding it.
-      solid(box(-1.02, 0.34, -0.54, 0.78), c, CAR_FILL_HIGH);
-      solid(box(0.54, 0.34, 1.02, 0.78), c, CAR_FILL_HIGH);
-    },
-    top({ line }, c) {
-      line(-1.10, -0.46, 1.10, -0.46, c, 1.5, 7); // bars, the widest point
-      line(-1.10, -0.54, -1.10, -0.36, c, 1.5, 7); // mirrors
-      line(1.10, -0.54, 1.10, -0.36, c, 1.5, 7);
-    },
-  },
-
-  {
-    family: "MOTORCYCLE",
-    name: "RACER",
-    pitch: "pointed fairing and winglets — the anti-cruiser",
-    size: [28, 64],
-    profile: [
-      [0, -0.60], [0.20, -0.52], [0.40, -0.32], [0.46, -0.06],
-      [0.36, 0.16], [0.20, 0.34], [0.10, 0.46], [0, 0.48],
-    ],
-    wheels: [[-0.76, 4, 9, 0, true], [0.68, 5, 10, 0, true]],
-    exhaust: [0.16, 0.40, 0.60],
-    overhang: { x: 1.04 },
-    flat({ line }, c, thrust, headlight) {
-      line(-0.26, -0.44, -0.30, -0.44, headlight, 1.5, 8); // slit lamps
-      line(0.26, -0.44, 0.30, -0.44, headlight, 1.5, 8);
-      line(-0.15, -0.06, -0.10, -0.82, c); // forks, out to the tyre
-      line(0.15, -0.06, 0.10, -0.82, c);
-      line(-0.12, 0.46, -0.08, 0.76, c);   // swingarm
-      line(0.12, 0.46, 0.08, 0.76, c);
-      line(0, -0.56, 0, -0.10, c);         // fairing centre seam
-    },
-    raised({ solid }, c) {
-      // Winglets — swept back and OUTBOARD, well clear of the front tyre.
-      solid([[0.42, -0.34], [1.00, -0.16], [1.00, 0.02], [0.40, -0.06]], c);
-      solid([[-0.42, -0.34], [-1.00, -0.16], [-1.00, 0.02], [-0.40, -0.06]], c);
-      // Tail unit, standing highest — the sport bike's hump.
-      solid([[0, 0.06], [0.22, 0.20], [0.16, 0.44], [-0.16, 0.44], [-0.22, 0.20]], c, CAR_FILL_HIGH);
-    },
-    top({ line }, c) {
-      line(-0.62, -0.28, 0.62, -0.28, c, 1.5, 7); // clip-ons: narrow, not cruiser bars
-    },
-  },
-
-  // =========================================================================
-  // TRICYCLE — three wheels, and the two of them differ by WHICH END carries
-  // the pair. That is the whole distinction between these hulls, so both keep
-  // their odd wheel solo and their twin axle outboard, and nothing else about
-  // them is allowed to converge.
-  // =========================================================================
-  {
-    family: "TRICYCLE",
-    name: "GLIDE",
-    pitch: "cruiser front end, trunk slung between two rear tyres",
-    size: [38, 66],
-    // Narrow bike front end that swells into a wide rear body.
-    profile: [
-      [0, -0.56], [0.14, -0.50], [0.28, -0.34], [0.34, -0.12], [0.30, 0.06],
-      [0.54, 0.20], [0.78, 0.36], [0.80, 0.74], [0.58, 0.88], [0, 0.90],
-    ],
-    // Front solo and entirely ahead of the body; rears outboard of the flank,
-    // so all three read at a glance.
-    wheels: [[-0.76, 4, 9, 0, true], [0.58, 5, 10, 10]],
-    exhaust: [0.44, 0.84, 0.98],
-    overhang: { x: 1.30 },
-    flat({ line }, c, thrust, headlight) {
-      line(0, -0.66, 0, -0.50, headlight, 1.5, 8);
-      line(-0.16, -0.08, -0.10, -0.82, c); // forks, out to the tyre
-      line(0.16, -0.08, 0.10, -0.82, c);
-      line(-0.74, 0.30, 0.74, 0.30, c);    // body/axle seam
-    },
-    raised({ solid }, c) {
-      solid([[0, -0.36], [0.28, -0.20], [0.26, 0.02], [0, 0.14], [-0.26, 0.02], [-0.28, -0.20]], c);
-      solid(box(-0.62, 0.40, 0.62, 0.78), c, CAR_FILL_HIGH); // the trunk
-    },
-    top({ line }, c) {
-      // The SAME bars as CRUISER, deliberately: this is that bike with an axle
-      // bolted under the back of it, and the front end is where you read that.
-      line(-1.10, -0.46, 1.10, -0.46, c, 1.5, 7);
-      line(-1.10, -0.54, -1.10, -0.36, c, 1.5, 7);
-      line(1.10, -0.54, 1.10, -0.36, c, 1.5, 7);
-      line(-0.62, 0.59, 0.62, 0.59, c);
-    },
-  },
-
   {
     family: "TRICYCLE",
     name: "DELTA",
@@ -210,10 +113,11 @@ export const CYCLE_SHAPES = [
   },
 ];
 
-// Hulls grouped in catalogue order, so a gallery can show the motorcycles and
-// the tricycles as two families. Derived rather than hand-listed, so adding or
-// dropping a hull can't leave a stale grouping behind — bossGroups()'s trick,
-// for the same reason.
+// Hulls grouped in catalogue order, so a gallery can show whichever families
+// are still staged here. Derived rather than hand-listed, so adding or dropping
+// a hull can't leave a stale grouping behind — bossGroups()'s trick, for the
+// same reason, and the reason moving three hulls out left the gallery correct
+// without a line of work.
 export function cycleFamilies() {
   const families = [];
   for (const s of CYCLE_SHAPES) {
