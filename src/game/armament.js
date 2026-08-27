@@ -70,6 +70,31 @@ const MINE_LAYER = {
   payload: "caltrop",
 };
 
+// THE OTHER THING A LAYER CAN CARRY. Same class, same two fields that matter,
+// one different `payload`: obstacletypes.js's spike strip instead of its mine.
+// Nothing in this file or in obstacles.js needed a line for that — a payload is
+// an OBSTACLE_TYPES id and always was — which is the whole reason the layer was
+// modelled as a weapon rather than as a mine dispenser.
+//
+// What the two payloads MEAN could hardly differ more, though, and the numbers
+// here are sized off that difference rather than copied from the mine's:
+//
+//   ONE STRIP, FOR THE CAR'S WHOLE LIFE. The sower's tactic (behaviours.js's
+//   `strew`) is a single errand — get ahead, lay it, leave — and a magazine of
+//   one is what makes that literal rather than a comment. A second strip would
+//   also be a second reason to hang around in front of a player who is by then
+//   hunting it.
+//   THE INTERVAL IS ALMOST DECORATION at ammo 1, since nothing survives to use
+//   the second round. It is stated anyway, at the mine layer's own six seconds,
+//   so the magazine is what rations the drop and not a cooldown nobody reaches.
+const SPIKE_LAYER = {
+  id: "spikelayer",
+  label: "SPIKES",
+  interval: 6,
+  ammo: 1,
+  payload: "spikes",
+};
+
 // The one hostile profile. See UNIFORM FOR NOW above. Still the rival's own
 // kit today, since it names no `arms` override — see cartypes.js.
 const HOSTILE = { gun: ENEMY_GUN, layer: MINE_LAYER };
@@ -104,9 +129,35 @@ const GUNNER = { gun: ENEMY_SMG, layer: null };
 // as the stocker's: `pursue` holds station behind the player too.
 const ROCKETEER = { gun: ENEMY_MISSILE, layer: null };
 
+// The outrunner's kit (cartypes.js), and the first profile chosen for what a
+// gun can do BACKWARDS. Its tactic (behaviours.js's `outrun`) holds station
+// AHEAD of the player and shoots back down the road, so the SMG is exactly the
+// wrong weapon here however well it suits the outrider: `forwardOnly` (see
+// weapons.js) refuses a rearward shot outright, and this car would carry a gun
+// it could never fire once it was where it means to be. The plain blaster
+// takes the shot in either direction, which is what makes it the pick.
+//
+// No layer, for the usual reason and an extra one: this car spends its life
+// exactly where a mine layer's window wants it, and a hostile that could both
+// pin the player from in front AND carpet the road between them is two
+// encounters at once.
+const REARGUARD = { gun: ENEMY_GUN, layer: null };
+
+// The sower's kit: a spike strip and nothing else. The RAIDER shape — no gun at
+// all, one thing laid in the road — pointed at the other payload, which is the
+// clearest reading of what its errand is. See SPIKE_LAYER above.
+const SPIKER = { gun: null, layer: SPIKE_LAYER };
+
 // Keyed BY NAME, exactly like behaviours.js's BEHAVIOURS table, so a car type
 // can name its kit in the catalogue the same way it already names its tactics.
-const ARMAMENTS = { hostile: HOSTILE, raider: RAIDER, gunner: GUNNER, rocketeer: ROCKETEER };
+const ARMAMENTS = {
+  hostile: HOSTILE,
+  raider: RAIDER,
+  gunner: GUNNER,
+  rocketeer: ROCKETEER,
+  rearguard: REARGUARD,
+  spiker: SPIKER,
+};
 
 // The profile a car type carries, or null if it carries nothing.
 export function armamentFor(type) {
@@ -178,8 +229,13 @@ export function armFor(type) {
 //   than the bullet never lands either. Rather than tune those cases away, the
 //   shot is simply not taken unless it closes on the target at a useful rate.
 //   That reads correctly too — a car pulling away stops shooting behind it.
-const GUN_RANGE = 520;      // world units, before visibility cuts it down
-const GUN_MIN_RANGE = 70;   // roughly a car length: contact range is for ramming
+// EXPORTED, both of them, for the same reason MINE_RANGE below is: a tactic
+// that parks itself at a chosen distance from the player has to choose one this
+// file will actually take a shot from. behaviours.js's `outrun` holds station
+// AHEAD of the player at its profile's `leadHold`, and test/hazards.test.js
+// pins that figure between these two rather than against a copy of them.
+export const GUN_RANGE = 520;      // world units, before visibility cuts it down
+export const GUN_MIN_RANGE = 70;   // roughly a car length: contact range is for ramming
 const GUN_CLOSING = 200;    // world units/sec a round must gain on its target
 // How far off the target's line a shot is still worth taking. Sized from the
 // BULLET's own hit test (projectiles.js: |offset difference| < (target.w +

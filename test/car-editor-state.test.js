@@ -90,25 +90,30 @@ test("laneHome is always one of the three known lane preferences", () => {
   }
 });
 
-test("nerve is not flagged as inherited for any hostile type, except the cycle's coincidental default", () => {
+test("nerve is not flagged as inherited for any hostile type, except the ones that really do dodge everything", () => {
   // Every hostile profile explicitly sets its own nerve figure (see
   // driving.js's "Hostile dispositions" section) — this is the field where
   // the roster is least likely to accidentally read as bland defaults.
   //
-  // The one exception is the cycle: its "darter" profile explicitly writes
-  // `nerve: 0`, which happens to be the same figure the commuter default
+  // The exceptions are the hostiles that dodge EVERYTHING: the cycle's
+  // "darter", and the motorcycle fleet's three profiles, all of which
+  // explicitly write `nerve: 0` — the same figure the commuter default
   // already uses (COMMUTER.nerve = 0 in driving.js). buildCarState's
   // "inherited" flag is a value-based approximation of "not explicitly
   // overridden" (see state.js's header comment) — it cannot see that the
   // source spells the value out, only that it matches the default — so it
-  // reports the cycle's nerve as inherited even though driving.js states it
+  // reports those as inherited even though driving.js states them
   // explicitly. That's the documented, accepted limitation of the approach,
-  // not a bug: the cycle really does dodge every hazard, same as a bland
+  // not a bug: a bike really does dodge every hazard, same as a bland
   // commuter, so the value is correct even if the "(overridden)" cosmetic
   // tag would be missing in the UI.
+  //
+  // Expressed as "zero reads as inherited" rather than as a list of ids, so
+  // the next fragile hostile that has no business barging a roadblock does
+  // not have to be remembered here.
   for (const id of HOSTILE_IDS) {
     const state = buildCarState(id);
-    const expected = id === "cycle" ? true : false;
+    const expected = state.behavior.nerve.value === 0;
     assert.equal(
       state.behavior.nerve.inherited,
       expected,

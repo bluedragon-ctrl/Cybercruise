@@ -114,15 +114,22 @@ export const BEHAVIOR_FIELDS = [
   "passEffort",
   "hazardClearance",
   // Chasing and ramming. Inert for every civilian — the tactics that read them
-  // are hostile-only (behaviours.js's `pursue`, `trail`, `ram`, `raid`) — but
-  // they live on the same profile object as everything above, so they surface
-  // here on the same terms and the "(inherited)" tag does the explaining.
+  // are hostile-only (behaviours.js's `pursue`, `trail`, `ram`, `raid`,
+  // `strafe`, `outrun` and `strew`) — but they live on the same profile
+  // object as everything above, so they surface here on the same terms and the
+  // "(inherited)" tag does the explaining.
   "pursueHold",
   "pursueRange",
   "pursueGain",
   "chaseSpeed",
   "giveUpTime",
   "raidGain",
+  // The motorcycle fleet's three. `leadHold` is the gap the outrunner keeps
+  // AHEAD of the player, and the weave pair is the sweep the outrider rides
+  // across their line — see driving.js, where each says what bounds it.
+  "leadHold",
+  "weaveSpan",
+  "weaveTime",
   "ramBrake",
   "ramFloor",
   "nerve",
@@ -153,7 +160,10 @@ export const BEHAVIOR_FIELD_GROUPS = [
   { label: "Hazards", fields: ["hazardClearance"] },
   {
     label: "Chasing the player",
-    fields: ["pursueHold", "pursueRange", "pursueGain", "chaseSpeed", "giveUpTime", "raidGain"],
+    fields: [
+      "pursueHold", "pursueRange", "pursueGain", "chaseSpeed", "giveUpTime", "raidGain",
+      "leadHold", "weaveSpan", "weaveTime",
+    ],
   },
   { label: "Ramming", fields: ["ramBrake", "ramFloor"] },
   { label: "Nerve", fields: ["nerve", "contact"] },

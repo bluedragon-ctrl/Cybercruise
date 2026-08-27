@@ -55,7 +55,7 @@
 //
 // SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) is a cache key
 // in sprites.js, times WHEEL_FRAMES (8), plus one more colour for the
-// critical-hull blink: 12 types * 8 * 2 = 192 sprites at worst, built lazily.
+// critical-hull blink: 15 types * 8 * 2 = 240 sprites at worst, built lazily.
 // Keeping the catalogue a small FIXED list is what bounds it — vary cars by
 // ADDING A TYPE, never by rolling continuous per-instance sizes or colours.
 // Per-instance variety comes from speedMin..speedMax, which costs nothing
@@ -695,6 +695,142 @@ export const CAR_TYPES = [
     driving: "duelist", // nerve 10: a driver, not a battering ram — it would
                         // rather keep the line clean
     weight: 0.3, // rare enough that meeting one is an event
+  },
+
+  // --- Enemy: the motorcycle fleet -----------------------------------------
+  //
+  // Three hostiles that arrived together, on the three hulls cycleshapes.js had
+  // been staging for exactly this (they are in carshapes.js now — that move is
+  // what a staging catalogue is FOR, and cycleshapes.js's header describes it).
+  //
+  // WHY THREE AT ONCE, when types are normally added one at a time: they are
+  // one idea in three parts, and the idea is that a bike cannot fight the way a
+  // car does. Nothing here carries more than 55 hull or weighs more than 0.8 —
+  // a single solid contact ends any of them — so none of them can do what the
+  // bruiser does, or even what the interceptor does, which is sit in one place
+  // behind the player and trade. Each answers that differently:
+  //
+  //   OUTRIDER   never stops moving laterally. It holds the interceptor's gap
+  //              and sweeps across the player's line, spraying as it crosses.
+  //   OUTRUNNER  attacks from IN FRONT — the first thing on this road that
+  //              does — where nothing the player lays behind them can reach it.
+  //   SOWER      does not fight at all. It runs one errand, drops one spike
+  //              strip and leaves at a speed the player cannot match.
+  //
+  // And they are cheap to kill on purpose. Every one of them dies to a single
+  // burst or a single shove, which is what keeps three fragile hostiles from
+  // reading as three more health bars: the pressure is that they are hard to
+  // GET AT, not that they are hard to break.
+  {
+    id: "outrider",
+    label: "OUTRIDER",
+    shape: carShapeIndex("RACER"),
+    faction: ENEMY_FACTION,
+    color: ENEMY_DEEP, // base chassis matches every other hostile's — see the header
+    thrust: ENEMY_THRUST,
+    // The hull's own authored size, kept: the two- and three-wheeler artwork
+    // sets its wheel metrics in PIXELS (cycleshapes.js), so a type that
+    // overrode `size` here would have to redraw the tyres to match.
+    w: 28,
+    h: 64,
+    health: 30, // one burst, one shove, or one clipped barrel
+    mass: 0.5,
+    // Quicker than the interceptor it shadows and slower than the cycle, so it
+    // catches a player who is doing anything other than fleeing flat out — and
+    // once it is there, `chaseSpeed` (driving.js, 600) is what holds it there.
+    speedMin: 540,
+    speedMax: 600,
+    steerSpeed: 200, // the widest sweep on the road needs the quickest hands;
+                     // this is the nimblest thing in the catalogue, past the
+                     // cycle's own 180
+    blastRadius: 12,
+    blastDamage: 6,
+    value: 100,
+    bounty: 25,
+    minDistance: 300,
+    behaviour: "strafe", // holds the interceptor's gap astern, but sweeping
+                         // across the player's line rather than parked on it —
+                         // see behaviours.js's `strafe`
+    // THE STOCKER'S SMG, and the one place these two heavy-and-light opposites
+    // agree: a spray is the right weapon for a shooter that is never quite
+    // lined up, and a weaving bike is never quite lined up BY DESIGN. Its wide
+    // `aimSlack` (weapons.js) is what keeps the sweep firing rather than
+    // holding fire through most of it. No layer, same as the stocker's: this
+    // car spends its whole life behind the player.
+    arms: "gunner",
+    driving: "outrider",
+    weight: 1.2,
+  },
+  {
+    id: "outrunner",
+    label: "OUTRUNNER",
+    shape: carShapeIndex("CRUISER"),
+    faction: ENEMY_FACTION,
+    color: ENEMY_DEEP,
+    thrust: ENEMY_THRUST,
+    w: 32,
+    h: 66,
+    health: 45, // the toughest of the three, and still under a single mine
+    mass: 0.6,
+    // MUST be able to get past a player at their own ceiling (620, player.js),
+    // or the tactic never starts: everything this car does happens in front.
+    speedMin: 600,
+    speedMax: 670,
+    steerSpeed: 160,
+    blastRadius: 16,
+    blastDamage: 8,
+    value: 100,
+    bounty: 25,
+    // The latest gate on the road bar the rival's. Being shot at from in front
+    // is a genuinely different problem from everything the opening hour
+    // teaches, and it lands better as a late surprise than as one more thing
+    // in the mirror.
+    minDistance: 600,
+    behaviour: "outrun", // gets past, holds station up the road and fires back
+                         // down it — see behaviours.js's `outrun`
+    // The plain blaster, and the reason is the direction: the SMG is
+    // `forwardOnly` (weapons.js) and this car is never in front of its target
+    // by accident. See armament.js's `rearguard`.
+    arms: "rearguard",
+    driving: "outrunner",
+    weight: 0.9,
+  },
+  {
+    id: "sower",
+    label: "SOWER",
+    // The trike, and the trunk slung between its rear tyres is what it is
+    // carrying. The one hull in the fleet with somewhere to put a spike strip.
+    shape: carShapeIndex("GLIDE"),
+    faction: ENEMY_FACTION,
+    color: ENEMY_DEEP,
+    thrust: ENEMY_THRUST,
+    w: 38,
+    h: 66,
+    health: 55,
+    mass: 0.8,
+    // THE FASTEST THING ON THE ROAD AFTER THE CYCLE, and that is the whole
+    // second half of its tactic: the run-out has to be an escape the player
+    // watches happen, not a car they can chase down and settle with.
+    speedMin: 640,
+    speedMax: 700,
+    steerSpeed: 140,
+    blastRadius: 20,
+    blastDamage: 10,
+    value: 100,
+    // PAID LIKE THE REST, though it is the one hostile that never shoots at
+    // anybody: what it leaves behind costs the player five seconds of crawling
+    // (obstacletypes.js's `slowTo`), which is worth as much as a gun and
+    // usually more. Killing it before the drop is the point.
+    bounty: 25,
+    minDistance: 400,
+    behaviour: "strew", // `raid`'s run-in with a strip for a payload, then away
+                        // flat out and unarmed — see behaviours.js's `strew`
+    // No gun at all, one spike strip, and one only — see armament.js's
+    // `spiker`. The cycle's shape of kit pointed at the other payload.
+    arms: "spiker",
+    driving: "sower",
+    weight: 0.8, // uncommon: a strip is an event, and three of them at once
+                 // would be weather
   },
 ];
 
