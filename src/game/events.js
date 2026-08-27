@@ -93,6 +93,14 @@ export function active() {
   return live ? live.type.id : null;
 }
 
+// How many times an entry's milestone has been spent this run — for `shop`,
+// which visit this is. The shop screen prints it as "STOP N" and it used to
+// read hauler.js's own `milestone` field, which moved here whole; this is the
+// same number, asked of the file that now keeps it.
+export function milestoneCount(id) {
+  return milestones.get(id) ?? 0;
+}
+
 // --- The tick ----------------------------------------------------------------
 //
 // `world` = { distance, player, W, H, traffic, obstacles } — the two SYSTEMS,

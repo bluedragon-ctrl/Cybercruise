@@ -1023,6 +1023,14 @@ function updateLowering(dt) {
   consumePress("pause");
   consumePress("fire");
   if (hauler.done) {
+    // THE DRONE GOES IDLE HERE, and the order matters: `done` is derived from
+    // the phase, so this is the one moment the sequence can be retired — after
+    // it has been read, and before the next tick asks whether the shop
+    // encounter is still running. Without it the hauler sits in "lower"
+    // forever, and game/events.js (which reads `phase !== "idle"` as that
+    // encounter's `live`) keeps the road standing down at the shop entry's
+    // zero density for the rest of the run.
+    hauler.settle();
     state = "playing";
     hint.innerHTML = PLAY_HINT;
   }
@@ -1599,7 +1607,10 @@ function render(alpha) {
   // wallet and the garage to READ; both were already moved by update() above,
   // which is the only place on that screen money changes hands.
   if (state === "shopping") {
-    shop.render(ctx, W, H, wallet, hauler.milestone, garage, player, loadout);
+    // WHICH STOP THIS IS. The counter behind it used to be hauler.js's own
+    // `milestone`; it moved into the event director with the rest of the
+    // scheduling, so the number is asked of game/events.js now.
+    shop.render(ctx, W, H, wallet, events.milestoneCount("shop"), garage, player, loadout);
     return;
   }
 
