@@ -131,9 +131,9 @@ export const PICKUP_TYPES = [
     // 820, a third again over stock. Big enough that the road visibly rushes
     // at the player rather than reading as a nudge, and small enough that the
     // ENGINE ladder in the dock (upgrades.js) is still the thing that makes a
-    // car permanently fast; this is six seconds of borrowed pace.
+    // car permanently fast; this is twelve seconds of borrowed pace.
     amount: 200,
-    duration: 6,
+    duration: 12,
     // THE STINGIEST DRAW IN THE CATALOGUE (half a mine crate's), and gated
     // behind the rocket crate's own 500. A boost is the one buff that makes
     // the game HARDER while it runs — everything on the road arrives sooner
