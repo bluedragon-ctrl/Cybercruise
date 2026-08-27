@@ -180,12 +180,9 @@ export class Hauler {
     this.x = 0;          // the drone's own screen x, smoothed toward the car's
     this.y = 0;          // the car's screen row — where the drone comes to rest
     this.beat = 0;       // index of the next log line still to be pushed
-    // Which shop visit is next, as a count of SHOP_INTERVAL milestones already
-    // consumed. THIS is the edge detector's memory (see main.js's own
-    // wasSectorGlitching and sectors.js's "an edge needs memory") — a shop
-    // visit fires on the tick this number would change, not on a distance
-    // comparison that would re-fire on every frame afterwards.
-    this.milestone = 0;
+    // NO MILESTONE COUNTER. The memory that decides WHEN a visit is due —
+    // "an edge needs memory", as sectors.js puts it — now lives with every
+    // other schedule on the road, in game/events.js. See below.
   }
 
   // Between games. Same role as jackin.js's and disconnect.js's reset(), called
@@ -195,23 +192,29 @@ export class Hauler {
     this.phase = "idle";
     this.elapsed = 0;
     this.beat = 0;
-    this.milestone = 0;
+    // ...and no milestone to clear here either: events.reset(), called from the
+    // same newGame(), is what makes a fresh run stop thinking it has shopped.
   }
 
-  // Has the player just driven past the next shop milestone? A pure edge: it
-  // answers true on exactly one tick per interval and books the milestone as it
-  // does, so the caller cannot double-fire it. `distance` is raw world units;
-  // the interval is in DIST_UNITS, which is what `distUnits` converts.
+  // WHO DECIDES WHEN THE DRONE COMES. Not this file, any more.
   //
-  // Never fires while a sequence is already running — a player who somehow
-  // covered a whole interval mid-approach would otherwise restart it.
-  crossedMilestone(distance, distUnits) {
-    if (this.phase !== "idle") return false;
-    const reached = Math.floor(distance / (SHOP_INTERVAL * distUnits));
-    if (reached <= this.milestone) return false;
-    this.milestone = reached;
-    return true;
-  }
+  // The milestone counter that used to live here (`crossedMilestone`, and the
+  // `milestone` field it booked) is now game/events.js's, as the `shop` entry's
+  // `every: SHOP_INTERVAL` — because that counter was character for character
+  // the trigger every OTHER staged moment on the road wanted, and keeping a
+  // second copy of it here meant the pickup fired BLIND: it had no way of
+  // knowing a gang had just arrived or a set-piece was mid-fight, and would
+  // close the jaws over the top of either.
+  //
+  // What did NOT move is everything below: the three phases, the frozen lift,
+  // the jaw timeline and carOffsetY(). The director schedules the approach; it
+  // does not drive a cut-scene. SHOP_INTERVAL stays exported from here for the
+  // same reason — it is a feel dial about the shopping rhythm, and it is still
+  // this file's number even though it is no longer this file's job to notice
+  // when the odometer passes it.
+  //
+  // main.js wires the two together through a handler pair (approach() to fire,
+  // `phase !== "idle"` to say it is still running); see its HANDLERS map.
 
   // THE DRONE APPEARS, with the world still running. `carX`/`carY` are the
   // player's current screen position: the drone enters directly above the lane

@@ -161,6 +161,11 @@ class RoadObstacle {
     this.offset = offset;
     this.laid = false; // true when a car put it here rather than the spawner —
                        // see drop() and the two placement budgets above
+    this.staged = false; // ...and true when game/events.js put it here as part
+                       // of an encounter (a road narrowing). A THIRD budget for
+                       // the same reason the first two are separate: a staged
+                       // row of trestles that ate MAX_OBSTACLES would silence
+                       // the ambient road for as long as it stood
     this.health = type.health;
     this.alive = true;
     this.exploded = false; // set once its destruction effect has been spawned,
@@ -278,6 +283,7 @@ export class Obstacles {
     this.onDestroyed = onDestroyed;
     this.list = [];
     this.spawnTimer = SPAWN_INTERVAL;
+    this.density = 1; // see setDensity()
   }
 
   // `world` = { player, distance, W, H, cars }. `cars` is Traffic's live list
@@ -346,14 +352,36 @@ export class Obstacles {
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
       this.spawnTimer = SPAWN_INTERVAL;
-      if (this.count(false) < MAX_OBSTACLES) this.spawn(world);
+      // Scaled by whatever encounter is running (see setDensity), against the
+      // ambient count only — a staged narrowing neither fills this budget nor
+      // is thinned by it.
+      const cap = Math.round(MAX_OBSTACLES * this.density);
+      if (this.count(false) < cap) this.spawn(world);
     }
   }
 
+  // AMBIENT DENSITY, exactly as traffic.js's own setDensity — game/events.js
+  // turns it down while an encounter is live and back to 1 when it ends.
+  // MAX_OBSTACLES stays the baseline it is read against. Nothing already on the
+  // road is removed; the spawner just stops replacing what retires.
+  setDensity(mul) {
+    this.density = Math.max(0, mul);
+  }
+
   // How many live obstacles were laid by a car (`true`) or placed by the spawner
-  // (`false`). The two budgets are kept apart — see MAX_LAID.
+  // (`false`). The budgets are kept apart — see MAX_LAID and RoadObstacle's own
+  // `staged`. Staged hazards belong to neither and are excluded from both.
   count(laid) {
-    return this.list.reduce((n, o) => n + (o.alive && o.laid === laid ? 1 : 0), 0);
+    return this.list.reduce(
+      (n, o) => n + (o.alive && !o.staged && o.laid === laid ? 1 : 0),
+      0,
+    );
+  }
+
+  // ...and the third bucket: hazards game/events.js staged as part of an
+  // encounter. Its own budget lives in that file, alongside the staged-car one.
+  stagedCount() {
+    return this.list.reduce((n, o) => n + (o.alive && o.staged ? 1 : 0), 0);
   }
 
   // Lay one obstacle on the road immediately behind `body`, and report whether
@@ -474,6 +502,52 @@ export class Obstacles {
     this.list.push(new RoadObstacle(type, worldY, offset));
   }
 
+  // PUT ONE HAZARD AT A SPOT THE CALLER CHOSE, subject to every rule a spawned
+  // one obeys. This is game/events.js's way onto the road — a narrowing names
+  // its own offsets (both barriers) rather than asking the type where it
+  // belongs, which is the one thing placementOffsets cannot express.
+  //
+  // NOT drop(). That method exists precisely to SKIP these checks, because a
+  // mine somebody aimed is meant to land where they aimed it (see its header).
+  // A staged encounter is the other kind of thing entirely: the game itself put
+  // it there and the player never chose to meet it, so it has to be fair —
+  // which here means the crowding test, the traffic test and, above all, the
+  // passage rule. A narrowing that would seal the road is simply refused, and
+  // the encounter comes out one trestle thinner. That is the correct failure.
+  //
+  // Returns whether it went down. `false` is a normal outcome, not an error.
+  place(type, worldY, offset, cars = [], staged = false) {
+    const [w, h] = OBSTACLE_SHAPES[type.shape].size;
+    if (!this.spotClear(worldY, offset, w, h, cars)) return false;
+    if (!this.leavesPassage(worldY, offset, w)) return false;
+
+    const o = new RoadObstacle(type, worldY, offset);
+    o.staged = staged;
+    this.list.push(o);
+    return true;
+  }
+
+  // Is there room for a box `w` x `h` at (`worldY`, `offset`) — no hazard and no
+  // car already too close? Split out of freeOffset below so place() can ask it
+  // about a spot the caller named; freeOffset is then that same question asked
+  // of each spot the type's placement offers.
+  spotClear(worldY, offset, w, h, cars = []) {
+    const crowded = this.list.some(
+      (o) =>
+        o.alive &&
+        Math.abs(o.offset - offset) < (o.w + w) / 2 &&
+        Math.abs(o.worldY - worldY) - (o.h + h) / 2 < SPAWN_GAP,
+    );
+    if (crowded) return false;
+
+    return !cars.some(
+      (c) =>
+        c.alive &&
+        Math.abs(c.offset - offset) < (c.w + w) / 2 &&
+        Math.abs(c.worldY - worldY) - (c.h + h) / 2 < SPAWN_GAP,
+    );
+  }
+
   // A lateral offset this type may be placed at near `worldY`, or null if none
   // of the spots its placement offers will do. Candidates are tried in order and
   // the first that passes every check wins.
@@ -490,25 +564,11 @@ export class Obstacles {
     const [w, h] = OBSTACLE_SHAPES[type.shape].size;
 
     for (const offset of placementOffsets(type.placement, w)) {
-      // Another hazard too close along the road, where the two would overlap
-      // laterally. Tested by OVERLAP rather than by lane, since most placements
-      // are not lane-aligned and a block can be wider than a lane anyway.
-      const crowded = this.list.some(
-        (o) =>
-          o.alive &&
-          Math.abs(o.offset - offset) < (o.w + w) / 2 &&
-          Math.abs(o.worldY - worldY) - (o.h + h) / 2 < SPAWN_GAP,
-      );
-      if (crowded) continue;
-
-      const onTraffic = cars.some(
-        (c) =>
-          c.alive &&
-          Math.abs(c.offset - offset) < (c.w + w) / 2 &&
-          Math.abs(c.worldY - worldY) - (c.h + h) / 2 < SPAWN_GAP,
-      );
-      if (onTraffic) continue;
-
+      // Another hazard or a live car too close along the road, where the two
+      // would overlap laterally. Tested by OVERLAP rather than by lane, since
+      // most placements are not lane-aligned and a block can be wider than a
+      // lane anyway. See spotClear().
+      if (!this.spotClear(worldY, offset, w, h, cars)) continue;
       if (!this.leavesPassage(worldY, offset, w)) continue;
 
       return offset;
