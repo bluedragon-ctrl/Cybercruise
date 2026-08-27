@@ -34,7 +34,8 @@ import { createShop } from "./game/shop.js";
 // file's header for why the tier ladder is scoped to one run, exactly as the
 // credits paying for it are (CREDIT_STORE below).
 import { Garage } from "./game/upgrades.js";
-import { Loadout } from "./game/weapons.js";
+import { Loadout, muzzleOffsets, shotMark } from "./game/weapons.js";
+import { ShieldStorm } from "./game/shieldstorm.js";
 import { createMenu } from "./game/menu.js";
 import { createMusic } from "./audio/synth.js";
 import { PLAYER_FIRE_SOUND, ENEMY_FIRE_SOUND } from "./audio/weaponsfx.js";
@@ -248,6 +249,11 @@ let loadout;
 // block, and rebuilt by newGame() rather than reset in place: a Garage is
 // nothing but counters, so a fresh one IS the reset.
 let garage;
+// The SHIELD STORM's discharge clock (game/shieldstorm.js). Built ONCE at module
+// load rather than per run, and reset by newGame() alongside every other screen
+// — it holds a countdown and a scratch array, nothing that belongs to a
+// particular car, and the upgrade that switches it on lives in the garage above.
+const shieldStorm = new ShieldStorm();
 // How far we've driven, in world units. Grows with speed and drives
 // everything that scrolls (road curve, lane dashes) — see road.js for the
 // screen<->world coordinate model. Declared up here, ahead of newGame(),
@@ -477,6 +483,10 @@ function newGame() {
   // the same base figures this agrees with, so there is nothing to apply yet —
   // the first applyUpgrades() call comes from the first purchase.
   garage = new Garage();
+  // The storm's own clock, for the same reason the shop's cursor is cleared
+  // just below: nothing about the last run's state has any business ticking
+  // into this one.
+  shieldStorm.reset();
   hauler.reset();
   // The shop's own cursor and this-visit receipts, for the same reason every
   // other per-run screen is reset here.
@@ -1068,7 +1078,22 @@ function updatePlaying(dt) {
     // re-based on the centre-line, exactly as collisions.js does it. What the
     // bullet does with it from here is the weapon's flight mode's business.
     const centerX = road.centerXAt(distance, W);
-    shots.spawn(distance + player.h / 2, player.x - centerX, player.speed, weapon.type, W);
+    // ONE PULL, ONE OR MORE ROUNDS. muzzleOffsets is the whole of what the TWIN
+    // CANNON and TWIN RACK specials do at the trigger (weapons.js): a stock car
+    // gets back a single [0] and this loop runs once, exactly as the single
+    // spawn call here always did. `shotMark` is MARKER ROUNDS, and is 0 for
+    // every weapon the player has not bought it for.
+    //
+    // THE ROUNDS SHARE THE COOLDOWN AND THE ROUND, deliberately: tryFire above
+    // has already been called once, so a paired weapon fires twice as much
+    // metal for the same rate of fire and the same ammunition. That IS the
+    // upgrade — pairing a weapon that then burned two rounds a press would be
+    // selling the player nothing but a louder magazine.
+    const muzzles = muzzleOffsets(weapon.type, player.specials);
+    const mark = shotMark(weapon.type, player.specials);
+    for (const dx of muzzles) {
+      shots.spawn(distance + player.h / 2, player.x - centerX + dx, player.speed, weapon.type, W, 1, mark);
+    }
     music.play(PLAYER_FIRE_SOUND[weapon.type.id]);
     // WAS THAT THE LAST ROUND? Then the loadout hands over the next loaded gun
     // by itself (weapons.js's settle), sounding the same swap TAB would have.
@@ -1114,6 +1139,25 @@ function updatePlaying(dt) {
       if (loadout.settle()) music.play("weapon_swap");
     }
   }
+  // SHIELD STORM (game/shieldstorm.js), with the player's other offensive work
+  // and for the same tick-order reason the gunfire above gives: a car the storm
+  // kills this tick must be dead before traffic.update()'s own detonate sweep
+  // runs, or its wreck and its bounty arrive a frame late.
+  //
+  // Handed the player in ROAD coordinates — the same re-basing the muzzle uses
+  // — rather than traffic's PlayerBody, which has not been synced for this tick
+  // yet at this point in the frame.
+  if (shieldStorm.update(
+    dt, player, distance, player.x - road.centerXAt(distance, W), traffic.cars, explosions,
+  ) > 0) {
+    // The shield eating a hit and the shield throwing one both sound like the
+    // shield doing its job, which is why this borrows shield_deflect rather
+    // than spending a new voice on it (audio/soundtypes.js). Its own
+    // minInterval and the storm's half-second cadence keep it a punctuation
+    // mark rather than a drone.
+    music.play("shield_deflect");
+  }
+
   // Traffic cars and road obstacles are both fair game for the PLAYER'S gunfire
   // — one flat list, built fresh each tick into the reused scratch array, so a
   // shot stops at whichever it actually crosses first (see projectiles.js's

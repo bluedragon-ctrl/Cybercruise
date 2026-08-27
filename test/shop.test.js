@@ -18,6 +18,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   CONSUMABLES,
+  SPECIALS,
   STATS,
   TIER_PRICES,
   TIER_COUNT,
@@ -168,10 +169,10 @@ test("every AMMO row's caption is its own count", () => {
   }
 });
 
-test("nothing on either shelf is free, and no two rows share an id", () => {
+test("nothing on any shelf is free, and no two rows share an id", () => {
   // The ids are what save data, tests and debugging address a row by — the same
   // stable-key rule every other catalogue in the game states.
-  const ids = [...CONSUMABLES, ...STATS].map((e) => e.id);
+  const ids = [...CONSUMABLES, ...STATS, ...SPECIALS].map((e) => e.id);
   assert.equal(new Set(ids).size, ids.length, "duplicate catalogue id");
   for (const stat of STATS) {
     assert.ok(stat.price > 0, `${stat.id} is free`);

@@ -6,8 +6,8 @@
 // the small amount of runtime state that acts on it. game/shop.js draws this
 // and moves a cursor over it; it owns none of the numbers.
 //
-// TWO SHELVES, and they are different KINDS of thing rather than two lists that
-// happen to sit side by side:
+// THREE SHELVES, and they are different KINDS of thing rather than three lists
+// that happen to sit side by side:
 //
 //   CONSUMABLES  ALWAYS buyable, any number of times, fixed price. A purchase
 //                lands on the car immediately and is then gone — rounds in a
@@ -17,6 +17,11 @@
 //                last, and once bought a step stays bought FOR THE REST OF THE
 //                RUN — the Garage below is that memory. A stat that is maxed
 //                simply stops being for sale.
+//   SPECIALS     ONE-OFF hardware. Bought once, at one price, owned for the
+//                rest of the run — a ladder exactly one rung long, so it goes
+//                SOLD rather than MAX. Each one changes a VERB (the cannon
+//                fires a pair, the shield bites back) rather than moving a
+//                number, which is why it is not a tier. See the shelf itself.
 //
 // NOTHING SURVIVES A RUN. Both shelves are scoped to one drive: the Garage is
 // rebuilt by main.js's newGame() alongside the player and the wallet, so dying
@@ -298,6 +303,105 @@ export const STATS = [
   },
 ];
 
+// --- Specials ----------------------------------------------------------------
+//
+// THE THIRD SHELF, and a third KIND of thing again. A consumable lands on the
+// car and is gone; a stat is a ladder you climb a rung at a time. A SPECIAL is
+// a piece of hardware: you own it or you do not, it costs one price, and once
+// bought it is on the car for the rest of the run and the row goes SOLD.
+//
+// WHY NOT TIERS. Every one of these changes a VERB — the cannon fires two
+// rounds, the shield bites back, a tracer hit paints a target. There is no
+// half of "fires two rounds", and a tier ladder would have to invent one
+// (fires 1.5 rounds? paints for two seconds?) purely to fit the shelf it was
+// sold on. Where a special does carry a number (the storm's damage, the mark's
+// multiplier) that number lives with the system that owns it — game/
+// shieldstorm.js, weapons.js — for exactly the reason the stats above import
+// their `base` rather than restating it.
+//
+// THEY ARE FLAGS AND ONLY FLAGS HERE. `special` is the key that shows up in
+// Garage.stats's `specials` block and, through Player.applyUpgrades, on the
+// car itself. Nothing in this file knows what any of them DO; the four systems
+// that read the flags do, and each says so in its own header.
+//
+// PRICED BETWEEN A FIRST RUNG AND A FULL LADDER. A whole stat is 700 CR
+// (100+200+400) and its rungs are 100, 200 and 400. These sit at 300-400 — so
+// the cheapest special costs what a system's SECOND rung and a bit does, and
+// the dearest costs exactly what a third rung does.
+//
+// Both ends of that band are load-bearing. Below a first rung and a special
+// would simply be the first thing bought every run, before the player has any
+// idea what the road is going to ask of them. Above a full ladder and it would
+// never be bought at all at a stop paying a few hundred. In between, one
+// special IS the stop — which is the decision worth putting on a shelf.
+//
+// EVERYTHING IS ON SALE FOR NOW. When these become sector- or stop-gated (some
+// subset available at any one dock), the gate belongs on the SHELF that draws
+// them — game/shop.js filtering SPECIALS — not on the entries here, exactly as
+// nothing in this file knows which stop the player is at today.
+//
+// Fields: id/label/detail/price/note/color as the shelves above, plus
+//   special   the flag key. MUST be unique, and MUST be the same string the
+//             system that acts on it reads (weapons.js's `twin`/`mark`, and
+//             player.specials.shieldStorm)
+export const SPECIALS = [
+  {
+    id: "twin_cannon",
+    label: "TWIN CANNON",
+    detail: "2 BARRELS",
+    note: "THE CANNON FIRES A PAIR, RUNNING PARALLEL",
+    // THE CHEAPEST OF THE FOUR, and it has to be: the cannon is the one gun
+    // with infinite ammunition (weapons.js), so this is the special every run
+    // can always use — the first one a player should be able to reach, and the
+    // one whose ceiling is lowest because the rounds it doubles are the
+    // weakest thing the player carries.
+    price: 300,
+    special: "twinCannon",
+    color: PLAYER,
+  },
+  {
+    id: "twin_rack",
+    label: "TWIN RACK",
+    detail: "2 SEEKERS",
+    note: "TWO ROCKETS A PRESS, EACH HUNTING ITS OWN CAR",
+    // THE DEAREST, for the mirror of the cannon's reasoning: it doubles the
+    // heaviest round in the game, and the pair split across two cars rather
+    // than stacking on one (projectiles.js's seek), so a full rack answers a
+    // pack the way nothing else the player owns can. It is also rationed by a
+    // magazine the road has to supply, which is the other half of the price.
+    price: 400,
+    special: "twinRocket",
+    color: ROCKET,
+  },
+  {
+    id: "shield_storm",
+    label: "SHIELD STORM",
+    detail: "ARCS OUT",
+    note: "YOUR SHIELD ARCS INTO ANYTHING THAT DRIVES CLOSE",
+    // TURNS A DEFENCE INTO A WEAPON, which is the most it could be asked to
+    // cost. Priced under the rack because it does nothing at all until the
+    // player has a shield running — this is the one special whose value is
+    // entirely in what ELSE the run bought (crates, the SHIELD row above, the
+    // DEFLECTOR tiers), and a run with no shield in it has wasted the money.
+    price: 350,
+    special: "shieldStorm",
+    color: PLAYER,
+  },
+  {
+    id: "marker_rounds",
+    label: "MARKER ROUNDS",
+    detail: "TAG +40%",
+    note: "TRACER HITS TAG A CAR — EVERYTHING THEN HURTS IT MORE",
+    // Same price as the storm and for a related reason: it is a MULTIPLIER on
+    // shots the player still has to take, not damage of its own. A player who
+    // never carries the tracker gets nothing from it, which is exactly the
+    // kind of purchase a shelf of specials should have on it.
+    price: 350,
+    special: "markerRounds",
+    color: PLAYER_THRUST,
+  },
+];
+
 // One named stat. Mirrors pickupTypeById/obstacleTypeById.
 export function statById(id) {
   return STATS.find((s) => s.id === id) ?? null;
@@ -333,6 +437,13 @@ export class Garage {
     // silently reassign somebody's engine tiers to their chassis.
     this.levels = {};
     for (const stat of STATS) this.levels[stat.id] = 0;
+    // The specials, keyed by their FLAG (`special`) rather than by their row
+    // id, so this object is already the block the car wants — see `stats`
+    // below, which hands it straight over. Every key is present and false from
+    // the start: a `specials` block whose shape changes as things are bought
+    // would make every reader write `?.` or `??` for no reason.
+    this.specials = {};
+    for (const item of SPECIALS) this.specials[item.special] = false;
   }
 
   levelOf(stat) {
@@ -348,6 +459,21 @@ export class Garage {
   addTier(stat) {
     if (this.maxed(stat)) return false;
     this.levels[stat.id] = this.levelOf(stat) + 1;
+    return true;
+  }
+
+  // Does the car already carry this special? The shelf's "SOLD" state and
+  // priceOf's "not for sale" both hang off this, the way maxed() does for a
+  // finished stat — a special is simply a ladder one rung long.
+  owns(item) {
+    return this.specials[item.special] === true;
+  }
+
+  // Books one special. Same contract as addTier: the caller has already taken
+  // the money, and purchase() below is the only thing that should call it.
+  addSpecial(item) {
+    if (this.owns(item)) return false;
+    this.specials[item.special] = true;
     return true;
   }
 
@@ -368,6 +494,11 @@ export class Garage {
       // three different numbers off one tier, not one), so what Player wants
       // here is "which row of that table", not a figure of its own.
       siphonLevel: this.levelOf(statById("siphon")),
+      // THE FLAGS THEMSELVES, by reference. Safe for the same reason the four
+      // figures above are recomputed: applyUpgrades is an absolute assignment,
+      // so the car simply points at the record of what has been bought and
+      // reads it live. Nothing outside addSpecial() writes to it.
+      specials: this.specials,
     };
   }
 }
@@ -382,6 +513,10 @@ export function priceOf(entry, garage) {
   // tells a layer from a gun by whether it names a `payload` — the field that
   // decides what a thing IS also decides which shelf it came from.
   if (entry.kind) return entry.price;
+  // A SPECIAL is a one-rung ladder: its own flat price until it is owned, and
+  // then not for sale at all — the same null a maxed stat returns, so the
+  // shelf draws "SOLD" through the machinery that already draws "MAX".
+  if (entry.special) return garage.owns(entry) ? null : entry.price;
   return tierPrice(entry, garage.levelOf(entry));
 }
 
@@ -404,6 +539,13 @@ export function purchase(entry, wallet, player, loadout, garage) {
     // A consumable — the crate's own effect, applied by the crate's own code.
     // See the header: a bought repair IS a FIX crate.
     applyPickup(entry, player, loadout);
+  } else if (entry.special) {
+    // A special — booked, then re-derived onto the car through the SAME
+    // absolute assignment a tier uses. The car gets a flag it reads for the
+    // rest of the run; what it does with it is the four systems' business,
+    // never this file's.
+    garage.addSpecial(entry);
+    player.applyUpgrades(garage.stats);
   } else {
     garage.addTier(entry);
     // Re-derived from the counters rather than nudged, so this stays safe

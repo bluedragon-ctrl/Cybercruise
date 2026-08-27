@@ -164,6 +164,16 @@ export const WEAPON_TYPES = [
     glow: PLAYER_THRUST,
     length: 14,
     width: 4,
+    // THE SHOP CAN BOLT A SECOND BARREL ON — game/upgrades.js's TWIN CANNON.
+    // Named HERE rather than branched on at the trigger, so "this weapon can
+    // be paired" is a property of the weapon and main.js's fire branch stays
+    // one call to muzzleOffsets() below however many weapons end up paired.
+    twin: "twinCannon",
+    // ABOUT HALF A LANE APART: wide enough that the two rounds read as two
+    // separate lines running up the tarmac, narrow enough that a car the
+    // player has lined up still eats both. A wider pair would quietly turn the
+    // upgrade into "you now miss with half your shots".
+    twinSpread: 20,
   },
   {
     id: "tracker",
@@ -203,6 +213,25 @@ export const WEAPON_TYPES = [
     glow: PLAYER,
     length: 16,
     width: 4.5,
+    // THE SHOP CAN TURN THE SPRAY INTO A PAINT JOB — game/upgrades.js's MARKER
+    // ROUNDS, and the one special that changes what a weapon is FOR rather
+    // than how much of it comes out of the barrel. A tagged car takes
+    // MARK_DAMAGE_MULT from EVERYTHING for `markTime` seconds (traffic.js's
+    // damage), so the tracker stops competing with the cannon and the rocket
+    // for the kill and starts setting them up.
+    //
+    // It is the right upgrade for THIS gun and no other, because it is built
+    // out of what the tracker already is. The burst rakes a lane and pierces
+    // what it kills, so one pull paints everything in it; and the weapon's own
+    // failure case — 22 a round is nothing against armour — becomes the verb,
+    // since the burst that bounced off a rig is the burst that painted it for
+    // the rocket. Nothing else in the catalogue can tag a line of cars.
+    mark: "markerRounds",
+    // FOUR SECONDS: long enough to launch at a painted car and have the round
+    // land while the paint is still wet (a seeker crosses the screen in
+    // roughly a second), short enough that a tag is a follow-up the player has
+    // to actually make rather than a debuff sprayed permanently over the road.
+    markTime: 4,
   },
   {
     id: "rocket",
@@ -285,6 +314,17 @@ export const WEAPON_TYPES = [
     // which obstacletypes.js calls the hardest hit anything on the road can deal.
     blastRadius: 90,
     blastDamage: 26,
+    // THE SHOP CAN SELL A SECOND RAIL — game/upgrades.js's TWIN RACK. Same
+    // field the cannon uses, but the pair is genuinely two seekers rather than
+    // one round drawn twice: projectiles.js's seek() steers each one on its
+    // own AND prefers a car the other rocket has not already locked, so a
+    // press into a pack splits across two targets instead of double-killing
+    // the nearest one.
+    twin: "twinRocket",
+    // WIDER THAN THE CANNON'S PAIR, because these two are meant to diverge.
+    // They leave the rail far enough apart to start hunting different cars
+    // rather than flying as one thick round with a seam down the middle.
+    twinSpread: 34,
   },
   {
     id: "mine",
@@ -516,6 +556,59 @@ export const ENEMY_WEAPON_TYPES = [
     impact: "fireball",
   },
 ];
+
+// --- What the shop's SPECIALS do to a trigger pull ---------------------------
+//
+// The four one-off upgrades (game/upgrades.js's SPECIALS) are OWNERSHIP FLAGS
+// and nothing else — a `specials` block of booleans, handed to the player by
+// Player.applyUpgrades and read from here. Two of them change what comes out of
+// a barrel, and both are resolved by the pair of functions below rather than by
+// a branch at the trigger, for the same reason weaponsfx.js's tables exist:
+// main.js's fire branch should not grow a case per upgrade.
+//
+// THE WEAPON NAMES ITS OWN SPECIAL (`twin`, `mark` above), so a flag is only
+// ever consulted against the gun that advertises it. Buying TWIN CANNON cannot
+// accidentally pair the rocket, and neither function needs to know a weapon id.
+
+// How much harder a MARKED car is hit — by anything at all, not just by the
+// tracker that painted it (game/traffic.js's Car.damage is where it lands).
+//
+// +40% IS A SET-UP, NOT A KILL. Tuned so the follow-up shot the player has to
+// actually line up is what pays: a rocket into a painted rig is 137 rather than
+// 98, which is the difference between three rockets and two. It is deliberately
+// short of a multiplier that would make painting a car MANDATORY before a
+// heavy shot — the tracker is one gun, not a tax on the other two.
+export const MARK_DAMAGE_MULT = 1.4;
+
+// The lateral offsets, relative to the muzzle, this trigger pull puts a round
+// at: one dead centre ordinarily, a symmetric PAIR when the weapon names a
+// `twin` special and the player owns it.
+//
+// Returns a SHARED, FROZEN array rather than building one — the trigger is
+// pulled several times a second forever, and projectiles.js's own "NO
+// ALLOCATION" rule reaches the muzzle as well as the pool. Two live weapons
+// with the same spread share one array and neither writes to it.
+const SINGLE_MUZZLE = Object.freeze([0]);
+const twinMuzzles = new Map(); // spread -> frozen [-spread/2, +spread/2]
+
+export function muzzleOffsets(type, specials = null) {
+  if (!type.twin || !specials || !specials[type.twin]) return SINGLE_MUZZLE;
+  const spread = type.twinSpread ?? 20;
+  let pair = twinMuzzles.get(spread);
+  if (!pair) {
+    pair = Object.freeze([-spread / 2, spread / 2]);
+    twinMuzzles.set(spread, pair);
+  }
+  return pair;
+}
+
+// How many seconds of MARK a round from this weapon paints onto what it hits —
+// 0 for every weapon and every unowned upgrade, which is the case that costs
+// projectiles.js nothing at all (see its `mark` field).
+export function shotMark(type, specials = null) {
+  if (!type.mark || !specials || !specials[type.mark]) return 0;
+  return type.markTime ?? 0;
+}
 
 // One weapon, as carried by one car.
 export class Weapon {

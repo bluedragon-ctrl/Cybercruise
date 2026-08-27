@@ -20,6 +20,7 @@ import { createShop } from "../src/game/shop.js";
 import { initInput } from "../src/engine/input.js";
 import {
   CONSUMABLES,
+  SPECIALS,
   STATS,
   TIER_COUNT,
   Garage,
@@ -190,7 +191,7 @@ test("the cursor wraps in both directions and reaches every row", () => {
   // cursor could land on would be a line the player has to press past.
   clearInput();
   const s = shop();
-  const rows = CONSUMABLES.length + STATS.length + 1;
+  const rows = CONSUMABLES.length + STATS.length + SPECIALS.length + 1;
   for (let i = 0; i < rows; i++) {
     press("ArrowDown");
     assert.equal(tick(s), "move");

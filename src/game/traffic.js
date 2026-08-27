@@ -33,11 +33,12 @@ import { driveCar } from "./behaviours.js";
 import { pickCarType, ENEMY_FACTION } from "./cartypes.js";
 import { drivingFor } from "./driving.js";
 import { armFor } from "./armament.js";
-import { Explosions } from "./effects.js";
+import { Explosions, drawTargetMark } from "./effects.js";
 import { resolveCollisions, PlayerBody } from "./collisions.js";
 import { PLAYER_MASS } from "./player.js";
 import { centerXAt, headingAt, laneOffset, laneAt, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 import { CRITICAL_FLASH } from "../engine/palette.js";
+import { MARK_DAMAGE_MULT } from "./weapons.js";
 
 const MAX_CARS = 7;          // cars simulated at once
 const SPAWN_INTERVAL = 1.1;  // seconds between spawn attempts
@@ -166,6 +167,7 @@ class TrafficCar {
     this.wheelPhase = 0; // accumulated roll distance, drives the wheel tread
     this.vLateral = 0; // sideways velocity from being rammed (collisions.js)
     this.criticalTime = 0; // seconds spent on the brink; drives the blink
+    this.markTime = 0; // seconds of MARKER ROUNDS paint left (see markTag)
   }
 
   // One more hit and this car is scrap. Drives the warning blink in render(),
@@ -193,8 +195,29 @@ class TrafficCar {
   // immediately, Traffic.detonate blows it up, and retire() drops it at the end
   // of the tick. Nothing is left behind on the road — the wreck is pure effect,
   // so driving through the fireball costs nothing by itself.
+  // Paint this car for `seconds` (weapons.js's MARKER ROUNDS, applied by
+  // projectiles.js). REFRESHED rather than stacked — a second tracer burst
+  // resets the clock instead of adding to it, exactly as activateShield
+  // (player.js) extends rather than accumulates, and for the same reason: a
+  // weapon that fires eight rounds a burst would otherwise paint a car for the
+  // rest of its natural life on one pull.
+  markTag(seconds) {
+    this.markTime = Math.max(this.markTime, seconds);
+  }
+
+  get marked() {
+    return this.markTime > 0;
+  }
+
   damage(amount) {
     if (!this.alive) return;
+    // A MARKED CAR TAKES MORE FROM EVERYTHING — the tracker's round, the
+    // cannon's, a rocket, a mine, another car's blast, a ram. Applied HERE,
+    // at the one door every damage source in the game already comes through,
+    // rather than at each of them: "everything hurts it more" is what the
+    // shelf row promises, and this is the only place that can honour it
+    // without five call sites agreeing to.
+    if (this.markTime > 0) amount *= MARK_DAMAGE_MULT;
     this.health -= amount;
     if (this.health <= 0) {
       this.health = 0;
@@ -282,6 +305,10 @@ class TrafficCar {
     // Timed per car rather than off a global clock, so a car starts blinking at
     // the moment it's crippled and the road doesn't strobe in unison.
     if (this.critical) this.criticalTime += dt;
+
+    // The paint dries. Counted DOWN rather than against a stamp, so a car that
+    // sat in the spawn pool for a while cannot come back still marked.
+    if (this.markTime > 0) this.markTime = Math.max(0, this.markTime - dt);
   }
 
   // Keep the car on the tarmac — traffic never scrapes the barriers, even when
@@ -609,6 +636,15 @@ export class Traffic {
         // would shear the whole column of traffic into a bend it isn't in yet.
         angle: headingAt(car.worldY),
       });
+
+      // ...and the reticle, OVER the car it belongs to but under the wrecks
+      // below, for a car the tracker has painted (weapons.js's MARKER ROUNDS).
+      // Drawn from the car's own remaining mark time, so each one pulses on its
+      // own clock — see effects.js's drawTargetMark for why it is four corner
+      // brackets and not a box or a tint.
+      if (car.markTime > 0) {
+        drawTargetMark(ctx, sx, sy, car.type.w, car.type.h, car.markTime);
+      }
     }
 
     // Wrecks last, so a fireball is never drawn under the traffic still driving

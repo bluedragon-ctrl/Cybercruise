@@ -803,7 +803,7 @@ always read zero).
 
 Every 400 DIST a cargo drone drops out of the sky, closes its jaws on the car
 and flies it to a dock (`src/game/hauler.js`). What is up there is a storefront
-with two shelves — `src/game/upgrades.js` holds every price, quantity and tier,
+with three shelves — `src/game/upgrades.js` holds every price, quantity and tier,
 in the same data-file style as `cartypes.js`; `src/game/shop.js` is a cursor, a
 layout and a colour scheme over it and owns no numbers of its own.
 
@@ -834,14 +834,43 @@ The ram plate is one row because mass is one number that buys three things —
 car hits harder, takes less and gets shoved around less, including through road
 furniture.
 
-**Nothing survives a run.** The tiers die with the car exactly as the unspent
+**Specials** are the third shelf: one-off hardware, bought once at one price and
+owned for the rest of the run — a ladder exactly one rung long, so a bought row
+reads `SOLD` rather than `MAX`. Each one changes a *verb* rather than moving a
+number, which is why none of them is a tier: there is no half of "fires two
+rounds".
+
+| special | what it does | where it lives |
+| --- | --- | --- |
+| TWIN CANNON | the cannon fires a pair, running parallel — same rate of fire, same round | `weapons.js`'s `muzzleOffsets` |
+| TWIN RACK | two rockets a press, each seeking *separately* — a rocket prefers a car no other seeker has locked, so a press into a pack splits across two | `projectiles.js`'s `seek` |
+| SHIELD STORM | the shield arcs into anything that drives close, twice a second, with falloff to the rim — *anything*, civilians included | `src/game/shieldstorm.js` |
+| MARKER ROUNDS | a tracer hit *paints* a car for four seconds; a painted car takes +40% from **everything**, and rockets prefer it | `traffic.js`'s `damage`, `projectiles.js`'s `seek` |
+
+They are ownership **flags** and nothing more — `upgrades.js` knows what each
+one costs and nothing about what it does; the four systems above read the flag
+off the car (`player.specials`) and each says for itself what it does with it.
+The join is a bare string, so `test/specials.test.js` pins both directions of
+it: every flag sold is read by something, and every claim names a flag on sale.
+
+The last two are built to talk to each other — painting a rig with the tracker
+is how you tell a twin rack where to go — and the storm is deliberately worth
+less per discharge than a single cannon round, so parking in traffic under a
+bought shield never out-earns driving and gunning.
+
+Everything is on sale at every dock for now. When only a subset should be
+offered at a given stop, that is a filter over `SPECIALS` in `shop.js`'s
+`SHELVES` — the catalogue does not change, and the cursor, the purchase path
+and the receipts follow on their own.
+
+**Nothing survives a run.** The tiers and the specials die with the car exactly as the unspent
 credits do, which is the same promise `main.js`'s `CREDIT_STORE` makes about the
 money itself — see Money above. When the game has player records and a real
 bank, whether the upgrade ladder should persist alongside it is a decision to
 make then, not one to inherit.
 
-Multi-weapon fire and the other *special* upgrades are not in yet; the shelves
-are built so that adding them is a catalogue edit.
+More specials are planned; adding one is a catalogue entry plus whichever
+system reads its flag.
 
 ## Development roadmap
 

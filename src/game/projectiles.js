@@ -213,6 +213,10 @@ export class Projectiles {
       impact: "spark",  // "spark" | "fireball" — see detonate() below
       blastRadius: 0,   // splash — see detonate() below. 0 = direct hit only
       blastDamage: 0,
+      mark: 0,          // seconds of MARK this round paints on what it hits
+                        // (weapons.js's MARKER ROUNDS). 0 for every round the
+                        // shop has not been asked to change, which is all of
+                        // them by default — see the hit loop in update()
     }));
     this.sparks = Array.from({ length: MAX_SPARKS }, () => ({
       alive: false,
@@ -234,7 +238,12 @@ export class Projectiles {
   //
   // Both flight modes are spawned from the same (worldY, offset) muzzle — the
   // straight shot simply converts it, ONCE, into the screen line it will hold.
-  spawn(worldY, offset, shooterSpeed, type, W, dir = 1) {
+  // `mark` is the one thing a round carries that its own catalogue entry does
+  // NOT decide on its own: whether it paints what it hits depends on whether
+  // the player bought MARKER ROUNDS, which is the caller's knowledge, not the
+  // weapon's. It defaults to 0, so every existing caller — and every hostile
+  // round, forever — reads exactly as it did before the field existed.
+  spawn(worldY, offset, shooterSpeed, type, W, dir = 1, mark = 0) {
     let s = this.shots.find((b) => !b.alive);
     if (!s) {
       s = this.shots[this.next];
@@ -267,6 +276,7 @@ export class Projectiles {
     s.impact = type.impact ?? "spark";
     s.blastRadius = type.blastRadius ?? 0;
     s.blastDamage = type.blastDamage ?? 0;
+    s.mark = mark;
     return s;
   }
 
@@ -337,6 +347,17 @@ export class Projectiles {
         const hit = this.firstHit(s, targets);
         if (!hit) break;
         hit.damage(s.damage);
+        // ...and paint it, AFTER the hit rather than before. The round that
+        // applies the mark does not get to benefit from it — a tag is a
+        // set-up for the NEXT shot, and a marker round that amplified itself
+        // would just be a damage upgrade wearing a target reticle.
+        //
+        // Duck-typed on `markTag` the same way the whole file duck-types
+        // `damage`: a car has one (traffic.js), road furniture and the
+        // player's own body do not, and neither has to be excluded by name.
+        // A piercing burst therefore paints every car it goes through, which
+        // is exactly what the tracker's own comment promises.
+        if (s.mark > 0 && hit.markTag) hit.markTag(s.mark);
         if (s.pierce > 0 && !hit.alive) {
           // Through it and onward. The flash sits on the body it passed
           // through rather than at the round's own position, so a burst that
@@ -373,20 +394,54 @@ export class Projectiles {
   // aimed at a car, a betrayal of the shot they took. The flag is opt-IN rather
   // than a list of exclusions here, so anything added to the target list later
   // (drones, the helicopter) has to say for itself whether it can be locked on.
+  // TWO THINGS OUTRANK DISTANCE, and both exist so that a rack of rockets
+  // (weapons.js's TWIN RACK) reads as several rounds hunting rather than one
+  // round fired twice. `rank` is compared before `ahead`, so the nearest
+  // acceptable car still wins inside a rank:
+  //
+  //   A MARKED CAR IS PREFERRED (rank -1). Painting a car with the tracker
+  //   (MARKER ROUNDS) is a way of TELLING the rockets where to go — which is
+  //   the whole point of buying two upgrades that talk to each other, and
+  //   costs nothing when nothing on the road is painted.
+  //   A CAR ANOTHER LIVE SEEKER HAS ALREADY LOCKED IS AVOIDED (rank +1).
+  //   Two rockets launched in the same tick would otherwise pick the same
+  //   nearest car every time and the second warhead would land on a wreck.
+  //
+  // It is a PREFERENCE, not a rule: an already-claimed car is still returned
+  // when it is all there is, so a lone target never leaves a rocket flying
+  // blind up an empty lane.
   seek(s, targets) {
     let best = null;
+    let bestRank = Infinity;
     let bestDist = Infinity;
     for (const t of targets) {
       if (!t.alive || !t.seekable) continue;
       const ahead = (t.worldY - s.worldY) * s.dir;
       if (ahead <= 0 || ahead > SEEK_RANGE) continue;
       if (Math.abs(t.offset - s.offset) > SEEK_CONE) continue;
-      if (ahead < bestDist) {
+      // markTime is undefined on anything that cannot be painted, so this is
+      // false for road furniture without a test of its own.
+      const rank = (this.locked(t, s) ? 1 : 0) - (t.markTime > 0 ? 1 : 0);
+      if (rank > bestRank) continue;
+      if (rank < bestRank || ahead < bestDist) {
+        bestRank = rank;
         bestDist = ahead;
         best = t;
       }
     }
     return best;
+  }
+
+  // Is some OTHER live seeking round already chasing `t`? Linear over a pool of
+  // 32, run only when a round has to acquire (which is once per lock, not once
+  // per tick), so it stays far cheaper than the per-target bookkeeping the
+  // alternative would need — and it self-heals: a dead rocket's claim vanishes
+  // with it, because `alive` is the only record there is.
+  locked(t, self) {
+    for (const o of this.shots) {
+      if (o !== self && o.alive && o.seeking && o.target === t) return true;
+    }
+    return false;
   }
 
   // The nearest target the bullet's path crossed this tick, or null. "Nearest"

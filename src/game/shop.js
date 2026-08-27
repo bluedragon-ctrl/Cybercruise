@@ -3,8 +3,8 @@
 // The pickup/return sequence (game/hauler.js) and the state machine that hangs
 // off it (main.js's "lifting"/"shopping"/"lowering") carry the car here; this
 // screen is what the player does while they are up there. It draws a dock
-// frame, reports the bank, and runs a cursor down two shelves — consumables and
-// car systems — taking money for what it sells.
+// frame, reports the bank, and runs a cursor down three shelves — consumables,
+// car systems and specials — taking money for what it sells.
 //
 // IT OWNS NO NUMBERS. Every price, quantity, tier and effect lives in
 // game/upgrades.js, in the data-file style cartypes.js and pickuptypes.js use;
@@ -43,6 +43,7 @@ import { GREEN, GREEN_BRIGHT, GREEN_PALE, GREEN_DIM, PLAYER, HAZARD } from "../e
 import { consumePress } from "../engine/input.js";
 import {
   CONSUMABLES,
+  SPECIALS,
   STATS,
   TIER_COUNT,
   priceOf,
@@ -68,9 +69,21 @@ const BACKDROP = "rgba(5, 6, 10, 0.96)";
 // want to scroll.
 const UNDOCK = { id: "undock", label: "UNDOCK", undock: true };
 
+// SPECIALS SIT LAST, under the systems and above the way out. Deliberate
+// ordering rather than the order they were written in: the shelves run cheapest
+// to dearest and routine to exceptional, so a player walking the cursor down
+// passes "top the car up" and "improve the car" before reaching "change what
+// the car does". A special is the purchase you save for, and the bottom of the
+// list is where saving-for lives.
+//
+// WHEN ONLY A SUBSET IS ON OFFER (see upgrades.js's own note), THIS is the line
+// that changes — a filter over SPECIALS against whatever decides availability —
+// and the catalogue does not. ROWS below flattens whatever this holds, so the
+// cursor, the purchase path and the receipts all follow on their own.
 const SHELVES = [
   { heading: "CONSUMABLES", entries: CONSUMABLES },
   { heading: "CAR SYSTEMS", entries: STATS },
+  { heading: "SPECIALS", entries: SPECIALS },
   { heading: null, entries: [UNDOCK] },
 ];
 
@@ -84,9 +97,19 @@ const ROWS = SHELVES.flatMap((shelf) => shelf.entries);
 // Fixed pixel positions against the 600x800 canvas, exactly as menu.js and the
 // mockup before this both do. The frame is the mockup's own, unchanged — the
 // screen the player already knows, with contents in it.
-const ROW_PITCH = 26;
-const SHELF_GAP = 34;    // extra space above a shelf heading
-const HEADING_DROP = 22; // heading baseline to its first row
+//
+// TIGHTENED FOR THE THIRD SHELF. Sixteen rows and three headings have to fit
+// between the credit readout and the frame's own bottom edge (H - 182 + 64.5,
+// which is 682 on the 800-tall canvas), and they only do at this pitch — the
+// alternative was a scrolling shelf, which is a worse answer to "the shop sells
+// four more things" than four fewer pixels a row.
+//
+// SHELF_GAP stays comfortably larger than HEADING_DROP on purpose: a heading
+// has to sit closer to the shelf it names than to the one above it, or the
+// three groups read as one long list with words in it.
+const ROW_PITCH = 23;
+const SHELF_GAP = 22;    // extra space above a shelf heading
+const HEADING_DROP = 17; // heading baseline to its first row
 
 const LEFT = 62;      // labels
 const RIGHT = 538;    // prices, right-aligned
@@ -95,7 +118,7 @@ const MARK_X = 176;   // the "bought this visit" receipt, just past the label
 const DETAIL_X = 322; // what one purchase gives you (centred)
 const VALUE_X = 440;  // a stat's current -> next reading (centred)
 
-const SHELF_TOP = 196; // first heading's own baseline
+const SHELF_TOP = 186; // first heading's own baseline
 
 // Tier pips — three small boxes per stat row, filled for each tier owned.
 // DRAWN rather than written as text: a "2/3" reads as a fraction to be parsed,
@@ -207,7 +230,7 @@ export function createShop() {
       // be promising the player a balance that dies with their next crash.
       // The subtitle says so out loud rather than letting them find out.
       glowText(ctx, `${wallet.credits} CR`, W / 2, 132, PLAYER, 26, "center", 16, true);
-      glowText(ctx, "THIS RUN ONLY — NOT CARRIED OVER", W / 2, 166, GREEN_DIM, 10, "center", 0);
+      glowText(ctx, "THIS RUN ONLY — NOT CARRIED OVER", W / 2, 160, GREEN_DIM, 10, "center", 0);
 
       // The shelves. `index` walks ROWS in the same order the cursor does, so
       // the drawn row and the selected row can never disagree — they are the
@@ -240,7 +263,7 @@ export function createShop() {
       // description and says which it is, in words, with the shortfall in it.
       const note = noteFor(ROWS[selected], garage, wallet);
       if (note) {
-        glowText(ctx, note.text, W / 2, 612, note.urgent ? HAZARD : GREEN_DIM,
+        glowText(ctx, note.text, W / 2, 668, note.urgent ? HAZARD : GREEN_DIM,
           11, "center", note.urgent ? 6 : 0);
       }
 
@@ -290,6 +313,18 @@ function drawRow(ctx, entry, y, selected, bought, wallet, garage, player, loadou
     if (status) {
       glowText(ctx, status, VALUE_X, y, affordable ? GREEN_PALE : GREEN_DIM, 12, "center", 0);
     }
+  } else if (entry.special) {
+    // A SPECIAL: the same DETAIL_X slot a consumable uses, because it is the
+    // same question ("what does one purchase give me") and the answer is just
+    // as short. NO PIPS and no now->next reading — there is no ladder to draw
+    // progress along and no number that moves, which is the whole reason this
+    // shelf exists separately. What goes in the VALUE_X slot instead is the one
+    // fact a one-off purchase has that a consumable doesn't: whether it is
+    // already on the car.
+    glowText(ctx, entry.detail, DETAIL_X, y, soldOut || affordable ? GREEN_PALE : GREEN_DIM,
+      12, "center", 0);
+    glowText(ctx, soldOut ? "FITTED" : "NOT FITTED", VALUE_X, y,
+      soldOut ? GREEN_BRIGHT : affordable ? GREEN_PALE : GREEN_DIM, 12, "center", 0);
   } else {
     // A car system: the tiers owned, and what the next one moves the reading to.
     const level = garage.levelOf(entry);
@@ -314,7 +349,11 @@ function drawRow(ctx, entry, y, selected, bought, wallet, garage, player, loadou
   if (bought) glowText(ctx, "BOUGHT", MARK_X, y, GREEN_BRIGHT, 11, "left", 6);
 
   if (soldOut) {
-    glowText(ctx, "MAX", RIGHT, y, GREEN_DIM, 12, "right", 0);
+    // "MAX" is a ladder finished; "SOLD" is a thing you already own. Same
+    // dimmed price column either way, because both mean "there is nothing here
+    // to buy" — but they are not the same fact, and a special stuck at "MAX"
+    // would read as a tier the player somehow topped out in one purchase.
+    glowText(ctx, entry.special ? "SOLD" : "MAX", RIGHT, y, GREEN_DIM, 12, "right", 0);
   } else {
     glowText(ctx, `${price} CR`, RIGHT, y, affordable ? GREEN : HAZARD, 13, "right",
       selected && affordable ? 8 : 0);
@@ -381,7 +420,9 @@ function noteFor(entry, garage, wallet) {
   if (entry.undock) return { text: "FLY BACK TO THE ROAD" };
 
   const price = priceOf(entry, garage);
-  if (price === null) return { text: "FULLY UPGRADED" };
+  if (price === null) {
+    return { text: entry.special ? "ALREADY FITTED — IT IS YOURS FOR THE RUN" : "FULLY UPGRADED" };
+  }
   if (price > wallet.credits) {
     // The SHORTFALL, not just the price — the price is already on the row, and
     // what the player actually wants to know is how much more road they have to

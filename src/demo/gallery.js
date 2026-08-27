@@ -26,7 +26,13 @@ import { CAR_TYPES, ENEMY_FACTION } from "../game/cartypes.js";
 import { WEAPON_TYPES } from "../game/weapons.js";
 import { PICKUP_SHAPES, drawPickupShape } from "../game/pickupshapes.js";
 import { PICKUP_TYPES } from "../game/pickuptypes.js";
-import { drawCollectBurst, COLLECT_DURATION } from "../game/effects.js";
+import {
+  drawCollectBurst,
+  COLLECT_DURATION,
+  drawTargetMark,
+  drawShieldArc,
+  ARC_DURATION,
+} from "../game/effects.js";
 import * as pal from "../engine/palette.js";
 
 const gallery = document.getElementById("gallery");
@@ -441,6 +447,53 @@ cell("FX · COLLECTED", (ctx, size, phase) => {
   } else {
     drawCollectBurst(ctx, size / 2, size / 2, (time - COLLECT_PAUSE) / COLLECT_DURATION);
   }
+}, { animate: true });
+
+// The two SPECIALS effects (game/upgrades.js's shelf). Both are drawn over a
+// car rather than in isolation, because neither means anything on its own — a
+// reticle is a reticle around something, and an arc is a line to something.
+cell("FX · MARKED", (ctx, size, phase) => {
+  const seconds = phase / 260;
+  const type = CAR_TYPES[0];
+  drawCar(ctx, size / 2, size / 2, {
+    shape: type.shape,
+    color: type.color,
+    thrust: type.thrust,
+    accent: type.accent,
+    w: type.w,
+    h: type.h,
+    wheelPhase: 0,
+  });
+  // Fed the car's own remaining mark time in the live game, which is what makes
+  // each painted car pulse on its own clock — here, just the wall clock.
+  drawTargetMark(ctx, size / 2, size / 2, type.w, type.h, seconds);
+}, { animate: true });
+
+// The shield's discharge, on the same armed-then-triggered loop the other FX
+// cells use. The pause is longer than the bolt by some way, which is exactly
+// the cadence game/shieldstorm.js fires at.
+const ARC_PAUSE = 0.45;
+const ARC_CYCLE = ARC_PAUSE + ARC_DURATION;
+cell("FX · SHIELD ARC", (ctx, size, phase) => {
+  const seconds = phase / 260;
+  const type = CAR_TYPES[0];
+  drawCar(ctx, size * 0.72, size / 2, {
+    shape: type.shape,
+    color: type.color,
+    thrust: type.thrust,
+    accent: type.accent,
+    w: type.w,
+    h: type.h,
+    wheelPhase: 0,
+  });
+  const time = seconds % ARC_CYCLE;
+  if (time < ARC_PAUSE) return;
+  // A new seed per discharge, so successive bolts are different lines rather
+  // than the same zigzag flashing — see effects.js on why one bolt does NOT
+  // re-randomise within its own life.
+  const seed = Math.floor(seconds / ARC_CYCLE) + 1;
+  drawShieldArc(ctx, size * 0.2, size / 2, size * 0.72, size / 2,
+    (time - ARC_PAUSE) / ARC_DURATION, { seed });
 }, { animate: true });
 
 paletteCell();
