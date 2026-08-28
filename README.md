@@ -5,105 +5,42 @@ A retro **80s neon wireframe** browser game in vanilla JavaScript, inspired by t
 highway, weave through friendly and enemy traffic, and blast enemies with a
 selection of switchable weapons.
 
+> **This file is a map, not a manual.** Every module carries a header explaining
+> what decision it embodies and what would go wrong without it, and that is where
+> the reasoning lives — often at far more length than makes sense here. What
+> follows says what each system IS, what is load-bearing about it, and which file
+> to open. Where the two disagree, the source wins.
+
 ## Play
 
-The game uses native ES modules, so it must be served over HTTP (not opened as a
-`file://`). On Windows, double-click **`play.bat`** in the project root — it
-serves the folder and opens the game in your browser. It takes an optional port:
-`play.bat 8080`.
-
-Otherwise any static file server will do — from the project root:
-
 ```bash
-python -m http.server 5173
+npm run serve
 ```
 
-Then open <http://localhost:5173>.
+Then open <http://localhost:5173>. On Windows, **`play.bat`** does the same and
+waits for the port before opening the browser; it takes an optional port
+(`play.bat 8080`). The game is native ES modules, so it cannot be opened as a
+`file://`.
 
-Cybercruise is developed across several machines, and not all of them have
-python on PATH (on Windows, a bare `python` may hit the Microsoft Store alias
-stub rather than a real interpreter). Equivalent one-liners:
+Both run `tools/serve.js` — a static server on Node built-ins alone, because the
+project has zero dependencies and starting the game must not depend on a working
+npm install. It is deliberately **API-free**: the soundtrack listing is a
+committed manifest (`npm run music`), not an endpoint, so what runs locally is
+byte for byte what runs on a static host. `tools/serve.js` and
+`tools/musicmanifest.js` have the full reasoning.
 
-```bash
-npx --yes serve -l 5173 .
-```
+Any static server will do. Two traps if you roll your own: `.js` must be sent as
+`text/javascript`, and resolve the document root to an absolute path before the
+containment check.
 
-```bash
-php -S localhost:5173
-```
+`.claude/launch.json` runs the same server, plus an entry for the tuning editor.
 
-Two things to watch if you roll your own server: `.js` must be sent as
-`text/javascript` or the browser refuses the modules, and resolve the document
-root to an absolute path before the containment check — comparing request paths
-against a relative root rejects everything as a 403.
-
-`.claude/launch.json` (used by Claude Code's preview tooling) starts the python
-variant. If python isn't available on your machine, point it at whichever server
-you use locally — but please don't commit that switch, since python works for
-most of the machines this is developed on.
-
-### Test options
-
-Two cheat rows sit on the start/pause menu below SOUND and MUSIC, for testing
-by hand what a normal run makes expensive to reach:
-
-| Row | What it does |
+| script | |
 | --- | --- |
-| `INVULNERABILITY` | The car takes no hull damage from anything — bullets, blast, ramming, wall-scrape. A scrape still scrubs speed, so the car still drives like a car. |
-| `EXTRA CASH` | Pays a float big enough to buy out the shop, so the top tiers can be looked at without grinding to them. Paid once per arming: switch the row off and back on for another. |
-
-Arrow left/right (or SPACE) flips the selected row; both are also clickable, and
-both persist across a reload. Toggling either from the PAUSE screen takes effect
-on the next tick, so a run can be made invulnerable partway through.
-
-**Both rows come from `src/testoptions.js`, and that file is the switch.** Set
-`SHOW_TEST_OPTIONS` to `false` to drop them from the menu entirely, or either of
-the two per-row flags to drop just one. The menu builds its row list from those
-flags, so nothing else needs editing — and with a row gone its cheat reads as
-off whatever a previous session left in `localStorage`. The payout `EXTRA CASH`
-is worth lives there too.
-
-### Asset gallery
-
-A static showcase of the neon assets (cars, buildings, palette) for iterating on
-visuals without running the game lives at <http://localhost:5173/demo.html>. Add
-a sprite in `src/game/sprites.js`, then register a cell in `src/demo/gallery.js`.
-Car types are the exception: the gallery walks the catalogue, so a new entry in
-`src/game/cartypes.js` shows up there on its own.
-
-The silhouette catalogue further down that page draws each car shape at **2x**,
-with its true size in the caption. Those cells are a detail study rather than a
-size-accurate preview — the traffic cells above them are the size-accurate ones —
-because at 1x a 34x62 car is too small to show whether its panel work reads or
-the glow has swallowed it. See the detail budget in `src/game/carshapes.js`.
-
-### Tuning editor
-
-A local tool (`tools/car-editor/`) for tuning essentially every balance number
-in the game without hand-editing the source. Five tabs:
-
-| Tab | What it edits |
-| --- | --- |
-| Cars | The whole roster, civilian and hostile: hull and mass, speed and steering, the wreck's blast, score and bounty, spawn odds and distance, and the driving profile behind it |
-| Hazards & pickups | An obstacle's toughness, contact damage, blast and slow effect; a crate's payload; spawn odds and distance for both |
-| Weapons | The player's kit and the hostiles' alike: damage, rate of fire, burst, projectile flight, blast, magazine and starting ammo |
-| Shop | Consumable prices and payloads; a car system's tier-1 price and what one tier adds |
-| World | The stock car (`player.js`), traffic density (`traffic.js`), the road's shape (`tuning.js`), and the run's pacing and economy (`hauler.js`, `score.js`, the shop's tier-price ladder) |
-
-Double-click `tools/car-editor/edit.bat` (or run
-`node tools/car-editor/server.js`) and open the URL it prints. Every field
-shows its current value and a description of what it does; "Create Pull
-Request" patches the changed source files on a fresh branch, runs the test
-suite before pushing, and opens GitHub's compare page so you finish the PR
-from there. Requires Git; does not require the GitHub CLI.
-
-Two things worth knowing before you tune behaviour. Driving profiles are
-SHARED — the VAN and the BUS both drive `hauler`, and every car without its own
-profile falls back to `commuter`, the baseline the rest inherit from — so the
-editor states the reach of each behaviour edit on the form and in the diff.
-And what a stat's shop ladder counts UP from is the car's own figure, which is
-why `MAX_SPEED`, `BASE_MAX_HEALTH` and `PLAYER_MASS` are tuned under World
-rather than on the shop screen.
+| `npm test` | the cross-file invariant suite — `test/README-invariants.md` |
+| `npm run sim` | headless driving-profile measurement (`tools/drivesim.js`) |
+| `npm run econ` | headless credit-economy measurement (`tools/econsim.js`) |
+| `npm run music` | regenerate `assets/music/tracks.json` |
 
 ### Controls
 
@@ -114,633 +51,52 @@ rather than on the shop screen.
 | Space | Fire |
 | Tab / Shift / Q | Swap weapon |
 
-## Tech
-
-- Vanilla JS + HTML5 Canvas 2D — no framework, no build step
-- Native ES modules
-- Web Audio API for procedural wavesynth music & SFX (later phase)
-
-### Rendering performance
-
-Canvas 2D's `ctx.shadowBlur` is what makes the neon look, and it is also by far
-the most expensive thing the renderer can do — its cost scales with the shadow's
-**bounding-box area**, not with the complexity of the shape. Before this was
-addressed, glow accounted for ~80% of frame time (5.05ms → 1.01ms with
-`shadowBlur` forced to 0) and grew linearly with every object on screen.
-
-Three rules keep that from coming back as more visuals land:
-
-1. **Anything drawn per-frame per-entity goes through the sprite cache.** Use
-   `drawCarCached` / `drawBuildingVariant` (`src/game/sprites.js`), or add a
-   wrapper built on `src/engine/spritecache.js`. Cache keys must be bounded —
-   quantise continuous parameters rather than keying on raw floats. The raw
-   `drawCar` / `drawBuilding` stay pure for the asset gallery and for building
-   cache entries.
-2. **Never put `shadowBlur` on a path that spans much of the canvas.** Use
-   `neonStroke` (`src/engine/neon.js`), which strokes a path several times at
-   decreasing width instead. One full-height barrier: 865µs shadowed vs 217µs
-   layered.
-3. **Anything that only SCROLLS is pre-rendered and blitted, not re-stroked.**
-   Once rule 2 is applied, `neonStroke`'s overdraw becomes the whole frame cost,
-   and the two biggest paths were pure functions of world position. The road is
-   drawn from a rolling cache of 128px strips (`road.js`) and the city floor grid
-   from a single tile (`scenery.js`). Together ~4.3ms/frame down to ~60µs. If a
-   new full-screen layer scrolls, it belongs in a cache too — check first whether
-   it *repeats* (one tile, forever) or not (a keyed sliding window).
-
-**The camera is quantised to whole pixels, and this is load-bearing.** `main.js`
-rounds `distance` ONCE at the top of the render pass and hands that value to
-every layer; `scenery.render` rounds its own half-speed parallax clock the same
-way. A blit is only pixel-exact at an integer offset, so interpolating the world
-scroll — or rounding per-layer instead of once — would resample both caches and
-soften the neon, and would shear the traffic against the road it drives on. The
-world advancing in whole-pixel steps is deliberate; at 4–10px/frame it is
-invisible. Do **not** round the simulation's `distance`: the odometer and the
-distance term of the score read the real float. (The odometer is also *scaled*
-for display — see "Distance, and the spawn gate" below — but that too is a
-presentation step applied on the way to the HUD, never to `distance` itself.)
-
-Current cost is **under 1ms/frame** at 600×800 with a full screen of traffic,
-against a 16.7ms budget — measured by injecting known workloads alongside the
-live game until frames dropped, which put ~10ms+ of headroom on top. It is also
-**flat in object count**, so entities are effectively free and the remaining
-budget is governed by screen area. Note that budget assumes 480k pixels: going
-fullscreen 1080p is 4.3x the area, fill rate scales with it, and the cache tiles
-grow with it too (the grid tile alone goes 2MB → 8MB).
-
-There is nothing left above the noise floor: all building blits together are
-43µs, a cached car blit is ~8µs, `clear()` is ~25µs. Optimisation targets are
-absolute, not relative — removing the two big layers did not promote any of these
-to being worth touching. Future performance work should be triggered by a
-measurement, not a hunch; the likely triggers are a high-DPI backing store, a new
-full-screen effect (scanlines, CRT curvature, colour grade), or an order of
-magnitude more entities.
-
-No longer open: **7e's own measurement is the trigger.** The city had no
-culling through 7a-7d — checked, not just assumed, at the three points that
-seemed likeliest to force it: subdividing PLOTs into LOTs for Phase 7's
-building re-siting quadrupled the per-frame walk (~40 to ~160 cells) and
-stayed flat, retargeting the density (`BUILD_CHANCE`) to answer "the map looks
-empty" then pushed the render cost up for real, ~0.25ms to ~0.36ms/frame (see
-the city-map-layer design doc's own correction section for both), and 7d's
-registration ticks + distinguished nodes added a measured ~2µs/frame on top of
-that (baked-tile ticks cost literally nothing per frame; the rare node blits
-are the whole of it) — all three still comfortably under the ~0.5ms
-city-layer budget. 7d's own section in the design doc also flagged that this
-codebase's usual rAF-saturation method produced noisier, higher end-to-end
-numbers for `scenery.render()` as a whole in one particular sandboxed
-measurement environment than the isolated component measurement supported,
-and asked for a re-check in a real browser before trusting an end-to-end
-figure from that environment specifically.
-
-That re-check happened as part of 7e (links, pings, and a console voice —
-`game/links.js`), measured in a real, non-sandboxed browser: `links.render()`
-alone costs ~2.5-4.2µs/frame (cheaper even than 7c's drones, ~5.2µs in the
-same run), but `scenery.render()` + `drones.render()` + `links.render()`
-together — the actual per-frame city-floor total — measured **~500.67µs
-(~0.50ms)**, landing **at** the ~0.5ms budget rather than comfortably under
-it. See the design doc's own 7e section for the full numbers (including one
-noisy outlier sample, noted rather than hidden). The floor's headroom is
-gone: culling is now **7f's prerequisite**, not a someday item, and any
-further per-frame addition to this layer should re-measure rather than assume
-the margin 7a-7e enjoyed still exists.
-
-**7f (sectors) re-measured the same total, plus the road**, in the same real,
-non-sandboxed browser, by the same rAF-saturation method (six warmed samples,
-first discarded, median taken): `scenery.render()` + `links.render()` +
-`drones.render()` + `road.render()` together — now including the road, whose
-own strip cache also invalidates on a sector crossing — measured **~0.26-0.59ms
-across six samples, median ~0.39ms**. Read as noise around the same figure
-7e found, not as a real improvement despite doing more work: the two numbers
-came from different measurement sessions, and this file's own profiling-traps
-section is exactly the caution against over-trusting either one in isolation.
-The headroom question 7e left open stays open; this is a data point for it, not
-an answer. **The rescan glitch itself** (`sectors.renderGlitch`) costs **~0.13µs**
-when idle — a single comparison, confirming "costs nothing when it isn't
-firing" — and **~0.59ms** per frame while it IS firing, for the ~0.35s a
-crossing's tear lasts (roughly 21 frames at 60fps) before the next crossing
-at 1x `SECTOR_PERIOD`. See the design doc's own 7f section for the full
-numbers and the sector-palette architecture behind them.
-
-**Closed by 7g, the last sub-phase of Phase 7: culling was never needed.**
-7g added materialisation (buildings and nodes wiping in bottom-up as they
-cross the screen's top edge — see the design doc's own 7g section) — the
-one addition left that could still have moved this needle, since it puts a
-`clip`/`save`/`restore` and a small static overlay on whichever row is
-currently mid-wipe. Measured (same rAF-saturation method, real browser, six
-warmed samples): `scenery.render()` costs ~0.41ms/frame in the *realistic*
-steady state — `WIPE_SPAN` sits just under `LOT`, so some row is mid-wipe
-roughly 94% of the time, not a rare case — against ~0.27ms with none
-active, confirming the unclipped fast path itself hasn't moved. Both land
-inside the same ~0.36-0.5ms range this layer has measured since 7d, not a
-new one. The headroom question 7e opened and 7f left sitting stays a data
-point rather than a crisis through the whole of Phase 7: seven sub-phases
-landed at or under the ~0.5ms city-layer budget without a single line of
-culling code, and 7g — the sub-phase most likely to have finally needed
-it — didn't either. See the design doc's own closing note for the full
-retrospective.
-
-Two traps when profiling canvas work here, both of which cost time to rediscover:
-`getImageData` used to "force a flush" demotes the canvas out of GPU acceleration
-and changes what is being compared; and measuring throughput inside `requestAnimationFrame`
-silently floors at vsync and reports a ratio of ~1 unless the load genuinely
-overruns the frame budget. Two plausible-looking methods disagreed by 5x. Prefer
-saturating rAF throughput, and sanity-check any ratio near 1.
-
-### Display scaling
-
-The playfield is **600x800 forever**. That is a game constant, not a window
-measurement: widening the world on a wide screen would show more road ahead and
-quietly change the difficulty of every tuned value. What follows the window is
-the RASTER, and `src/engine/viewport.js` is the only module that knows the
-difference. It keeps three numbers apart:
-
-- `fit` — CSS pixels per logical pixel. How big the game LOOKS. Window-driven, uncapped.
-- `scale` — device pixels per logical pixel. How SHARP it is. Capped at 2.
-- `dpr` — the display's own ratio, folded into `scale`.
-
-The canvas backing store is `600 x 800` times `scale`, one uniform transform is
-installed per frame, and every drawing call in `src/game` keeps issuing 600x800
-coordinates. Nothing downstream knows. Cached layers rasterise at the same scale
-via `createSurface`/`blitSurface`, and carry `scale` in their cache keys.
-
-**`scale` moves in eighths, and that number is derived, not chosen.** The two
-scrolling layers are blitted from cached tiles, and a tile drawn at a fractional
-DEVICE offset is resampled rather than copied. Because the camera advances every
-frame the fractional part changes every frame, sliding the resample kernel under
-the artwork — which reads as the road visibly SMEARING as it scrolls. A scale
-that doesn't divide the tile stride evenly also stops a tile being a whole number
-of device rows, opening sub-pixel seams. The fix is that `scale`'s denominator
-must divide every tiled dimension: `TILE_STRIDE` 128, 600, 800, and
-`ARTERIAL_PERIOD` 512. Their gcd is 8. **If any of those four ever change,
-recompute that gcd** — `SCALE_STEP` follows from them.
-
-`snapToDevice()` closes the loop by snapping the two camera clocks (`main.js`'s
-`camY`, `scenery.js`'s `floorDist`) to the same grid, so every blit offset lands
-whole too. It is FINER than the whole-logical-pixel rounding it replaced — at
-scale 1.75 the world advances in 1/1.75-pixel steps — so motion got smoother, not
-chunkier. At scale 1 it reduces exactly to `Math.round`.
-
-**Integer-only scaling was tried first and is the wrong answer**, for a reason
-worth recording: `fit` is ~1.74 on a 1440p screen and ~1.94 on a 1600p one, both
-of which floor to 1x — a 74% and 94% browser upscale, on exactly the big screens
-the whole exercise was for. Eighths track `fit` to within 1/16, cutting the worst
-case to about 6%.
-
-**`will-change: transform` on the canvas is load-bearing.** Where `scale` and
-`fit` disagree the browser has to scale the canvas to present it, and HOW it does
-that is the whole difference: left unpromoted the canvas is re-rasterised into
-its display size every frame, measured at 48 frames of 599 over 17ms with
-occasional 30ms+ spikes, against 7 of 599 and none once promoted. Promotion makes
-the enlargement a GPU layer transform and the raster is reused untouched.
-
-Measured after all of the above, driving at 1.75x (3.06x the pixels of 1x):
-median 16.7ms, p95 16.9ms, no frame over 20ms — a locked 60fps, matching the
-pre-scaling baseline.
-
-Two smaller notes. The backing store is resized on a 150ms settle timer, not per
-resize event, so a whole window drag collapses into ONE cache rebuild; only the
-CSS box tracks the window continuously. And `#hint` carries `width: 0;
-min-width: 100%` deliberately — `#frame` is a flex item, so its width is
-shrink-to-fit, and a hint line longer than the canvas (the 91-char gameplay
-legend) would otherwise stretch the cabinet ~150px wider than the playfield and
-hang a slab of bezel off one side.
-
-### The gutters
-
-Scaling the playfield to the window left the screen either side of it empty. It
-is filled by two panels — the deck's `SYS LOG` down the left, a `RIG STATUS`
-readout down the right — built from `src/engine/gutter.js` (where they go),
-`src/game/telemetry.js` (what they say) and a block in `css/style.css` (what
-they look like).
-
-**They are DOM, and that is the whole performance story.** The playfield cannot
-grow (see above), so anything in the gutters is outside the canvas — and the
-alternative, a second canvas, would be a full-height surface repainted on the
-game's clock with its own raster to rebuild on every scale change. That is
-exactly the shape rule 3 exists to prevent. These panels repaint only when their
-TEXT changes: about one row a second on the log, and the rig's readouts are
-resampled at 4Hz and diffed before they are written, so a parked car writes
-nothing at all. The game loop never touches them.
-
-The supporting details all serve that one property. Rows are a recycled pool
-rotated by a single `appendChild`, so a push never allocates (the pool grows only
-when the window does). The age fade is a static CSS mask on the container, not
-per-row opacity. The type-on reveal is a CSS `clip-path` animation on one row at
-a time, and is off entirely under `prefers-reduced-motion`.
-
-**Out of flow, necessarily.** `viewport.js` computes `fit` from
-`window.innerWidth` directly, so a panel added as an ordinary sibling of
-`#frame` would not be subtracted from the width the canvas sizes itself against
-and the two would collide. The panels are `position: fixed` and placed from a
-measurement of the cabinet: they are told where it ended up and never get a vote
-in it. Below 260px of spare width a panel does not appear at all, which is what
-happens on any portrait or narrow window.
-
-**The log is one log, shown in two places.** Every line still enters
-`engine/console.js` — still ages, still ticks the audio subscriber, still counts
-toward `isBusy()`, which is the budget `links.js` and `wallet.js` pace the
-city's whole chatter against. What changes when the gutter is up is only what
-the in-canvas panel PAINTS: it keeps `CRITICAL` and shrinks to an `ALERT` plate,
-handing the quiet half over and giving back a 160px-wide slice of a 600px-wide
-playfield. A hull warning stays where the player's eyes already are, because the
-half-second it warns about is a half-second they cannot spend looking sideways;
-pickup hints and sector names are read between hazards, where a glance sideways
-is free. `console.js`'s `setDivert()` is that switch, and it is presentation
-only — nothing about the size of somebody's browser window changes how often the
-city talks.
-
-Filler lines are built from real state (the odometer, the speed, the sector, the
-balance) and the EMISSION RATE is a function of the car's speed, mapped across
-the game's own band — 260, a fresh car's starting speed, to 740, what a maxed
-engine tops out at. Drive faster and the deck chatters faster. That correlation
-is the difference between a live system and a screensaver, and it is what
-`test/gutter.test.js` mostly exists to pin down.
-
-**Three voices, not one.** The deck talks about what is actually happening, which
-means the routine pool — road strips, lot lookups, nav vectors — is only reachable
-while the car is being driven. The menu, the shop, a paused run and the boot draw
-from an idle pool instead, and a run that has ended draws from a dead-link pool,
-slowest of the three. Printing `hull.integrity 0%  shield nominal` over a wreck
-is the failure this split exists to prevent: a log that disagrees with the screen
-is worse than no log.
-
-Death itself is scripted, answering `jackin.js`'s `BEATS` at the other end of a
-run — the deck boots with a sequence, so it closes with one, down to
-`NEURAL LINK // CLOSED` against the boot's `NEURAL LINK // OPEN`. The burst is
-edge-triggered on the transition and built from the snapshot of the frame the
-player died on, so the figures it seals are the run's final ones. It owns the log
-while it runs, then the column goes cold.
-
-**The measured readouts double as a profiler.** `SIGNAL`, `FRAME`, `BUFFER` and
-`TRAFFIC` on the rig panel — and five of the log's own templates — are real
-instrumentation wearing the panel's vocabulary: frame rate as link quality, the
-shortfall against 60fps as packet loss, `update`+`render` cost against the 16.7ms
-budget, `performance.memory` as buffer occupancy, and the live spawned-entity
-count. `engine/loop.js` measures the first two, because the timestep is fixed and
-the `dt` every other module sees is a constant that says nothing about how the
-frame went; it keeps the frame RATE and the frame COST as separate numbers,
-because a rate that has dropped while the cost stayed flat means something
-different from both moving.
-
-The point is the tone on `SIGNAL`: amber below 55fps, red below 40. A playtester
-who never reads a number still sees the right-hand column change colour the
-moment the game stops holding 60 — a performance regression report during play,
-rather than behind a devtools panel covering the thing being judged. The figures
-are printed as measured, never smoothed, and read `--` rather than a confident
-zero until `loop.js` has closed its first one-second window. `performance.memory`
-is Chrome-only and degrades to `n/a` everywhere else.
-
-### Traffic
-
-The other cars on the road are three files, split so that adding a kind of
-traffic doesn't mean touching the simulation:
-
-- `src/game/cartypes.js` — the catalogue. A type is pure data: silhouette,
-  colours, size, health, cruising-speed range, how fast it can change lanes,
-  blast radius and damage, spawn weight, how far into the run the type unlocks
-  (`minDistance` — see below), and the name of its behaviour. New traffic = a
-  new entry here.
-- `src/game/carshapes.js` — the silhouettes. Eleven of them, and the catalogue is
-  a 1:1 map onto it: **shape** is what tells one type from another, so colour is
-  left to carry only faction (red hostile / amber civilian) and weight class, and
-  shades repeat across types. The one shape shared with the player is given to an
-  enemy — your own outline in red reads as a rival.
-- `src/game/behaviours.js` — the manoeuvres, and the order they are decided in.
-  A behaviour only sets INTENT (`targetOffset`, `targetSpeed`); traffic.js
-  integrates it under the type's limits, so a rig can't corner like a roadster
-  and the physics stay in one place. One entry point, `driveCar`, runs three
-  stages for every car: **tactic** (the manoeuvre), **reflex** (hazard
-  avoidance, which may override the tactic laterally), then **arms**. Every row
-  in that table is a real manoeuvre — nothing borrows its driving from the
-  civilian ones any more. `pursue` (the interceptor) is the road's one chasing
-  function: close in, hold a firing gap, never give up. `raid` (the cycle)
-  forces its way past whatever's ahead, then holds station just long enough
-  to drop one mine in the player's path. `trail` (the stocker) is `pursue`
-  plus a give-up clock: it fights one engagement off the player's back bumper
-  and then rides off, permanently unarmed. `ram` (the bruiser) carries no gun and no mines
-  at all — it just closes the gap, from behind or alongside to hit the player
-  outright, or from in front by holding a speed under theirs to make the same
-  contact happen the other way round.
-- `src/game/driving.js` — the **driving profiles**: the numbers behind a tactic.
-  Following distances, patience, lane discipline, and how much hull a driver
-  will accept hitting. See below.
-- `src/game/traffic.js` — spawning, driving, dying, retiring, drawing.
-- `src/game/collisions.js` — ramming: the only place cars push each other around.
-- `src/game/effects.js` — wrecks: what a destroyed car looks like on its way out.
-
-The nimble types (sedan, roadster, interceptor) drive the `overtake` tactic: if
-something slower is holding them up — traffic or the player — they pull out, pass
-on one side and settle back into a lane. The manoeuvre is **committed**: a car
-picks its side once, from whichever one has road and nobody already in it, and
-holds that line until it is past, gives up, or the side runs out of tarmac.
-Re-deciding every tick makes traffic dither, and here it would also mean cars
-jinking into each other, since every swerve is now a collision. Overtakers still
-brake for whatever is ahead in *either* lane while changing lanes, so a pass that
-can't be completed degrades to following rather than to a rear-end.
-
-The heavy types (van, rig, bruiser) just `cruise`, which is what keeps the whole
-road from weaving at once — and means sitting in front of a rig at 180 works,
-while sitting in front of anything nimble does not. The muscle car is the
-exception that proves it: heavy, and an overtaker anyway, because a heavy that
-comes past you rather than sitting behind you is the one civilian the player has
-to actually give way to. The stocker is the hostile answer to the same idea — a
-heavy that hunts, so weight stops being a promise that a car will leave you
-alone.
-
-### Distance, and the spawn gate
-
-The simulation measures the road in **world units** — roughly one per pixel —
-and that is what every coordinate, spawn margin and blast radius is written in.
-It is *not* what the player sees: the **DIST** readout divides by
-`road.js`'s `DIST_UNITS` (100), because raw units reach five figures inside a
-minute and read as noise. So `DIST 50` is 5,000 world units driven.
-
-That readout is a unit the design speaks in, not just a bit of formatting.
-Every entry in the two spawn catalogues carries a **`minDistance`**: how far the
-player must have driven before that type may appear at all, written in
-DIST-readout units, so "the enemy turns up at 100" means the number on the HUD.
-
-- **Cars** (`cartypes.js`) — civilians are `0`, on the road from the first
-  metre; every hostile type is `ENEMY_MIN_DISTANCE` (100 ≈ 10,000 world units,
-  or about 16 seconds flat out). The opening run is therefore ordinary city
-  traffic, and the enemy arrives as a *change* rather than as the state of the
-  world from the first second. Dawdling stretches that quiet spell out —
-  deliberately: speed is what asks for the trouble.
-- **Obstacles** (`obstacletypes.js`) — all `0` today. A roadblock is the city's,
-  not the enemy's, so it belongs on the opening road alongside the traffic that
-  has to swerve round it. The field is there so a hazard (the mine is the
-  obvious candidate) can be held back later without new machinery.
-
-The gate **reweights** the draw rather than re-rolling until something passes:
-before `DIST 100` the six civilian types share the whole spawn weight, so the
-opening road is as busy as any other stretch. Rejection sampling would have
-thinned it to half strength, which is the opposite of what a quiet start should
-feel like. `pickCarType`/`pickObstacleType` return `null` only if *everything*
-is still gated, and the spawners treat that exactly like a full road: skip, try
-again next interval. Enemy-laid mines (`armament.js`) go through the catalogue
-by name and are not gated — the car that lays them already was.
-
-Staging the enemy per type (interceptors early, a rival only much later) is a
-matter of spreading those numbers out; nothing in `traffic.js` needs to change.
-
-#### The focus switch
-
-Tuning one type's driving means watching it, and a road running the full
-catalogue gives you a few seconds of the car you care about between everything
-else. `cartypes.js` exports **`FOCUS`**, a list of type ids: set it and only
-those reach the road.
-
-```js
-export const FOCUS = ["sedan", "roadster"];   // civilian profiles, nothing else
-```
-
-It is an override on the same `typeAvailable` gate the game ships with, not a
-filter of its own, so a focused road is still a road the real spawner built —
-same reweighting, same `pickCarType`, same everything-gated path. A measurement
-harness that measured a different code path would not be measuring the game. A
-focused type keeps its own `minDistance`, so focusing on the interceptor still
-waits for `DIST 100`.
-
-**Ship it empty.** The first test in `test/hazards.test.js` asserts `FOCUS` is
-`[]`, because a focused catalogue also fails the gating invariants and
-"`van` never appeared" is a much worse error message than "`FOCUS` is still set".
-
-### Driving profiles
-
-A car type names **two** things: a tactic (which manoeuvres it knows) and a
-**driving profile** (how boldly it runs them). Everything a driver might feel
-about the road used to be hard-coded in `behaviours.js`, so two civilians naming
-`overtake` drove identically and telling them apart meant writing a second
-function. Now it is a data table, and a new car type is usually no new code at
-all.
-
-The sedan and the roadster are the demonstration: **same tactic**, so every
-difference between them on the road comes out of the profile and nothing else.
-
-| | `commuter` (sedan) | `hustler` (roadster) |
-|---|---|---|
-| lane discipline | dead centre | rides the lane edges, prefers the inner lane |
-| patience before a pass | 1.2s | 0.2s |
-| worth passing for | +15 units/sec | +5 |
-| following gap | 40 + 1.0s of closing | 20 + 0.65s |
-| will hit a roadblock | never | barrels ~1/3 of the time, never a trestle |
-| will brush another car | never — it brakes instead | readily |
-
-Measured over 15 car-minutes of headless road: the sedan sits **2.1px** from its
-lane centre against the roadster's **18.1**, and commits **1.0** pass per
-car-minute against **10.7**.
-
-**The hostiles are tuned the same way.** How close a car chases to, how wide a
-net it casts before bothering, how fast it will run to stay in touch, how long
-it keeps trying, and how hard it leans on the player once ahead of them are all
-profile fields too (`pursueHold`, `pursueRange`, `chaseSpeed`, `giveUpTime`,
-`ramBrake`, `ramFloor`). They were module constants inside `behaviours.js` for a
-while, which meant the five enemy profiles differed only in `nerve` and a second,
-more cautious interceptor needed a new *function* rather than a new row.
-
-#### One profile per civilian
-
-All six civilians have their own, and the sedan keeps `commuter` precisely
-because it is the reference every other table is described as a difference from.
-
-| | drives | in one line |
-|---|---|---|
-| sedan | `commuter` | the plain one, and the yardstick |
-| van | `hauler` | out of the way, and it will lean on something small |
-| rig | `juggernaut` | dead straight, brakes early, expects to be given room |
-| muscle | `brawler` | heavy and rude, and it doesn't feel the contacts |
-| roadster | `hustler` | fast and rude, and it does |
-| hypercar | `showpiece` | fast and immaculate |
-
-Three pairs carry the whole idea. **Roadster against hypercar**: the road's only
-two pale civilians, similar speed, opposite manners — one rides the lane edge and
-cuts past at 7px of clearance, the other holds the centre-line exactly and sweeps
-by at 20. **Van against rig**: the wandering one is the panel van, not the truck.
-**Muscle against roadster**: both are impatient, but the roadster pays 4–9 hull
-off 40 for every liberty it takes while the muscle car pays 1–3 off 110. One is
-reckless; the other simply doesn't have to care.
-
-The muscle car was a **hostile** until recently — the one that blocked your lane
-from in front. It moved across because the civilian road had a hole in exactly
-that shape: every heavy civilian was careful, and the only rude one was the
-frailest car out here, so rudeness never cost the player anything. A car that is
-aggressive *without* being out to get you is a different thing from an enemy. It
-still dodges every hazard, because it is amber and that signal is not negotiable
-— bad manners, perfectly good judgement.
-
-The **stocker** took the hostile slot it vacated, and deliberately isn't a copy:
-the muscle got in front of you and sat there, where the stocker *chases*. It is
-the enemy's quick heavy — 130 hull and mass 1.9 at 355–415, filling the gap
-between the bruiser's 330 and the interceptor's 400, so being ahead of one is
-not the escape it is with the rest of that class. It drives `roadracer`, the
-only hostile profile that runs a **racing line**: it lives on the lane edges and
-pulls out early, so a stocker closes from the side of the road rather than up
-the middle. Its nerve (14) sits above the interceptor's because the cage means
-junk in the road costs it paint rather than a wheel. It is also the only driver
-on the road that ever gives the player up: `giveUpTime` is 3 seconds of **lost
-contact** on this profile and 0 — never — on every other hostile. That leaves
-the `enforcer` profile the muscle left behind still unclaimed, and still the
-right table for a second heavy that leans on the player.
-
-The **bruiser** is the road's other real hostile tactic, and the plainest one:
-`ram` carries no gun and lays no mines — `arms: false` on the tactic's own row
-means it never fires the default hostile kit `armFor` still hands it, and the
-whole of its threat is its own 2.2 mass. It tracks the player's lane exactly
-as raid and trail do, but the speed half never brakes for them: from behind
-or alongside it simply asks for a ceiling above its own 330 top speed, so it
-closes and hits rather than settling into a follow. Once it's past, tracking
-the same lane while asking for less than the player's own speed *is* the
-block — they either brake to match a wall heavier than they are or rear-end
-it. Nothing coordinates the two hostiles that actually ship real tactics, and
-nothing has to: a player ground down by a bruiser is a player held in a
-stocker's gun window for longer, purely because the road runs both at once.
-
-The preferences also add up to a **lane gradient**. The two slow haulers want the
-lanes by the barrier and the two fast machines want the lanes by the centre-line,
-so the road sorts itself by speed and choosing a lane becomes a choice about what
-you will meet in it. That relation is asserted in the test suite, because a
-retune that puts a rig in the fast lane breaks nothing — it just quietly stops
-making sense.
-
-Three of those rows are load-bearing rather than flavour:
-
-**`nerve` is quantised by the obstacle catalogue.** It is compared against a
-hazard's `blastDamage` (barrels 5, trestle 8, tetra 24, mine 30), so anything
-between 0 and 5 behaves exactly like 0 — there is no "slightly bolder". No
-profile reaches the tetra's 24, so none reaches the mine's 30, so traffic never
-clears a mine off the road for the player. The **amber** civilians must stay at
-0: an amber car swerving has to mean "there is something in that lane". The pale
-ones are a visibly different shade, which is what buys the roadster the room to
-gamble.
-
-**A careful driver stops rather than hit anything.** With no lane it will accept,
-a car hands the hazard to its own following rule as a lead car doing zero and
-brakes to a standstill. It also slides off the hazard's line even though there is
-somebody standing in the refuge — found by measuring, not by reading: stopping
-alone left the car parked in the roadblock's lane until something rear-ended it
-and shunted it into the thing it had stopped for, which was *every* civilian
-hazard strike in a 15 car-minute sample. Fixing it took civilian hazard strikes
-from 0.43 to 0.14 per car-minute. Having already given up its speed, the contact
-the car accepts in the refuge is a nudge rather than a swipe.
-
-**`contact` is quantised too, but by the car rather than by the catalogue.** A
-lane change is priced as a side-swipe at the car's *own* steering rate, so what
-counts as a bold setting is a property of the type. The van steers at 60 against
-a damage floor of 40, which puts its contacts in a 0.7–1.5 hull band and gives it
-the only finely-graded dial on the road — it squeezes past a roadster two times
-in five and never a rig. The rig steers at 35, *under* the floor, so every lane
-change it could make costs exactly nothing and its dial has only two positions.
-Both ends of that are traps: a ceiling under the cheapest contact a type can be
-offered does nothing at all (the cycle sat at 4 against a floor of 7.35 for a
-while, and the table said otherwise), and a ceiling of zero has to mean "nobody"
-rather than "anybody it happens to be free to hit", or the heaviest vehicle in
-the catalogue becomes the one that shoves.
-
-`npm run sim` runs the road headless and reports what each profile actually did —
-lane deviation, passes committed and completed, time spent stopped, contacts,
-hazards struck. "Does the roadster feel different" is not a question a canvas
-answers honestly; these are the numbers behind the claims above.
-
-**Use `node tools/drivesim.js 300 60` for a tuning decision**, not the default
-five runs. Rates are per car-minute, the rare types earn them slowly, and two
-identical 20-run batches disagree by ~40% on contacts and hazard strikes for a
-rig or a hypercar. A 20-run batch once produced a confident, fully written-up
-conclusion about the rig's `contact` setting that 60 runs reversed outright.
-
-Cars are positioned as `worldY` (along the road) plus a lateral `offset` from
-the centre-line, so they track every curve without steering. They exist only
-near the player: spawned just off-screen — ahead if slower than the player,
-behind if faster, so they always cross the screen — and retired once well past.
-
-**The speed band** is pinned to both ends of the player's own 120–620:
-
-| | | |
-|---|---|---|
-| rig | 180–215 | the floor — half again the player's minimum |
-| van | 205–265 | |
-| sedan | 215–290 | the widest range: civilians are a spread of ordinary drivers |
-| bruiser | 280–330 | no gun, no mines: closes to ram, or blocks ahead and brakes |
-| muscle | 310–360 | the heavy civilian that leans on people |
-| stocker | 355–415 | the quick heavy: being ahead of one is not an escape |
-| interceptor | 400–470 | |
-| roadster | 430–560 | sits just under the player's ceiling |
-| rival | 580–650 | straddles the player's ceiling — draws level, neither escapes |
-| hypercar | 630–700 | |
-| cycle | 660–730 | catches a player at full throttle |
-
-Two consequences worth having on purpose. Dawdling never makes the road go
-quiet — it makes the whole city stream past you. And **flat out is not fast
-enough to be left alone**: a cycle still comes past a player holding 620, so
-escaping is a job for the Phase 5 boosts rather than for the accelerator.
-
-**Within a type, no two cars drive alike**, and none of it costs a sprite:
-
-- the range is **rolled per spawn**, so two sedans start out different;
-- each car then **wanders ±4%** around its roll, on its own phase and its own
-  8–12s period, so a pair that happened to roll close together separates instead
-  of locking into formation. A wider one-time roll can't do this — it varies cars
-  against each other, not over time;
-- an overtaker **spends up to 15% more** while committed to a pass, so passing
-  reads as effort rather than as drift. Measured over 6 runs: passes take 2.16s
-  instead of 2.79s and 7% expire on the timeout instead of 18%.
-
-All three are capped by the type's own `speedMin`/`speedMax`, so the table above
-stays a hard floor and ceiling — which is what keeps the closing-speed
-constraint below true.
-
-The band's width is not a free parameter. Traffic sheds speed at `traffic.js`'s
-`ACCEL`, and a profile's `followGap` + `followReaction` only leave a follower
-room to match while `dv² / (2 · ACCEL) ≤ followGap + dv · followReaction` for
-every closing speed `dv` its own drivers reach. That is checked **per profile**,
-against the fastest type naming it rather than against the whole catalogue —
-which is exactly why `hustler` is allowed to tailgate at 0.65s where `commuter`
-needs 1.0, and why pointing a quick type at it fails the test.
-
-### Ramming
-
-Every car has a **hull** and a **mass** (`cartypes.js`), and so does the player
-(`player.js`). Collisions are resolved for all of them together, as a flat list
-of BODIES with no notion of who is the player — so the same rules cover the
-player shunting a sedan, a rig rear-ending a roadster, and the pile-up that
-follows.
-
-- Boxes are axis-aligned, so an overlap is undone along whichever axis is
-  penetrated least: a rear-end pushes along the road, a side-swipe across it.
-- Both bodies move, split by INVERSE mass, and the same split decides the
-  damage. Hitting a rig is a bad idea; a roadster is swatted aside.
-- Damage is linear in closing speed above a floor, so nudging traffic in queue
-  costs nothing and a full-speed ram is close to lethal for both cars.
-- **Chains** fall out of running the pair sweep several times per tick:
-  separating A from B pushes B into C, and the next pass resolves that. A shove
-  therefore carries down a row of cars, losing force at each link.
-- Below a third of its hull a car **blinks** between its own colour and a
-  white-hot flash. The tell has to be the alternation, not a red tint: an enemy
-  car is already red, so a tint would say nothing about the one car that's
-  nearly scrap. `TrafficCar.critical` is the hook for it.
-- At zero hull a car is **destroyed**: it explodes where it stood (the shell
-  breaks apart along the car's own outline — `effects.js`) and leaves the road
-  the same tick. Nothing solid is left behind, so the fireball itself is safe to
-  drive through.
-- The explosion does **blast damage** to everything close by, the player
-  included: peak damage at contact, falling off linearly to nothing at the rim,
-  with distance measured between box EDGES so a long rig doesn't get free reach
-  along its own length. Radius and damage are per type — a cycle going up is a
-  pop, a rig is 46 hull and most of the road width.
-- Blasts **chain**: a car killed by one explodes in the same tick, and the sweep
-  keeps going until nothing new has died. It terminates because each car
-  detonates exactly once.
-
-Anything that wants to be rammable later — a barrel, a boss — implements the
-body interface at the top of `collisions.js`; the solver never learns about it.
-The player is not a special case there either: it reaches the solver through an
-adapter that re-bases its screen x onto the road's centre-line.
-
-Two consequences worth knowing. The player can be reduced to zero hull, and
-nothing happens yet — the wreck and game-over states are Phase 6. And cruising
-traffic brakes for the player as it does for any other car, so being rear-ended
-is a consequence of driving badly rather than steady background noise; Phase 4's
-enemy tactics are where that politeness ends.
+### Test options
+
+Two cheat rows on the start/pause menu — `INVULNERABILITY` and `EXTRA CASH` —
+for reaching by hand what a normal run makes expensive to reach. Both persist
+across a reload and take effect on the next tick.
+
+**`src/testoptions.js` is the switch**: clearing `SHOW_TEST_OPTIONS` (or either
+per-row flag) removes them from the menu entirely, and a removed row reads as off
+whatever `localStorage` holds. `test/test-options.test.js` pins that the removal
+is complete rather than half-wired.
+
+### Asset gallery
+
+A static showcase of the neon assets for iterating on visuals without running the
+game: <http://localhost:5173/demo.html>. Add a sprite in `src/game/sprites.js`,
+then register a cell in `src/demo/gallery.js` — car types are the exception,
+since the gallery walks the catalogue.
+
+The silhouette catalogue at the bottom draws each car at **2x** as a detail
+study; the traffic cells above it are the size-accurate ones. See the detail
+budget in `src/game/carshapes.js`.
+
+### Tuning editor
+
+`tools/car-editor/` — a local browser UI for essentially every balance number in
+the game, across five tabs:
+
+| Tab | What it edits |
+| --- | --- |
+| Cars | the whole roster: hull and mass, speed and steering, blast, score and bounty, spawn odds and distance, driving profile |
+| Hazards & pickups | toughness, contact damage, blast and slow, crate payloads, spawn odds and distance |
+| Weapons | the player's kit and the hostiles' alike |
+| Shop | consumable prices and payloads; a system's tier-1 price and what one tier adds |
+| World | the stock car, traffic density, the road's shape, the run's pacing and economy |
+
+Run `tools/car-editor/edit.bat` or `node tools/car-editor/server.js`. Every field
+shows its value and what it does; "Create Pull Request" patches the source on a
+fresh branch, **runs the test suite before pushing**, and opens GitHub's compare
+page. Requires Git, not the GitHub CLI.
+
+Two things worth knowing before tuning. Driving profiles are **shared** (the van
+and the bus both drive `hauler`; anything unnamed falls back to `commuter`), so
+the editor states the reach of a behaviour edit on the form and in the diff. And
+a stat's shop ladder counts up from the car's own figure, which is why
+`MAX_SPEED`, `BASE_MAX_HEALTH` and `PLAYER_MASS` are tuned under World rather
+than on the shop screen.
 
 ## Project layout
 
@@ -748,173 +104,405 @@ enemy tactics are where that politeness ends.
 index.html          canvas + module entry
 css/style.css       page + CRT frame styling
 src/
-  main.js           bootstrap + game loop
+  main.js           bootstrap, the game loop, and the state machine over it
   testoptions.js    the menu's cheat rows, and the switch that removes them
-  engine/           loop, input, neon draw helpers
-  game/             player, road, traffic, weapons, ... (built per phase)
-  audio/            wavesynth synth (later phase)
+  engine/           loop, input, neon draw helpers, sprite cache, viewport,
+                    the console and the gutter panels
+  game/             player, road, traffic, weapons, events, shop, city floor
+  audio/            synth, the sound catalogues, the wavesynth and track backends
+  demo/             the asset gallery's cells
 tools/
-  drivesim.js       headless driving-profile measurement (see npm run sim)
-  econsim.js        headless credit-economy measurement (see npm run econ)
-  car-editor/       browser UI for tuning cars, hazards, weapons, the shop and
-                    the world's own constants — see below
+  serve.js          the zero-dependency static server
+  drivesim.js       headless driving-profile measurement
+  econsim.js        headless credit-economy measurement
+  musicmanifest.js  regenerates assets/music/tracks.json
+  car-editor/       the tuning editor — see above
+test/               the cross-file invariant suite — see its own README
+test-support/       fixtures shared between test files, deliberately outside test/
+docs/superpowers/   design records, each with a banner saying what shipped
 ```
+
+## Tech
+
+- Vanilla JS + HTML5 Canvas 2D — no framework, no build step
+- Native ES modules
+- Web Audio API for SFX and for music — a procedural wavesynth backend and a
+  committed soundtrack behind one interface (`src/audio/`)
+
+### Rendering performance
+
+`ctx.shadowBlur` is what makes the neon look and is by far the most expensive
+thing the renderer can do — its cost scales with the shadow's **bounding-box
+area**, not with the shape. Before this was addressed, glow was ~80% of frame
+time (5.05ms → 1.01ms with `shadowBlur` forced to 0) and grew linearly with every
+object on screen.
+
+Three rules keep that from coming back:
+
+1. **Anything drawn per-frame per-entity goes through the sprite cache** —
+   `drawCarCached` / `drawBuildingVariant` (`src/game/sprites.js`), or a wrapper
+   on `src/engine/spritecache.js`. Cache keys must be bounded: quantise
+   continuous parameters, never key on a raw float.
+2. **Never put `shadowBlur` on a path that spans much of the canvas.** Use
+   `neonStroke` (`src/engine/neon.js`), which strokes a path several times at
+   decreasing width instead — 865µs shadowed against 217µs layered for one
+   full-height barrier.
+3. **Anything that only SCROLLS is pre-rendered and blitted, not re-stroked.**
+   The road is a rolling cache of 128px strips (`road.js`), the city floor a
+   single tile (`scenery.js`) — together ~4.3ms/frame down to ~60µs. A new
+   full-screen scrolling layer belongs in a cache too; check first whether it
+   *repeats* (one tile) or not (a keyed sliding window).
+
+**The camera is quantised to whole pixels, and this is load-bearing.** `main.js`
+rounds `distance` ONCE at the top of the render pass and hands that value to
+every layer. A blit is only pixel-exact at an integer offset, so interpolating
+the scroll — or rounding per-layer — resamples both caches, softens the neon and
+shears the traffic against the road. Do **not** round the simulation's
+`distance`: the odometer and the score's distance term read the real float.
+
+Current cost is **under 1ms/frame** at 600×800 with a full screen of traffic,
+against 16.7ms, and **flat in object count** — entities are effectively free and
+the remaining budget is governed by screen area. Nothing is left above the noise
+floor (all building blits together 43µs, a cached car ~8µs, `clear()` ~25µs), so
+future work here should be triggered by a measurement rather than a hunch.
+
+**Culling was never needed.** The city floor was measured at every sub-phase of
+Phase 7 that looked likely to force it, and landed at or under the ~0.5ms budget
+each time — including 7g's materialisation, the one most likely to have broken
+it. The full per-sub-phase numbers, the 7e result that briefly made culling look
+like a prerequisite, and the rejected half-res glow downsample are all in
+`docs/superpowers/specs/2026-08-07-city-map-layer-design.md`.
+
+Two profiling traps, both of which cost time to rediscover: `getImageData` used
+to "force a flush" demotes the canvas out of GPU acceleration and changes what is
+being compared, and measuring throughput inside `requestAnimationFrame` silently
+floors at vsync and reports a ratio of ~1. Two plausible-looking methods
+disagreed by 5x.
+
+### Display scaling
+
+The playfield is **600x800 forever** — a game constant, not a window
+measurement, because widening the world would show more road ahead and change the
+difficulty of every tuned value. What follows the window is the RASTER, and
+`src/engine/viewport.js` is the only module that knows the difference. It keeps
+`fit` (how big the game looks), `scale` (how sharp, capped at 2) and `dpr` apart;
+its header explains each and why they are not one number.
+
+Two constraints worth knowing before touching it:
+
+- **`scale` moves in eighths, and 8 is derived rather than chosen** — it is
+  `gcd(128, 600, 800, 512)`, the tiled dimensions. A scale that doesn't divide
+  them leaves tiles at fractional device offsets, which reads as the road
+  SMEARING as it scrolls. Change any of those four and recompute the gcd.
+  Integer-only scaling was tried first and is the wrong answer; `viewport.js`
+  says why.
+- **`will-change: transform` on the canvas is load-bearing** — 48 dropped frames
+  of 599 unpromoted against 7 promoted. `css/style.css` carries that measurement
+  and the alternatives tried against it, alongside why `#hint` needs
+  `width: 0; min-width: 100%`.
+
+### The gutters
+
+Two DOM panels either side of the playfield: the deck's `SYS LOG` down the left,
+a `RIG STATUS` readout down the right. `src/engine/gutter.js` is where they go,
+`src/game/telemetry.js` is what they say, and a block in `css/style.css` is what
+they look like.
+
+**They are DOM, and that is the whole performance story** — the playfield cannot
+grow, and a second canvas would be a full-height surface repainted on the game's
+clock. These repaint only when their text changes, and the game loop never
+touches them. `gutter.js`'s header covers the recycled row pool, the CSS-mask age
+fade, and the out-of-flow positioning that keeps them from colliding with a
+canvas sized off `window.innerWidth`.
+
+Three things about them are design rather than plumbing, and `telemetry.js` and
+`engine/console.js` carry the argument:
+
+- **One log, shown in two places.** Every line still enters `console.js`; what
+  changes when the gutter is up is only what the in-canvas panel PAINTS. It keeps
+  `CRITICAL` and hands the quiet half over — a hull warning stays where the
+  player's eyes already are, pickup hints are read between hazards.
+- **Three voices.** Routine chatter is reachable only while driving; menus, the
+  shop and a pause draw from an idle pool, a finished run from a dead-link pool.
+  Printing `hull.integrity 0%` over a wreck is the failure that split prevents.
+- **The readouts double as a profiler.** `SIGNAL`, `FRAME`, `BUFFER` and
+  `TRAFFIC` are real instrumentation wearing the panel's vocabulary, and `SIGNAL`
+  goes amber below 55fps and red below 40 — a performance regression report
+  during play rather than behind a devtools panel covering the thing being
+  judged.
+
+## Traffic
+
+The other cars are split so that adding a kind of traffic doesn't mean touching
+the simulation:
+
+| file | |
+| --- | --- |
+| `game/cartypes.js` | **the catalogue.** A type is pure data: silhouette, colours, size, hull, speed band, steering, blast, spawn weight, `minDistance`, and the names of its tactic and driving profile. New traffic = a new entry here |
+| `game/carshapes.js` | the silhouettes, 1:1 with the catalogue and pinned both ways by `test/road-and-caches.test.js`. Siblings: `cycleshapes.js` for the bike hulls, `bossshapes.js` for Phase 10's artwork, held outside the pairing until its types exist |
+| `game/behaviours.js` | the manoeuvres. A tactic sets only INTENT (`targetOffset`, `targetSpeed`); `traffic.js` integrates it under the type's limits, so a rig can't corner like a roadster and the physics stay in one place |
+| `game/driving.js` | the driving **profiles**: the numbers behind a tactic — following distance, patience, lane discipline, how much hull a driver will accept spending |
+| `game/traffic.js` | spawning, driving, dying, retiring, drawing |
+| `game/collisions.js` | ramming: the only place cars push each other around |
+| `game/effects.js` | wrecks |
+
+**Shape carries identity; colour carries only faction** (red hostile / amber
+civilian) and weight class, so shades repeat across types. The one silhouette
+shared with the player is given to an enemy — your own outline in red reads as a
+rival.
+
+`behaviours.js`'s tactic table lists every manoeuvre with a one-line summary,
+including what the four compositions (`duel`, `strafe`, `outrun`, `strew`)
+compose. Its header explains why a tactic may be stateful, and what the three
+stages — tactic, reflex, arms — run in that order for.
+
+### Ramming
+
+`game/collisions.js` resolves a flat list of BODIES with no notion of who is the
+player, so the same rules cover the player shunting a sedan, a rig rear-ending a
+roadster, and the pile-up after. Both bodies move and take damage split by
+INVERSE mass; chains fall out of running the pair sweep several times per tick;
+blasts chain the same way and terminate because each car detonates once. The body
+interface at the top of that file is what anything rammable later — a barrel, a
+boss — implements instead of editing the solver.
+
+The one thing not in that file: the solver has no idea the player can die. Zero
+hull is `main.js`'s business, and the wreck, the banked run and the deck's
+closing sequence all hang off that one transition.
+
+### Distance, and the spawn gate
+
+The simulation measures the road in **world units** — roughly one per pixel — and
+that is what every coordinate, spawn margin and blast radius is written in. It is
+*not* what the player sees: the **DIST** readout divides by `road.js`'s
+`DIST_UNITS` (100), because raw units reach five figures inside a minute. `DIST
+50` is 5,000 world units driven.
+
+That readout is a unit the design speaks in. Every entry in the spawn catalogues
+carries a **`minDistance`** in DIST-readout units, so "the enemy turns up at 100"
+means the number on the HUD. Cars are staged across the whole run — sedan and van
+from the first metre, the cycle at 100, up to the rival at 1000 and the hypercar
+at 1600 — so the catalogue a player meets early is not the one they meet late.
+Obstacles are all `0` today; the field is there for when one should be held back.
+
+The gate **reweights** the draw rather than re-rolling until something passes, so
+the opening road is as busy as any other stretch — just made of two kinds of car.
+Rejection sampling would have thinned it, which is the opposite of what a quiet
+start should feel like. `cartypes.js` has the full reasoning, including why
+enemy-laid mines are not gated.
+
+**`cartypes.js` exports `FOCUS`, and it ships empty.** Set it to a list of type
+ids and only those reach the road, which is how one profile gets watched without
+the rest of the catalogue in the way. It is an override on the same gate the game
+ships with rather than a filter of its own, so a focused road is still a road the
+real spawner built. The first test in `test/hazards.test.js` asserts it is `[]`,
+because "`van` never appeared" is a much worse error message than "`FOCUS` is
+still set".
+
+### Driving profiles
+
+A car type names **two** things: a tactic (which manoeuvres it knows) and a
+driving profile (how boldly it runs them). Everything a driver might feel about
+the road used to be hard-coded in `behaviours.js`, so two civilians naming
+`overtake` drove identically and telling them apart meant writing a second
+function. Now it is a data table in `driving.js`, and a new car type is usually no
+new code at all.
+
+Fifteen types name fourteen profiles, and the near-miss is the point: a profile is
+a driving STYLE, so a type gets its own only where it actually drives differently.
+The van and the bus share `hauler`; anything naming none falls back to `commuter`,
+the reference every other table is described as a difference from.
+
+The sedan and the roadster are the demonstration — same tactic, so every
+difference between them comes out of the profile and nothing else. Over 15
+car-minutes of headless road the sedan sits **2.1px** from its lane centre against
+the roadster's **18.1**, and commits **1.0** pass per car-minute against **10.7**.
+`driving.js` has a row per profile and what each field costs; three of them
+(`nerve`, `contact`, and a careful driver's refusal to hit anything) are quantised
+in ways that make settings silently equivalent, and its header spells out the
+traps.
+
+The preferences also add up to a **lane gradient**: the slow haulers want the
+lanes by the barrier and the fast machines the lanes by the centre-line, so
+choosing a lane becomes a choice about what you will meet in it. That relation is
+asserted in the test suite, because a retune that puts a rig in the fast lane
+breaks nothing — it just quietly stops making sense.
+
+**The speed band** is pinned to both ends of the player's own 120–620:
+
+| | | |
+|---|---|---|
+| rig | 180–215 | the floor — half again the player's minimum |
+| bus | 190–230 | |
+| van | 205–265 | |
+| sedan | 215–290 | the widest range: civilians are a spread of ordinary drivers |
+| bruiser | 280–330 | no gun, no mines: closes to ram, or blocks ahead and brakes |
+| muscle | 310–360 | the heavy civilian that leans on people |
+| stocker | 355–415 | the quick heavy: being ahead of one is not an escape |
+| interceptor | 400–470 | |
+| roadster | 430–560 | sits just under the player's ceiling |
+| outrider | 540–600 | |
+| rival | 580–650 | straddles the player's ceiling — draws level, neither escapes |
+| outrunner | 600–670 | gets past, then fights from in front |
+| hypercar | 630–700 | |
+| sower | 640–700 | lays its strip and leaves, and the band is why it can |
+| cycle | 660–730 | catches a player at full throttle |
+
+Two consequences worth having on purpose. Dawdling never makes the road go quiet
+— it makes the whole city stream past you. And **flat out is not fast enough to be
+left alone**: five types come past a player holding 620, so escaping is a job for
+the OVERDRIVE crate and the ENGINE ladder, not for the accelerator.
+
+Within a type no two cars drive alike, and none of it costs a sprite — the band is
+rolled per spawn, each car wanders slowly around its roll, and an overtaker spends
+more while committed to a pass. `traffic.js` has the three mechanisms and why a
+wider one-time roll cannot replace the second.
+
+The band's width is not a free parameter: a profile's following rule has to leave
+a follower room to stop for every closing speed its own drivers reach, checked per
+profile against the fastest type naming it. That is why `hustler` may tailgate
+where `commuter` may not, and why pointing a quick type at `commuter` fails the
+test.
+
+**`npm run sim` reports what each profile actually did** — lane deviation, passes
+committed and completed, time stopped, contacts, hazards struck. Use
+`node tools/drivesim.js 300 60` for a tuning decision, not the default five runs:
+two identical 20-run batches disagree by ~40% on the rare types, and a 20-run
+batch once produced a confident written-up conclusion that 60 runs reversed
+outright.
+
+## Special events
+
+Everything staged rather than spawned — a bike gang closing from the mirror, a
+blockade, the road narrowing to a slot, a minefield, the rival's arrival, and the
+cargo drone that carries the car to the shop, which turned out to be the same kind
+of thing. `game/eventtypes.js` is the catalogue, `game/events.js` the director,
+and both headers argue the design at length.
+
+Three decisions carry it:
+
+- **One list, not four systems.** A gang, a blockade, a narrowing, a boss and the
+  shop drone are all *something placed on purpose, at a moment chosen on purpose*.
+  Written separately they would be four schedulers, four ways of standing the
+  ambient road down, and four places to get placement wrong.
+- **The director places nothing itself.** It builds requests and hands them to
+  the same `Traffic.place()` / `Obstacles.place()` the ambient spawners go
+  through, so a staged encounter inherits the clearance tests, the passage rule
+  and the road clamp rather than escaping them. That is what makes "narrow the
+  road" a safe feature to have at all — nothing here can seal the highway.
+- **Distance, not time, drives every decision** — the roll beat, the milestones,
+  the cooldowns, the durations. A player dawdling to farm encounters would be a
+  bug; a player flat out meeting more of them is the game working.
+
+An encounter turns the ambient budgets down by a multiplier rather than switching
+them off, so the road drains over a few seconds instead of blinking out. Staged
+and ambient are separate pools, so neither can starve the other. Milestones
+**defer, never cancel**, which matters most for the shop: a visit is only ever
+late. `test/events.test.js` pins those promises, and
+`docs/superpowers/specs/2026-08-27-special-events-design.md` is the design record.
 
 ## Money
 
 Two numbers, deliberately kept apart:
 
-| | Score (`src/game/score.js`) | Credits (`src/game/wallet.js`) |
+| | Score (`game/score.js`) | Credits (`game/wallet.js`) |
 |---|---|---|
 | lasts | one run | across runs (`localStorage`) |
 | floor | none — a massacre goes negative | 0, always |
 | earned by | distance + every destroyed car | bounties + siphoned nodes |
-| spent on | nothing, it *is* the reward | the Phase 11 upgrade shop |
+| spent on | nothing, it *is* the reward | the upgrade shop |
 
-**Bounties.** Every car type carries a `bounty` alongside its score `value`
-(`src/game/cartypes.js`). Enemies pay, civilians fine — and a type with **no
-`bounty` field at all pays nothing**, which is how "not every enemy is worth
-money" will be expressed for Phase 10's bosses and minions: by editing the
-catalogue, not the wallet.
+**Bounties** ride on the car type: every entry carries a `bounty` alongside its
+score `value`, enemies pay and civilians fine, and a type with no `bounty` field
+pays nothing at all. That is how "not every enemy is worth money" gets expressed
+for Phase 10 — by editing the catalogue, not the wallet.
 
-**Siphoning.** The nodes on the city floor (`src/game/links.js`) are worth
-credits — 4 to 17, hash-derived from the plot index exactly like the callsign,
-so a node's name *and* its price are both stable facts about that place. There
-is **one** way to take one:
+**Siphoning.** The nodes on the city floor (`game/links.js`) are worth credits,
+hash-derived from the plot index like the callsign, so a node's name and its price
+are both stable facts about that place. There is **one** way to take one: hold the
+shoulder on the node's side and it drains, faster the closer you are — no
+threshold anywhere in it, so the pickup that feels instant and the one you work
+for are the same act at two ends of one curve. **The middle of the road pays
+nothing, ever.** Money lives at the edges, next to the barrier, where there is
+nowhere to dodge to.
 
-- **The link.** Hold the shoulder on the node's side of the road and it drains,
-  at full price, lit or not. How fast it drains is set by how close you are:
-  point blank it is gone in a third of a second, out at the edge of reach it
-  takes several. There is no threshold in there — the pickup that feels instant
-  and the one you have to work for are the same act at two ends of one curve.
-- **Speed is the price, but it is not a rule.** Nothing in the wallet reads the
-  throttle. What speed decides is how long you stay in range, so a node far out
-  past the barrier simply cannot be taken at 620 — and slowing down costs what
-  it always did: the traffic behind you arrives, the score's distance term
-  stalls, everything hostile on screen gets longer to work on you.
-- **The middle of the road pays nothing**, ever. The car has to be out past the
-  shoulder line on the node's own side before anything charges at all. Money
-  lives at the edges, next to the barrier, where there is nowhere to dodge to.
+Nothing reads the throttle; what speed decides is how long you stay in range. And
+slowing down costs what it always did — the traffic behind you arrives, the
+score's distance term stalls, everything hostile gets longer to work on you.
 
-This replaced two mechanics — an instant grab up close while a node pinged, and
-a slow half-price uplink from further out. Which one you got came down to
-whether the node happened to be lit as you arrived, which is not something a
-player can predict, so the same approach to the same node produced two
-different acts at two different prices with an invisible boundary between them.
-
-The affordance is on the floor rather than in a tutorial: a node in reach wears
-its price, brightens while it is pinging, prints `SHOULDER` when getting out
-there is the only thing standing between you and it, and grows a fill meter as
-it drains — *every* pickup draws that meter, including the ones that finish
-almost at once, so nothing the player sees suggests there is more than one way
-to do this. The car wears the other end of it: a small dish on the flank,
-aimed at the node, with the link drawn between the two. Every payout — a
-siphon, a bounty, a fine — leaves a floating `+25CR` over the exact spot it came
-from, and the SYS LOG names the node it just paid out.
-
-Fines can empty a run's earnings but never touch credits banked from earlier
-runs, and the run is banked at the moment of death rather than when the
-game-over screen appears.
+`game/wallet.js` carries the rest: the falloff curve and why it is squared, why
+this replaced two mechanics that differed only by whether a node happened to be
+lit as you arrived, and the affordances that keep one act reading as one act — the
+price on the floor, the `SHOULDER` prompt, the fill meter *every* pickup draws,
+the dish on the car, the floating `+25CR` over the spot it came from. The stock
+figures there (300px reach, four seconds at the edge, face value) are all raised
+by the SIPHON RIG below.
 
 `npm run econ` measures the whole thing headlessly — credits per minute for a
 player who hugs the shoulders, one who hunts nodes, one who eases off to stay
-beside them longer, and one who never leaves the middle (that last one should
-always read zero).
+beside them longer, and one who never leaves the middle (that last should always
+read zero).
 
 ## The upgrade shop
 
-Every 400 DIST a cargo drone drops out of the sky, closes its jaws on the car
-and flies it to a dock (`src/game/hauler.js`). What is up there is a storefront
-with three shelves — `src/game/upgrades.js` holds every price, quantity and tier,
-in the same data-file style as `cartypes.js`; `src/game/shop.js` is a cursor, a
-layout and a colour scheme over it and owns no numbers of its own.
+Every 400 DIST a cargo drone lifts the car to a dock (`game/hauler.js`, scheduled
+by the event director above). `game/upgrades.js` holds every price, quantity and
+tier in the `cartypes.js` data-file style; `game/shop.js` is a cursor, a layout
+and a colour scheme over it and owns no numbers of its own. Three shelves.
 
-**Consumables** are always for sale, any number of times, at a flat price: hull
-repair, a shield, and ammunition for each of the four weapons that has a
-magazine (the cannon is infinite and needs none). A bought repair and a
-driven-over `FIX` crate are literally the same event, applied by the same code.
+**Consumables** — hull repair, a shield, and ammunition for each weapon that has a
+magazine. A bought repair and a driven-over `FIX` crate are literally the same
+event applied by the same code. Guns are topped up by the crate's own quantity;
+layers (the mine, the spike strip) are rearmed as a whole set instead, because a
+"+1" row would be a rounding error on a decision you walked down a menu to make.
 
-Guns are **topped up** by the crate's own quantity, so a row is worth what the
-crate you already know is worth. Layers — the mine and the spike strip — are
-**rearmed as a whole set** instead: their magazines are five and three rounds, so
-a "+1" row would be a rounding error on a decision you walked down a menu to
-make. One press leaves the dock with a full magazine, and those are the dearest
-rounds on the shelf per unit precisely because of it.
-
-**Car systems** are tiered: three steps each, the third costing four times the
-first, and once bought a step stays bought for the rest of the run.
+**Car systems** — three tiers each, the third costing four times the first, kept
+for the rest of the run:
 
 | system | what one tier buys | ladder |
 | --- | --- | --- |
-| ENGINE | +40 top speed | 620 → 740, which clears the fastest cruise on the road by a hair |
+| ENGINE | +40 top speed | 620 → 740, clearing the fastest cruise on the road by a hair |
 | CHASSIS | +50 max hull, and it repairs by the same | 200 → 350; three tiers is about one mine |
-| DEFLECTOR | +12s on *every* shield the car is ever handed | a 5s crate becomes a 41s one |
-| RAM PLATE | +0.4 mass | 1.4 → 2.6: past the bruiser, never past the rig |
+| DEFLECTOR | +12s on *every* shield the car is handed | a 5s crate becomes a 41s one |
+| RAM PLATE | +0.8 mass | 1.5 → 3.9: past the bruiser, past the bus, never past the rig |
+| SIPHON RIG | +20% off every node, plus reach and drain to match | 100% → 160% |
 
-The ram plate is one row because mass is one number that buys three things —
-`collisions.js` splits both damage and separation by inverse mass, so a heavier
-car hits harder, takes less and gets shoved around less, including through road
-furniture.
+Two of those are one row for opposite reasons. The **ram plate** is one row
+because mass is one number that buys three things — `collisions.js` splits damage
+and separation by inverse mass, so a heavier car hits harder, takes less and gets
+shoved around less. The **siphon rig** is one row because two of its three numbers
+would not sell: `npm run econ` found reach and drain both saturate almost at once,
+so yield is the only figure the shelf advertises and the other two ride the same
+tier. `wallet.js`'s `SIPHON_TIERS` header has that argument in full, including why
+tier 0 must be exactly the stock car.
 
-**Specials** are the third shelf: one-off hardware, bought once at one price and
-owned for the rest of the run — a ladder exactly one rung long, so a bought row
-reads `SOLD` rather than `MAX`. Each one changes a *verb* rather than moving a
+**Specials** — one-off hardware, bought once and owned for the run, so a bought
+row reads `SOLD` rather than `MAX`. Each changes a *verb* rather than moving a
 number, which is why none of them is a tier: there is no half of "fires two
 rounds".
 
 | special | what it does | where it lives |
 | --- | --- | --- |
-| TWIN CANNON | the cannon fires a pair, running parallel — same rate of fire, same round | `weapons.js`'s `muzzleOffsets` |
-| TWIN RACK | two rockets a press, each seeking *separately* — a rocket prefers a car no other seeker has locked, so a press into a pack splits across two | `projectiles.js`'s `seek` |
-| SHIELD STORM | the shield arcs into anything that drives close, twice a second, with falloff to the rim — *anything*, civilians included | `src/game/shieldstorm.js` |
-| AUTOLOCK | a tracer hit *designates* the car it hit; every round fired for the next 3.5s steers to follow it | `src/game/targeting.js`, `projectiles.js` |
+| TWIN CANNON | the cannon fires a parallel pair — same rate, same round | `weapons.js` |
+| TWIN RACK | two rockets a press, each seeking separately, so a press into a pack splits | `projectiles.js` |
+| SHIELD STORM | the shield arcs into anything that drives close, civilians included | `game/shieldstorm.js` |
+| AUTOLOCK | a tracer hit designates a car; every round for the next 3.5s steers to follow it | `game/targeting.js` |
 
-They are ownership **flags** and nothing more — `upgrades.js` knows what each
-one costs and nothing about what it does; the four systems above read the flag
-off the car (`player.specials`) and each says for itself what it does with it.
-The join is a bare string, so `test/specials.test.js` pins both directions of
-it: every flag sold is read by something, and every claim names a flag on sale.
+They are ownership **flags** and nothing more — `upgrades.js` knows what each one
+costs and nothing about what it does; each system reads the flag off
+`player.specials` and says for itself what to do with it. The join is a bare
+string, so `test/specials.test.js` pins both directions: every flag sold is read
+by something, and every claim names a flag on sale. `targeting.js` is worth
+reading for how an upgrade like this was kept from becoming "cannot miss" — it
+steers slower than the rocket seeks, and rounds do not re-lock when their target
+dies mid-burst.
 
-**AUTOLOCK is the upgrade the tracker's own name has been implying.** The burst
-is already the right shape for it — eight rounds 0.05s apart means round one
-designates and rounds two through eight chase — so it needs no new timing
-concept, and it answers the weapon's real weakness (a lane hose is helpless
-against anything that changes lanes) without touching its damage.
+**Nothing survives a run.** The tiers and the specials die with the car exactly as
+unspent credits do. Whether the ladder should persist once there is a real bank is
+a decision to make then, not one to inherit — see Phase 11d.
 
-The lane rake survives it for free: a locked car sitting dead ahead leaves
-`target.offset - s.offset` at nearly zero, so the rounds don't steer at all and
-`pierce` still punches down the row of cars in the way. **The lock only bends a
-round when the target actually leaves the lane.**
-
-Two rules keep it from becoming "cannot miss". It steers at 150 lateral units/sec
-against the rocket's 260 — the seeking weapon has to stay the best seeker in the
-game — so a car that commits to a hard lane change still shakes rounds off. And
-when the designated car dies mid-burst the remaining rounds **do not re-lock**;
-they fly out the tracking line they are on. A burst that re-locked wouldn't be
-eight rounds following a car, it would be eight rounds that can't be spent
-wrongly.
-
-The corner-bracket reticle is not polish — it is the upgrade's only explanation.
-Rounds that bend out of their lane are unaccountable unless you can see *which*
-car they're bending toward.
-
-The storm is deliberately worth less per discharge than a single cannon round,
-so parking in traffic under a bought shield never out-earns driving and gunning.
-
-Everything is on sale at every dock for now. When only a subset should be
-offered at a given stop, that is a filter over `SPECIALS` in `shop.js`'s
-`SHELVES` — the catalogue does not change, and the cursor, the purchase path
-and the receipts follow on their own.
-
-**Nothing survives a run.** The tiers and the specials die with the car exactly as the unspent
-credits do, which is the same promise `main.js`'s `CREDIT_STORE` makes about the
-money itself — see Money above. When the game has player records and a real
-bank, whether the upgrade ladder should persist alongside it is a decision to
-make then, not one to inherit.
-
-More specials are planned; adding one is a catalogue entry plus whichever
-system reads its flag.
-
+Everything is on sale at every dock for now; offering a subset would be a filter
+over `SPECIALS` in `shop.js`'s `SHELVES`, with the catalogue unchanged.
 ## Development roadmap
 
 Work lands via Pull Requests, one phase at a time; each phase leaves the game
@@ -934,55 +522,42 @@ phases' code.
 - [x] **Phase 4** — Combat: shooting, explosions, enemy AI (shoot / mines)
 - [x] **Phase 5** — Weapons: multiple weapons + swap pickups
 - [x] **Phase 6** — Score/states: scoring, penalties, game-over, difficulty ramp
-- [x] **Phase 7** — Surroundings B: richer lit / parallax city
-      — split into sub-phases that each shipped on their own.
-      The floor is meant to read as a **tactical map** rather than as scenery —
-      the driver is jacked into a deck, so the city is symbolic blocks, simplified
-      streets, dot-sized cars and signal markers. Design and per-sub-phase notes:
-      `docs/superpowers/specs/2026-08-07-city-map-layer-design.md`.
-  - [x] **7a** — Street network: `reserve()` claims avenues and cross-streets, all
-        baked into the one floor tile. Unlocks everything below
-  - [x] **7b** — Traffic dots: cars as a pure function of time, batched, unglowed
-  - [x] **7c** — Drone air traffic: small flying drones between the floor and
-        the road, own diagonal headings, batched, unglowed. (Originally a
-        static "far field" tile — built, rejected: see the design doc's 7c
-        section for why a static layer doesn't sell depth here.)
-  - [x] **7d** — Nodes and markers: a reserved plot type, sprite-cached
-  - [x] **7e** — Links and pings: conduits with packet dots, expanding signal
-        rings, and a console voice that names a node the instant it pings
-  - [x] **7f** — Sectors: the palette changes at a fixed distance interval, the
-        deck reads out the new sector's name in the SYS LOG, and the crossing
-        itself is a brief full-screen rescan glitch. Supersedes the original
-        7f (a per-district highlight quad + corner brackets — see the design
-        doc's own 7f section for the record) and absorbs 7g's transition half
-  - [x] **7g** — VR framing: buildings and nodes materialise bottom-up as
-        they cross the screen's top edge, a distance-spanned wipe (stateless,
-        `WIPE_SPAN` under `LOT` so at most one row is ever mid-wipe) with a
-        leading-edge static scanline; rare deck glitches on a timer
-        (superseded — the sector rescan already spends that vocabulary; see
-        7f). Closes Phase 7 — see the design doc's own closing note
+- [x] **Phase 7** — Surroundings B: richer lit / parallax city, in seven
+      sub-phases that each shipped on their own — 7a street network, 7b traffic
+      dots, 7c drone air traffic, 7d nodes and markers, 7e links and pings,
+      7f sectors, 7g VR framing. The floor reads as a **tactical map** rather
+      than as scenery: the driver is jacked into a deck, so the city is symbolic
+      blocks, simplified streets, dot-sized cars and signal markers. Two
+      approaches were built and rejected along the way (a static "far field"
+      tile, a per-district highlight quad) and the per-frame cost was re-measured
+      at every step. All of it, including the closing retrospective, is in
+      `docs/superpowers/specs/2026-08-07-city-map-layer-design.md`
 - [x] **Phase 8** — Audio & juice: wavesynth music, SFX, screen shake, scanlines
-- [ ] **Phase 9** — Events: scripted crowds instead of the steady per-car
-      spawn drip — a traffic jam that walls the road off, a bike swarm that
-      converges from behind, a convoy, a roadwork gauntlet. An event owns the
-      spawner for its duration, announces itself on the deck, and hands the
-      road back afterwards
+- [x] **Phase 9** — Events: staged encounters instead of the steady per-car
+      spawn drip — one director on one schedule, over one catalogue. See
+      Special events above
 - [ ] **Phase 10** — Bosses: named enemies at fixed distance milestones, each
       with its own hull, arms and behaviour, an approach/fight/wreck sequence
-      and a payout worth the run
+      and a payout worth the run. Two pieces are already in place — the artwork
+      (`game/bossshapes.js`, held outside the shape/type pairing until the types
+      exist; its header says why) and the scheduling, since Phase 9's `at`
+      trigger is the boss milestone this phase would otherwise have invented.
+      Missing: the types and the behaviour
 - [ ] **Phase 11** — Car upgrades & upgrade shop — see The upgrade shop above
   - [x] **11a** — The interlude: a cargo drone lifts the car off the road every
         400 DIST, hands it to a dock screen, and flies it back
         (`src/game/hauler.js`, the `lifting`/`shopping`/`lowering` states)
   - [x] **11b** — The first stock: consumables (hull repair, shield, ammunition
-        for every weapon that has a magazine) and four tiered car systems —
-        engine, chassis, deflector, ram plate — as a catalogue in the
-        `cartypes.js` style (`src/game/upgrades.js`) with a navigable
-        storefront over it (`src/game/shop.js`) spending `Wallet.spend()`
-  - [ ] **11c** — Specials: multi-weapon fire, shields that damage what hits
-        them, and the rest of the upgrades that are a new MECHANIC rather than
-        a bigger number. A catalogue edit plus whatever each one needs of the
-        code it changes
+        for every weapon that has a magazine) and tiered car systems — engine,
+        chassis, deflector, ram plate, and the siphon rig that followed them —
+        as a catalogue in the `cartypes.js` style (`src/game/upgrades.js`) with
+        a navigable storefront over it (`src/game/shop.js`) spending
+        `Wallet.spend()`
+  - [x] **11c** — Specials: four one-off upgrades that change a VERB rather than
+        move a number — TWIN CANNON, TWIN RACK, SHIELD STORM, AUTOLOCK — sold
+        from a third shelf as ownership flags, each read by the system it
+        changes and by nothing else. See The upgrade shop above. More are a
+        catalogue entry plus whichever system reads the flag
   - [ ] **11d** — Persistence, once players have records to hold one: turn
         `main.js`'s `CREDIT_STORE` back on and decide, then, whether the
         upgrade ladder persists with the money or stays scoped to a run
