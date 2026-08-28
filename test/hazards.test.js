@@ -1607,13 +1607,26 @@ test("a charged shield opens its window on the first hit, and eats that hit", ()
   assert.equal(player.shieldCharge, 0, "the charge is spent");
 });
 
-test("a hit taken mid-window does not burn a second charge", () => {
+test("a crate taken mid-window prolongs the running shield instead of banking", () => {
+  // player.js's chargeShield: with a window already open there is nothing to
+  // bank for, so the crate is spent on the fight the player is already in.
   const player = new Player(0, 0);
   player.activateShield(2);
   player.chargeShield(5);
+  assert.equal(player.shieldTime, 7, "the running window must have grown by the crate");
+  assert.equal(player.shieldCharge, 0, "...and nothing must have been banked behind it");
+
   player.damage(10);
-  assert.equal(player.shieldTime, 2, "the running shield ate the hit");
-  assert.equal(player.shieldCharge, 5, "...so the banked one is still banked");
+  assert.equal(player.health, player.maxHealth, "the extended window still deflects");
+  assert.equal(player.shieldTime, 7, "a hit inside the window costs it nothing");
+});
+
+test("a shield extension carries the DEFLECTOR bonus, like every other shield", () => {
+  const player = new Player(0, 0);
+  player.shieldBonus = 3;
+  player.activateShield(2); // 2 + 3
+  player.chargeShield(5); // + 5 + 3
+  assert.equal(player.shieldTime, 13);
 });
 
 test("a second charge stacks onto the bank rather than capping at the longer one", () => {
@@ -1728,21 +1741,23 @@ test("a boost expires on its own clock and drops the car back to its stock band"
   assert.equal(player.speed, player.maxSpeed, "the stock ceiling must be back in force");
 });
 
-test("boosts never stack — a second crate takes the better of each half, not the sum", () => {
+test("a second boost stacks its CLOCK but never its LIFT", () => {
+  // player.js's activateBoost: duration is the half that cannot break the
+  // speed band however much of it piles up, so it is the half that adds.
   const player = new Player(0, 0);
 
   player.activateBoost(200, 6);
-  player.activateBoost(120, 2); // weaker and shorter — must change nothing
+  player.activateBoost(120, 2); // weaker — the lift is unchanged, the clock still grows
   assert.equal(player.boost, 200);
-  assert.equal(player.boostTime, 6);
+  assert.equal(player.boostTime, 8);
 
-  player.activateBoost(300, 1); // stronger but shorter — takes the lift, keeps the clock
-  assert.equal(player.boost, 300);
-  assert.equal(player.boostTime, 6);
-
-  player.activateBoost(50, 9); // weaker but longer — keeps the lift, takes the clock
+  player.activateBoost(300, 1); // stronger — takes the lift, and adds its second
   assert.equal(player.boost, 300);
   assert.equal(player.boostTime, 9);
+
+  player.activateBoost(50, 9); // weaker again — keeps the strong lift, adds the time
+  assert.equal(player.boost, 300);
+  assert.equal(player.boostTime, 18);
 });
 
 test("a boost rides on top of whatever the shop's ENGINE tiers already bought", () => {

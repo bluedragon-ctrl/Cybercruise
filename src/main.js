@@ -1562,14 +1562,20 @@ function drawHud() {
     // player would have no way to know they are carrying one. Breathes
     // instead of counting down — there is nothing running to count — at the
     // shield halo's own pulse rate so the HUD reads as the same system.
-    // The banked figure is now printed too, not just implied: chargeShield
+    // The banked figure is printed too, not just implied: chargeShield
     // stacks (player.js), so a player who has driven over two or three crates
     // needs to see that the bank actually grew, not just that something is
     // armed.
+    //
+    // SAME "SHIELD <n>s" WORDING AS THE RUNNING STATE ABOVE, not "SHIELD
+    // CHARGED <n>s": this readout is right-aligned into the same row as the
+    // HULL label on the left, and the longer string ran into it. The breath
+    // is what distinguishes armed from running — steady text counts down, a
+    // pulsing one is waiting for a hit.
     const breath = (Math.sin(hudClock * 4.2) + 1) / 2; // player.js's SHIELD_PULSE_RATE
     ctx.save();
     ctx.globalAlpha = 0.55 + 0.45 * breath;
-    glowText(ctx, `SHIELD CHARGED ${player.shieldCharge.toFixed(1)}s`, bx + bw, by - 16, PLAYER, 12, "right", 8);
+    glowText(ctx, `SHIELD ${player.shieldCharge.toFixed(1)}s`, bx + bw, by - 16, PLAYER, 12, "right", 8);
     ctx.restore();
   }
 
