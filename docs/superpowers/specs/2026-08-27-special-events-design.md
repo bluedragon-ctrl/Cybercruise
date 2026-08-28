@@ -2,6 +2,14 @@
 
 Date: 2026-08-27
 
+> **SHIPPED.** `src/game/events.js` and `src/game/eventtypes.js` are this
+> document, and the roadmap's Phase 9 is closed against it. The text below is
+> written forward, in the tense it was designed in, and is kept that way — it is
+> the reasoning, not the reference. Where the two disagree the source wins; the
+> catalogue in particular has moved (`warlord` became `warband` during the build,
+> recorded in its own section). The invariants it argues for are pinned in
+> `test/events.test.js`. The follow-ups at the end are still open.
+
 ## Purpose
 
 The road today is **statistically uniform in the small**, the same way the city
@@ -491,6 +499,6 @@ distance, world snapshot)`, and is tested without a canvas the way
   there as a sixth tab. Not part of the first PR — the catalogue's shape should
   settle first.
 - **Boss car types.** `bossshapes.js` holds finished artwork with no
-  `cartypes.js` record, on purpose (see its header). The `warlord` entry above
+  `cartypes.js` record, on purpose (see its header). The `warband` entry above
   needs one such record to exist; that is the boss session's work, and this
   system is what will be waiting for it.

@@ -1,5 +1,13 @@
 # Enemy Car Editor Implementation Plan
 
+> **COMPLETED, AND THEN OUTGROWN. Nothing here is outstanding work.** Every task
+> below was implemented and shipped; the unticked boxes are the plan as it was
+> written, left alone rather than back-filled, because the value in keeping this
+> file is the reasoning and the task ordering, not a progress bar. The tool then
+> grew well past this plan into a five-tab editor for the whole game's balance —
+> see the README's "Tuning editor" section for what it does now, and the note at
+> the top of the design spec for the scope change.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add `tools/car-editor/`, a local browser-based tool for tuning the 5 enemy car types' hull, speed, and driving-behavior knobs, that opens a pull request with the change on confirmation.
