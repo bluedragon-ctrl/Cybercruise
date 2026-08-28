@@ -511,8 +511,17 @@ export const CAR_TYPES = [
     h: 62,
     health: 70,
     mass: 1.1,
+    // RAISED TO 620, LEVEL WITH THE PLAYER'S OWN CEILING — the player's Phase 5
+    // speed boosts and overdrive pickups push them past a stock car's 620, and
+    // an interceptor staged behind one no longer had anything left to give
+    // chase with (see events.js's arrivalSpeed and its `needed` guard: a type
+    // whose speedMax cannot clear player.speed + CLOSING_MARGIN keeps its
+    // ordinary roll instead of closing, so a boosted player used to outrun this
+    // type outright). It still cannot beat a BOOSTED player on its own legs —
+    // that gap is `pursue`'s job, via chaseSpeed (driving.js) — but it can now
+    // stay in a stock player's mirror instead of falling out of it.
     speedMin: 400,
-    speedMax: 470,
+    speedMax: 620,
     steerSpeed: 130,
     blastRadius: 38,
     blastDamage: 16,
@@ -600,10 +609,15 @@ export const CAR_TYPES = [
     h: 58,
     health: 25, // one solid contact and it is gone
     mass: 0.5,
-    // The fastest thing on the road, and deliberately faster than the player's
-    // ceiling: a cycle catches and passes a player at full throttle. Outrunning
-    // one is a job for a Phase 5 boost, not for the accelerator.
-    speedMin: 660,
+    // The fastest thing on the road. FLOOR LOWERED TO 620, LEVEL WITH THE
+    // PLAYER'S OWN CEILING — the old floor of 660 was chosen when 620 was the
+    // fastest a player could ever go; now Phase 5 speed boosts and overdrive
+    // pickups push a player past it, and a cycle rolled at the bottom of its
+    // old band was no longer guaranteed to be the thing outrunning them. The
+    // ceiling still is: at 730 a cycle catches and passes a player at full
+    // throttle even on a low roll, and outrunning one under boost is still the
+    // job the Phase 5 boosts exist for, not the accelerator.
+    speedMin: 620,
     speedMax: 730,
     steerSpeed: 180, // the nimblest thing on the road, by a wide margin
     blastRadius: 10,
@@ -662,9 +676,13 @@ export const CAR_TYPES = [
   {
     id: "rival",
     label: "RIVAL",
-    // The player's own silhouette, in the hostile shade — see the header. Only
-    // the cycle is quicker, and nothing else hostile can live with the player
-    // flat out.
+    // The player's own silhouette, in the hostile shade — see the header. The
+    // cycle is quicker outright, and the outrider's and interceptor's bands now
+    // reach into the player's own ceiling too (both widened so a BOOSTED player
+    // still has something behind them) — but neither is DRIVING at that pace by
+    // choice the way the rival is; they get there through `pursue`/`strafe`'s
+    // chaseSpeed override, a leash rather than a cruise. The rival is the only
+    // hostile that lives with the player flat out as a straight speed contest.
     shape: carShapeIndex("SUPERCAR"),
     faction: ENEMY_FACTION,
     color: ENEMY_DEEP, // base chassis matches every other hostile's — see the header
@@ -680,7 +698,9 @@ export const CAR_TYPES = [
     health: 400,
     mass: 1.2,
     // Straddles the player's top speed: flat out, you draw level with a rival
-    // and neither of you gets away. The only hostile that can hold that.
+    // and neither of you gets away — on its OWN legs, unlike the outrider and
+    // interceptor above, whose reach into this range is a chase leash rather
+    // than a cruise (see the header comment on this entry).
     speedMin: 580,
     speedMax: 650,
     steerSpeed: 150,
@@ -750,11 +770,18 @@ export const CAR_TYPES = [
     h: 64,
     health: 30, // one burst, one shove, or one clipped barrel
     mass: 0.5,
-    // Quicker than the interceptor it shadows and slower than the cycle, so it
-    // catches a player who is doing anything other than fleeing flat out — and
-    // once it is there, `chaseSpeed` (driving.js, 600) is what holds it there.
-    speedMin: 540,
-    speedMax: 600,
+    // WIDENED BOTH ENDS. The floor drops to 400, level with the interceptor's
+    // own, so `strafe` still has a car under it to roll when the player has
+    // slowed for a hazard or a fight rather than only ever cruising at 540+ —
+    // a band that could not go below 540 meant an outrider following a slowed
+    // player was always fighting to shed speed it wasn't allowed to roll under.
+    // The ceiling rises to 660, past the cycle's new 620 floor, for the same
+    // reason the interceptor's did: a boosted player leaves 600 behind for
+    // good, and `chaseSpeed` (driving.js, 600) needs a band that can still
+    // catch one. It stays under the cycle's own 730, so the cycle remains the
+    // one thing that reliably passes.
+    speedMin: 400,
+    speedMax: 660,
     steerSpeed: 200, // the widest sweep on the road needs the quickest hands;
                      // this is the nimblest thing in the catalogue, past the
                      // cycle's own 180

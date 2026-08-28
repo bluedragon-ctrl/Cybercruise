@@ -292,7 +292,7 @@ export const EVENT_TYPES = [
     // THE SIX BEHIND DO NOT ALL ARRIVE THE SAME WAY, and the mix is chosen on
     // that:
     //
-    //   THE CYCLES GET IN FRONT UNDER THEIR OWN POWER, cruising 660-730 against
+    //   THE CYCLES GET IN FRONT UNDER THEIR OWN POWER, cruising 620-730 against
     //   the player's ceiling of 620 and raiding past by definition. Staged in
     //   the mirror they do not stay there — they wash through and around the
     //   player over the next few seconds, and the encounter ends up in front,
@@ -300,13 +300,15 @@ export const EVENT_TYPES = [
     //   getting there is what the type already does.
     //
     //   THE OUTRIDERS WORK THE MIRROR, which is the type rather than a
-    //   compromise. Their band tops out at 600, under the player's 620, so a
-    //   flat-out player is never overtaken by one: it holds station astern on
-    //   its profile's chaseSpeed of 600 (driving.js) at 20 units a second of
-    //   slip, sweeping across the player's line as it goes (behaviours.js's
-    //   `strafe`). `gang` stages the same bike from the same side for the same
-    //   reason. Nine ahead once the road sorts itself out, three behind, and no
-    //   clean air in either mirror.
+    //   compromise. Their band now reaches 660, past a STOCK player's 620 — the
+    //   headroom exists for a BOOSTED player, whose overdrive and Phase 5 pickups
+    //   push well past that ceiling and would otherwise strand this type off the
+    //   bottom of the screen. Against a stock player it mostly still just holds
+    //   station astern on its profile's chaseSpeed of 600 (driving.js) at 20
+    //   units a second of slip, sweeping across the player's line as it goes
+    //   (behaviours.js's `strafe`). `gang` stages the same bike from the same
+    //   side for the same reason. Nine ahead once the road sorts itself out,
+    //   three behind, and no clean air in either mirror.
     //
     // GATED AT 1500, past every bike's own gate (cartypes.js), so it introduces
     // nothing — the ambient road's own bikes, met all at once. It sits between
@@ -361,6 +363,22 @@ export const EVENT_TYPES = [
   {
     // THE ROADBLOCK. Rigs abreast, one lane deliberately left open — see
     // events.js's `abreast` for why that gap is a rule and not a decoration.
+    //
+    // TWO WALLS, SIX RIGS. `abreast` clamps a single rank to LANE_COUNT - 1
+    // (road.js) regardless of what `count` asks for — three rigs is already
+    // the most one rank can hold without sealing the road — so six means a
+    // second rank, staged 300 further up the same way `chokepoint`'s second
+    // row of traps is: `lead` stacks it clear of the first rather than laying
+    // it on top. This is also what pushed `abreast` to honour `lead` at all —
+    // a single-rank spec never exercised it, and nothing caught the gap.
+    //
+    // 300 CLEARS THE RIG'S OWN LENGTH, the same arithmetic the worksite and
+    // chokepoint entries use: traffic.js's SPAWN_GAP wants 150 units of clear
+    // road between two cars' boxes in a lane, and a rig is 124 long, so two
+    // rigs sharing a lane need 274 between centres. 300 covers that with a
+    // rig's width to spare — worth stating because the two ranks pick their
+    // open lane independently, so a straight run down the gap is not
+    // guaranteed; the second wall may open on the opposite side.
     id: "blockade",
     label: "CONVOY BLOCKING ROAD",
     weight: 1.5,
@@ -371,6 +389,7 @@ export const EVENT_TYPES = [
     density: { cars: 0.5, hazards: 0 },
     stage: [
       { kind: "abreast", type: "rig", count: 3, gapLanes: 1 },
+      { kind: "abreast", type: "rig", count: 3, gapLanes: 1, lead: 300 },
     ],
   },
 
@@ -726,12 +745,15 @@ export const EVENT_TYPES = [
       // could clear both and then trade with the battery unopposed, which is
       // the one shape this fight must not collapse into.
       //
-      // They are SLOWER than the player (400-470 against 620) and stay in the
-      // fight anyway, because `pursue` chases at the profile's `chaseSpeed` of
-      // 600 rather than at the type's own ceiling (behaviours.js) — 20 units a
-      // second of slip against a player holding full throttle, which is half a
-      // minute of pursuit and longer than the fight. A player who slows down to
-      // shoot straight keeps them indefinitely.
+      // They TOP OUT AT the player's own ceiling (400-620 against 620) and stay
+      // in the fight regardless, because `pursue` chases at the profile's
+      // `chaseSpeed` of 600 rather than at the type's own ceiling (behaviours.js)
+      // — 20 units a second of slip against a player holding full throttle,
+      // which is half a minute of pursuit and longer than the fight. A player
+      // who slows down to shoot straight keeps them indefinitely. The band was
+      // widened from a 470 ceiling for the sake of a BOOSTED player, whose speed
+      // pickups run well past 620 and would otherwise leave a stock interceptor
+      // no way to ever close.
       //
       // TWO AHEAD AND TWO BEHIND, and the split is forced by the road before it
       // is anything else. The budget for a formation staged ahead is the gap
@@ -747,9 +769,9 @@ export const EVENT_TYPES = [
       // while two rockets close from the mirror, and the lane the player picks
       // to dodge a shell is one they have to pick while being chased into it.
       //
-      // Their own speed is no objection to either side. They cruise 400-470,
-      // slower than the player — which is what puts a pair of them ahead by
-      // traffic.js's spawn rule — but `pursue` chases at the profile's
+      // Their own speed is no objection to either side. They cruise 400-620, at
+      // or under the player's own ceiling — which is what puts a pair of them
+      // ahead by traffic.js's spawn rule — but `pursue` chases at the profile's
       // `chaseSpeed` of 600 (behaviours.js), not the type's ceiling, so the two
       // behind slip only 20 units a second against a player at full throttle
       // and stay in the fight for longer than the fight lasts.
