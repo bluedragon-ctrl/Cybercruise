@@ -374,12 +374,13 @@ outright.
 ## Special events
 
 Everything staged rather than spawned — a bike gang closing from the mirror, a
-blockade, the road narrowing to a slot, a minefield, the rival's arrival, and the
-cargo drone that carries the car to the shop, which turned out to be the same kind
-of thing. `game/eventtypes.js` is the catalogue, `game/events.js` the director,
-and both headers argue the design at length.
+blockade, a coned-off worksite, the road narrowing to a slot or weaving through a
+chicane, a minefield, twelve bikes at once, the rival's arrival, and the cargo
+drone that carries the car to the shop, which turned out to be the same kind of
+thing. `game/eventtypes.js` is the catalogue, `game/events.js` the director, and
+both headers argue the design at length.
 
-Three decisions carry it:
+Four decisions carry it:
 
 - **One list, not four systems.** A gang, a blockade, a narrowing, a boss and the
   shop drone are all *something placed on purpose, at a moment chosen on purpose*.
@@ -393,6 +394,12 @@ Three decisions carry it:
 - **Distance, not time, drives every decision** — the roll beat, the milestones,
   the cooldowns, the durations. A player dawdling to farm encounters would be a
   bug; a player flat out meeting more of them is the game working.
+- **What the road allows is what an encounter gets.** Staged cars have their own
+  retire boundary (`traffic.js`'s `STAGED_RETIRE_MARGIN`), which is what buys a
+  formation more than one rank — the ambient margin is load-bearing for
+  `obstacles.js`'s own spawn margin and was left alone. No staged rank may fill
+  every lane, and hazards are placed through the passage rule, so a narrowing,
+  a chicane and a car wall all leave a way through by construction.
 
 An encounter turns the ambient budgets down by a multiplier rather than switching
 them off, so the road drains over a few seconds instead of blinking out. Staged

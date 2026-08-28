@@ -53,7 +53,32 @@ export const EXTRA_CASH_AMOUNT = 999999;
 // restores every catalogue figure — but an empty object is what the file is
 // supposed to look like at rest.
 //
-//   export const EVENT_AT_OVERRIDES = {};   // ship it like this
+//   export const EVENT_AT_OVERRIDES = {};
+
+// GATE OVERRIDES: the same idea for a ROLLED encounter, whose trigger is not a
+// milestone but game/eventtypes.js's `minDistance`. Keyed by event id; anything
+// not listed is eligible at its catalogue figure.
+//
+// A SECOND MAP, because the two override different fields read in different
+// places: `at` by the director deciding a milestone is due, `minDistance` by
+// eventAvailable() deciding what may be DRAWN. One key meaning "fires at" for a
+// set-piece and "unlocks at" for a rolled entry is two meanings wearing one name.
+//
+// Everything the map above says applies here: the catalogue states what SHIPS,
+// the suite checks what ships (test/events.test.js clears both maps before it
+// runs a single test), and this is where a number is pulled forward by hand. An
+// entry brought forward may stage a type the ambient road has not unlocked,
+// which is the point of the override — the invariant is about what the
+// catalogue says, and the catalogue is unchanged.
+//
+//   export const EVENT_GATE_OVERRIDES = {};   // ship it like this
+//
+// EMPTY, which is how this ships. Every rolled encounter unlocks at the
+// distance its catalogue entry names. Put an id in here to reach a new one
+// quickly by hand:
+//
+//   export const EVENT_GATE_OVERRIDES = { slalom: 150 };  // the weave at once
+export const EVENT_GATE_OVERRIDES = {};   // ship it like this
 //
 // EMPTY, which is how this ships. Every encounter fires at the distance its
 // catalogue entry names. Put an id in here to reach one quickly by hand:

@@ -12,16 +12,28 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as events from "../src/game/events.js";
 import { EVENT_TYPES, FOCUS, eventAvailable, eventTypeById } from "../src/game/eventtypes.js";
-import { EVENT_AT_OVERRIDES } from "../src/testoptions.js";
+import { EVENT_AT_OVERRIDES, EVENT_GATE_OVERRIDES } from "../src/testoptions.js";
 import { CAR_TYPES, carTypeById } from "../src/game/cartypes.js";
 import { obstacleTypeById } from "../src/game/obstacletypes.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
-import { Traffic, MAX_CARS, RETIRE_MARGIN as TRAFFIC_RETIRE_MARGIN } from "../src/game/traffic.js";
-import { Obstacles, SPAWN_MARGIN as OBSTACLE_SPAWN_MARGIN } from "../src/game/obstacles.js";
+import {
+  Traffic, MAX_CARS,
+  RETIRE_MARGIN as TRAFFIC_RETIRE_MARGIN,
+  STAGED_RETIRE_MARGIN,
+  SPAWN_GAP as TRAFFIC_SPAWN_GAP,
+} from "../src/game/traffic.js";
+import {
+  Obstacles,
+  SPAWN_MARGIN as OBSTACLE_SPAWN_MARGIN,
+  SPAWN_GAP as OBSTACLE_SPAWN_GAP,
+} from "../src/game/obstacles.js";
+import { TACTIC_NAMES, dodgeDistance } from "../src/game/behaviours.js";
 import { Explosions } from "../src/game/effects.js";
 import { Player } from "../src/game/player.js";
 import { Hauler, SHOP_INTERVAL } from "../src/game/hauler.js";
 import { DIST_UNITS, LANE_COUNT, ROAD_HALF_WIDTH } from "../src/game/road.js";
+import { MAX_SPEED as PLAYER_MAX_SPEED } from "../src/game/player.js";
+import { drivingFor } from "../src/game/driving.js";
 
 // The director announces through links.js's shared rate limiter and pushes to
 // the SYS LOG; neither wants a real console here, so both are stubbed at every
@@ -43,6 +55,11 @@ import { DIST_UNITS, LANE_COUNT, ROAD_HALF_WIDTH } from "../src/game/road.js";
 // Cleared rather than asserted-empty on purpose: a developer with the override
 // set should be able to run the suite without it going red.
 for (const id of Object.keys(EVENT_AT_OVERRIDES)) delete EVENT_AT_OVERRIDES[id];
+// ...and the same for the ROLLED entries' gates, which is the map most likely
+// to be non-empty on a working tree: a new encounter is normally pulled forward
+// while it is being looked at. An entry eligible from DIST 150 turns up in the
+// middle of every test that drives the director.
+for (const id of Object.keys(EVENT_GATE_OVERRIDES)) delete EVENT_GATE_OVERRIDES[id];
 
 const QUIET = [() => {}, () => false];
 
@@ -122,6 +139,16 @@ test("every entry names exactly one trigger, and ids are unique", () => {
   }
 });
 
+// Every type ONE stage spec puts on the road. Almost every kind names a single
+// `type`; `flank` names a `types` sequence, because a worksite is a warning of
+// one type followed by a danger of another (see events.js). The gate rules
+// below apply to each of them individually, so they are asked for as a list
+// rather than as a field — a kind that names its types some third way must
+// widen this, and the two tests keep checking every type either way.
+function stagedTypeIds(spec) {
+  return spec.types ?? [spec.type];
+}
+
 test("a rolled entry stages nothing the road has not unlocked yet", () => {
   // THE INVARIANT THAT KEEPS THE CATALOGUES HONEST. An encounter is drawn on its
   // own `minDistance`, but the cars and hazards it places carry their own gates
@@ -146,16 +173,19 @@ test("a rolled entry stages nothing the road has not unlocked yet", () => {
 
     for (const spec of type.stage ?? []) {
       if (spec.kind === "handoff") continue;
-      // Asked of BOTH catalogues rather than switched on the stage kind: a new
-      // kind that places hazards (the minefield's `scatter` was one) would
-      // otherwise silently start looking its type up in the car list and fail
-      // with "unknown type" instead of checking the gate it came here for.
-      const staged = carTypeById(spec.type) ?? obstacleTypeById(spec.type);
-      assert.ok(staged, `${type.id} stages unknown type "${spec.type}"`);
-      assert.ok(
-        gate >= staged.minDistance,
-        `${type.id} opens at ${gate} but stages ${spec.type}, gated at ${staged.minDistance}`,
-      );
+      for (const id of stagedTypeIds(spec)) {
+        // Asked of BOTH catalogues rather than switched on the stage kind: a
+        // new kind that places hazards (the minefield's `scatter` was one)
+        // would otherwise silently start looking its type up in the car list
+        // and fail with "unknown type" instead of checking the gate it came
+        // here for.
+        const staged = carTypeById(id) ?? obstacleTypeById(id);
+        assert.ok(staged, `${type.id} stages unknown type "${id}"`);
+        assert.ok(
+          gate >= staged.minDistance,
+          `${type.id} opens at ${gate} but stages ${id}, gated at ${staged.minDistance}`,
+        );
+      }
     }
   }
 });
@@ -171,14 +201,16 @@ test("only a one-shot may introduce a type the road has not unlocked", () => {
     if (type.at === undefined) continue;
     for (const spec of type.stage ?? []) {
       if (spec.kind === "handoff") continue;
-      const staged = carTypeById(spec.type) ?? obstacleTypeById(spec.type);
-      assert.ok(staged, `${type.id} stages unknown type "${spec.type}"`);
-      if (type.at >= (staged.minDistance ?? 0)) continue; // nothing to excuse
-      assert.ok(
-        type.once,
-        `${type.id} fires at ${type.at} and stages ${spec.type}, gated at ` +
-          `${staged.minDistance} — only a one-shot may run ahead of a gate`,
-      );
+      for (const id of stagedTypeIds(spec)) {
+        const staged = carTypeById(id) ?? obstacleTypeById(id);
+        assert.ok(staged, `${type.id} stages unknown type "${id}"`);
+        if (type.at >= (staged.minDistance ?? 0)) continue; // nothing to excuse
+        assert.ok(
+          type.once,
+          `${type.id} fires at ${type.at} and stages ${id}, gated at ` +
+            `${staged.minDistance} — only a one-shot may run ahead of a gate`,
+        );
+      }
     }
   }
 });
@@ -243,8 +275,11 @@ test("a car staged ahead lands off-screen but inside the road the game keeps", (
   // nothing at all, for as long as it has existed.
   //
   // So the real constraint, and the one asserted now: OFF-SCREEN, so nothing
-  // materialises in view, and INSIDE the retire margin, so it is still there on
-  // the next tick.
+  // materialises in view, and INSIDE THE STAGED RETIRE MARGIN, so it is still
+  // there on the next tick. The staged boundary rather than the ambient one is
+  // the whole of what makes a multi-rank formation possible — see traffic.js's
+  // STAGED_RETIRE_MARGIN, and note that this test asks Traffic.retire() itself
+  // rather than only comparing numbers, since the boundary is now per-car.
   const world = makeWorld(1000);
   const reqs = events.planStage(
     { kind: "cars", type: "interceptor", count: 2, side: "ahead", spread: 300 }, world,
@@ -254,11 +289,29 @@ test("a car staged ahead lands off-screen but inside the road the game keeps", (
   for (const req of reqs) {
     assert.ok(req.worldY > front, "staged ahead must be off the top of the screen");
     assert.ok(
-      req.worldY - front < TRAFFIC_RETIRE_MARGIN,
+      req.worldY - front < STAGED_RETIRE_MARGIN,
       `staged at ${(req.worldY - front).toFixed(0)} ahead, outside the ` +
-        `${TRAFFIC_RETIRE_MARGIN} retire margin — it would be dropped on arrival`,
+        `${STAGED_RETIRE_MARGIN} staged retire margin — it would be dropped on arrival`,
     );
+    world.traffic.place(req.type, req.worldY, 0, req.speed, true);
   }
+  world.traffic.retire(world);
+  assert.equal(
+    world.traffic.cars.length, reqs.length,
+    "Traffic.retire() must keep every car the stager placed",
+  );
+
+  // ...AND THE AMBIENT BOUNDARY IS UNMOVED. The staged margin is a second
+  // number precisely so the ordinary road is not stretched with it: an unstaged
+  // car out there is still dropped at 320, which is what keeps obstacles.js's
+  // own SPAWN_MARGIN relation (test/hazards.test.js) true.
+  const ambient = makeWorld(1000);
+  ambient.traffic.place(
+    carTypeById("interceptor"),
+    ambient.distance + ambient.player.y + TRAFFIC_RETIRE_MARGIN + 1, 0, 300, false,
+  );
+  ambient.traffic.retire(ambient);
+  assert.equal(ambient.traffic.cars.length, 0, "an ambient car keeps the ambient boundary");
 });
 
 test("a hazard staged ahead still clears the margin traffic needs to dodge it", () => {
@@ -344,6 +397,383 @@ test("a narrowing puts its rows hard against both barriers, wholly on the tarmac
   for (const req of reqs) byRow.set(req.worldY, (byRow.get(req.worldY) ?? 0) + 1);
   assert.equal(byRow.size, 3);
   for (const n of byRow.values()) assert.equal(n, 2);
+});
+
+// How far under the player's ceiling a chase ceiling may sit and still count as
+// holding station. 20 units/sec is the slip the boss's escort runs on and the
+// number its entry works through — half a minute of pursuit, longer than the
+// fight — so it is the documented floor rather than a new one invented here.
+const CLOSING_SLIP = 20;
+
+test("the swarm stages ranks the road can hold and gets the rest there itself", () => {
+  // TWELVE BIKES, AND THE SHAPE IS THE ROAD'S. Two ranks may be staged ahead
+  // because traffic.js's STAGED_RETIRE_MARGIN leaves events.js 440 units of
+  // budget and a rank of bikes costs 216 (SPAWN_GAP plus a hull); three per
+  // rank because a rank that fills every lane is a wall. Both are measurements
+  // of other files, which is why they are pinned here rather than trusted.
+  const swarm = eventTypeById("swarm");
+  const ahead = swarm.stage.filter((spec) => spec.side === "ahead");
+  const behind = swarm.stage.filter((spec) => spec.side === "behind");
+  const total = (specs) => specs.reduce((n, spec) => n + spec.count, 0);
+
+  assert.equal(total(swarm.stage), 12, "the swarm is twelve bikes");
+
+  // A RANK IS THE SPECS SHARING A `lead`: they are all laid at the same worldY,
+  // which is what makes them one rank and what the lane rule applies to.
+  const ranks = new Map();
+  for (const spec of ahead) {
+    const lead = spec.lead ?? 0;
+    ranks.set(lead, (ranks.get(lead) ?? 0) + spec.count);
+  }
+  for (const [lead, count] of ranks) {
+    assert.ok(
+      count <= LANE_COUNT - 1,
+      `the rank at lead ${lead} asks for ${count} of ${LANE_COUNT} lanes — a rank must leave one open`,
+    );
+  }
+
+  // AND THEY REALLY ARE BIKES. The encounter is the motorcycle fleet met all at
+  // once; a car type finding its way into this list would still place, still
+  // read as a gang in the log, and be a different encounter entirely.
+  const fleet = new Set(["cycle", "outrider", "outrunner", "sower"]);
+  for (const spec of swarm.stage) {
+    assert.ok(fleet.has(spec.type), `the swarm stages ${spec.type}, which is not a bike`);
+  }
+
+  // THE LOAD-BEARING HALF OF THE SPLIT: everything staged behind has to stay in
+  // the encounter against a player at full throttle. Two ways to do that, and
+  // the entry names both — a band above the player's ceiling (the cycle, which
+  // is how half the pack ends up in front despite being staged behind), or a
+  // chase ceiling that holds station astern (the outrider's 600). A type
+  // retuned under BOTH would sit off the bottom of the screen for the whole
+  // encounter, which is the exact failure the rival's entry documents.
+  for (const spec of behind) {
+    const type = carTypeById(spec.type);
+    const reach = Math.max(type.speedMax, drivingFor(type).chaseSpeed);
+    assert.ok(
+      reach >= PLAYER_MAX_SPEED - CLOSING_SLIP,
+      `${spec.type} is staged behind but tops out at ${reach} against a player at ${PLAYER_MAX_SPEED}`,
+    );
+  }
+
+  // ...and half of the pack must genuinely pass, or the mirror is the whole
+  // encounter and "swarm" is just `gang` with more bikes in it.
+  const passing = behind
+    .filter((spec) => carTypeById(spec.type).speedMax > PLAYER_MAX_SPEED)
+    .reduce((n, spec) => n + spec.count, 0);
+  assert.ok(
+    passing >= total(behind) / 2,
+    "half the pack staged behind must be able to overtake the player",
+  );
+
+  // The ranks themselves: distinct rows, and the deepest still inside the
+  // boundary Traffic.retire() keeps a staged car to.
+  const world = makeWorld(1600);
+  const boundary = world.distance + world.player.y + STAGED_RETIRE_MARGIN;
+  const reqs = ahead.flatMap((spec) => events.planStage(spec, world));
+  assert.equal(new Set(reqs.map((r) => r.worldY)).size, ranks.size, "one row per rank");
+  for (const req of reqs) assert.ok(req.worldY < boundary, "a staged car must not land past retire");
+
+  // AND THE RANKS MUST CLEAR EACH OTHER. traffic.js's laneClear is what refuses
+  // a car laid too close behind another in the same lane, and two ranks closer
+  // than that is not a tighter formation — it is one rank and some cars that
+  // were quietly refused.
+  const rows = [...new Set(reqs.map((r) => r.worldY))].sort((a, b) => a - b);
+  const deepest = Math.max(...ahead.map((spec) => carTypeById(spec.type).h));
+  for (let i = 1; i < rows.length; i++) {
+    assert.ok(
+      rows[i] - rows[i - 1] >= TRAFFIC_SPAWN_GAP + deepest,
+      `ranks ${(rows[i] - rows[i - 1]).toFixed(0)} apart cannot both land`,
+    );
+  }
+});
+
+test("a slalom alternates its gates and leaves every one of them drivable", () => {
+  // The weave: half-road gates, side alternating, and a way through each one.
+  // The passage rule is what guarantees the last of those, so this places the
+  // whole thing for real rather than only reading the plan.
+  const spec = eventTypeById("slalom").stage[0];
+  const type = obstacleTypeById(spec.type);
+  const w = OBSTACLE_SHAPES[type.shape].size[0];
+
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const world = makeWorld(1600);
+    const reqs = events.planStage(spec, world);
+    assert.equal(reqs.length, spec.gates * spec.perGate, "every gate, every block");
+
+    const rows = [...new Set(reqs.map((r) => r.worldY))].sort((a, b) => a - b);
+    assert.equal(rows.length, spec.gates, "one row per gate");
+
+    rows.forEach((worldY, gate) => {
+      const blocks = reqs.filter((r) => r.worldY === worldY);
+      assert.equal(blocks.length, spec.perGate, "each gate is the same depth");
+
+      // ONE SIDE PER GATE, ALTERNATING. The starting side is rolled; what must
+      // hold is that consecutive gates open on opposite halves, which is the
+      // whole of what makes this a weave rather than a queue of roadblocks.
+      const sides = new Set(blocks.map((b) => Math.sign(b.offset)));
+      assert.equal(sides.size, 1, "a gate must come from one barrier");
+      if (gate > 0) {
+        const prev = Math.sign(reqs.find((r) => r.worldY === rows[gate - 1]).offset);
+        assert.notEqual([...sides][0], prev, "gates must alternate sides");
+      }
+
+      // Wholly on the tarmac, and stacked inward from the barrier with real
+      // daylight between them — see events.js's GATE_CLEARANCE for why exactly
+      // touching is the one spacing that must not be used.
+      const offsets = blocks.map((b) => b.offset).sort((a, b) => a - b);
+      for (const offset of offsets) {
+        assert.ok(Math.abs(offset) + w / 2 <= ROAD_HALF_WIDTH + 1e-9, "a block hangs over a barrier");
+      }
+      for (let i = 1; i < offsets.length; i++) {
+        assert.ok(offsets[i] - offsets[i - 1] > w, "two blocks in a gate must not overlap");
+      }
+    });
+
+    // GATES FAR ENOUGH APART TO BOTH EXIST. The inner block of one gate and the
+    // inner block of the next overlap laterally, so obstacles.js's own spacing
+    // rule applies between them: closer than SPAWN_GAP plus a block and the
+    // second gate is simply refused, which would read as a slalom with holes.
+    const h = OBSTACLE_SHAPES[type.shape].size[1];
+    for (let i = 1; i < rows.length; i++) {
+      assert.ok(rows[i] - rows[i - 1] >= OBSTACLE_SPAWN_GAP + h, "gates too close to both land");
+    }
+
+    // Now lay it for real: every block down, and a way through every gate.
+    for (const req of reqs) {
+      world.obstacles.place(req.type, req.worldY, req.offset, [], true);
+    }
+    assert.equal(world.obstacles.list.length, reqs.length, "every block of the weave must land");
+    for (const worldY of rows) {
+      assert.ok(
+        world.obstacles.leavesPassage(worldY, 0, 0),
+        "a slalom gate must narrow the road, never close it",
+      );
+    }
+  }
+});
+
+test("a staged rank never fills every lane", () => {
+  // `abreast`'s guarantee, generalised to the whole director — see THE OPEN
+  // LANE in events.js's fire(). obstacles.js's passage rule guards hazards and
+  // knows nothing about cars, so a rank of them is the one formation that could
+  // wall the road; multi-rank, multi-type staging is what made the old per-spec
+  // clamp insufficient.
+  //
+  // Asked of a deliberately abusive entry rather than of the catalogue: four
+  // separate one-car specs at the same worldY, which is exactly the shape a
+  // mis-authored rank takes.
+  const wall = {
+    id: "test-wall",
+    label: null,
+    weight: 1,
+    minDistance: 0,
+    maxDistance: Infinity,
+    cooldown: 0,
+    duration: 10,
+    density: { cars: 0, hazards: 0 },
+    stage: [0, 1, 2, 3].map(() => (
+      { kind: "cars", type: "interceptor", count: 1, side: "ahead", spread: 0 }
+    )),
+  };
+
+  // Fired through the REAL director rather than through a seam cut for the
+  // test: the entry goes into the catalogue and FOCUS makes it the only thing
+  // eligible, which is exactly what that switch is exported for (eventtypes.js).
+  const world = makeWorld(0);
+  EVENT_TYPES.push(wall);
+  FOCUS.push(wall.id);
+  try {
+    events.reset();
+    // Rolls pinned ON, and driven from a standing start: the milestones on the
+    // way (warband, rival, the boss) fire first and hold the director for their
+    // own durations, exactly as they would in a run.
+    withRandom(0, () => {
+      for (let d = 0; d <= 2000 * DIST_UNITS && events.active() !== wall.id; d += DIST_UNITS) {
+        world.distance = d;
+        events.update(d / 1000, world, {}, ...QUIET);
+        if (events.active() !== wall.id) sweepStaged(world);
+      }
+    });
+  } finally {
+    EVENT_TYPES.pop();
+    FOCUS.pop();
+  }
+
+  assert.equal(events.active(), wall.id, "the wall never fired");
+  const staged = world.traffic.cars.filter((c) => c.staged);
+  const lanes = new Set(staged.map((c) => c.lane));
+  assert.ok(staged.length > 0, "the wall staged nothing at all");
+  assert.ok(
+    lanes.size <= LANE_COUNT - 1,
+    `a staged rank took ${lanes.size} of ${LANE_COUNT} lanes — the player must have one`,
+  );
+});
+
+test("every type staged ahead has a tactic that brings it to the player", () => {
+  // THE CEILING A BIGGER MARGIN DOES NOT BUY THROUGH. events.js's arrivalSpeed
+  // caps a car staged ahead at the player's own speed, so it HOLDS ITS GAP
+  // until its tactic acts: it never drifts into view on its own. Whether the
+  // player ever meets a rank staged up the road is therefore decided by the
+  // tactic, not by the margin — and a deep formation of cars that simply cruise
+  // would announce an encounter and show the player nothing, which is the
+  // failure `warband` shipped with in a different form.
+  //
+  // The two civilian tactics are the ones that fail this: they drive the road,
+  // not the player (see behaviours.js's tactics table). Everything hostile is
+  // written against the player's own position.
+  const civilian = new Set(["cruise", "overtake"]);
+  for (const type of EVENT_TYPES) {
+    for (const spec of type.stage ?? []) {
+      if (spec.kind !== "cars" || spec.side === "behind") continue;
+      const staged = carTypeById(spec.type);
+      assert.ok(TACTIC_NAMES.includes(staged.behaviour), `${spec.type} names no real tactic`);
+      assert.ok(
+        !civilian.has(staged.behaviour),
+        `${type.id} stages ${spec.type} ahead, but "${staged.behaviour}" never closes on ` +
+          `the player — staged ahead it would hold its gap and never be seen`,
+      );
+    }
+  }
+});
+
+test("a deep rank still has road enough to dodge the hazards ahead of it", () => {
+  // THE COST OF STAGING DEEPER, and the reason STAGED_RETIRE_MARGIN is not just
+  // "as big as anyone likes". obstacles.js's SPAWN_MARGIN (1500) is sized so
+  // that a car at the AMBIENT retire boundary still has the road the worst
+  // dodger in the catalogue needs to cross two lanes — test/hazards.test.js
+  // pins that. A staged car is allowed further up the road than that boundary,
+  // which spends the same budget from the other end: stage a rank at `lead` 500
+  // and the cars in it meet the hazard line with 500 units less road to react.
+  //
+  // Asked of what the CATALOGUE actually stages rather than of the margin, so
+  // the headroom is available to whoever wants it and only an entry that
+  // actually spends it has to answer for it.
+  const world = makeWorld(1600);
+  const front = world.distance + world.player.y;
+  for (const type of EVENT_TYPES) {
+    for (const spec of type.stage ?? []) {
+      if (spec.kind !== "cars" || spec.side === "behind") continue;
+      const staged = carTypeById(spec.type);
+      const deepest = Math.max(...events.planStage(spec, world).map((r) => r.worldY)) - front;
+      const needed = deepest + dodgeDistance(staged.speedMax, staged.steerSpeed);
+      assert.ok(
+        needed <= OBSTACLE_SPAWN_MARGIN,
+        `${type.id} stages ${spec.type} ${deepest.toFixed(0)} units up the road, which leaves ` +
+          `${(OBSTACLE_SPAWN_MARGIN - deepest).toFixed(0)} units to a hazard it needs ` +
+          `${dodgeDistance(staged.speedMax, staged.steerSpeed).toFixed(0)} to dodge`,
+      );
+    }
+  }
+});
+
+test("a wall of rigs is staged where traffic enters, not where hazards do", () => {
+  // A LIVE BUG UNTIL THE STAGED MARGIN WORK. `abreast` was laying its cars at
+  // obstacles.js's SPAWN_MARGIN — 1500 units up the road — so Traffic.retire()
+  // dropped all three on the tick they were placed. `blockade` fired, announced
+  // itself, held the ambient road down for its whole duration and put nothing
+  // on it, which is character for character the hole `warband` fell into before
+  // the `cars` kind was fixed. Pinned so it cannot be dug twice.
+  const world = makeWorld(1000);
+  const reqs = events.planStage(eventTypeById("blockade").stage[0], world);
+  const front = world.distance + world.player.y;
+
+  assert.ok(reqs.length > 0, "the blockade staged nothing");
+  for (const req of reqs) {
+    assert.ok(req.worldY > front, "a rig must not materialise in view");
+    world.traffic.place(req.type, req.worldY, req.lane, req.speed, true);
+  }
+  world.traffic.retire(world);
+  assert.equal(
+    world.traffic.cars.length, reqs.length,
+    "every rig of the blockade must survive the tick it was placed on",
+  );
+});
+
+test("a worksite cones off ONE side, in the order the player meets it", () => {
+  // `roadworks`' whole claim is a sentence read in order: the trestle warns,
+  // the barrels behind it are what it warns about. Both halves are asserted —
+  // one side (so the other one is open by construction) and increasing worldY
+  // in the sequence's own order (so the warning is never behind the danger).
+  const spec = eventTypeById("roadworks").stage[0];
+
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const world = makeWorld(1100);
+    const reqs = events.planStage(spec, world);
+
+    assert.equal(reqs.length, spec.types.length, "one hazard per item in the sequence");
+    const sides = new Set(reqs.map((r) => Math.sign(r.offset)));
+    assert.equal(sides.size, 1, "a worksite must sit on one side of the road");
+
+    reqs.forEach((req, i) => {
+      assert.equal(req.type.id, spec.types[i], "the sequence keeps its order");
+      if (i > 0) {
+        assert.ok(req.worldY > reqs[i - 1].worldY, "each item is further up the road");
+      }
+      // Hard against that barrier at its OWN width — see events.js's `flank`.
+      const w = OBSTACLE_SHAPES[req.type.shape].size[0];
+      assert.equal(Math.abs(req.offset), ROAD_HALF_WIDTH - w / 2);
+    });
+  }
+
+  // AND THE WHOLE SEQUENCE HAS TO LAND. obstacles.js's SPAWN_GAP refuses a
+  // hazard laid too close behind another, and a worksite that lost its barrels
+  // to it would still announce itself and still read as a lane closure — the
+  // failure is invisible from the outside, which is exactly why it is pinned
+  // here. See the spacing note in the catalogue entry.
+  const laid = makeWorld(1100);
+  for (const req of events.planStage(spec, laid)) {
+    laid.obstacles.place(req.type, req.worldY, req.offset, [], true);
+  }
+  assert.equal(
+    laid.obstacles.list.length, spec.types.length,
+    "every item of the worksite must clear the spacing rule",
+  );
+
+  // Over many rolls it uses both sides: the side is a decision the player has
+  // to read, not a line they can memorise.
+  const seen = new Set();
+  for (let attempt = 0; attempt < 60; attempt++) {
+    seen.add(Math.sign(events.planStage(spec, makeWorld(1100))[0].offset));
+  }
+  assert.equal(seen.size, 2, "the closed side must be rolled, not authored");
+});
+
+test("a chokepoint leads with its warning and holds a corridor open", () => {
+  // The two-spec shape `lead` exists for (events.js): trestles first, tank
+  // traps starting past them. Asserted as a relation between the specs rather
+  // than against fixed numbers, so retuning the catalogue moves the test with
+  // it — what must stay true is that no trap is laid level with or ahead of
+  // the trestles that warn about it.
+  const world = makeWorld(2100);
+  const [warn, traps] = eventTypeById("chokepoint").stage;
+  const warnReqs = events.planStage(warn, world);
+  const trapReqs = events.planStage(traps, world);
+
+  assert.equal(warnReqs.length, warn.count * 2, "warning rows, both sides");
+  assert.equal(trapReqs.length, traps.count * 2, "trap rows, both sides");
+  assert.ok(
+    Math.min(...trapReqs.map((r) => r.worldY)) > Math.max(...warnReqs.map((r) => r.worldY)),
+    "every tank trap must sit past every trestle that warns about it",
+  );
+
+  // Now lay the whole thing for real. The corridor is what this encounter IS,
+  // so the rows have to actually land — a chokepoint the passage rule thinned
+  // out would be a lane closure with extra steps — and the slot between them
+  // has to stay drivable at every row.
+  for (const req of [...warnReqs, ...trapReqs]) {
+    world.obstacles.place(req.type, req.worldY, req.offset, [], true);
+  }
+  assert.equal(
+    world.obstacles.list.length, warnReqs.length + trapReqs.length,
+    "the corridor is wide enough that nothing is refused",
+  );
+  for (const worldY of new Set(world.obstacles.list.map((o) => o.worldY))) {
+    assert.ok(
+      world.obstacles.leavesPassage(worldY, 0, 0),
+      "a chokepoint must narrow the road, never close it",
+    );
+  }
 });
 
 test("a minefield sows rows across the road, each row separately drivable", () => {
@@ -531,8 +961,8 @@ test("the rival turns up once, before the road can produce one of its own", () =
   const front = placedAt + world.player.y;
   assert.ok(staged()[0].worldY > front, "the rival must not materialise in view");
   assert.ok(
-    staged()[0].worldY - front < TRAFFIC_RETIRE_MARGIN,
-    "the rival must arrive inside the retire margin, or it is dropped at once",
+    staged()[0].worldY - front < STAGED_RETIRE_MARGIN,
+    "the rival must arrive inside the staged retire margin, or it is dropped at once",
   );
 
   // Kill it, drive on well past the milestone: a one-shot never comes back.
@@ -808,8 +1238,8 @@ test("the boss encounter stages a battery the road can actually keep", () => {
       }
       assert.ok(req.worldY > front, `${spec.type} materialised in view`);
       assert.ok(
-        req.worldY - front < TRAFFIC_RETIRE_MARGIN,
-        `${spec.type} staged outside the retire margin — it would be dropped on arrival`,
+        req.worldY - front < STAGED_RETIRE_MARGIN,
+        `${spec.type} staged outside the staged retire margin — it would be dropped on arrival`,
       );
       assert.ok(
         req.speed <= world.player.speed,
