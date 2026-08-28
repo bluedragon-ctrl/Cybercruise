@@ -53,7 +53,37 @@ export const EXTRA_CASH_AMOUNT = 999999;
 // restores every catalogue figure — but an empty object is what the file is
 // supposed to look like at rest.
 //
-//   export const EVENT_AT_OVERRIDES = {};   // ship it like this
+//   export const EVENT_AT_OVERRIDES = {};
+
+// GATE OVERRIDES: the same idea for a ROLLED encounter, whose trigger is not a
+// milestone but game/eventtypes.js's `minDistance`. Keyed by event id; anything
+// not listed is eligible at its catalogue figure.
+//
+// WHY A SECOND MAP AND NOT ONE. They override different fields on different
+// kinds of entry, and they are read in different places — `at` by the director
+// when it decides a milestone is due, `minDistance` by eventAvailable() when it
+// decides what may be DRAWN. Folding them into one object would mean one key
+// that means "fires at" for a set-piece and "unlocks at" for a rolled entry,
+// which is two meanings wearing one name.
+//
+// EVERYTHING THE MAP ABOVE SAYS APPLIES HERE. The catalogue always states what
+// SHIPS, the suite always checks what ships (test/events.test.js clears both
+// maps before it runs a single test), and this file is where a number gets
+// pulled forward to be looked at by hand.
+//
+// A ROLLED ENTRY BROUGHT FORWARD MAY STAGE A TYPE THE ROAD HAS NOT UNLOCKED —
+// the slalom below is tetras, gated at 1200 in obstacletypes.js — and that is
+// the point of the override rather than a hole in the invariant: the invariant
+// is about what the CATALOGUE says, and the catalogue still says 1500.
+//
+//   export const EVENT_GATE_OVERRIDES = {};   // ship it like this
+//
+// EMPTY, which is how this ships. Every rolled encounter unlocks at the
+// distance its catalogue entry names. Put an id in here to reach a new one
+// quickly by hand:
+//
+//   export const EVENT_GATE_OVERRIDES = { slalom: 150 };  // the weave at once
+export const EVENT_GATE_OVERRIDES = {};   // ship it like this
 //
 // EMPTY, which is how this ships. Every encounter fires at the distance its
 // catalogue entry names. Put an id in here to reach one quickly by hand:

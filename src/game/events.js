@@ -31,7 +31,7 @@ import { obstacleTypeById } from "./obstacletypes.js";
 import { OBSTACLE_SHAPES } from "./obstacleshapes.js";
 import {
   SPAWN_MARGIN as TRAFFIC_SPAWN_MARGIN,
-  RETIRE_MARGIN as TRAFFIC_RETIRE_MARGIN,
+  STAGED_RETIRE_MARGIN,
 } from "./traffic.js";
 import { SPAWN_MARGIN as HAZARD_SPAWN_MARGIN } from "./obstacles.js";
 import { DIST_UNITS, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
@@ -61,18 +61,25 @@ const EVENT_GAP = 25 * DIST_UNITS;
 // feature quietly starve another. Sized so the largest formation in the
 // catalogue fits with room to spare, and so a director bug cannot fill the road.
 //
-// RAISED FROM 6 when `warband` gained its bike wing: a bruiser, two
-// interceptors and four outriders is seven cars, and at six the last of them was
-// simply refused. This number is documented as tracking the catalogue's largest
-// formation, so it moves when that formation does — the "room to spare" is what
-// makes it a guard against a director bug rather than a second place to tune
-// encounter sizes.
-const MAX_STAGED_CARS = 8;
-// Sized off the LARGEST field in the catalogue with room over it — the
-// minefield asks for four rows of three. Deliberately not tighter: that entry's
-// whole claim is that the PASSAGE RULE decides how many mines land, and a
-// budget that bit first would silently take the decision off it.
-const MAX_STAGED_OBSTACLES = 14;
+// RAISED FROM 6 when `warband` gained its bike wing (seven cars), and FROM 8
+// when `swarm` landed: twelve bikes is the largest formation the catalogue has
+// ever asked for, and at 8 the last four were refused by this number rather
+// than by the road — which is the one thing this budget must never be. It is
+// documented as tracking the catalogue's largest formation, so it moves when
+// that formation does; the "room to spare" is what keeps it a guard against a
+// director bug rather than a second place to tune encounter sizes.
+const MAX_STAGED_CARS = 14;
+// Sized off the LARGEST field in the catalogue with room over it. Deliberately
+// not tighter: the minefield's whole claim is that the PASSAGE RULE decides how
+// many of its mines land, and a budget that bit first would silently take that
+// decision off it.
+//
+// RAISED FROM 14 when `chokepoint` landed: two rows of trestles and five rows
+// of tank traps is fourteen hazards exactly, so at 14 the budget — not the road
+// — was deciding whether the last one went down. This number tracks the
+// catalogue's largest field the way MAX_STAGED_CARS tracks its largest
+// formation, and it moves when that field does.
+const MAX_STAGED_OBSTACLES = 20;
 
 // --- Per-run state -----------------------------------------------------------
 //
@@ -262,6 +269,8 @@ function stillOnRoad(body, world) {
 function fire(type, world, handlers, clockValue, push, busy, spend) {
   const placed = [];
   let handler = null;
+  // Lanes this encounter has filled at each worldY — see THE OPEN LANE below.
+  const ranks = new Map();
 
   for (const spec of type.stage ?? []) {
     if (spec.kind === "handoff") {
@@ -278,8 +287,27 @@ function fire(type, world, handlers, clockValue, push, busy, spend) {
     const requests = planStage(spec, world);
     let landed = 0;
     for (const req of requests) {
+      // THE OPEN LANE, and it is the `abreast` guarantee generalised. That kind
+      // clamps its own count because obstacles.js's passage rule guards HAZARDS
+      // and knows nothing about cars, so a rank of them is the one formation in
+      // the catalogue that can wall the road with no way through. Its clamp only
+      // ever saw one spec, which was enough while a rank could only come from
+      // one — now that `lead` and the staged margin make multi-rank, multi-type
+      // formations authorable, four separate one-car specs at the same worldY
+      // would build exactly the wall `abreast` refuses to.
+      //
+      // COUNTED WHERE THE CARS ACTUALLY LAND, not in the plan: planStage is pure
+      // and picks lanes without knowing what is on the road, and applyRequest's
+      // freeLane fallback may put a car in a different lane than the one asked
+      // for. The lane a rank is judged by is the lane the car ended up in.
+      if (req.kind === "car" && (ranks.get(req.worldY)?.size ?? 0) >= LANE_COUNT - 1) continue;
       const body = applyRequest(req, world);
       if (body) {
+        if (req.kind === "car") {
+          const taken = ranks.get(req.worldY) ?? new Set();
+          taken.add(body.lane);
+          ranks.set(req.worldY, taken);
+        }
         placed.push(body);
         landed++;
       }
@@ -328,7 +356,7 @@ function fire(type, world, handlers, clockValue, push, busy, spend) {
 // snapshot, which is what lets the suite assert the formations without a canvas
 // (see test/events.test.js).
 //
-// THE FIVE KINDS:
+// THE SEVEN KINDS:
 //
 //   cars     `count` cars of one type on the named `side`, staggered by
 //            `spread` world units. Lanes are walked so a pack spreads across
@@ -337,11 +365,28 @@ function fire(type, world, handlers, clockValue, push, busy, spend) {
 //            `gapLanes` lanes open
 //   rows     `count` rows of one obstacle type, `spread` apart, hard against
 //            BOTH barriers — the road narrowing
+//   flank    a SEQUENCE of hazard types down ONE side, `spread` apart, in the
+//            order the player meets them — a coned-off worksite
+//   slalom   `gates` half-road blocks, `perGate` deep from ONE barrier and
+//            alternating sides down the stretch — the weave
 //   scatter  `count` rows of `perRow` hazards at random offsets — the minefield
 //   handoff  places nothing; see fire() above
+//
+// `lead` — WORLD UNITS BEFORE THE FIRST ROW OR RANK, honoured by every kind
+// that places something and zero unless a spec says otherwise. It is what lets
+// ONE encounter stage things IN SEQUENCE rather than on top of itself: every
+// kind starts at the same margin, so `chokepoint`'s tank traps would otherwise
+// be laid across the trestles that are there to warn about them, and `swarm`'s
+// second rank of bikes across its first. For cars it spends the same ahead
+// budget the formation's own `spread` does — see aheadRoom.
 // Room left between the last car of a staged formation and the retire boundary.
 // See aheadRoom in planStage.
 const AHEAD_SLACK = 60;
+
+// Daylight between two hazards stacked inward from the same barrier by
+// `slalom`. Small — the gate should read as one block, not as two objects that
+// happen to be near each other — but never zero: see the note in that kind.
+const GATE_CLEARANCE = 2;
 
 // How much faster than the player a car staged BEHIND arrives, so that it is
 // actually gaining rather than merely keeping up. Small: this decides how long
@@ -376,12 +421,21 @@ export function planStage(spec, world) {
   // Road between where a car staged ahead APPEARS and where Traffic would drop
   // it — the whole budget a formation up the road has to fit inside.
   //
+  // MEASURED AGAINST STAGED_RETIRE_MARGIN, NOT THE AMBIENT ONE, and that swap is
+  // what made multi-rank formations possible at all. It used to be the ambient
+  // 320, which left 140 units — under the 216 a second rank of bikes costs
+  // (traffic.js's SPAWN_GAP plus a hull), so every encounter in the catalogue
+  // was a ONE-RANK encounter and a fifth car ahead was refused however it was
+  // asked for. The staged boundary is 620, so this is 440: three ranks of bikes
+  // or two of anything. traffic.js's own note has the arithmetic and the reason
+  // the ambient number was left alone.
+  //
   // SHORT OF THE BOUNDARY, not on it. retire() is a strict comparison, so a car
-  // landing exactly at RETIRE_MARGIN is dropped the moment it edges a pixel
-  // further out — which for anything staged ahead of a player it is faster than
-  // is the very next tick. The slack is a car length or so: enough that the
-  // last of a pack arrives with road to spare rather than on a knife edge.
-  const aheadRoom = TRAFFIC_RETIRE_MARGIN - TRAFFIC_SPAWN_MARGIN - AHEAD_SLACK;
+  // landing exactly on the margin is dropped the moment it edges a pixel further
+  // out — which for anything staged ahead of a player it is faster than is the
+  // very next tick. The slack is a car length or so: enough that the last of a
+  // pack arrives with road to spare rather than on a knife edge.
+  const aheadRoom = STAGED_RETIRE_MARGIN - TRAFFIC_SPAWN_MARGIN - AHEAD_SLACK;
   const ahead = distance + player.y + HAZARD_SPAWN_MARGIN;
   const behind = distance - (H - player.y) - TRAFFIC_SPAWN_MARGIN;
 
@@ -390,7 +444,14 @@ export function planStage(spec, world) {
       const type = carTypeById(spec.type);
       if (!type) return [];
       const back = spec.side === "behind";
-      const origin = back ? behind : aheadCar;
+      // `lead` pushes the whole formation AWAY from the screen, which is what
+      // makes a second rank of a DIFFERENT type authorable: every spec starts at
+      // the same margin, so a rank of outrunners and a rank of cycles would
+      // otherwise be laid on top of each other and the second one refused, lane
+      // by lane, by traffic.js's laneClear. One spec staggers itself through
+      // `spread`; two specs need this.
+      const lead = spec.lead ?? 0;
+      const origin = back ? behind - lead : aheadCar + lead;
       const lanes = spreadLanes(spec.count);
       const out = [];
       // HOW FAR THE PACK MAY STRING OUT. Behind, as far as it likes: the road
@@ -402,7 +463,7 @@ export function planStage(spec, world) {
       // tighter escort is the encounter and a missing one is not.
       const step = back
         ? spec.spread
-        : Math.min(spec.spread, aheadRoom / Math.max(1, spec.count - 1));
+        : Math.min(spec.spread, Math.max(0, aheadRoom - lead) / Math.max(1, spec.count - 1));
       for (let i = 0; i < spec.count; i++) {
         // Staggered AWAY from the screen, so the pack streams in rather than
         // arriving as a rank: the first of them is at the margin and the rest
@@ -433,7 +494,15 @@ export function planStage(spec, world) {
       const out = [];
       for (let i = 0; i < count; i++) {
         const lane = fromLeft ? i : LANE_COUNT - 1 - i;
-        out.push({ kind: "car", type, worldY: ahead, lane, speed: rollSpeed(type) });
+        // `aheadCar`, NOT `ahead`, and this was a live bug rather than a
+        // tidy-up: a wall of rigs was being staged at the HAZARD margin, 1500
+        // units up the road, so Traffic.retire() dropped all three on the tick
+        // they were placed. `blockade` fired, announced "CONVOY BLOCKING ROAD",
+        // held the ambient road down for its whole duration and put NOTHING on
+        // it. The `cars` kind's own note above describes the identical hole
+        // `warband` fell into; `abreast` was written beside it and never
+        // converted. Pinned in test/events.test.js.
+        out.push({ kind: "car", type, worldY: aheadCar, lane, speed: rollSpeed(type) });
       }
       return out;
     }
@@ -460,8 +529,9 @@ export function planStage(spec, world) {
       const w = OBSTACLE_SHAPES[type.shape].size[0];
       const limit = ROAD_HALF_WIDTH - w / 2;
       const out = [];
+      const start = ahead + (spec.lead ?? 0);
       for (let row = 0; row < spec.count; row++) {
-        const worldY = ahead + row * spec.spread;
+        const worldY = start + row * spec.spread;
         for (let i = 0; i < (spec.perRow ?? 1); i++) {
           out.push({
             kind: "obstacle", type, worldY,
@@ -481,11 +551,93 @@ export function planStage(spec, world) {
       // obstacles.js's placementOffsets uses for PLACE_SIDE.
       const limit = ROAD_HALF_WIDTH - w / 2;
       const out = [];
+      const start = ahead + (spec.lead ?? 0);
       for (let i = 0; i < spec.count; i++) {
-        const worldY = ahead + i * spec.spread;
+        const worldY = start + i * spec.spread;
         out.push({ kind: "obstacle", type, worldY, offset: -limit });
         out.push({ kind: "obstacle", type, worldY, offset: limit });
       }
+      return out;
+    }
+
+    case "slalom": {
+      // THE WEAVE. `gates` half-road blocks down the stretch, each one
+      // `perGate` hazards deep from ONE barrier inward, and the side ALTERNATES
+      // — so the way through swaps from one half of the road to the other at
+      // every gate and the player crosses the whole width between them.
+      //
+      // A FIFTH KIND RATHER THAN A FLAG, on the same rule `scatter` and `flank`
+      // were argued from. `rows` is symmetrical and leaves the middle open;
+      // `flank` is one side and one sequence; this is the OPPOSITE SHAPE to
+      // `rows` — the middle is what it closes, and the open road is against a
+      // barrier that keeps changing sides. Mode-switching one kind into three
+      // meanings is how a stage spec stops being readable.
+      //
+      // IT STILL CANNOT SEAL THE ROAD, and nothing here is what makes that true:
+      // every gate goes through Obstacles.place() like any other hazard, and the
+      // passage rule refuses the block that would close it. Two tetras from one
+      // barrier leave 76px against a MIN_PASSAGE of 58, so the rule PERMITS this
+      // gate — a third would be refused, and a slalom asking for one comes out
+      // as a two-deep gate rather than as a wall.
+      const type = obstacleTypeById(spec.type);
+      if (!type) return [];
+      const w = OBSTACLE_SHAPES[type.shape].size[0];
+      const limit = ROAD_HALF_WIDTH - w / 2;
+      // Stacked inward from the barrier, each block clear of the last by
+      // GATE_CLEARANCE. Touching exactly would be the honest geometry and is
+      // the wrong call: obstacles.js's spotClear refuses a hazard whose lateral
+      // overlap is under half the two widths, and two blocks laid exactly one
+      // width apart sit ON that comparison, where a rounding error either way
+      // decides whether the gate comes out two deep or one.
+      const start = ahead + (spec.lead ?? 0);
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const out = [];
+      for (let gate = 0; gate < spec.gates; gate++) {
+        const worldY = start + gate * spec.spread;
+        // ALTERNATING, from a rolled starting side: the shape is fixed, which
+        // half of the road it opens on is not.
+        const from = side * (gate % 2 === 0 ? 1 : -1);
+        for (let i = 0; i < (spec.perGate ?? 1); i++) {
+          out.push({
+            kind: "obstacle", type, worldY,
+            offset: from * (limit - i * (w + GATE_CLEARANCE)),
+          });
+        }
+      }
+      return out;
+    }
+
+    case "flank": {
+      // ONE SIDE, IN ORDER — the lane closure seen from the road crew's end
+      // rather than from the road's. `rows` is symmetrical and single-typed
+      // because it describes a NARROWING; this describes a WORKSITE: a warning
+      // first and the thing being warned about behind it, all against the same
+      // barrier, and it is a sequence of DIFFERENT types for exactly that
+      // reason. Folded into `rows` it would need a side flag, a type list and a
+      // mode switch — the fold this file already refused once, for `scatter`.
+      //
+      // THE SIDE IS ROLLED, not authored, so the entry stays a decision rather
+      // than a memorised line: the player has to read which half of the road is
+      // shut before committing to the other one.
+      //
+      // Each item takes its OWN width against that barrier, which `rows` never
+      // has to think about because everything it lays is one type. A sequence
+      // mixes them by definition, and the catalogue's footprints run from 54px
+      // to 74px (obstacleshapes.js) — so a single shared limit would either
+      // float the narrow ones off the edge or hang the wide ones over it.
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const start = ahead + (spec.lead ?? 0);
+      const out = [];
+      (spec.types ?? []).forEach((id, i) => {
+        const type = obstacleTypeById(id);
+        if (!type) return;
+        const w = OBSTACLE_SHAPES[type.shape].size[0];
+        out.push({
+          kind: "obstacle", type,
+          worldY: start + i * spec.spread,
+          offset: side * (ROAD_HALF_WIDTH - w / 2),
+        });
+      });
       return out;
     }
 

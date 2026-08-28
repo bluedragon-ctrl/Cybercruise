@@ -107,7 +107,10 @@ const DRAW_MARGIN = 140;      // px past the screen edge still worth blitting. K
                               // separate from SPAWN_MARGIN: a hazard spawns most of
                               // a screen-height beyond the top edge and would
                               // otherwise be drawn for seconds before it is visible
-const SPAWN_GAP = 90;         // min world-units of CLEAR ROAD between two obstacles'
+// Exported so the relation events.js's `slalom` and `flank` are spaced by can be
+// asserted rather than restated: a gate laid closer than this plus a block deep
+// is simply refused, and a formation authored that way comes out with holes.
+export const SPAWN_GAP = 90;  // min world-units of CLEAR ROAD between two obstacles'
                               // boxes where they overlap laterally, measured edge
                               // to edge — same idea as traffic.js's SPAWN_GAP
 // How much road either side of a spawn counts as "the same stretch" when asking
