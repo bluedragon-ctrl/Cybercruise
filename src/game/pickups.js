@@ -27,19 +27,29 @@ import * as gameConsole from "../engine/console.js";
 
 // The console line a crate's kind reads as (engine/console.js) — always a
 // HINT, never a warning, since a pickup is only ever good news.
-function pickupMessage(type) {
+//
+// Read BEFORE the crate is applied, and handed the player, because the two
+// buffs say different things depending on what is already running: a shield
+// or an overdrive taken mid-buff EXTENDS it (player.js's chargeShield and
+// activateBoost) rather than arming or starting one, and a line that claimed
+// otherwise would be the only place telling the player they wasted a crate.
+function pickupMessage(type, player) {
   switch (type.kind) {
     case AMMO:
       return `${type.label} +${type.amount}`;
     case HEAL:
       return `HULL REPAIRED +${type.amount}`;
     case SHIELD:
-      return `SHIELD CHARGED ${type.duration}s`;
+      return player.shieldTime > 0
+        ? `SHIELD EXTENDED +${type.duration}s`
+        : `SHIELD CHARGED ${type.duration}s`;
     case BOOST:
       // The one line that has to carry BOTH of its type's numbers — see
       // pickuptypes.js's BOOST entry on why an overdrive is meaningless
       // without the pair.
-      return `OVERDRIVE +${type.amount} ${type.duration}s`;
+      return player.boostTime > 0
+        ? `OVERDRIVE EXTENDED +${type.duration}s`
+        : `OVERDRIVE +${type.amount} ${type.duration}s`;
     default:
       return type.label;
   }
@@ -118,8 +128,9 @@ export class Pickups {
       if (!p.alive) continue;
       p.age += dt;
       if (overlaps(p, playerBox)) {
+        const message = pickupMessage(p.type, player); // before, so it can see what was running
         applyPickup(p.type, player, loadout);
-        gameConsole.push(pickupMessage(p.type), gameConsole.HINT);
+        gameConsole.push(message, gameConsole.HINT);
         // Every crate bursts in the player's own cyan, whichever buff it was —
         // see effects.js's drawCollectBurst header for why the burst answers
         // "that was mine" rather than "that was a rocket refill".

@@ -286,21 +286,25 @@ export class Player {
 
   // Grant `seconds` of overdrive worth `amount` world units/sec on both ends
   // of the speed band (see BOOST_EXPIRING's header for what that means and
-  // why it is both ends). NOT ADDITIVE, on either axis, and for exactly the
-  // reason activateShield gives above: a cluster of crates must cap out at
-  // "the strongest one, for as long as the longest one" rather than chaining
-  // into a car that is permanently 600 units faster than the catalogue says.
+  // why it is both ends).
   //
-  // The two maxima are taken INDEPENDENTLY, which is the one place this
-  // differs from the shield. Collecting a weak-but-long crate while a
-  // strong-but-short one is running keeps the strong lift AND the long clock
-  // — the player is never made worse off by driving over a pickup, which is
-  // the rule the whole catalogue is built on (see pickuptypes.js's header on
-  // a crate always being spent, even wastefully).
+  // THE TWO HALVES BEHAVE DIFFERENTLY, deliberately. The LIFT is a MAXIMUM:
+  // a cluster of crates caps out at the strongest one rather than chaining
+  // into a car that is permanently 600 units faster than the catalogue says.
+  // The CLOCK is ADDITIVE: a crate driven over while overdrive is running
+  // PROLONGS the run rather than being swallowed by a clock that was already
+  // longer. Duration is the half that cannot break the speed band no matter
+  // how much of it stacks up, so it is the half allowed to stack — and a
+  // player who drives out of their way for a second crate mid-overdrive has
+  // to be able to see what they bought.
+  //
+  // Either way the player is never made worse off by driving over a pickup,
+  // which is the rule the whole catalogue is built on (see pickuptypes.js's
+  // header on a crate always being spent, even wastefully).
   activateBoost(amount, seconds) {
     if (amount <= 0 || seconds <= 0) return;
     this.boostAmount = Math.max(this.boostTime > 0 ? this.boostAmount : 0, amount);
-    this.boostTime = Math.max(this.boostTime, seconds);
+    this.boostTime += seconds; // boostTime is 0 when nothing runs, so this is `seconds` then
   }
 
   // How much the band is lifted RIGHT NOW — 0 whenever no boost is running,
@@ -331,8 +335,20 @@ export class Player {
   // taking, not a wasted pickup capped at whichever one was longer. The
   // DEFLECTOR bonus is still added at ACTIVATION time, so a bonus bought
   // between the crate(s) and the hit still counts.
+  //
+  // WITH A SHIELD ALREADY RUNNING there is nothing left to bank for: the
+  // window is open, and a crate taken now is one the player wants spent on
+  // the fight they are already in — banking it behind a window that is
+  // deflecting hits right now would read as the pickup doing nothing. So it
+  // PROLONGS the running window instead, bonus included: this is a shield
+  // source like any other, and the bonus is applied wherever a shield
+  // actually starts or extends its clock.
   chargeShield(seconds) {
     if (seconds <= 0) return;
+    if (this.shieldTime > 0) {
+      this.shieldTime += seconds + this.shieldBonus;
+      return;
+    }
     this.shieldCharge += seconds;
   }
 
