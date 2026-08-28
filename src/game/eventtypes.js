@@ -115,24 +115,19 @@ export const EVENT_TYPES = [
 
   {
     // THE ROAD CREW. A trestle, then two stacks of barrels behind it, all down
-    // ONE side — the smallest encounter in the catalogue and the only one that
-    // is not trying to hurt anybody. It is a lane being worked on.
+    // ONE side. The smallest encounter in the catalogue and the only one not
+    // trying to hurt anybody: it is a lane being worked on.
     //
-    // THE ORDER IS THE WHOLE EVENT, and it is the one thing `narrows` cannot
-    // say: the trestle is a WARNING (20 hull, mass 0.25 — obstacletypes.js
-    // calls it "barely worth lifting off the throttle for") and the barrels
-    // behind it are the thing being warned about. A player who reads the sign
-    // has already moved over by the time the barrels arrive; a player who
-    // treats it as scenery and knocks it flat meets 45 hull of drum at half a
-    // lane's width, still bargeable but no longer free. That is the encounter:
-    // one cheap piece of information, offered early enough to act on.
+    // THE ORDER IS THE WHOLE EVENT. The trestle is a WARNING — 20 hull, mass
+    // 0.25, "barely worth lifting off the throttle for" (obstacletypes.js) —
+    // and the barrels behind it are what it warns about. Read the sign and you
+    // have moved over before they arrive; treat it as scenery and you meet 45
+    // hull of drum at half a lane's width, still bargeable but no longer free.
+    // One cheap piece of information, offered early enough to act on.
     //
-    // ROLLED, NOT A MILESTONE, and gated at 1000 — which is 200 past the
-    // barrel's own 800 (obstacletypes.js), not level with it. Both types are
-    // ambient road furniture by then, so this entry is not introducing either
-    // of them; it is arranging two things the player already knows into a
-    // sentence. Arriving the instant barrels unlock would have spent that
-    // reading on a shape nobody had learned to read yet.
+    // GATED 200 PAST THE BARREL'S OWN 800, not level with it. Both types are
+    // ambient furniture by 1000, so this introduces neither — it arranges two
+    // things the player already reads into a sentence.
     id: "roadworks",
     label: "ROAD CREW AHEAD — LANE CLOSED",
     weight: 2,
@@ -140,19 +135,16 @@ export const EVENT_TYPES = [
     maxDistance: Infinity,
     cooldown: 35,
     duration: 30,
-    // FULL TRAFFIC, and it is doing the same job it does in the minefield: the
-    // barrels carry a real `threat`, so behaviours.js's avoidance has the cars
-    // ahead easing off the closed side before the player can see why. No
-    // ambient hazards, for the reason `narrows` gives — a mine rolled into a
-    // worksite makes the trestle's warning mean something it does not mean.
+    // FULL TRAFFIC: the barrels carry a real `threat`, so behaviours.js's
+    // avoidance has the cars ahead easing off the closed side before the player
+    // can see why. No ambient hazards, for the reason `narrows` gives.
     density: { cars: 1, hazards: 0 },
-// 150 APART, AND THE FLOOR IS NOT A FEEL DECISION. obstacles.js's
-    // SPAWN_GAP demands 90 units of CLEAR ROAD between two hazards' edges, so
-    // two stacks of barrels (42 deep) need 132 between centres and a trestle
-    // followed by barrels needs 118. Anything under that is not a tighter
-    // worksite — place() simply refuses the item behind, and the encounter
-    // quietly comes out as a trestle and one drum. 150 clears the worst of the
-    // three with room, and it is still under a second of road at speed.
+    // 150 APART, AND THE FLOOR IS ARITHMETIC. obstacles.js's SPAWN_GAP wants 90
+    // units of CLEAR ROAD between two hazards' edges: two stacks of barrels (42
+    // deep) need 132 between centres, a trestle followed by barrels 118. Under
+    // that, place() refuses the item behind and the worksite comes out as a
+    // trestle and one drum. 150 clears both, and is still under a second of
+    // road at speed.
     stage: [
       { kind: "flank", types: ["trestle", "barrels", "barrels"], spread: 150 },
     ],
@@ -160,29 +152,24 @@ export const EVENT_TYPES = [
 
   {
     // THE CHOKEPOINT. Trestles leading in, then five rows of tank traps hard
-    // against both barriers — `narrows` grown up, and the late-run answer to
-    // it in the same way the boss is `warband`'s.
+    // against both barriers — the late-run answer to `narrows`.
     //
-    // WHAT THE TETRA CHANGES. A trestle narrowing is a road the player can
-    // simply drive through: 20 hull, mass 0.25, and clipping one costs a
-    // shrug. A tank trap is 80 hull, mass 3.5 — "near the rig's own 4"
-    // (obstacletypes.js) — and its own entry says it is "the one block worth
-    // steering around rather than shooting out". Five rows of them is the
-    // first place in the run where the gap between the barriers is the ONLY
-    // way forward, held for four hundred units of road at whatever speed the
-    // player dares.
+    // WHAT THE TETRA CHANGES. A trestle narrowing can simply be driven
+    // through: 20 hull, mass 0.25, and clipping one costs a shrug. A tank trap
+    // is 80 hull and mass 3.5, "near the rig's own 4", and obstacletypes.js
+    // calls it "the one block worth steering around". Five rows is the first
+    // place in the run where the gap between the barriers is the ONLY way
+    // forward, held for six hundred units of road at whatever speed the player
+    // dares.
     //
-    // AND THE TRESTLES ARE WHY IT IS FAIR. Two rows of them, ahead of the
-    // traps and on the same barriers, on the same principle `roadworks` is
-    // built around: the cheap thing warns about the expensive one. They also
-    // taper the eye into the slot before the slot is close enough to read,
-    // which at 620 units a second is the difference between a corridor and an
-    // ambush.
+    // THE TRESTLES ARE WHY IT IS FAIR — the cheap thing warning about the
+    // expensive one, the principle `roadworks` is built around. They also taper
+    // the eye into the slot before it is close enough to read, which at 620
+    // units a second is the difference between a corridor and an ambush.
     //
-    // GATED AT 2000, eight hundred past the tetra's own 1200. The type is
-    // thoroughly familiar as a single centre-line block by then, and this is
-    // the entry that reuses it as architecture — the same move `minefield`
-    // makes with the caltrop, at the far end of the run.
+    // GATED AT 2000, eight hundred past the tetra's own 1200: the block is
+    // thoroughly familiar as a single centre-line obstacle before it is reused
+    // as architecture, the move `minefield` makes with the caltrop.
     id: "chokepoint",
     label: "ROAD NARROWS — TANK TRAPS",
     weight: 1.2,
@@ -197,26 +184,22 @@ export const EVENT_TYPES = [
     // somebody else is the interesting version of it. No ambient hazards: the
     // corridor is the hazard.
     density: { cars: 0.5, hazards: 0 },
-    // TWO SPECS, IN SEQUENCE, which is what `lead` exists for (events.js): the
-    // warning rows first, then the traps starting 300 units further up. Both
-    // are `rows`, so both go down mirrored and hard against the barriers, and
-    // all fourteen hazards still go through Obstacles.place() — the corridor
-    // between two 74px traps on a 286px road is 137px against a MIN_PASSAGE of
-    // 58, so the passage rule PERMITS this slot rather than having to widen it.
-    // Nothing here can seal the road; see obstacles.js.
+    // TWO SPECS IN SEQUENCE, which is what `lead` exists for (events.js): the
+    // warning rows, then the traps 300 units further up. All fourteen hazards
+    // go through Obstacles.place() — the corridor between two 74px traps on a
+    // 286px road is 137px against a MIN_PASSAGE of 58, so the passage rule
+    // permits this slot rather than having to widen it.
     //
-    // 170 APART, and like the worksite's spacing this is a floor rather than a
-    // taste: a tank trap is 64 deep and obstacles.js's SPAWN_GAP wants 90 units
-    // of clear road, so rows closer than 155 are not a tighter corridor — every
-    // other one is simply refused, and the encounter becomes a lane closure
-    // with gaps in it. The `lead` of 300 buys the first trap the same clearance
-    // from the last trestle.
+    // 170 APART IS A FLOOR, like the worksite's 150. A tank trap is 64 deep and
+    // SPAWN_GAP wants 90 units of clear road, so rows closer than 155 are not a
+    // tighter corridor: every other one is refused and the encounter becomes a
+    // lane closure with holes. The `lead` of 300 buys the first trap that same
+    // clearance from the last trestle.
     //
-    // A SIDE EFFECT WORTH NAMING: at 170 the rows sit outside CLUSTER_WINDOW
-    // (130), so the passage rule judges each one on its own, exactly as it does
-    // for the minefield. It reads as one committed line anyway, and for a
-    // better reason than shared arithmetic — every row puts its traps on the
-    // same two barriers, so the way through is the same way through all five.
+    // At 170 the rows also sit outside CLUSTER_WINDOW (130), so the passage
+    // rule judges each on its own. It still reads as one committed line: every
+    // row puts its traps on the same two barriers, so the way through one is
+    // the way through all five.
     stage: [
       { kind: "rows", type: "trestle", count: 2, spread: 130 },
       { kind: "rows", type: "tetra", count: 5, spread: 170, lead: 300 },
@@ -225,32 +208,27 @@ export const EVENT_TYPES = [
 
   {
     // THE SLALOM. Four half-road gates of tank traps, alternating sides, with
-    // the road between them almost empty — the first encounter in the catalogue
-    // that is purely a DRIVING test. Nothing here shoots, chases or has to be
-    // killed; the whole of it is whether the player can put the car where the
-    // road still is, four times, at whatever speed they chose to arrive at.
+    // the road between them almost empty — the one encounter that is purely a
+    // DRIVING test. Nothing shoots, chases or has to be killed; the whole of it
+    // is whether the player can put the car where the road still is, four
+    // times, at whatever speed they chose to arrive at.
     //
-    // TETRAS, AND ONLY TETRAS. A gate has to be a thing the player steers
-    // around rather than through, or the weave is optional and the encounter is
-    // scenery: the tank trap is 80 hull and mass 3.5, "near the rig's own 4",
-    // and obstacletypes.js already calls it "the one block worth steering around
-    // rather than shooting out". A trestle slalom would be a suggestion.
+    // TETRAS, AND ONLY TETRAS. A gate has to be steered around, or the weave is
+    // optional and the encounter is scenery. The tank trap is 80 hull and mass
+    // 3.5 and obstacletypes.js calls it "the one block worth steering around";
+    // a trestle slalom would be a suggestion.
     //
-    // TWO DEEP FROM ONE BARRIER, which is 150px of a 286px road and leaves 76px
-    // open on the far side — comfortably past MIN_PASSAGE (58) and twice the
-    // player's own 34px width, so every gate has a real way through that a
-    // committed line reaches. The passage rule would refuse a third block; see
-    // events.js's `slalom` for why that is the safety net rather than the
-    // design.
+    // TWO DEEP FROM ONE BARRIER: 150px of a 286px road, leaving 76px open on
+    // the far side — past MIN_PASSAGE (58) and twice the player's own 34px
+    // width, so every gate has a way through that a committed line reaches. The
+    // passage rule would refuse a third block; see events.js's `slalom`.
     //
-    // 420 UNITS BETWEEN GATES, AND THE NUMBER IS THE PLAYER'S OWN STEERING.
-    // Crossing from one gate's open side to the next is about 136px of lateral
-    // travel; the player's STEER_SPEED is 300px/s off a 900px/s² ramp
-    // (player.js), so the move costs roughly 0.62 seconds — 385 units of road
-    // at the 620 ceiling. 420 clears that with a little in hand, which makes
-    // the weave threadable FLAT OUT by someone driving well and punishing for
-    // someone arriving late. Tighter than this and the honest answer would be
-    // "brake", which is a different encounter and not this one.
+    // 420 BETWEEN GATES IS THE PLAYER'S OWN STEERING. Crossing between open
+    // sides is about 136px of lateral travel, and STEER_SPEED is 300px/s off a
+    // 900px/s² ramp (player.js) — roughly 0.62s, or 385 units of road at the
+    // 620 ceiling. 420 leaves a little in hand: threadable FLAT OUT by someone
+    // driving well, punishing for someone arriving late. Tighter and the
+    // honest answer would be "brake", which is a different encounter.
     id: "slalom",
     label: "CHICANE — WEAVE AHEAD",
     weight: 1.2,
@@ -274,12 +252,11 @@ export const EVENT_TYPES = [
     // The gates span 3 * 420 = 1260 units of road, and the encounter has to
     // outlive the drive through them at any speed the player picks.
     duration: 60,
-    // ALMOST NOTHING ELSE ON THE ROAD, which is what was asked for and what the
-    // encounter needs: MAX_CARS is 7 (traffic.js), so 0.15 rounds to a cap of
-    // ONE ambient car. Not zero — an empty road reads as a cutscene, and one
-    // car up ahead picking its own way through the gates is the clearest hint
-    // the player gets about which side the next one opens on. No ambient
-    // hazards at all: a mine in a chicane is not a harder chicane, it is an
+    // ALMOST NOTHING ELSE ON THE ROAD: MAX_CARS is 7 (traffic.js), so 0.15
+    // rounds to a cap of ONE ambient car. Not zero — an empty road reads as a
+    // cutscene, and one car ahead picking its own way through is the clearest
+    // hint the player gets about which side the next gate opens on. No ambient
+    // hazards: a mine in a chicane is not a harder chicane, it is an
     // unreadable one.
     density: { cars: 0.15, hazards: 0 },
     stage: [
@@ -297,74 +274,63 @@ export const EVENT_TYPES = [
     // drop a mine. Nothing here has more than 55 hull. The pressure is the
     // NUMBER and the four directions it comes from, not any one bike.
     //
-    // TWO RANKS AHEAD AND SIX BEHIND, AND THE SHAPE OF THAT IS THE ROAD'S
-    // DECISION, not a preference.
+    // TWO RANKS AHEAD AND SIX BEHIND, AND THE ROAD DECIDES THAT SHAPE.
     //
     // A rank costs traffic.js's laneClear 150 units of CLEAR ROAD between two
-    // cars in the same lane, which for 66-long bikes is 216 centre to centre —
-    // so the ahead budget (events.js's aheadRoom, 440) holds two ranks and the
-    // second one is placed with `lead`, not with a spread. It held ONE when
-    // this entry was written, against the ambient retire margin of 320; the
-    // staged margin is what bought the second, and traffic.js's
-    // STAGED_RETIRE_MARGIN has the arithmetic.
+    // cars in the same lane, which for 66-long bikes is 216 centre to centre.
+    // The ahead budget (events.js's aheadRoom, 440) therefore holds two ranks,
+    // and the second is placed with `lead` rather than with a spread. It held
+    // ONE against the ambient retire margin of 320; traffic.js's
+    // STAGED_RETIRE_MARGIN is what bought the second, and has the arithmetic.
     //
-    // THREE PER RANK, NOT FOUR, and this is the rule rather than the taste: a
-    // rank that fills every lane is a wall with no way through, which is the
-    // one thing `abreast` has always refused to build (its `gapLanes`). The
-    // director enforces it for every kind now — see THE OPEN LANE in events.js's
-    // fire() — so a fourth bike in a rank would be dropped whatever this entry
-    // asked for. Written as three so the catalogue says what the road will
-    // actually do.
+    // THREE PER RANK, NOT FOUR: a rank that fills every lane is a wall with no
+    // way through, the one thing `abreast` has always refused to build. The
+    // director now enforces it for every kind — THE OPEN LANE in events.js's
+    // fire() — so a fourth would be dropped whatever this entry asked for.
+    // Written as three so the catalogue says what the road will do.
     //
-    // THE OTHER SIX ARRIVE ANYWAY, and this is why the split costs the
-    // encounter nothing — but they do not all arrive the same way, and the mix
-    // is chosen on exactly that.
+    // THE SIX BEHIND DO NOT ALL ARRIVE THE SAME WAY, and the mix is chosen on
+    // that:
     //
-    //   THREE OF THEM GET IN FRONT UNDER THEIR OWN POWER. The cycle cruises
-    //   660-730 against the player's ceiling of 620 and raids past by
-    //   definition; the outrunner's own entry says it "MUST be able to get past
-    //   a player at their own ceiling, or the tactic never starts". Staged in
+    //   THE CYCLES GET IN FRONT UNDER THEIR OWN POWER, cruising 660-730 against
+    //   the player's ceiling of 620 and raiding past by definition. Staged in
     //   the mirror they do not stay there — they wash through and around the
     //   player over the next few seconds, and the encounter ends up in front,
-    //   which is where a swarm belongs. Placing them there is what the road
-    //   forbids; getting there is what these types already do.
+    //   where a swarm belongs. Placing them there is what the road forbids;
+    //   getting there is what the type already does.
     //
-    //   THE OUTRIDERS WORK THE MIRROR, and that is the type, not a
-    //   compromise. Its band tops out at 600, under the player's 620, so a
-    //   flat-out player is never actually overtaken by one — it holds station
-    //   astern on its profile's chaseSpeed of 600 (driving.js) at 20 units a
-    //   second of slip, sweeping across the player's line and spraying as it
-    //   crosses (behaviours.js's `strafe`). `gang` stages the same bike from
-    //   the same side at the same spacing for the same reason. It is what keeps
-    //   the swarm from being a thing the player can simply out-accelerate: nine
-    //   ahead once the road has sorted itself out, three behind, and no clean
-    //   air in either mirror.
+    //   THE OUTRIDERS WORK THE MIRROR, which is the type rather than a
+    //   compromise. Their band tops out at 600, under the player's 620, so a
+    //   flat-out player is never overtaken by one: it holds station astern on
+    //   its profile's chaseSpeed of 600 (driving.js) at 20 units a second of
+    //   slip, sweeping across the player's line as it goes (behaviours.js's
+    //   `strafe`). `gang` stages the same bike from the same side for the same
+    //   reason. Nine ahead once the road sorts itself out, three behind, and no
+    //   clean air in either mirror.
     //
-    // GATED AT 1500 — five hundred past the outrider's 400 and nine hundred
-    // past the outrunner's 600 (cartypes.js), so this introduces nothing. It is
-    // the ambient road's own bikes, met all at once, and it sits deliberately
-    // between the siege battery at 1200 and the chokepoint at 2000: the late
-    // run's answer to `gang` in the same way the chokepoint is `narrows`'.
+    // GATED AT 1500, past every bike's own gate (cartypes.js), so it introduces
+    // nothing — the ambient road's own bikes, met all at once. It sits between
+    // the siege battery at 1200 and the chokepoint at 2000: the late run's
+    // answer to `gang`.
     id: "swarm",
     label: "BIKER SWARM — ALL POINTS",
     weight: 1,
     minDistance: 1500, // well past every bike's own gate — see above
     maxDistance: Infinity,
-    // LONG COOLDOWNS BOTH WAYS. Twelve hostiles is the biggest ask in the
-    // catalogue outside a boss fight, and one every few hundred units would be
-    // the late road's weather rather than its set-piece.
+    // Twelve hostiles is the biggest ask in the catalogue outside a boss fight,
+    // and one every few hundred units would be the late road's weather rather
+    // than its set-piece.
     cooldown: 90,
-    // The eight from behind need road to get through the player and out the
-    // front; a duration that ended the encounter mid-overtake would restore the
-    // ambient budgets while a dozen bikes were still on the tarmac.
+    // The six behind need road to get through the player and out the front; a
+    // duration ending mid-overtake would restore the ambient budgets with a
+    // dozen bikes still on the tarmac.
     duration: 80,
-    // ALMOST NO AMBIENT TRAFFIC and no hazards. Both are the crowding argument
-    // `warband` makes, and it is sharper here: twelve bikes already fill every
-    // lane the player can see, and a rig in the middle of it would be a wall
-    // the swarm was never meant to be fought against. The sower's own spike
-    // strip is the one thing on this road the player did not bring, which is
-    // exactly the hazard this encounter wants — and an ambient mine on top of
-    // it would be indistinguishable from one the cycle just dropped.
+    // ALMOST NO AMBIENT TRAFFIC and no hazards — `warband`'s crowding argument,
+    // sharper here: twelve bikes already fill every lane the player can see,
+    // and a rig in the middle of it would be a wall the swarm was never meant
+    // to be fought against. The sower's spike strip and the cycle's mines are
+    // the hazards this encounter wants; an ambient mine among them would be
+    // indistinguishable from one just dropped.
     density: { cars: 0.2, hazards: 0 },
     stage: [
       // THE FIRST RANK — the three the player drives INTO, and the types are

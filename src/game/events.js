@@ -287,19 +287,18 @@ function fire(type, world, handlers, clockValue, push, busy, spend) {
     const requests = planStage(spec, world);
     let landed = 0;
     for (const req of requests) {
-      // THE OPEN LANE, and it is the `abreast` guarantee generalised. That kind
-      // clamps its own count because obstacles.js's passage rule guards HAZARDS
-      // and knows nothing about cars, so a rank of them is the one formation in
-      // the catalogue that can wall the road with no way through. Its clamp only
-      // ever saw one spec, which was enough while a rank could only come from
-      // one — now that `lead` and the staged margin make multi-rank, multi-type
-      // formations authorable, four separate one-car specs at the same worldY
-      // would build exactly the wall `abreast` refuses to.
+      // THE OPEN LANE — `abreast`'s guarantee generalised. That kind clamps its
+      // own count because obstacles.js's passage rule guards HAZARDS and knows
+      // nothing about cars, so a rank of them is the one formation that can wall
+      // the road. Its clamp saw a single spec, which sufficed while a rank could
+      // only come from one; `lead` and the staged margin make multi-rank,
+      // multi-type formations authorable, and four one-car specs at the same
+      // worldY build exactly that wall.
       //
-      // COUNTED WHERE THE CARS ACTUALLY LAND, not in the plan: planStage is pure
-      // and picks lanes without knowing what is on the road, and applyRequest's
-      // freeLane fallback may put a car in a different lane than the one asked
-      // for. The lane a rank is judged by is the lane the car ended up in.
+      // COUNTED WHERE THE CARS LAND, not in the plan: planStage is pure and
+      // picks lanes without knowing what is on the road, and applyRequest's
+      // freeLane fallback may put a car somewhere else. A rank is judged by the
+      // lane the car ended up in.
       if (req.kind === "car" && (ranks.get(req.worldY)?.size ?? 0) >= LANE_COUNT - 1) continue;
       const body = applyRequest(req, world);
       if (body) {
@@ -421,14 +420,12 @@ export function planStage(spec, world) {
   // Road between where a car staged ahead APPEARS and where Traffic would drop
   // it — the whole budget a formation up the road has to fit inside.
   //
-  // MEASURED AGAINST STAGED_RETIRE_MARGIN, NOT THE AMBIENT ONE, and that swap is
-  // what made multi-rank formations possible at all. It used to be the ambient
-  // 320, which left 140 units — under the 216 a second rank of bikes costs
-  // (traffic.js's SPAWN_GAP plus a hull), so every encounter in the catalogue
-  // was a ONE-RANK encounter and a fifth car ahead was refused however it was
-  // asked for. The staged boundary is 620, so this is 440: three ranks of bikes
-  // or two of anything. traffic.js's own note has the arithmetic and the reason
-  // the ambient number was left alone.
+  // MEASURED AGAINST STAGED_RETIRE_MARGIN, which is what made multi-rank
+  // formations possible. Against the ambient 320 this was 140 units — under the
+  // 216 a second rank of bikes costs — so every encounter in the catalogue was a
+  // ONE-RANK encounter and a fifth car ahead was refused however it was asked
+  // for. The staged boundary is 620, so this is 440: three ranks of bikes, or
+  // two of anything. traffic.js has the arithmetic.
   //
   // SHORT OF THE BOUNDARY, not on it. retire() is a strict comparison, so a car
   // landing exactly on the margin is dropped the moment it edges a pixel further
@@ -444,12 +441,11 @@ export function planStage(spec, world) {
       const type = carTypeById(spec.type);
       if (!type) return [];
       const back = spec.side === "behind";
-      // `lead` pushes the whole formation AWAY from the screen, which is what
-      // makes a second rank of a DIFFERENT type authorable: every spec starts at
-      // the same margin, so a rank of outrunners and a rank of cycles would
-      // otherwise be laid on top of each other and the second one refused, lane
-      // by lane, by traffic.js's laneClear. One spec staggers itself through
-      // `spread`; two specs need this.
+      // `lead` pushes the formation AWAY from the screen, which is what makes a
+      // second rank of a DIFFERENT type authorable: every spec starts at the
+      // same margin, so two ranks would otherwise be laid on top of each other
+      // and the second refused, lane by lane, by traffic.js's laneClear. One
+      // spec staggers itself through `spread`; two specs need this.
       const lead = spec.lead ?? 0;
       const origin = back ? behind - lead : aheadCar + lead;
       const lanes = spreadLanes(spec.count);
@@ -494,14 +490,13 @@ export function planStage(spec, world) {
       const out = [];
       for (let i = 0; i < count; i++) {
         const lane = fromLeft ? i : LANE_COUNT - 1 - i;
-        // `aheadCar`, NOT `ahead`, and this was a live bug rather than a
-        // tidy-up: a wall of rigs was being staged at the HAZARD margin, 1500
-        // units up the road, so Traffic.retire() dropped all three on the tick
-        // they were placed. `blockade` fired, announced "CONVOY BLOCKING ROAD",
-        // held the ambient road down for its whole duration and put NOTHING on
-        // it. The `cars` kind's own note above describes the identical hole
-        // `warband` fell into; `abreast` was written beside it and never
-        // converted. Pinned in test/events.test.js.
+        // `aheadCar`, NOT `ahead`, and this was a live bug: a wall of rigs was
+        // staged at the HAZARD margin, 1500 units up the road, so
+        // Traffic.retire() dropped all three on the tick they were placed —
+        // `blockade` fired, announced "CONVOY BLOCKING ROAD", held the ambient
+        // road down for its whole duration and put NOTHING on it. The identical
+        // hole the `cars` kind's note above describes; `abreast` was written
+        // beside it and never converted. Pinned in test/events.test.js.
         out.push({ kind: "car", type, worldY: aheadCar, lane, speed: rollSpeed(type) });
       }
       return out;
@@ -561,34 +556,31 @@ export function planStage(spec, world) {
     }
 
     case "slalom": {
-      // THE WEAVE. `gates` half-road blocks down the stretch, each one
-      // `perGate` hazards deep from ONE barrier inward, and the side ALTERNATES
-      // — so the way through swaps from one half of the road to the other at
-      // every gate and the player crosses the whole width between them.
+      // THE WEAVE. `gates` half-road blocks down the stretch, each `perGate`
+      // hazards deep from ONE barrier inward, with the side ALTERNATING — so
+      // the way through swaps halves at every gate and the player crosses the
+      // whole width between them.
       //
-      // A FIFTH KIND RATHER THAN A FLAG, on the same rule `scatter` and `flank`
-      // were argued from. `rows` is symmetrical and leaves the middle open;
-      // `flank` is one side and one sequence; this is the OPPOSITE SHAPE to
-      // `rows` — the middle is what it closes, and the open road is against a
-      // barrier that keeps changing sides. Mode-switching one kind into three
-      // meanings is how a stage spec stops being readable.
+      // ITS OWN KIND, on the rule `scatter` and `flank` were argued from:
+      // `rows` is symmetrical and leaves the middle open, `flank` is one side
+      // and one sequence, and this closes the middle with the open road against
+      // a barrier that keeps changing sides.
       //
-      // IT STILL CANNOT SEAL THE ROAD, and nothing here is what makes that true:
-      // every gate goes through Obstacles.place() like any other hazard, and the
-      // passage rule refuses the block that would close it. Two tetras from one
-      // barrier leave 76px against a MIN_PASSAGE of 58, so the rule PERMITS this
-      // gate — a third would be refused, and a slalom asking for one comes out
-      // as a two-deep gate rather than as a wall.
+      // IT STILL CANNOT SEAL THE ROAD, and nothing here is what makes that
+      // true: every gate goes through Obstacles.place(), and the passage rule
+      // refuses the block that would close it. Two tetras from one barrier
+      // leave 76px against a MIN_PASSAGE of 58, so the rule permits this gate;
+      // a third would be refused and the gate stays two deep.
       const type = obstacleTypeById(spec.type);
       if (!type) return [];
       const w = OBSTACLE_SHAPES[type.shape].size[0];
       const limit = ROAD_HALF_WIDTH - w / 2;
       // Stacked inward from the barrier, each block clear of the last by
-      // GATE_CLEARANCE. Touching exactly would be the honest geometry and is
-      // the wrong call: obstacles.js's spotClear refuses a hazard whose lateral
-      // overlap is under half the two widths, and two blocks laid exactly one
-      // width apart sit ON that comparison, where a rounding error either way
-      // decides whether the gate comes out two deep or one.
+      // GATE_CLEARANCE. Exactly touching is the honest geometry and the wrong
+      // call: obstacles.js's spotClear refuses a hazard whose lateral overlap
+      // is under half the two widths, so blocks laid exactly one width apart
+      // sit ON that comparison and a rounding error decides whether the gate
+      // comes out two deep or one.
       const start = ahead + (spec.lead ?? 0);
       const side = Math.random() < 0.5 ? -1 : 1;
       const out = [];
@@ -608,23 +600,19 @@ export function planStage(spec, world) {
     }
 
     case "flank": {
-      // ONE SIDE, IN ORDER — the lane closure seen from the road crew's end
-      // rather than from the road's. `rows` is symmetrical and single-typed
-      // because it describes a NARROWING; this describes a WORKSITE: a warning
-      // first and the thing being warned about behind it, all against the same
-      // barrier, and it is a sequence of DIFFERENT types for exactly that
-      // reason. Folded into `rows` it would need a side flag, a type list and a
-      // mode switch — the fold this file already refused once, for `scatter`.
+      // ONE SIDE, IN ORDER — a WORKSITE rather than the narrowing `rows`
+      // describes: a warning first and the thing being warned about behind it,
+      // all against the same barrier, and a sequence of DIFFERENT types for
+      // exactly that reason.
       //
       // THE SIDE IS ROLLED, not authored, so the entry stays a decision rather
       // than a memorised line: the player has to read which half of the road is
       // shut before committing to the other one.
       //
-      // Each item takes its OWN width against that barrier, which `rows` never
-      // has to think about because everything it lays is one type. A sequence
-      // mixes them by definition, and the catalogue's footprints run from 54px
-      // to 74px (obstacleshapes.js) — so a single shared limit would either
-      // float the narrow ones off the edge or hang the wide ones over it.
+      // Each item takes its OWN width against that barrier. A sequence mixes
+      // footprints by definition — the catalogue's run 54px to 74px
+      // (obstacleshapes.js) — so one shared limit would either float the narrow
+      // ones off the edge or hang the wide ones over it.
       const side = Math.random() < 0.5 ? -1 : 1;
       const start = ahead + (spec.lead ?? 0);
       const out = [];

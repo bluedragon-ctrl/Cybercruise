@@ -54,34 +54,32 @@ export const SPAWN_MARGIN = 120; // world units past the screen edge a car appea
 export const RETIRE_MARGIN = 320; // ...and how far past it before the car is dropped.
                              // Comfortably beyond SPAWN_MARGIN so a fresh car is
                              // never retired on the tick after it spawns.
-// ...AND THE SAME BOUNDARY FOR A STAGED CAR, which is allowed to sit further up
-// the road than the ambient spawner would ever put one. AHEAD ONLY — behind, a
-// staged car is dropped exactly where any other car is.
+// ...AND THE SAME BOUNDARY FOR A STAGED CAR, which may sit further up the road
+// than the ambient spawner would ever put one. AHEAD ONLY — behind, a staged car
+// is dropped where any other car is.
 //
-// WHY IT IS A SECOND NUMBER RATHER THAN A BIGGER FIRST ONE. RETIRE_MARGIN is
-// LOAD-BEARING OUTSIDE THIS FILE: obstacles.js sizes its own SPAWN_MARGIN as this
-// plus the road the worst dodger in the catalogue needs to cross two lanes (1142
-// units, the rig), and test/hazards.test.js pins that relation. 1500 - 1142
-// leaves 358 units of headroom, so raising the ambient margin far enough to hold
-// a second rank of cars (400) would silently break it — and it would ALSO stretch
-// every ambient car's life ahead of the player, which is a road-feel change
-// nobody asked for. Staged cars are already a separate budget (see the `staged`
-// field and events.js's MAX_STAGED_CARS); this is the matching boundary.
+// A SECOND NUMBER, BECAUSE RETIRE_MARGIN IS LOAD-BEARING OUTSIDE THIS FILE:
+// obstacles.js sizes its own SPAWN_MARGIN as this plus the road the worst dodger
+// in the catalogue needs to cross two lanes (1142 units, the rig), and
+// test/hazards.test.js pins that. 1500 - 1142 leaves 358 units of headroom, so
+// raising the ambient margin far enough for a second rank of cars (400) would
+// silently break it, and would stretch every ambient car's life ahead of the
+// player besides. Staged cars are already a separate budget (see `staged` and
+// events.js's MAX_STAGED_CARS); this is the matching boundary.
 //
-// SIZED IN RANKS, because that is what an encounter buys with it. A rank costs
-// SPAWN_GAP plus a hull length — 216 units for the 66-long bikes, 274 for two
-// rigs — on top of the SPAWN_MARGIN the first rank enters at, and events.js keeps
-// AHEAD_SLACK in hand so the last rank never arrives exactly on the boundary:
+// SIZED IN RANKS, which is what an encounter buys with it. A rank costs
+// SPAWN_GAP plus a hull length — 216 for the 66-long bikes, 274 for two rigs —
+// on top of the SPAWN_MARGIN the first rank enters at, with events.js keeping
+// AHEAD_SLACK in hand so the last never arrives on the boundary:
 //
 //   2 ranks of bikes   120 + 216 + 60 = 396
 //   3 ranks of bikes   120 + 432 + 60 = 612
 //   2 ranks of rigs    120 + 274 + 60 = 454
 //
-// 620 is three ranks of bikes, or two of anything else in the catalogue. A
-// fourth rank is a bigger number here and nothing else — but read events.js's
-// arrivalSpeed note first: depth is bounded by whether a tactic REELS THE CAR
-// IN, not by this margin, and a rank staged deeper than its tactic reaches is a
-// rank the player never meets.
+// 620 is three ranks of bikes, or two of anything else. A fourth rank is a
+// bigger number here and nothing else — but read events.js's arrivalSpeed note
+// first: depth is bounded by whether a tactic REELS THE CAR IN, and a rank
+// staged deeper than its tactic reaches is a rank the player never meets.
 export const STAGED_RETIRE_MARGIN = 620;
 // Exported for the same reason ACCEL below is: events.js sizes a staged rank as
 // this plus a hull length, and test/events.test.js asserts that relation rather
