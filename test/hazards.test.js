@@ -1852,8 +1852,8 @@ function bikeScenario(id, over = {}, playerOver = {}) {
 // on the commuter), but only the tactic that reads one can be wrong about it —
 // a sedan's `weaveSpan` is inert, and holding it to a bike's arithmetic would
 // be inventing a constraint the game does not have.
-function typesDoing(behaviour) {
-  return CAR_TYPES.filter((t) => t.behaviour === behaviour)
+function typesDoing(...behaviours) {
+  return CAR_TYPES.filter((t) => behaviours.includes(t.behaviour))
     .map((t) => ({ type: t, drive: drivingFor(t) }));
 }
 
@@ -1863,7 +1863,10 @@ test("a hostile that holds station ahead of the player holds it inside its own g
   // GUN_MIN_RANGE and GUN_RANGE. Outside that band the tactic still drives
   // perfectly and simply never fires — a hostile posing out of range, which is
   // the one failure nothing on screen would explain.
-  const holders = typesDoing("outrun");
+  // `patrol` (the gunship) holds station on exactly the same terms and shoots
+  // back down the road with exactly the same gun, so it is bound by exactly the
+  // same band — see behaviours.js, which borrows `outrun`'s hold unchanged.
+  const holders = typesDoing("outrun", "patrol");
   assert.ok(holders.length > 0, "no type attacks from in front any more");
   for (const { type, drive } of holders) {
     assert.ok(
@@ -1906,7 +1909,9 @@ test("a weave is a sweep the steering can actually ride", () => {
   // never arrives at either end. The failure is silent and looks like a tuning
   // preference — the bike drifts about instead of sweeping — so the relation is
   // checked against the TYPE's own steering rather than left in a comment.
-  const weavers = typesDoing("strafe");
+  // `patrol` rides the same sine off the same two fields, against the frame
+  // instead of the barriers — the arithmetic that has to hold is identical.
+  const weavers = typesDoing("strafe", "patrol");
   assert.ok(weavers.length > 0, "nothing sweeps across the player's line any more");
   for (const { type, drive } of weavers) {
     const swept = 4 * drive.weaveSpan;
@@ -1915,6 +1920,190 @@ test("a weave is a sweep the steering can actually ride", () => {
       covered >= swept,
       `${type.id} sweeps ${swept}px in ${drive.weaveTime}s, which its ${type.steerSpeed}` +
         `px/sec steering cannot cover — the weave would come out as a drift`,
+    );
+  }
+});
+
+// --- The air ------------------------------------------------------------------
+//
+// cartypes.js's `airborne` says one thing — this body is not in the road plane —
+// and four systems each read it once to say what that costs. These pin the two
+// halves that are arithmetic rather than assertion: which rounds may reach it,
+// and whether the one weapon that may can actually catch it.
+
+const GUNSHIP = CAR_TYPES.find((t) => t.id === "gunship");
+const CANNON_TYPE = WEAPON_TYPES.find((t) => t.id === "cannon");
+
+test("only a SEEKING round can reach an airborne body", () => {
+  // projectiles.js's firstHit: a straight round buries itself in a barrier at
+  // road level and a tracking round holds the lane it was fired up, so neither
+  // ever leaves the road plane. The rocket climbs. This is the whole rule the
+  // gunship exists to state, and it is the one that would be silently undone by
+  // a well-meaning "let it be shot at while it is over the tarmac".
+  //
+  // Every round here is fired STRAIGHT AT IT, dead on its offset and well
+  // inside its box — so nothing but the rule itself can be what stops them.
+  for (const weapon of [CANNON_TYPE, TRACKER_TYPE]) {
+    const shots = new Projectiles();
+    shots.spawn(0, 0, 400, weapon, 600);
+    const air = dummy(600, 0, 1, weapon.damage, { airborne: true });
+    for (let i = 0; i < 200 && air.alive; i++) shots.update(1 / 60, [air], SHOT_VIEW);
+    assert.equal(
+      air.taken,
+      0,
+      `the ${weapon.id} reached something flying, which only a seeker may do`,
+    );
+  }
+
+  const shots = new Projectiles();
+  shots.spawn(0, 0, 400, ROCKET_TYPE, 600);
+  const air = dummy(600, 0, 1, ROCKET_TYPE.damage, { airborne: true });
+  for (let i = 0; i < 200 && air.alive; i++) shots.update(1 / 60, [air], SHOT_VIEW);
+  assert.ok(!air.alive, "the rocket must be able to reach what nothing else can");
+});
+
+test("a blast at road level does not reach the air", () => {
+  // collisions.js's inBlastPlane, asked here through the sweep most likely to
+  // break the rule by accident: a rocket's own splash. Without it the player
+  // could kill a gunship by detonating something underneath it, which is
+  // precisely the shot the design says is impossible.
+  const shots = new Projectiles();
+  shots.spawn(0, 0, 400, ROCKET_TYPE, 600);
+  // The round's actual target, on the road, with an airborne body parked right
+  // beside it — well inside the rocket's own blast radius.
+  const ground = dummy(600, 0, 1, ROCKET_TYPE.damage);
+  const air = dummy(600, 20, 8, ROCKET_TYPE.damage, { airborne: true });
+
+  for (let i = 0; i < 200 && ground.alive; i++) shots.update(1 / 60, [ground, air], SHOT_VIEW);
+
+  assert.ok(!ground.alive, "the rocket should have killed what it was aimed at");
+  assert.equal(air.taken, 0, "the splash reached something flying above the blast");
+});
+
+test("the gunship dies to exactly the four rockets its record documents", () => {
+  // cartypes.js: "FOUR ROCKETS EXACTLY. The rocket does 98, so 392 is four
+  // rounds with nothing wasted and three rounds (294) comfortably short." Both
+  // halves are checked — a hull that crept up would make it five and a hull that
+  // crept down would make the comment a lie in the other direction.
+  const rounds = GUNSHIP.health / ROCKET_TYPE.damage;
+  assert.equal(
+    rounds,
+    4,
+    `the gunship's ${GUNSHIP.health} hull is ${rounds} rockets at ${ROCKET_TYPE.damage}, not 4`,
+  );
+});
+
+test("the rocket can out-turn the only thing it is allowed to shoot at", () => {
+  // cartypes.js prices the gunship's steerSpeed directly against weapons.js's
+  // turnRate, and it is the one relation that can make this enemy unkillable:
+  // the rocket is the ONLY round permitted to reach it, so a gunship that could
+  // out-slide a seeker could not be killed by anything at all.
+  assert.ok(
+    ROCKET_TYPE.turnRate > GUNSHIP.steerSpeed,
+    `the gunship slides at ${GUNSHIP.steerSpeed}/sec and the rocket steers at ` +
+      `${ROCKET_TYPE.turnRate}/sec — the only weapon allowed to hit it cannot catch it`,
+  );
+});
+
+test("an airborne car is never handed to the ramming solver", () => {
+  // traffic.js's collide(). A flying body resolved in flat road coordinates
+  // would let the player ram something in the air above them,
+  // which is the one thing that would flatly contradict the artwork. Driven
+  // through the real Traffic rather than asserted against the flag, so it is the
+  // BEHAVIOUR that is pinned and not the line of code that implements it.
+  // One tick of the real Traffic with the player parked exactly on top of a
+  // staged car. Returns what the collision cost each of them.
+  const rammed = (type) => {
+    const traffic = new Traffic();
+    const player = new Player(300, 496, () => {});
+    const car = traffic.place(type, 0, 1, 620, true);
+    assert.ok(car, `${type.id} should have been placed`);
+    player.x = centerXAt(0, 600) + car.offset;
+    const carBefore = car.health;
+    const playerBefore = player.health;
+    traffic.update(1 / 60, { player, distance: 0, W: 600, H: 800 });
+    return { car: carBefore - car.health, player: playerBefore - player.health };
+  };
+
+  // THE CONTROL, and it is what makes the assertion below mean anything: the
+  // identical overlap with a car that IS on the road has to hurt, or "the
+  // gunship took no damage" would be proving that this setup is not a collision
+  // rather than that altitude is why.
+  const control = rammed(CAR_TYPES.find((t) => t.id === "rival"));
+  assert.ok(control.car > 0 && control.player > 0, "the setup is not a real overlap");
+
+  const air = rammed(GUNSHIP);
+  assert.equal(air.car, 0, "the gunship took ram damage from a car below it");
+  assert.equal(air.player, 0, "the player was charged for ramming something in the air");
+});
+
+test("the gunship actually flies off the tarmac, and never out of frame", () => {
+  // BOTH HALVES OF ITS LATERAL BOUND, and this test exists because the first
+  // half was silently wrong. `clampToRoad` is called from TWO places in
+  // traffic.js — once per car per tick, and once more after the collision pass —
+  // and guarding only the second held the gunship to 108px of the 150px sweep
+  // its profile asks for. Nothing failed; it just quietly stopped being a
+  // flying thing and read as a very wide car. So the assertion is on the
+  // OBSERVED sweep of a real Traffic tick, not on the guard.
+  //
+  // The other half is the bound that replaces the road's: behaviours.js's
+  // FLIGHT_MARGIN keeps the whole hull inside the frame, and the worst case for
+  // it is the player hard against a barrier with the sweep reaching further
+  // that way still — so the player is driven to both edges, not just the middle.
+  const W = 600;
+  const half = GUNSHIP.w / 2;
+  const edge = ROAD_HALF_WIDTH - 20;
+
+  for (const playerOffset of [0, edge, -edge]) {
+    const traffic = new Traffic();
+    const player = new Player(W / 2, 496, () => {});
+    player.speed = 620;
+    const air = traffic.place(GUNSHIP, 800, 1, 620, true);
+    air.staged = true;
+
+    let reach = 0;
+    let worstLeft = Infinity;
+    let worstRight = -Infinity;
+    let distance = 0;
+    const dt = 1 / 60;
+    const world = { player, distance, W, H: 800, fireShot: () => {} };
+
+    // Two full weaves' worth, and the first three seconds are ignored so the
+    // car is measured on its sweep rather than on its run in from the spawn.
+    for (let i = 0; i < 60 * 20; i++) {
+      distance += player.speed * dt;
+      world.distance = distance;
+      player.x = centerXAt(distance, W) + playerOffset;
+      traffic.update(dt, world);
+      if (!traffic.cars.includes(air)) break;
+      if (i < 180) continue;
+      reach = Math.max(reach, Math.abs(air.offset - playerOffset));
+      const sx = centerXAt(air.worldY, W) + air.offset;
+      worstLeft = Math.min(worstLeft, sx - half);
+      worstRight = Math.max(worstRight, sx + half);
+    }
+
+    // IT GETS OFF THE ROAD. Not "it reaches its weaveSpan" — that would pass
+    // against a clamp set anywhere past the sweep. What has to be true is the
+    // thing the player sees: the hull leaves the tarmac entirely.
+    const profile = drivingFor(GUNSHIP);
+    assert.ok(
+      reach > 0.9 * profile.weaveSpan,
+      `the gunship swept ${reach.toFixed(0)}px of its profile's ${profile.weaveSpan} — ` +
+        "something is holding it in, as the road clamp once did",
+    );
+    assert.ok(
+      Math.abs(air.offset) + half > ROAD_HALF_WIDTH ||
+        reach + Math.abs(playerOffset) + half > ROAD_HALF_WIDTH,
+      "the gunship never left the tarmac, which is the whole of what makes it fly",
+    );
+
+    // ...AND STAYS IN SHOT. A sweep that wandered off the canvas would be an
+    // enemy shooting at the player from somewhere they cannot look.
+    assert.ok(
+      worstLeft >= -1e-9 && worstRight <= W + 1e-9,
+      `with the player at ${playerOffset} the gunship spanned x ${worstLeft.toFixed(0)}..` +
+        `${worstRight.toFixed(0)}, outside the ${W}px frame`,
     );
   }
 });

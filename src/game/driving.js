@@ -424,6 +424,38 @@ export const DRIVING_PROFILES = {
     nerve: 0,
     contact: 0,
   }),
+
+  // The gunship (cartypes.js) — the only profile here driving something that is
+  // not on the road, and the only one whose sweep is bounded by the SCREEN
+  // rather than by the tarmac (behaviours.js's `patrol` and its FLIGHT_LIMIT).
+  //
+  // `leadHold` STAYS AT THE REFERENCE 300, and it is the same rule the boss's
+  // 420 is measured by: hold where the player can see you. That puts a 70px
+  // hull high in the frame with the player looking up at it, and well inside
+  // both armament.js's gun band and the road visible ahead — the two bounds
+  // test/hazards.test.js checks every station-keeper against.
+  //
+  // THE SWEEP IS THE WHOLE CHARACTER, and it is four times the outrider's 40.
+  // That figure is not a preference: 150 either side of the player's own line
+  // carries the hull clear of a 143px half-road from anywhere on it, so the
+  // sweep VISIBLY leaves the tarmac and comes back, which is the one thing that
+  // makes this read as flying rather than as a very wide car. It is also why
+  // `weaveTime` is three times the outrider's 1.6 — the pair is read together
+  // (see weaveSpan above), and 4 * 150 = 600px in 4.5s needs 133px/sec against
+  // this type's 240, with the sine's own peak rate (2*PI*150/4.5 = 209) also
+  // inside it. A shorter time here would come out as a drift, not a faster
+  // sweep, which is exactly what that test exists to catch.
+  //
+  // NERVE AND CONTACT AT ZERO like every other hostile, and here they are not
+  // merely unread but unreadable: behaviours.js skips the hazard reflex outright
+  // for an airborne car, so there is no gamble for a nerve figure to price.
+  gunship: profile({
+    leadHold: 300,
+    weaveSpan: 150,
+    weaveTime: 4.5,
+    nerve: 0,
+    contact: 0,
+  }),
 };
 
 // The profile a car type drives by. A named profile always wins; an unknown name

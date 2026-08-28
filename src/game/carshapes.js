@@ -42,7 +42,7 @@
 // LAYERING. Parts are drawn strictly bottom-up, which is what makes a flat
 // wireframe read as a solid object:
 //
-//   shadow    the ground blot a FLYING hull casts, below everything
+//   shadow    the ground track a FLYING hull projects, below everything
 //   low()     ground-level parts the chassis overlaps (splitters)
 //   wheels    UNDER the chassis, so only the tyre past the bodywork shows
 //   tracks    same slot as wheels, but one long tread band instead of a tyre
@@ -55,18 +55,37 @@
 //   rotors    spinning discs, ABOVE everything -- a rotor turns over its own hull
 //
 // GROUND CONTACT IS OPTIONAL. `wheels` may be omitted entirely: a hovercraft or
-// a drone has no axles, and the cue that replaces the tyres is `hover` (a ground
-// shadow offset down-screen, so the hull reads as flying rather than as a car
-// with its wheels forgotten). Every shape must carry ONE of the three -- wheels,
-// tracks, or hover -- or it will look like it is sliding on its belly.
+// a drone has no axles, and the cue that replaces the tyres is `hover` (a GROUND
+// TRACK offset down-screen -- a hollow ring, a cross and a dashed leader up to
+// the hull, so it reads as flying rather than as a car with its wheels
+// forgotten). Every shape must carry ONE of the three -- wheels, tracks, or
+// hover -- or it will look like it is sliding on its belly. See
+// drawHoverShadow below for why the mark is an instrument and not a shadow.
 //
-// `hover: { blot: false }` is the one way to fly without the shadow, and it
-// exists for exactly one situation: a hull that flies directly over something
-// the player needs to SEE. The blot is drawn first and opaque, so on a cargo
-// drone carrying the player car it would be painted straight over the car. The
-// flag says "this flies, and the shadow is deliberately off" -- which is a very
-// different claim from a shape that simply forgot to say how it meets the road,
-// and test/road-and-caches.test.js can tell the two apart because of it.
+// `hover: { blot: false }` is the way to fly without drawing the mark. It says
+// "this flies, and the mark is deliberately off" -- a very different claim from a
+// shape that simply forgot to say how it meets the road, and
+// test/road-and-caches.test.js can tell the two apart because of it. Two hulls
+// use it, for two different reasons:
+//
+//   THE MARK WOULD COVER SOMETHING. The track is drawn first and its leader runs
+//   down the centreline, so on the CLAW LIFTER it would be drawn across the very
+//   car the vehicle exists to carry.
+//   THE MARK WOULD LAND INSIDE THE HULL. `drop` is measured from the hull's
+//   CENTRE, so a mark only clears the bodywork when the drop exceeds the hull's
+//   own reach downward. On the ARMORED QUAD it did not: the drop it was authored
+//   with was 44px against rotors that already reach 37, which put the ring
+//   straight through the two lower ducts and the leader entirely inside the pod.
+//   Raising the drop past ~70 clears them and was tried -- it costs a sprite half
+//   as tall again, for a mark so far from the hull it stops reading as belonging
+//   to it. Hence no drop on that entry at all now, just the flag.
+//
+// THE SECOND ONE IS ONLY AFFORDABLE BECAUSE THE LAYERS SAY IT INSTEAD. main.js
+// draws the air pass after the bullets and after the player's own car, so a
+// gunship visibly has the whole road passing UNDERNEATH it -- see
+// Traffic.render. That is a stronger altitude cue than any mark under the hull
+// was, and it is the one the player actually reads. A shape with no such
+// layering behind it should still draw its track.
 //
 // The three fills form a height ramp (see palette.js), the same trick
 // a city building uses for its faces: the higher a surface sits off the road,
@@ -75,6 +94,7 @@
 
 import { glowPoly, glowLine } from "../engine/neon.js";
 import { CAR_FILL, CAR_FILL_RAISED, CAR_FILL_HIGH } from "../engine/palette.js";
+import { polygon } from "./polygon.js";
 
 // Builds a closed symmetric polygon from a right-half profile (nose -> tail):
 // the right side as given, then the left side mirrored tail -> nose.
@@ -111,7 +131,18 @@ function halfWidthAt(parts, y) {
 // tread with its bands spaced further apart -- writing it as one function is what
 // keeps a tracked boss rolling in lockstep with the traffic around it instead of
 // inventing a second, subtly different animation for the same idea.
-function drawTread(ctx, x, top, bot, color, phase, ww, spacing = 4) {
+// The tread's band spacing, and therefore the period over which the whole wheel
+// animation REPEATS in `phase`. EXPORTED because sprites.js's sprite cache has to
+// quantise `wheelPhase` to exactly this to keep the cache bounded (its
+// WHEEL_PERIOD), and the two being one number rather than two copies of 4 is what
+// stops a cached car animating over a fraction of its own cycle.
+//
+// ANY per-phase artwork in this file must complete its visual cycle in this
+// many px, or the cache will sample a sliver of it and the motion will vanish.
+// drawRotor below is written to that rule; it is not free to pick its own rate.
+export const TREAD_SPACING = 4;
+
+function drawTread(ctx, x, top, bot, color, phase, ww, spacing = TREAD_SPACING) {
   glowPoly(ctx, [[x - ww, top], [x + ww, top], [x + ww, bot], [x - ww, bot]], color, 1.5, 7);
 
   const off = ((phase % spacing) + spacing) % spacing; // wrapped scroll offset
@@ -156,7 +187,22 @@ function drawRotor(ctx, x, y, r, color, phase, blades = 3) {
   ctx.fill();
   ctx.stroke();
 
-  const a0 = phase * 0.05; // px travelled reused as an angle -- free, and never resets
+  // ONE FULL BLADE CYCLE PER TREAD_SPACING OF TRAVEL, and it has to be exactly
+  // that. A rotor of `blades` spokes is rotationally symmetric every TAU/blades,
+  // so mapping one tread period onto one such turn means the cache's frames
+  // sample the whole visual cycle evenly and the rotor genuinely spins.
+  //
+  // IT USED TO BE `phase * 0.05`, which is fine in the gallery (drawn live, off
+  // a phase that only ever grows) and almost nothing on the road. The sprite
+  // cache quantises wheelPhase to TREAD_SPACING, so on a cached car that factor
+  // spanned 10 DEGREES across all eight frames — MEASURED: 1.9px of travel at a
+  // 13px blade tip. The frames were not identical, they were a two-pixel wobble,
+  // which reads as a static three-spoke mark on a hull whose whole design leans
+  // on the blades turning. This rule spans 105 degrees over the same eight.
+  //
+  // No shape in CAR_SHAPES had rotors until the gunship — bossshapes.js's hulls
+  // are gallery-only and drawn uncached — which is why it went unnoticed.
+  const a0 = (phase / TREAD_SPACING) * (TAU / blades);
   ctx.globalAlpha = 0.55;
   ctx.lineWidth = 1.2;
   ctx.shadowBlur = 3;
@@ -176,24 +222,66 @@ function drawRotor(ctx, x, y, r, color, phase, blades = 3) {
   ctx.restore();
 }
 
-// The ground blot under a flying hull, offset DOWN-SCREEN from it. This is the
-// same one-object-two-heights depth trick drones.js already uses for its air
-// traffic (its DRONE_SHADOW), brought up to the road plane: the gap between hull
-// and blot is the only thing saying "this is above you", so it has to be big
-// enough to survive the glow -- a few px of offset just looks like a printing
-// error. Drawn first, and translucent black rather than a fill colour, so it
-// DIMS the road and grid beneath instead of painting a second body over them.
+// The GROUND TRACK under a flying hull, offset DOWN-SCREEN from it: where the
+// console reckons this contact is over the road, with a leader up to the hull
+// itself. The gap between the two is the altitude.
+//
+// IT USED TO BE A SHADOW, and that was wrong for this game rather than merely
+// plain. Everything on this screen is a neon wireframe drawn by a deck rendering
+// a hostile network; a soft translucent-black ellipse is a PHOTOGRAPH of a light
+// source that does not exist in that fiction, and it was the only opaque black
+// in the game -- not even a palette entry, just an inline rgba(0,0,0,0.55). It
+// read as an object from another renderer.
+//
+// SO THE HEIGHT CUE IS AN INSTRUMENT INSTEAD. A hollow ring, a centre cross and
+// a dashed leader are the same information in the vocabulary the rest of the
+// screen already speaks -- the deck PROJECTING a contact's ground position,
+// which is exactly the sort of thing a deck would draw and a shadow is not.
+//
+// FLATTENED, and that is doing real work: at ry = rx/2 the ring reads as lying
+// ON the road plane rather than standing up in it, which is what stops it being
+// mistaken for a second, fainter vehicle below the first.
+//
+// THE LEADER IS THE PART THAT ENCODES HEIGHT. A ring on its own is just a ring;
+// a dashed line climbing from it to the hull is what says how far up the thing
+// at the top is. It starts below the hull's own edge so it never draws over the
+// body, and it is dashed rather than solid so it reads as a projection instead
+// of a tether the drone is hanging from.
+//
+// NOT DIMMED, unlike the blot it replaces: this no longer needs to darken the
+// road to be seen, because a stroked glow in the vehicle's own colour is legible
+// against the tarmac on its own. It is drawn FIRST regardless, so the hull and
+// everything on it still paints over the leader's top end.
+//
+// THE WHOLE THING IS INSIDE THE CACHED SPRITE (sprites.js), like every other
+// part of a car, so none of this costs anything per frame.
+const TRACK_FLATTEN = 0.5;  // ry as a fraction of rx -- see FLATTENED above
+const TRACK_ALPHA = 0.45;
+const TRACK_DASH = 4;       // px on, px off, up the leader
+
 function drawHoverShadow(ctx, cx, cy, hw, hh, color, drop, scale) {
+  const rx = hw * scale;
+  const ry = hh * scale * TRACK_FLATTEN;
+  const gy = cy + drop;
+
   ctx.save();
-  ctx.translate(cx, cy + drop);
-  ctx.beginPath();
-  ctx.ellipse(0, 0, hw * scale, hh * scale, 0, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.fill();
-  ctx.globalAlpha = 0.18;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1;
-  ctx.stroke();
+  ctx.globalAlpha = TRACK_ALPHA;
+
+  // The leader, from just clear of the hull's lower edge to the top of the ring.
+  const from = cy + hh * 0.72;
+  ctx.setLineDash([TRACK_DASH, TRACK_DASH]);
+  glowLine(ctx, cx, from, cx, gy - ry, color, 1, 5);
+  ctx.setLineDash([]);
+
+  // The ring itself, hollow -- no fill, so the road and grid read straight
+  // through it the way they do through everything else on this screen.
+  glowPoly(ctx, polygon(cx, gy, rx, ry, 18), color, 1, 6);
+
+  // ...and a centre cross, so the mark has a POINT rather than just an area.
+  const tick = Math.min(rx, ry) * 0.45;
+  glowLine(ctx, cx - tick, gy, cx + tick, gy, color, 1, 4);
+  glowLine(ctx, cx, gy - tick, cx, gy + tick, color, 1, 4);
+
   ctx.restore();
 }
 
@@ -226,6 +314,11 @@ const CHAMFER_CAB = [
 // a profile, `solid()` is NOT mirrored, so anything symmetric built from it is
 // emitted twice or centred by hand.
 const box = (x1, y1, x2, y2) => [[x1, y1], [x2, y1], [x2, y2], [x1, y2]];
+
+// A closed ring of points at radius `r` in hw/hh fractions -- polygon.js's one
+// generator in this file's vocabulary, exactly as its header describes. Only
+// circular on a square shape; the gunship is 70x70, which is the only caller.
+const ring = (r, n = 20, phase = 0) => polygon(0, 0, r, r, n, phase);
 
 // The tractor cab shared by the heavy haulers.
 const CAB = [[0, -1.0], [0.44, -0.98], [0.62, -0.88], [0.66, -0.70], [0.64, -0.54], [0, -0.52]];
@@ -762,6 +855,55 @@ export const CAR_SHAPES = [
       line(0.28, 0.30, 0.32, -0.56, c);
     },
   },
+
+  // THE GUNSHIP -- the catalogue's first FLYING hull, and the reason `hover` is
+  // an altitude rather than a skirt: the gap between the hull and its ground
+  // altitude is not in the drawing at all: it is in the DRAW ORDER, and
+  // cartypes.js's `airborne` is what turns that into a rule -- see the gunship
+  // record there, and Traffic.render for the two passes.
+  //
+  // Authored in bossshapes.js as ARMORED QUAD and graduated here unedited the
+  // day that record was written, exactly as the SIEGE MORTAR above was. It
+  // keeps its authored name: the player never sees it (cartypes.js's `label`
+  // says COMBAT DRONE), and renaming a hull on the way across would break the
+  // one thing that file's protocol is for.
+  {
+    name: "ARMORED QUAD",
+    pitch: "the drone everyone already recognises, up-armoured",
+    size: [70, 70],
+    // FLIES, AND DRAWS NO GROUND MARK -- see the ground-contact note in this
+    // file's header for the two hulls that switch it off and why this is one of
+    // them. The altitude is carried by the draw order instead (main.js draws the
+    // air pass over the bullets and over the player), which is what the player
+    // actually reads: their rounds go under it.
+    hover: { blot: false },
+    // Four ducted rotors on stub arms around an armoured pod, chin gun forward.
+    // It also ties the enemy straight back to the air traffic already flying
+    // over the city (drones.js) -- same species, close up.
+    profile: [
+      [0, -0.64], [0.36, -0.52], [0.46, -0.18], [0.46, 0.18], [0.36, 0.52], [0, 0.64],
+    ],
+    rotors: [[-0.64, -0.62, 13], [0.64, -0.62, 13], [-0.64, 0.62, 13], [0.64, 0.62, 13]],
+    overhang: { x: 1.06, up: 1.06, down: 1.06 },
+    low({ solid }, c) {
+      // The arms, drawn under the pod so the pod caps them cleanly.
+      solid([[-0.10, -0.16], [0.10, -0.34], [0.74, -0.72], [0.56, -0.52]], c, CAR_FILL);
+      solid([[0.10, -0.16], [-0.10, -0.34], [-0.74, -0.72], [-0.56, -0.52]], c, CAR_FILL);
+      solid([[-0.10, 0.16], [0.10, 0.34], [0.74, 0.72], [0.56, 0.52]], c, CAR_FILL);
+      solid([[0.10, 0.16], [-0.10, 0.34], [-0.74, 0.72], [-0.56, 0.52]], c, CAR_FILL);
+    },
+    flat({ line }, c) {
+      line(-0.34, -0.30, 0.34, -0.30, c);
+      line(-0.34, 0.30, 0.34, 0.30, c);
+    },
+    raised({ solid, line }, c, thrust, headlight) {
+      solid(box(-0.14, -0.98, 0.14, -0.54), c, CAR_FILL_HIGH); // chin gun, forward
+      solid(ring(0.26, 8), c);                                 // sensor dome
+      line(-0.10, -0.94, -0.10, -0.62, c);
+      line(0.10, -0.94, 0.10, -0.62, c);
+      line(-0.20, -0.98, 0.20, -0.98, headlight, 1.5, 8);
+    },
+  },
 ];
 
 // Look a shape up by name. Car types (cartypes.js) select their silhouette
@@ -814,8 +956,8 @@ export function drawShapeObject(ctx, cx, cy, shape, opts = {}) {
   const tools = makeTools(ctx, cx, cy, hw, hh);
   const parts = shape.parts ?? [shape.profile];
 
-  // 0. The ground blot, if this hull flies. Below everything, including the
-  //    road markings it dims.
+  // 0. The ground track, if this hull flies. Below everything, so the hull and
+  //    its details paint over the top of the leader climbing to them.
   if (shape.hover && shape.hover.blot !== false) {
     drawHoverShadow(ctx, cx, cy, hw, hh, color,
       shape.hover.drop ?? hh * 0.5, shape.hover.scale ?? 0.9);

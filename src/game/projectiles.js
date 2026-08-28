@@ -75,6 +75,7 @@
 
 import { neonStroke } from "../engine/neon.js";
 import { centerXAt, headingAt, ROAD_HALF_WIDTH } from "./road.js";
+import { inBlastPlane } from "./collisions.js";
 import { FLIGHT_TRACKING, FLIGHT_SEEKING } from "./weapons.js";
 
 const MAX_SHOTS = 32;  // in flight at once. The cannon fires ~6/sec and a shot
@@ -505,6 +506,22 @@ export class Projectiles {
 
     for (const t of targets) {
       if (!t.alive) continue;
+      // ALTITUDE, and it is the one thing in this file that is not decided by
+      // the two road coordinates. An `airborne` body (cartypes.js) is flying
+      // well above the tarmac, and every round here except a seeking one flies
+      // ALONG the road — a straight round buries itself in a barrier at road
+      // level (see the barrier check in update), and a tracking round holds the
+      // lane it was fired up. Neither leaves the road plane, so neither can
+      // touch something that is not in it. A seeking round climbs to what it
+      // has locked on to, which is why the rocket is the answer to the air and
+      // the only weapon that is — exactly the case ROCKET's own comment in
+      // weapons.js said these types would opt into for themselves.
+      //
+      // NOT A LATERAL RULE. It would be tempting to let the gunship be shot at
+      // whenever it happens to be over the tarmac, and that is wrong for the
+      // reason the artwork already states: a round low enough to hit a barrier
+      // cannot hit something in the air above it, wherever it is standing.
+      if (t.airborne && !s.seeking) continue;
       if (Math.abs(t.offset - s.offset) >= (t.w + s.width) / 2) continue;
       // The car's box, inflated by the bullet's own length so a shot that has
       // only just touched it counts.
@@ -549,6 +566,10 @@ export class Projectiles {
     if (!s.blastRadius || !s.blastDamage) return;
     for (const t of targets) {
       if (t === exclude || !t.alive) continue;
+      // Nothing at road level reaches the air — see collisions.js's inBlastPlane.
+      // The round that struck the gunship directly is already `exclude`, so this
+      // costs a rocket nothing on the target it actually hit.
+      if (!inBlastPlane(t)) continue;
       const dx = Math.max(0, Math.abs(t.offset - offset) - t.w / 2);
       const dy = Math.max(0, Math.abs(t.worldY - worldY) - t.h / 2);
       const dist = Math.hypot(dx, dy);

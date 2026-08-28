@@ -14,17 +14,17 @@
 // the number of car TYPES and would otherwise be paying for eight hulls that
 // nothing on the road can spawn.
 //
-// SEVEN HULLS, FOUR VEHICLES — was eight and five. Two of them (the armoured
-// rig, the combat drone) keep two hulls each, since both readings were worth
-// having; the hovercraft keeps one plus the pontoon variant, and the cargo drone
-// one. `group` says which vehicle a hull belongs to, so the gallery can show a
+// SIX HULLS, FOUR VEHICLES — was eight and five. Only the armoured rig still
+// keeps two, since both readings were worth having; the hovercraft keeps one
+// plus the pontoon variant, and the combat drone and the cargo drone one each.
+// `group` says which vehicle a hull belongs to, so the gallery can show a
 // vehicle's options side by side and the boss session can find them.
 //
-// THE TANK IS GONE FROM THIS LIST, and that is this file working as intended
-// rather than a hull being lost: the SIEGE MORTAR was the first candidate to be
-// picked up, and it moved to carshapes.js the day cartypes.js grew a record that
-// wears it. See the note where its group used to be, and expect this count to
-// keep falling as the rest are claimed.
+// TWO ARE GONE FROM THIS LIST, and that is this file working as intended rather
+// than hulls being lost: the SIEGE MORTAR went first, then the ARMORED QUAD the
+// day cartypes.js grew the gunship record that wears it. Both are in
+// carshapes.js now. See the notes where each group used to be, and expect this
+// count to keep falling as the rest are claimed.
 //
 // THE GRAMMAR IS carshapes.js's. Read that file's header first: `profile` is the
 // right half of a symmetric hull (nose -1, tail +1) in fractions of hw/hh,
@@ -37,10 +37,12 @@
 //
 //   tracks   a wheel stretched into a tread band — the tank, now graduated to
 //            carshapes.js, and the only user this list ever had for it
-//   hover    a ground blot offset down-screen, replacing the tyres entirely as
+//   hover    a ground track offset down-screen, replacing the tyres entirely as
 //            the "this thing touches the ground" cue — the hovercraft and the
 //            combat drones
-//   rotors   spinning discs drawn ABOVE the hull — the drones
+//   rotors   spinning discs drawn ABOVE the hull — the drones. The GUN RING
+//            below is the last user left here; the quad took the mechanism to
+//            carshapes.js with it
 //
 // A NOTE ON HOLES. A `profile` is a filled loop, so a hull cannot have a hole
 // punched in it. Two candidates need one anyway — the skycrane must show the car
@@ -224,7 +226,7 @@ export const BOSS_SHAPES = [
   // =========================================================================
 
   // =========================================================================
-  // MILITARY HOVERCRAFT — no wheels, no tracks: `hover` and its ground blot are
+  // MILITARY HOVERCRAFT — no wheels, no tracks: `hover` and its ground track are
   // the only thing saying where the ground is. Two hulls, and they are opposite
   // arguments about how to say "this floats": a literal skirt, or a hole through
   // the middle of the vehicle with the road streaming past inside it.
@@ -316,44 +318,15 @@ export const BOSS_SHAPES = [
   },
 
   // =========================================================================
-  // HEAVY COMBAT DRONE — flying, so `hover` drops the blot much further than
-  // the hovercraft's: the gap between hull and blot IS the altitude. Two hulls:
-  // the quad ties straight back to the air traffic already crossing the sky
-  // (drones.js), the ring is the one shape in the game that is round.
+  // HEAVY COMBAT DRONE — flying, so `hover` drops the track much further than
+  // the hovercraft's: the gap between hull and track IS the altitude.
+  //
+  // ONE HULL LEFT. The other was the ARMORED QUAD, and it is the second entry
+  // this list has handed over: it moved to carshapes.js the day cartypes.js
+  // grew the `gunship` record, and it took the four-rotor reading of this
+  // vehicle with it. What remains is the reading that hull was the safe
+  // alternative to — the ring is the one shape in the game that is round.
   // =========================================================================
-  {
-    group: "COMBAT DRONE",
-    name: "ARMORED QUAD",
-    pitch: "the drone everyone already recognises, up-armoured",
-    size: [70, 70],
-    hover: { drop: 44, scale: 0.58 },
-    // Four ducted rotors on stub arms around an armoured pod, chin gun forward.
-    // It also ties the boss straight back to the air traffic already flying over
-    // the city (drones.js) — same species, close up. The safe pick.
-    profile: [
-      [0, -0.64], [0.36, -0.52], [0.46, -0.18], [0.46, 0.18], [0.36, 0.52], [0, 0.64],
-    ],
-    rotors: [[-0.64, -0.62, 13], [0.64, -0.62, 13], [-0.64, 0.62, 13], [0.64, 0.62, 13]],
-    overhang: { x: 1.06, up: 1.06, down: 1.06 },
-    low({ solid }, c) {
-      // The arms, drawn under the pod so the pod caps them cleanly.
-      solid([[-0.10, -0.16], [0.10, -0.34], [0.74, -0.72], [0.56, -0.52]], c, CAR_FILL);
-      solid([[0.10, -0.16], [-0.10, -0.34], [-0.74, -0.72], [-0.56, -0.52]], c, CAR_FILL);
-      solid([[-0.10, 0.16], [0.10, 0.34], [0.74, 0.72], [0.56, 0.52]], c, CAR_FILL);
-      solid([[0.10, 0.16], [-0.10, 0.34], [-0.74, 0.72], [-0.56, 0.52]], c, CAR_FILL);
-    },
-    flat({ line }, c) {
-      line(-0.34, -0.30, 0.34, -0.30, c);
-      line(-0.34, 0.30, 0.34, 0.30, c);
-    },
-    raised({ solid, line }, c, thrust, headlight) {
-      solid(box(-0.14, -0.98, 0.14, -0.54), c, CAR_FILL_HIGH); // chin gun, forward
-      solid(ring(0.26, 8), c);                                 // sensor dome
-      line(-0.10, -0.94, -0.10, -0.62, c);
-      line(0.10, -0.94, 0.10, -0.62, c);
-      line(-0.20, -0.98, 0.20, -0.98, headlight, 1.5, 8);
-    },
-  },
 
   {
     group: "COMBAT DRONE",
@@ -403,7 +376,7 @@ export const BOSS_SHAPES = [
   // is built around one requirement: the car stays VISIBLE while carried. Hence
   // two end beams rather than a fuselage, an open middle, and jaws that close on
   // the car's flanks where they cannot cover it -- and `hover: { blot: false }`,
-  // since the car is directly beneath and the blot would be drawn over it.
+  // since the car is directly beneath and the track would be drawn over it.
   // =========================================================================
 
   {
@@ -416,10 +389,11 @@ export const BOSS_SHAPES = [
     // sticks out nose and tail and the jaws visibly close on its sides. The
     // pitch is the ANIMATION — open, close, lift is a three-beat action the
     // other two variants cannot show.
-    // Flies, but with the ground blot switched OFF rather than merely absent:
-    // the blot is opaque and drawn first, so on this hull it would land on the
-    // very car the vehicle exists to carry. See carshapes.js's ground-contact
-    // note for why that distinction is written down instead of assumed.
+    // Flies, but with the ground track switched OFF rather than merely absent:
+    // the track's leader runs down the centreline, so on this hull it would be
+    // drawn across the very car the vehicle exists to carry. See carshapes.js's
+    // ground-contact note for why that distinction is written down rather than
+    // assumed.
     hover: { blot: false },
     parts: [
       [[0, -0.98], [0.86, -0.92], [0.90, -0.62], [0.80, -0.52], [0, -0.50]],

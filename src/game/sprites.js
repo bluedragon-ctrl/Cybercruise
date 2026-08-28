@@ -4,7 +4,7 @@
 // given (cx, cy) so callers control placement.
 
 import { getSprite, blitSprite, blitSpriteRotated, blitSpriteMaterialising } from "../engine/spritecache.js";
-import { drawCarShape, carShapeExtent, CAR_SHAPES } from "./carshapes.js";
+import { drawCarShape, carShapeExtent, CAR_SHAPES, TREAD_SPACING } from "./carshapes.js";
 import { drawObstacleShape, obstacleExtent, OBSTACLE_SHAPES } from "./obstacleshapes.js";
 import { drawShape, shapeExtent, SHAPE_WEIGHTS } from "./buildingshapes.js";
 import { drawNode, nodeExtent } from "./nodeshapes.js";
@@ -60,11 +60,17 @@ export function drawObstacle(ctx, cx, cy, opts = {}) {
 // isn't clipped by the offscreen canvas edge.
 const GLOW_PAD = 18;
 
-// drawWheel lays its tread bands every 4px and wraps, so the wheel's appearance
-// repeats with a period of exactly 4px of travel. Sampling that period at 8
-// positions keeps the roll smooth while capping the cache at 8 frames per car
-// colour (a 4px-wide wheel can't show finer detail than this anyway).
-const WHEEL_PERIOD = 4;
+// drawWheel lays its tread bands every TREAD_SPACING px and wraps, so the wheel's
+// appearance repeats with a period of exactly that much travel. Sampling that
+// period at 8 positions keeps the roll smooth while capping the cache at 8 frames
+// per car colour (a 4px-wide wheel can't show finer detail than this anyway).
+//
+// TAKEN FROM carshapes.js RATHER THAN RESTATED. It was a second literal 4 here,
+// and the drawing side is where it is actually decided — see TREAD_SPACING's own
+// comment for what a copy that drifted would cost: artwork animating over a
+// fraction of its cycle, which is not a visible break, just motion quietly going
+// missing.
+const WHEEL_PERIOD = TREAD_SPACING;
 // Exported so the sprite-cache budget in cartypes.js can be asserted rather than
 // only documented (see test/road-and-caches.test.js).
 export const WHEEL_FRAMES = 8;

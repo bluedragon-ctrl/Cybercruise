@@ -239,7 +239,7 @@ the simulation:
 | file | |
 | --- | --- |
 | `game/cartypes.js` | **the catalogue.** A type is pure data: silhouette, colours, size, hull, speed band, steering, blast, spawn weight, `minDistance`, and the names of its tactic and driving profile. New traffic = a new entry here |
-| `game/carshapes.js` | the silhouettes, 1:1 with the catalogue and pinned both ways by `test/road-and-caches.test.js`. Siblings: `cycleshapes.js` for the bike hulls, `bossshapes.js` for Phase 10's artwork, held outside the pairing until its types exist |
+| `game/carshapes.js` | the silhouettes, 1:1 with the catalogue and pinned both ways by `test/road-and-caches.test.js`. Siblings: `cycleshapes.js` for the bike hulls, `bossshapes.js` for Phase 10's artwork, held outside the pairing until its types exist — hulls graduate OUT of it one at a time as types are written for them (the siege mortar, then the gunship) |
 | `game/behaviours.js` | the manoeuvres. A tactic sets only INTENT (`targetOffset`, `targetSpeed`); `traffic.js` integrates it under the type's limits, so a rig can't corner like a roadster and the physics stay in one place |
 | `game/driving.js` | the driving **profiles**: the numbers behind a tactic — following distance, patience, lane discipline, how much hull a driver will accept spending |
 | `game/traffic.js` | spawning, driving, dying, retiring, drawing |
@@ -252,9 +252,58 @@ shared with the player is given to an enemy — your own outline in red reads as
 rival.
 
 `behaviours.js`'s tactic table lists every manoeuvre with a one-line summary,
-including what the four compositions (`duel`, `strafe`, `outrun`, `strew`)
+including what the compositions (`duel`, `strafe`, `outrun`, `strew`, `patrol`)
 compose. Its header explains why a tactic may be stateful, and what the three
 stages — tactic, reflex, arms — run in that order for.
+
+### The air
+
+One type in the catalogue is not on the road. The **gunship** carries
+`airborne`, and that flag says exactly one thing — *this body is not in the road
+plane* — which four systems each read once to say what it costs:
+
+| | |
+| --- | --- |
+| `traffic.js` | out of the ramming solver and off the tarmac clamp; mirrors the flag onto the body for the two below |
+| `behaviours.js` | no hazard reflex — it flies over mines rather than round them |
+| `projectiles.js` | **no round may reach it but a SEEKING one** |
+| `collisions.js` | `inBlastPlane`, which the three blast sweeps ask |
+
+The third is the point. A straight round buries itself in a barrier at road
+level and a tracking round holds the lane it was fired up, so neither ever
+leaves the road plane; only the rocket climbs. That makes the rocket the one
+answer to the air, and it is a rule about ALTITUDE rather than about lateral
+position — a shot flying low enough to hit a barrier cannot hit something in the
+air above it, wherever it happens to be standing. Letting the gunship be shot at whenever
+it drifted over the tarmac was the obvious alternative and is wrong for exactly
+that reason.
+
+**The altitude is in the DRAW ORDER, not in a shadow.** `Traffic` draws in two
+passes — the road plane, then the air — and `main.js` puts the bullets and the
+player's own car between them, so a gunship visibly has the whole road passing
+underneath it. That matters because a tracer drawn *over* the thing it cannot
+hit reads as a bug rather than as height. The hull therefore carries
+`hover: { blot: false }` and draws no ground mark at all: at 70px square the
+mark landed inside its own rotors, and the layering says it better anyway. The
+ground mark that other hovering hulls still draw is an instrument — a hollow
+ring, a cross and a dashed leader — rather than the translucent-black ellipse it
+used to be, which was the only photographic element on a screen that is
+otherwise entirely a deck's wireframe.
+
+The rule is symmetrical: nothing on the road reaches the air, and the gunship
+carries no death blast, so there is no exception to learn in either direction.
+`weapons.js`'s ROCKET anticipated this before the type existed and said the air
+content would opt in for itself; `airborne` is that opt-in.
+
+Its encounter (`airstrike`) opens at DIST 1000 and runs ~2.5 times per 1000
+after that — the catalogue's heaviest `weight`, and a measured one: the entry's
+own comment carries the sweep it was picked from. Two figures underneath it are
+the ones to keep true. It must never open before the ROCKET+ crate does, since
+an enemy only one weapon can answer must not arrive before the player can have
+that weapon (`test/events.test.js` pins it); and its `duration` of 80 is ~13
+seconds at the player's ceiling, against a measured ~2-second kill for someone
+who actually has rockets loaded. That gap is deliberate — it is the room to
+notice it, switch weapons and wait for a shot, or to simply survive it.
 
 ### Ramming
 
@@ -264,7 +313,10 @@ roadster, and the pile-up after. Both bodies move and take damage split by
 INVERSE mass; chains fall out of running the pair sweep several times per tick;
 blasts chain the same way and terminate because each car detonates once. The body
 interface at the top of that file is what anything rammable later — a barrel, a
-boss — implements instead of editing the solver.
+boss — implements instead of editing the solver. The one thing that opts OUT is
+an `airborne` body, which is never handed to the solver at all: mass makes a
+thing hard to shove, absence makes it unreachable, and unreachable is what
+altitude means. See The air above.
 
 The one thing not in that file: the solver has no idea the player can die. Zero
 hull is `main.js`'s business, and the wreck, the banked run and the deck's

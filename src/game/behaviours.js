@@ -59,6 +59,8 @@
 //   HAZARD_DODGE_SPAN, HAZARD_SAFETY   where obstacles.js may place a hazard
 //   RAID_LEAD, RAID_CLEARANCE          armament.js's own mine window and aim
 //   TRAIL_ENGAGE                       the gap at which a shot is possible at all
+//   FLIGHT_MARGIN                      how far off the road an airborne car may
+//                                      fly and still be wholly in frame
 //
 // Each is derived from a figure another module owns, so pinning it to a driving
 // profile would let a retune quietly break the other file's assumption. Every
@@ -68,6 +70,9 @@
 // chosen lane) — each car is a plain object owned by one behaviour for life.
 
 import { laneAt, laneOffset, LANE_COUNT, LANE_WIDTH, ROAD_HALF_WIDTH } from "./road.js";
+// The road's own sideways travel, from the one file that owns the road's shape
+// — road.js reads it from here too and does not re-export it. See FLIGHT_MARGIN.
+import { ROAD_AMPLITUDE } from "./tuning.js";
 import { useArms, MINE_RANGE, MINE_AIM } from "./armament.js";
 import { impactCost, SIDE_DAMAGE } from "./collisions.js";
 
@@ -962,6 +967,67 @@ function siege(car, dt, world) {
   outrun(car, dt, world);
 }
 
+// --- Patrolling ---------------------------------------------------------------
+//
+// The gunship (cartypes.js's `airborne`) — the first tactic on this road that is
+// not driving on it, and the only one whose lateral limit comes from the frame
+// rather than from the barriers.
+//
+// WHY A ROW OF ITS OWN rather than naming `strafe`, which is the same two ideas
+// (hold a gap, sweep across the player's line): `strafe` is BOUND BY THE ROAD in
+// both halves, and both bindings are wrong here.
+//
+//   ITS SWEEP CLAMPS TO ROAD_HALF_WIDTH, because a car that steered past a
+//   barrier would be steering into it. This one's whole point is that it goes
+//   OVER the roadside and comes back, so the clamp it wants is the screen edge.
+//   IT DEFERS TO `blocked`, so a weave never steers into somebody. Nothing on
+//   the tarmac is in an aircraft's way, and asking would make the gunship dodge
+//   traffic on the road below it — see cartypes.js's `airborne` for what that
+//   separation is and how the rest of the game reads it.
+//
+// WHAT IT DOES SHARE it takes unchanged, and neither half is new arithmetic:
+// the hold is `outrun`'s error term against `leadHold` on `raidGain`, and the
+// sweep is `strafe`'s sine on `weaveSpan`/`weaveTime`. What is different is only
+// what each is measured against.
+//
+// THE GUN NEEDS NO CASE HERE. armament.js will only fire when the shooter is
+// lined up on the target's own line within the weapon's aim slack, and the sweep
+// crosses that line twice a cycle — so the missile goes off as the gunship
+// passes over the player and at no other time, which is the shot the artwork
+// promises. Same mechanism the outrider's spray already runs on.
+
+// How far past the road's own half-width an airborne car may sit and still be
+// drawn WHOLLY inside the frame. A CONTRACT WITH road.js AND THE VIEWPORT, not a
+// disposition, which is why it is here with the other four rather than in a
+// driving profile: screen x is centerXAt(worldY) + offset and the centre-line
+// wanders by up to ROAD_AMPLITUDE either way, so the worst case is the road at
+// one extreme and the car swept to the far side of it. Subtracting the car's own
+// half-width is done at the call site, where the car is known.
+const FLIGHT_MARGIN = ROAD_AMPLITUDE;
+
+function patrol(car, dt, world) {
+  const target = world.playerBody;
+  if (!target) return cruise(car, dt, world);
+
+  // The hold — `outrun`'s, unchanged. See `siege` above for why holding station
+  // on screen is a rule about the player's eyes rather than about a weapon.
+  const lead = car.worldY - target.worldY;
+  const error = lead - car.drive.leadHold;
+  car.targetSpeed = Math.max(
+    0,
+    Math.min(car.type.speedMax, target.speed - error * car.drive.raidGain),
+  );
+
+  // The sweep — `strafe`'s sine, against the frame instead of the barriers. The
+  // phase is per car and random at its first tick, for the reason `strafe` gives.
+  car.weavePhase ??= Math.random() * Math.PI * 2;
+  car.weavePhase += (dt / car.drive.weaveTime) * Math.PI * 2;
+
+  const limit = world.W / 2 - FLIGHT_MARGIN - car.w / 2;
+  const swept = target.offset + Math.sin(car.weavePhase) * car.drive.weaveSpan;
+  car.targetOffset = Math.max(-limit, Math.min(limit, swept));
+}
+
 // --- Strewing -----------------------------------------------------------------
 //
 // The sower (the GLIDE trike, and its trunk is why it is this hull that carries
@@ -1067,6 +1133,11 @@ const BEHAVIOURS = {
                                             // no gun to hold it for, shelling
                                             // the road ahead of the player
                                             // instead of shooting back at them
+  patrol: { drive: patrol, arms: true },    // the gunship's, and the only one
+                                            // flying: `outrun`'s hold with
+                                            // `strafe`'s sweep, both measured
+                                            // against the frame rather than
+                                            // against the road
 };
 
 // Every manoeuvre the road knows. Exported for test/hazards.test.js, which
@@ -1087,6 +1158,12 @@ function tacticFor(name) {
 export function driveCar(car, dt, world) {
   const tactic = tacticFor(car.type.behaviour);
   tactic.drive(car, dt, world);
-  avoidHazards(car, world);
+  // STAGE 2 IS FOR THINGS ON THE ROAD. An airborne car (cartypes.js) flies over
+  // mines, spike strips and roadblocks rather than round them, so the reflex has
+  // nothing to save it from — and running it anyway would have the gunship veer
+  // away from a hazard on the road below it, which is the one manoeuvre that
+  // would tell the player it was not really flying. One of the three places `airborne` is
+  // read; the field table in cartypes.js lists all three.
+  if (!car.type.airborne) avoidHazards(car, world);
   if (tactic.arms && car.arms) useArms(car, world);
 }

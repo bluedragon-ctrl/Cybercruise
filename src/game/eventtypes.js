@@ -553,6 +553,97 @@ export const EVENT_TYPES = [
   },
 
   {
+    // THE AIRSTRIKE — the road's first encounter that does not happen ON the
+    // road. One gunship (cartypes.js's `airborne`) holds station over the
+    // player, sweeps across the whole frame and shoots down at them, and the
+    // only thing that can shoot back is the ROCKET.
+    //
+    // WHY IT IS A ROLLED ENTRY AND NOT A MILESTONE. It is not a set-piece; it is
+    // a NEW RULE, and a rule has to be met more than once to be learned. A
+    // one-shot at some distance would teach the player that their cannon does
+    // nothing to it exactly once, at a moment they would remember as a bug. Met
+    // every few minutes, it becomes the reason to keep rockets in the magazine.
+    //
+    // WHY 800, AND IT IS THE MOST IMPORTANT NUMBER HERE. This entry stages a
+    // type whose own gate is 0 (`staged` holds it back instead), so the rule at
+    // the top of this file — a gate at least as late as everything it stages —
+    // binds on nothing. The gate that actually matters is on the WEAPON, and it
+    // is not a rule this file had yet: an encounter that can only be answered by
+    // one weapon must not come up before the player can HAVE that weapon.
+    //
+    // The rocket starts every run empty (weapons.js's `startAmmo: 0`) and has
+    // exactly two sources: the shop, first reachable at SHOP_INTERVAL 350, and
+    // the ROCKET+ crate, which is gated at 800 (pickuptypes.js). The crate's is
+    // the later of the two and so the binding one — `minDistance` below must
+    // never fall under it, which test/events.test.js pins. Earlier than that and
+    // a broke player meets an enemy they simply cannot fight.
+    //
+    // ONE, AND NO ESCORT, unlike every other staged encounter here. The whole
+    // content of this one is a rule the player has not met before — up is a
+    // place things can be, and your default gun does not reach it. Anything on
+    // the tarmac alongside it would be the thing they shot at, and they would
+    // learn nothing.
+    id: "airstrike",
+    label: "AIR CONTACT — ABOVE",
+    // THE HEAVIEST WEIGHT IN THE CATALOGUE, past the gang's 3, and it is a
+    // frequency TARGET rather than a rarity: two to three airstrikes per 1000
+    // DIST, which is one about every minute at the player's ceiling.
+    //
+    // MEASURED, NOT PICKED, and the measurement is the only reason this is 6.
+    // The director fires a roughly fixed ~7.75 rolled encounters per 1000 DIST
+    // whatever the weights are — that rate is EVENT_CHANCE and EVENT_GAP in
+    // events.js, not this figure — so a weight here only decides what SHARE of
+    // them this is. Over 70 simulated runs to DIST 4000, airstrikes per 1000:
+    //
+    //     weight 5     1.81  2.24  2.17     overall 2.08
+    //     weight 6     1.96  2.67  2.87     overall 2.50   <- this
+    //     weight 7     2.41  2.77  2.99     overall 2.74
+    //
+    // THE RATE RISES WITH DISTANCE rather than falling, which is the opposite of
+    // what the share arithmetic predicts and the thing to know before retuning:
+    // the band just past the gate starts empty by definition, and DIST 1000-1200
+    // is also where roadworks, slalom and minefield all open, so the early road
+    // is busier with entries and one-shots than the weights alone suggest.
+    //
+    // IT IS TAKEN FROM EVERY OTHER ENTRY, and that is the cost worth stating out
+    // loud: one encounter runs at a time, so a third of the road's encounters
+    // being this one means a third fewer gangs, blockades and narrowings. That
+    // is the intended trade — the air is the newest thing the road does — but it
+    // IS a trade, and this is the first figure to revisit if the ground starts
+    // feeling empty.
+    weight: 6,
+    // A THOUSAND, and this is a RHYTHM decision rather than the safety one
+    // above. The gate that must hold is the rocket's; this sits 200 past it, so
+    // the player has met the ROCKET+ crate and had two shop visits before the
+    // road starts asking them to have used either.
+    minDistance: 1000,
+    maxDistance: Infinity,
+    cooldown: 60, // longer than the gang's 40: a bigger interruption
+    // ROOM FOR FOUR ROCKETS, with a wide margin. `duration` is ROAD, so 80 units
+    // is ~13 seconds at the player's ceiling and considerably more at any speed
+    // somebody is actually aiming from. The rocket reloads in 0.35s, so the
+    // window holds well over thirty launches against a hull that needs four —
+    // the constraint this fight is really about is whether the player BROUGHT
+    // any, not whether they had time to fire them.
+    duration: 80,
+    // AND IT LEAVES ANNOUNCED. A player who had no rockets watched something
+    // circle them for thirteen seconds and then vanish; without a line in the
+    // log that reads as the game losing track of it. Same reasoning the siege
+    // battery's own exit carries.
+    exitLabel: "AIR CONTACT BREAKING OFF",
+    // THINNED, BOTH, and not emptied. The player has to keep driving a road
+    // they are no longer looking at, which is most of what makes this different
+    // from every other fight — but a full ambient road under a fight happening
+    // above it is asking them to read two things at once and dodge both.
+    density: { cars: 0.5, hazards: 0.5 },
+    stage: [
+      // `atomic`: no gunship, no encounter, and the roll is not spent. There is
+      // nothing else in this entry for it to be an escort to.
+      { kind: "cars", type: "gunship", count: 1, side: "ahead", spread: 0, atomic: true },
+    ],
+  },
+
+  {
     // THE BOSS. The set-piece `warband` was rehearsing for — a one-shot
     // milestone, an atomic lead, and both ambient budgets at zero, all of them
     // paths this catalogue was already shipping before there was a boss to use
