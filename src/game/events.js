@@ -487,6 +487,11 @@ export function planStage(spec, world) {
       // The open lane(s) are chosen at one end or the other rather than in the
       // middle, so the way through is a committed line, not a threading.
       const fromLeft = Math.random() < 0.5;
+      // `lead` STACKS RANKS, the same as every other kind (see the field docs
+      // above) — added here so `blockade` can wall the road twice rather than
+      // once. It was missing until a second rank needed it: a single spec never
+      // exercised the gap, and nothing caught the omission.
+      const worldY = aheadCar + (spec.lead ?? 0);
       const out = [];
       for (let i = 0; i < count; i++) {
         const lane = fromLeft ? i : LANE_COUNT - 1 - i;
@@ -497,7 +502,7 @@ export function planStage(spec, world) {
         // road down for its whole duration and put NOTHING on it. The identical
         // hole the `cars` kind's note above describes; `abreast` was written
         // beside it and never converted. Pinned in test/events.test.js.
-        out.push({ kind: "car", type, worldY: aheadCar, lane, speed: rollSpeed(type) });
+        out.push({ kind: "car", type, worldY, lane, speed: rollSpeed(type) });
       }
       return out;
     }
