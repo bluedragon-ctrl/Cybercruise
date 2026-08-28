@@ -1,95 +1,69 @@
 // Credits — the game's CURRENCY, as opposed to score.js's SCORE.
 //
-// WHY THIS IS NOT A THIRD TERM IN score.js. The two numbers are different
-// animals and keeping them apart is what lets each stay honest about itself:
+// Two numbers, two modules, because each constraint below would make a
+// paragraph of the other's header false:
 //
 //                score.js                     wallet.js
 //   lifetime     one run                      persists across runs*
 //   floor        none — a massacre goes red    0, always
-//   spent on     nothing, it IS the reward     the Phase 11 upgrade shop
+//   spent on     nothing, it IS the reward     the upgrade shop
 //
-// * THE ASTERISK, AND IT IS CURRENTLY LOAD-BEARING: everything in this file
-// about a bank surviving into the next run is TRUE OF THIS MODULE and NOT of
-// the running game. main.js builds its Wallet with a null store, so nothing is
-// ever loaded or saved and `banked` is always 0 — credits live and die with a
-// single run. The reason is not technical: a localStorage bank belongs to a
-// browser rather than to a player, and until the game keeps records per player
-// (README's Phase 13) that is a balance people lose by changing device. See
-// main.js's CREDIT_STORE, which is the whole switch and the whole explanation.
+// * PERSISTENCE IS BUILT AND SWITCHED OFF. main.js builds its Wallet with a
+// null store (see CREDIT_STORE there), so `banked` is always 0 and credits die
+// with the run. The reason is not technical: a localStorage bank belongs to a
+// browser rather than to a player, and until the game keeps per-player records
+// (README's Phase 13) that is a balance people lose by changing device. The
+// bank, loadBanked/saveBanked and their tests all still work — turning them on
+// is passing a real store at that one call site. Read "persists" below as
+// "persists whenever a store is supplied".
 //
-// NOTHING HERE WAS TORN OUT for that, and nothing here should be: the bank,
-// loadBanked/saveBanked and their tests all still work, and turning them back
-// on is passing a real store at that one call site. So read the rest of this
-// header as the design of the currency, with "persists" meaning "will persist,
-// and does whenever a store is supplied".
-//
-// score.js's header is explicit that its total is deliberately unclamped and
-// that distance is its metronome. A persisted, floored, shop-facing currency
-// bolted into that class would make every one of those paragraphs false. So:
-// two modules, one call site each in main.js, and the shop later imports
-// exactly one of them.
-//
-// TWO SOURCES, and neither of them is distance — that is the whole point.
-// Credits are for things the player went and DID:
+// TWO SOURCES, AND NEITHER IS DISTANCE. Credits are for what the player went
+// and DID:
 //
 //   BOUNTIES  every destroyed car pays its type's `bounty` (cartypes.js),
-//             positive for the enemy, negative for the city's own traffic.
-//             A type with NO bounty pays nothing at all, which is the seam
-//             Phase 10's bosses and special enemies are built on — "not every
-//             enemy is worth money" is expressed by leaving the field off,
-//             not by a faction check here.
+//             positive for the enemy, negative for the city's own traffic. A
+//             type with NO bounty pays nothing — that omission is the seam
+//             bosses and special enemies are built on, rather than a faction
+//             check here.
 //   SIPHONS   a node on the city floor (game/links.js), drained by holding a
-//             link on it from the shoulder — ONE route, at one price, however
-//             near or far it is. See THE LINK below.
+//             link on it from the shoulder. See THE LINK below.
 //
-// NO DISTANCE TERM, deliberately. score.js pays for road covered because a
-// player who does nothing should still watch a number move; a wallet that
-// filled up on its own would make the shop a function of how long you
-// survived rather than of how you drove, and would drown out both sources
-// above the moment a run went long.
+// score.js pays for road covered so a player who does nothing still watches a
+// number move. A wallet that filled on its own would make the shop a function
+// of how long you survived rather than how you drove, and would drown out both
+// sources above on any long run.
 //
 // THE FINE NEVER REACHES THE BANK. A civilian kill can wipe out everything
-// earned in the CURRENT run (down to zero, never below) and can never touch
-// credits banked from earlier runs. Punishing a bad run is the point; undoing
-// an hour of saved-up shop progress in one accidental broadside is not.
+// earned in the CURRENT run (to zero, never below) and can never touch credits
+// banked earlier. Punishing a bad run is the point; undoing an hour of saved
+// progress in one accidental broadside is not.
 //
-// THE LINK — the one way a node is ever taken, and why it replaced two.
+// THE LINK — the one way a node is ever taken.
 //
-// It used to be two: an instant GRAB up close while the node pinged, and a
-// slow UPLINK from further out at half price. Both worked, and together they
-// were unlearnable. Whether a node paid out the moment you arrived or made you
-// hold for it came down to whether it happened to be lit at that instant,
-// which the player cannot predict — so the same approach to the same node
-// produced two different mechanics at two different prices, and the boundary
-// between them was invisible. "Why didn't I get that one?" had two answers and
-// no way to tell which was in play.
+// REJECTED: two mechanics, an instant GRAB up close while the node pinged and a
+// slow UPLINK from further out at half price. Both worked and together they
+// were unlearnable — which one you got depended on whether the node happened to
+// be lit, which the player cannot predict, so the same approach to the same
+// node produced two mechanics at two prices with an invisible boundary.
 //
-// Now there is one mechanic and one price. A node charges while the car is out
-// on its side of the road, and HOW FAST IT CHARGES IS SET BY HOW CLOSE THE CAR
-// IS: point blank it completes in LINK_NEAR_TIME, which reads as instant; out
-// at the edge of reach it takes LINK_FAR_TIME. There is no threshold in there
-// anywhere — the "instant" pickup and the "slow" one are the same act at two
-// ends of one curve, and they draw the same dish and the same bar.
+// Now the charge rate is set by distance alone: point blank completes in
+// LINK_NEAR_TIME and reads as instant, the edge of reach takes LINK_FAR_TIME,
+// and there is no threshold anywhere between them.
 //
-// SPEED IS STILL THE PRICE, but it is no longer a RULE. Nothing here reads the
-// throttle. What speed decides is how long the car stays in range: at 620 a
-// node is beside you for a fraction of a second and only a close one finishes,
-// while a crawl will drain something far out past the barrier. Slowing down
-// still costs what it always did — traffic catches up from behind, the score's
-// distance term stalls, every hostile on screen gets longer to work on you —
-// but the player never has to learn a number. They learn one sentence: GET
-// NEAR IT AND STAY NEAR IT.
+// SPEED IS THE PRICE BUT NOT A RULE — nothing here reads the throttle. Speed
+// decides how long the car stays in range: at 620 only a close node finishes,
+// at a crawl you drain one out past the barrier. Slowing still costs what it
+// always did (traffic closes, the score's distance term stalls, every hostile
+// gets longer to work on you), but the player learns one sentence instead of a
+// number: GET NEAR IT AND STAY NEAR IT.
 //
-// WHAT THE PING MEANS NOW. It no longer gates money — a node pays whether or
-// not it is lit, because "arrive during the window" was the coin-flip half of
-// the old confusion. The ping is what it always looked like: the node
-// advertising itself, and the label going bright is still worth steering at,
-// because a lit node is one the floor is pointing at.
+// THE PING NO LONGER GATES MONEY — that was the coin-flip half of the old
+// confusion. It is the node advertising itself, and still worth steering at.
 //
-// BANKED AT THE END OF THE RUN, once, in bank() — not on every credit. The
-// run's earnings therefore stay a clean, quotable number for the game-over
-// screen, and a run abandoned mid-drive banks nothing (there is no way out of
-// a run but death, so there is nothing to lose to that).
+// BANKED ONCE, in bank(), at the end of the run — not on every credit. The
+// run's earnings stay a clean quotable number for the game-over screen, and a
+// run abandoned mid-drive banks nothing (death is the only way out of one, so
+// there is nothing to lose to that).
 
 import { pingingNodes, nodeId, nodeValue, callsign, announceCityLine } from "./links.js";
 import { edgesAt, centerXAt, ROAD_HALF_WIDTH } from "./road.js";
@@ -105,128 +79,92 @@ export const CREDITS_KEY = "cybercruise.credits";
 // same kill.
 const AWARD_FLASH = 1.2;
 
-// SIPHON RANGE, px, measured from the player's car to the node's marker on
-// the floor below. Everything inside this reaches; how fast it drains is the
-// falloff below.
+// SIPHON RANGE, px, from the car to the node's marker on the floor below.
+// Everything inside this reaches; how fast it drains is the falloff below.
 //
-// Wide on purpose — well past the barrier — because the far columns are the
-// whole reason this mechanic is a hold rather than a touch. Nodes sit on a
-// fixed column grid (citygrid.js's PLOT) while the road wanders across it, so
-// a node can simply be too far out for the shoulder to touch. Reach that far
-// and they stop being a tease; the cost of taking one is the time it takes at
-// that distance, which is the falloff's job, not this number's.
+// Wide on purpose, well past the barrier. Nodes sit on a fixed column grid
+// (citygrid.js's PLOT) while the road wanders across it, so a node can be too
+// far out for the shoulder to touch — reach that far and they stop being a
+// tease. The cost of a distant node is the TIME it takes, which is the
+// falloff's job, not this number's.
 //
-// It is also what a payable node ADVERTISES from, and the two have to be the
-// same figure: a price tag on something out of reach would be a tease, and a
-// node that pays without having announced itself first reads as a random
-// event rather than as something the player did.
+// This is also the radius a payable node ADVERTISES from, and the two must be
+// one figure: a price tag on something out of reach is a tease, and a node
+// that pays without announcing itself first reads as a random event.
 export const LINK_RADIUS = 300;
 
-// WHAT KEEPS THE MIDDLE OF THE ROAD WORTHLESS, and the one rule that now does
-// that job alone.
+// WHAT KEEPS THE MIDDLE OF THE ROAD WORTHLESS. This used to fall out of
+// arithmetic — the old grab radius was strictly under road.js's
+// ROAD_HALF_WIDTH (143), so the centre-line could never earn a credit. A reach
+// of 300px cannot promise that, so the promise moves here as an explicit rule:
+// the car must be OUT PAST THE SHOULDER LINE on the node's own side before
+// anything charges. Centre-line pays nothing, whatever is beside it.
 //
-// This used to be arithmetic: the old grab radius was strictly under road.js's
-// ROAD_HALF_WIDTH (143), so a car on the centre-line was further from any
-// off-tarmac node than the radius could reach and DRIVING THE MIDDLE COULD
-// NEVER EARN A CREDIT — not approximately never, never. One reach of 300 px
-// cannot promise that by arithmetic, so the promise moves here: the car has to
-// be OUT PAST THE SHOULDER LINE on the node's own side before anything charges
-// at all. Centre-line: nothing, whatever the road is doing, whatever is beside
-// it.
-//
-// Half the road's half-width, so "out past this" means the outer half of your
-// own lane-side — a real commitment to the wall, where there is nowhere left
-// to dodge, and the same trade the old radius bought: money lives at the
-// edges. Measured against the centre at the car's OWN row so a bend can never
-// make it mean two different things at two ends of the screen.
+// Half the road's half-width — the outer half of your own side, a real
+// commitment to the wall with nowhere left to dodge, which is the same trade
+// the old radius bought: money lives at the edges. Measured against the centre
+// at the car's OWN row, so a bend can't make it mean two things at once.
 const LINK_SHOULDER = ROAD_HALF_WIDTH * 0.5;
 
-// THE FALLOFF: how long a node takes to drain, near and far.
+// THE FALLOFF: how long a node takes to drain, near and far. These two numbers
+// ARE the merge — one act whose duration slides with distance, so there is no
+// boundary to be on the wrong side of.
 //
-// These two numbers ARE the merge. The old design had an instant route and a
-// slow route with a threshold between them; this has one act whose duration
-// slides with distance, so there is no boundary to be on the wrong side of and
-// nothing for the player to have to predict.
+// NEAR reads as instant: at point blank the bar is gone almost before it is
+// seen. FAR makes a distant column a decision — at 350 u/s the car crosses the
+// whole reach in well under 4s, so an outer node cannot be taken at speed.
+// Nothing reads the throttle; this IS the throttle rule, spelled as geometry.
 //
-// NEAR is short enough to read as instant — at point blank the bar is gone
-// almost before it is seen, which is what the old grab felt like and is worth
-// keeping for the node you happened to be alongside. FAR is long enough that
-// a distant column is a decision: at 350 u/s the car crosses the whole reach
-// in well under that, so a node out at the edge simply cannot be taken at
-// speed. Nothing here reads the throttle — that IS the throttle rule, spelled
-// as geometry.
+// Both MEASURED, not guessed (tools/econsim.js, 300s per style).
 //
-// BOTH ARE MEASURED, not guessed (tools/econsim.js, 300s per style).
-//
-// THE FAR END WAS 5.5s AND THAT WAS TOO LONG — not expensive, impossible. A
-// node 220px out took 4.1s, and at 350 u/s a car only gets a second or two
-// anywhere near its closest approach, so the whole outer band was "come to a
-// near-stop or forget it", which is a wall rather than a choice. At 4.0s, with
-// the curve below doing the rest, that same node takes 2.3s: reachable by
-// easing off, still not by ignoring it.
+// REJECTED: 5.5s at the far end. A node 220px out took 4.1s, and at 350 u/s
+// the car only gets a second or two near its closest approach, so the whole
+// outer band was "near-stop or forget it" — a wall, not a choice. At 4.0s,
+// with the curve below, that node takes 2.3s: reachable by easing off.
 const LINK_NEAR_TIME = 0.3;
 const LINK_FAR_TIME = 4.0;
 
-// Progress bleeds away rather than snapping to zero when the hold breaks, so
-// clipping a car mid-drain costs the player time rather than the whole
-// attempt. Progress is normalised 0..1 here (the rate it fills at depends on
-// range, so seconds-held would not be comparable between two nodes), and this
-// is in the same units per second.
+// Broken holds BLEED rather than snapping to zero, so clipping a car mid-drain
+// costs time, not the attempt. Progress is normalised 0..1 (fill rate depends
+// on range, so seconds-held wouldn't compare between nodes); this is the same
+// units per second.
 //
-// Faster than the FAR end fills (0.5/s) so a hold that is mostly broken never
-// completes by accident out where holds are slow. Deliberately NOT faster than
-// the near end: point blank the thing completes in 0.2s anyway, and a decay
-// that outran that would make a node you are sitting on top of impossible to
-// finish through the smallest bump.
+// Faster than the FAR end fills (0.5/s), so a mostly-broken hold never
+// completes by accident out where holds are slow. NOT faster than the near end
+// — point blank completes in 0.2s, and a decay outrunning that would make a
+// node you are sitting on impossible to finish through the smallest bump.
 const LINK_DECAY = 1.5;
 
 const SIPHON_HINT = "SIGNAL NODE IN REACH // HOLD THE SHOULDER TO SIPHON";
 
-// THE SIPHON RIG — game/upgrades.js's fifth CAR SYSTEM, and the one stat on
-// that shelf that pays for itself. `player.siphonLevel` is the tier owned
-// (0..3, 0 being a stock car with none of this bought), and every number
-// below that isn't `yield` is undocumented on the shelf on purpose — see the
-// header on why.
+// THE SIPHON RIG — upgrades.js's fifth CAR SYSTEM. `player.siphonLevel` is the
+// tier owned (0..3, 0 = stock car).
 //
-// WHY THIS EXISTS, AND WHY IT IS NOT "MORE RANGE": tools/econsim.js was run
-// against range and drain-time separately before this was built, and both
-// saturate almost immediately — past ~360px / ~3s the hunter style is
-// already taking essentially every node it drives past, so a further tier of
-// EITHER one alone would be a shelf row that sells nothing. Yield has no such
-// ceiling: it is a straight multiplier on every siphon, forever, so it is the
-// number on the shelf (upgrades.js's `unit: "%"`) and the only one this rig
-// promises. Range and drain ride along on the SAME tier rather than getting
-// rows of their own, so the two axes that stall are never sold as if they
-// don't.
+// WHY IT SELLS YIELD AND NOT RANGE: tools/econsim.js was run against range and
+// drain-time separately, and both saturate almost immediately — past ~360px /
+// ~3s the hunter style already takes essentially every node it passes, so a
+// tier of either alone would be a shelf row that sells nothing. Yield has no
+// ceiling, so it is the number on the shelf (upgrades.js's `unit: "%"`) and
+// the only one the rig promises. Range and drain ride the SAME tier, so the
+// two axes that stall are never sold as if they don't.
 //
-// TIER 0 IS THE STOCK CAR, on purpose the same figures LINK_RADIUS/
-// LINK_FAR_TIME/100% already name above — a car with no rig bought must
-// behave exactly as one did before this existed.
+// TIER 0 RESTATES THE CONSTANTS ABOVE by reference, not by literal — a car
+// with no rig bought must behave identically to one in a build without it.
 //
-// THE DRAIN LADDER IS 4/3/2/1s BY DESIGN, not a smoothed curve: the wait
-// itself is the "big pain" the upgrade is for (unlike the SQUARED falloff
-// curve below it, which is about EARNING the closer approach) — a player who
-// bought the rig should feel every second of it get shorter, not do
-// arithmetic on a curve to notice.
+// THE DRAIN LADDER IS FLAT 4/3/2/1s, not a curve: the wait is the pain the
+// upgrade removes, and the player should feel each second go rather than do
+// arithmetic to notice. (The SQUARED falloff below is a different job —
+// earning the closer approach.)
 //
-// yield MUST be reflected everywhere a node's price is ever shown or paid —
-// hints() (the floating price on the floor) and collect() (what actually
-// lands) both read it, from the same table, so the HUD can never quote a
-// number the wallet doesn't pay.
+// `yield` is read by both hints() (the floating price) and collect() (what
+// lands), from this one table, so the HUD can never quote a price the wallet
+// won't pay.
 //
-// THREE FLAT ARRAYS, not one array of objects, and that shape is not
-// incidental — tools/car-editor/constants.js can only reach a bare
-// `const NAME = [a, b, c];` (patcher.js's patchArrayConstantElement, the same
-// mechanism upgrades.js's own TIER_PRICES is tuned through), so a designer
-// retuning tier 2's reach or tier 3's drain does it from the editor's World
-// tab, exactly like every other balance figure in this game. That is also why
-// each stays on ONE LINE with no trailing per-element comments: the patcher
-// splits on commas with no comment-awareness, and a comment after an element
-// would be read as part of the next one. Context lives in the paragraphs
-// above instead. Index === player.siphonLevel throughout (0 = stock), and
-// index 0 is deliberately the two constants above rather than a restated
-// literal, for the same "must behave exactly as before this existed" reason
-// their own values are what they are.
+// THREE FLAT ARRAYS, ONE LINE EACH, NO TRAILING COMMENTS — required, not
+// style: tools/car-editor/constants.js can only reach a bare
+// `const NAME = [a, b, c];` (patcher.js's patchArrayConstantElement), and that
+// patcher splits on commas with no comment-awareness, so a comment after an
+// element is read as part of the next one. Index === player.siphonLevel.
 const SIPHON_RANGES = [LINK_RADIUS, 330, 360, 390];
 const SIPHON_FAR_TIMES = [LINK_FAR_TIME, 3.0, 2.0, 1.0];
 const SIPHON_YIELDS = [1.00, 1.20, 1.40, 1.60];
@@ -243,16 +181,13 @@ function siphonTier(player) {
   };
 }
 
-// How long a payout's own "+14CR" hangs over the SPOT IT CAME FROM, seconds,
-// and how far it drifts upward while it does. Shorter than the HUD's award
-// flash: that one is a running total being updated, this one is a pointer at a
-// place, and the place is scrolling away underneath it.
+// How long a payout's "+14CR" hangs over the SPOT IT CAME FROM, and how far it
+// drifts up. Shorter than the HUD's award flash: that is a running total, this
+// is a pointer at a place, and the place is scrolling away underneath it.
 //
-// EVERY payout gets one — a siphoned node, a bounty, a fine — because the HUD
-// corner can only say HOW MUCH, and on a road where three cars can go up in
-// one chain reaction, WHICH ONE PAID is the half the player actually needs in
-// order to do it again on purpose. It is the same lesson in both cases: money
-// has a source, and the source is a thing you did to something.
+// EVERY payout gets one — node, bounty, fine — because the HUD corner can only
+// say HOW MUCH, and when three cars go up in one chain reaction WHICH ONE PAID
+// is the half the player needs to do it again on purpose.
 export const AWARD_MARK_LIFE = 0.9;
 export const AWARD_MARK_RISE = 26;
 
@@ -262,24 +197,19 @@ export const AWARD_MARK_RISE = 26;
 // what stays on screen is what just happened.
 const MAX_AWARD_MARKS = 5;
 
-// THE DISH: the marker on the car itself that says a link is running.
+// THE DISH: the marker on the car saying a link is running.
 //
-// WHY THE CAR NEEDS ONE AT ALL, given the node already grows a fill bar. The
-// bar is the instrument — how far along, to the pixel — and it lives out on
-// the floor, on the thing being drained. What it cannot say is that the CAR is
-// the other end of that link, and "am I currently downloading?" is a question
-// the player asks with their eyes on their own car, in the middle of traffic,
-// while paying for the answer in speed. So: a small dish on the flank, aimed
-// at the node, with the link drawn between them.
+// The node's fill bar is the instrument — how far along, to the pixel — but it
+// lives out on the floor, on the thing being drained. It cannot say the CAR is
+// the other end, and "am I downloading?" is asked with eyes on your own car,
+// mid-traffic, while paying for the answer in speed.
 //
-// AIMED, and that is the part that teaches. The dish swings to the side the
-// money is on, so the affordance answers "which way" as well as "yes" — the
-// same job the SLOW prompt does for speed, done for direction.
+// AIMED at the node, which is the part that teaches: the dish swings to the
+// side the money is on, so it answers "which way" as well as "yes".
 //
-// It hangs off the flank rather than sitting on the roof because the car is
-// 34px wide: anything drawn on top of the wireframe competes with it, while
-// anything on the outside edge is against empty tarmac. The offset clears the
-// body, so the link never crosses the car it comes from.
+// On the flank, not the roof — the car is 34px wide, so anything over the
+// wireframe competes with it while the outside edge is against empty tarmac.
+// The offset clears the body, so the link never crosses the car.
 export const DISH_MAST = 9;    // px from the car's flank out to the dish's middle
 export const DISH_R = 6;       // the dish's own radius
 
@@ -295,12 +225,11 @@ function offRoad(node, worldY, W) {
   return node.cx < left || node.cx > right;
 }
 
-// Whether the car is out on the same side of the road as the node — half of
-// the link's one positional demand (LINK_SHOULDER is the other half), and
-// what keeps it a DECISION rather than a slow-motion version of driving
-// straight. Each side is measured against the
-// road's centre at ITS OWN row, so a bend can't make "the left side" mean two
-// different things at two ends of the screen.
+// Whether the car is out on the same side as the node — half of the link's one
+// positional demand (LINK_SHOULDER is the other half), and what keeps it a
+// DECISION rather than slow-motion straight-line driving. Each side is
+// measured against the road's centre at ITS OWN row, so a bend can't make "the
+// left side" mean two things at two ends of the screen.
 function sameSide(node, nodeWorldY, playerX, playerWorldY, W) {
   const nodeSide = Math.sign(node.cx - centerXAt(nodeWorldY, W));
   const playerSide = Math.sign(playerX - centerXAt(playerWorldY, W));
@@ -409,18 +338,16 @@ export class Wallet {
   }
 
   // Puts a floating number over the place a payout came from. TWO ANCHORS,
-  // because the two things that pay sit on DIFFERENT PLANES of this world:
+  // because the two things that pay sit on DIFFERENT PLANES:
   //
-  //   "floor"  a node on the lower city plane, which scrolls at its own
-  //            parallax rate (scenery.js) — pinned to the screen position it
-  //            was taken at, since over the marker's ~1s life the floor has
-  //            barely moved and re-deriving its plot position every frame
-  //            would cost more than it could possibly buy.
+  //   "floor"  a node on the lower city plane (scenery.js parallax) — pinned
+  //            to the SCREEN position it was taken at. Over the marker's ~1s
+  //            life the floor barely moves, so re-deriving its plot position
+  //            every frame would cost more than it buys.
   //   "road"   a wreck on the road plane, anchored in WORLD coordinates
-  //            (worldY plus the car's own lane offset) and re-projected every
-  //            frame. This one has to be exact: the road scrolls at full speed
-  //            and it BENDS, so a marker pinned to a screen position would
-  //            slide off the wreck it is labelling within a few frames.
+  //            (worldY plus lane offset) and re-projected every frame. The
+  //            road scrolls at full speed and BENDS, so a screen-pinned marker
+  //            would slide off its wreck within a few frames.
   mark(entry) {
     this.marks.push({ ...entry, life: AWARD_MARK_LIFE });
     if (this.marks.length > MAX_AWARD_MARKS) this.marks.shift();
@@ -453,15 +380,10 @@ export class Wallet {
   // ones that finish. Called once per playing tick from main.js with the node
   // list scenery.js already built for the frame.
   //
-  // `push`/`busy` ride through to links.js's shared city-line throttle exactly
-  // as they do in announce(), so the test suite can watch what this says
-  // without mutating the real SYS LOG.
-  //
-  // THE MONEY IS NOT THROTTLED, THE LINE IS. announceCityLine drops a line
-  // when the log is busy or when the city spoke recently — right for chatter,
-  // wrong for income, since it would make the player's earnings depend on how
-  // noisy the log happened to be. So the payout happens unconditionally here
-  // and only the sentence about it goes through the rate limit.
+  // `push`/`busy` ride through to links.js's shared city-line throttle as they
+  // do in announce(), so the test suite can watch what this says without
+  // mutating the real SYS LOG. See collect() for why only the LINE is
+  // throttled and never the money.
   harvest(dt, clockValue, nodes, player, distance, W, push = gameConsole.push, busy = gameConsole.isBusy) {
     const total = this.holdLink(dt, clockValue, nodes, player, distance, W, push, busy);
     if (this.harvested.size > PRUNE_AT) this.prune(nodes);
@@ -504,17 +426,16 @@ export class Wallet {
   // experiences — a curve that interpolated the rate would spend most of the
   // reach feeling identical and then collapse at the end.
   //
-  // SQUARED, not straight, and that is what makes the outer half of the reach
-  // playable. A straight line spends its budget evenly, so by halfway out a
-  // node already costs half the maximum and the whole outer band needs a
-  // near-stop. Squaring keeps the near half cheap and loads the cost into the
-  // last stretch, where it belongs: at 150px a node drains in 1.2s instead of
-  // 2.9s, while the outermost column still asks for 4s.
+  // SQUARED, not straight, which is what makes the outer half playable. A
+  // straight line spends its budget evenly, so halfway out a node already
+  // costs half the maximum and the whole outer band needs a near-stop.
+  // Squaring keeps the near half cheap and loads the cost into the last
+  // stretch: at 150px a node drains in 1.2s instead of 2.9s, while the
+  // outermost column still asks for 4s.
   //
-  // Measured, it also HELPED the balance rather than costing it (econsim):
-  // crawling fell from 1.55x a fast style's income to 1.36x, because a car at
-  // speed can now finish the nodes it passes instead of only the ones it is
-  // scraping. Slowing down still pays — it just no longer pays for everything.
+  // Measured, this HELPED the balance (econsim): crawling fell from 1.55x a
+  // fast style's income to 1.36x, because a car at speed can now finish the
+  // nodes it passes. Slowing still pays, it just no longer pays for all of it.
   //
   // `player` is OPTIONAL and reads as stock when omitted (siphonTier's own
   // default) — test/economy.test.js calls this with a bare distance to probe
@@ -571,22 +492,18 @@ export class Wallet {
   // line in the log.
   //
   // THE MONEY IS NOT THROTTLED, THE LINE IS. announceCityLine drops a line
-  // when the log is busy or when the city spoke recently — right for chatter,
-  // wrong for income, since it would make the player's earnings depend on how
-  // noisy the log happened to be. So the payout happens unconditionally here
-  // and only the sentence about it goes through the rate limit.
-  // ONE PRICE. There is no fraction any more: a node is worth what the floor
-  // says it is worth, whether the car took it in a fifth of a second alongside
-  // or ground it out from the far side of the barrier. The old half-price
-  // uplink existed to stop a second route from eating the first; with one
-  // route there is nothing to protect, and a quoted price that turns out to be
-  // half is exactly the confusion this merge removes.
+  // when the log is busy or the city spoke recently — right for chatter, wrong
+  // for income, which would otherwise depend on how noisy the log happened to
+  // be. The payout is unconditional; only the sentence is rate-limited.
   //
-  // THE ONE EXCEPTION TO "ONE PRICE" IS THE SIPHON RIG, and it is not really
-  // an exception — `nodeValue` is what the CITY says the node is worth,
-  // `siphonTier(player).yield` is what the CAR is equipped to actually pull
-  // out of it, and hints() below quotes the same product so the floor never
-  // advertises a number this doesn't pay.
+  // ONE PRICE, no fractions: a node is worth what the floor says, whether it
+  // was taken in a fifth of a second alongside or ground out from the far side
+  // of the barrier. (The old half-price uplink existed to stop a second route
+  // eating the first; with one route there is nothing to protect.)
+  //
+  // The SIPHON RIG is not an exception to that — `nodeValue` is what the CITY
+  // says a node is worth, `siphonTier(player).yield` is what the CAR can pull
+  // out of it, and hints() quotes the same product.
   collect(clockValue, node, player, push = gameConsole.push, busy = gameConsole.isBusy) {
     this.harvested.add(nodeId(node.bx, node.by));
     const value = Math.round(nodeValue(node.bx, node.by) * siphonTier(player).yield);
@@ -642,20 +559,16 @@ export class Wallet {
   //   alpha     fades up as the player closes on it, so a node across the road
   //             doesn't shout as loudly as the one they are drawing level with
   //
-  // NO PROMPT FIELD, and that is a decision rather than an omission. There was
-  // one — SHOULDER, over any node the car was not yet positioned to drain, and
-  // SLOW before it. It is gone because the mechanic now draws itself: a link
-  // that is running shows a beam from the car to the node and a bar filling
-  // over it, and a player who can see the money, the beam and the bar does not
-  // also need a word telling them what the picture already says. What the
-  // player who is NOT collecting needs is not instructions — it is to notice
-  // the number at all, so the price got bigger instead (see renderHints).
+  // NO PROMPT FIELD — a decision, not an omission. REJECTED: SHOULDER over any
+  // node the car wasn't positioned to drain, and SLOW before it. The mechanic
+  // draws itself now (beam from car to node, bar filling over it), and a
+  // player who can see the money, the beam and the bar doesn't need a word for
+  // what the picture says. What a player who is NOT collecting needs is to
+  // notice the number at all, so the price got bigger instead (renderHints).
   //
-  // THE LABEL IS NOW HONEST BY CONSTRUCTION. It used to have to quote the
-  // price for the route that happened to be open — full up close and lit, half
-  // otherwise — because the same node was worth two different amounts
-  // depending on how it was taken. One route, one number: what is written over
-  // a node is what lands in the wallet.
+  // THE LABEL IS HONEST BY CONSTRUCTION. With two routes it had to quote the
+  // price for whichever was open — full up close, half otherwise. One route,
+  // one number: what is written over a node is what lands in the wallet.
   //
   // Everything else the drain insists on is enforced here too (unclaimed, off
   // the road, in reach): a marker over a node that could not be collected

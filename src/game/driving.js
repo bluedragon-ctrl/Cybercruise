@@ -6,19 +6,19 @@
 //   behaviours.js what it CAN DO     — the manoeuvres themselves (the code)
 //
 // A car type names a `behaviour` (which manoeuvres it knows) and a `driving`
-// profile (how boldly it runs them), so adding a car type is usually no new code.
+// profile (how boldly it runs them), so a new type is usually no new code.
 //
 // Profiles are shared and FROZEN: one object per profile, resolved at load and
-// handed to every car that names it (traffic.js stores it as `car.drive`), so a
+// handed to every car naming it (traffic.js stores it as `car.drive`), so a
 // per-tick read is one field access. Two hundred sedans share one object —
 // nothing may write to a profile.
 //
 // behaviours.js keeps HAZARD_DODGE_SPAN and HAZARD_SAFETY as its own constants:
 // they feed `dodgeDistance`, which obstacles.js sizes its spawn margin against,
-// so they are a contract between files rather than a driver's disposition.
+// so they are a contract between files rather than a disposition.
 //
-// No imports — this file is the leaf of the dependency graph, which is what lets
-// cartypes.js, behaviours.js and the tests all read it without a cycle.
+// No imports — this file is the leaf of the dependency graph, which is what
+// lets cartypes.js, behaviours.js and the tests read it without a cycle.
 
 // --- The knobs ---------------------------------------------------------------
 //
@@ -33,12 +33,12 @@ const COMMUTER = {
   //     dv² / (2·ACCEL)  <=  followGap + dv·followReaction
   // for every closing speed dv the types naming this profile can produce (that
   // type's max minus the player's minimum). Asserted per profile in
-  // test/hazards.test.js — the profiles below state their headroom only where
-  // the pair is tight.
+  // test/hazards.test.js — profiles below state their headroom only where the
+  // pair is tight.
   followReaction: 1.0,
 
   // --- Lane discipline ------------------------------------------------------
-  // How hard this driver insists on a lane CENTRE, 0..1, read as a tolerance: it
+  // How hard this driver insists on a lane CENTRE, 0..1, read as a TOLERANCE: it
   // accepts being (1 - laneDiscipline) * half a lane off centre before
   // correcting. Not cosmetic — nothing else re-derives which lane a car belongs
   // in, so a car shoved sideways by a ram would otherwise steer back across live
@@ -46,7 +46,7 @@ const COMMUTER = {
   laneDiscipline: 1.0,
   // Which lane it would RATHER be in: "any" | "inner" (fast, by the centre-line)
   // | "outer" (by the barriers). Never worth a lane change through traffic, so
-  // behaviours.js only acts on it when the wanted lane is already free.
+  // behaviours.js acts on it only when the wanted lane is already free.
   laneHome: "any",
 
   // --- Overtaking -----------------------------------------------------------
@@ -60,31 +60,31 @@ const COMMUTER = {
   passLookAhead: 140,   // ...and beyond the car we mean to pass
   passEffort: 1.15,     // how much harder it drives while committed to a pass.
                         // CAPPED at the type's own speedMax (behaviours.js), so
-                        // it does nothing for a type already cruising at its
-                        // ceiling — check the catalogue before tuning this
+                        // it does nothing for a type already at its ceiling —
+                        // check the catalogue before tuning this
 
   // --- Hazards --------------------------------------------------------------
   hazardClearance: 6,   // px of daylight wanted when steering past one
 
   // --- Chasing the player ---------------------------------------------------
   // Read by behaviours.js's `pursue`, `trail`, `ram` and `raid`; inert for every
-  // civilian, and listed here anyway so a hostile that omits one inherits the
-  // enemy baseline rather than a hole.
+  // civilian, and listed here so a hostile omitting one inherits the enemy
+  // baseline rather than a hole.
   pursueHold: 200,      // gap held behind the player while chasing. Comfortably
                         // inside armament.js's GUN_RANGE, with slack either side
                         // for pursueGain to correct in without clipping the
                         // firing window
   pursueRange: 500,     // gap inside which chasing is worth doing at all. Well
-                        // outside pursueHold: this is room to spend a couple of
-                        // seconds genuinely closing before it must be in range
+                        // outside pursueHold: room to spend a couple of seconds
+                        // genuinely closing before it must be in range
   pursueGain: 1.2,      // proportional term on the gap error, not a limit —
                         // traffic.js's ACCEL still gets `speed` there
   // The chase ceiling, and the one field deliberately allowed ABOVE the type's
   // own speedMax: the speed band governs ordinary cruise, this is what it spends
   // once the player is worth chasing, so it can keep pace with a player near
-  // their own 620 (player.js). An absolute rather than a multiple of speedMax,
-  // so the relation is not guaranteed — the rival cruises to 650 (cartypes.js)
-  // and therefore never chases at full pace.
+  // their own 620 (player.js). ABSOLUTE rather than a multiple of speedMax, so
+  // the relation is not guaranteed — the rival cruises to 650 and therefore
+  // never chases at full pace.
   chaseSpeed: 600,
   // Seconds of LOST CONTACT before this driver gives the player up for good, or
   // 0 for never — the baseline, and what makes `pursue` the road's standing
@@ -95,19 +95,18 @@ const COMMUTER = {
   raidGain: 1.5,        // gain on the MINE RUN's hold (behaviours.js `raid`),
                         // separate from pursueGain because holding station AHEAD
                         // of a target you must not out-pace is tighter. Read by
-                        // `outrun` too, which is that same hold without the mine
+                        // `outrun` too, which is that hold without the mine
   // The gap held AHEAD of the player by behaviours.js's `outrun` — the one
   // tactic that attacks from in front. Bounded at both ends by the gun rather
-  // than by taste: under armament.js's GUN_MIN_RANGE it would be inside contact
-  // range, and over GUN_RANGE (or over the road the player can see ahead of
-  // them, which is the tighter of the two) it would be a hostile posing out of
-  // range. Sits comfortably inside both, and test/hazards.test.js says so.
+  // than by taste: under armament.js's GUN_MIN_RANGE it is inside contact range,
+  // over GUN_RANGE (or over the road the player can see ahead, the tighter of
+  // the two) it is a hostile posing out of range. test/hazards.test.js says so.
   leadHold: 300,
   // The sweep behaviours.js's `strafe` rides across the player's line: how far
-  // either side of it, and how many seconds a full there-and-back takes. Read
-  // together — a span the steering cannot cover in the time is not a faster
-  // weave, it is a lazy drift, since the car simply chases a sine it never
-  // catches. Pinned against the type's own steerSpeed in test/hazards.test.js.
+  // either side, and seconds for a full there-and-back. Read TOGETHER — a span
+  // the steering cannot cover in the time is not a faster weave, it is a lazy
+  // drift, since the car chases a sine it never catches. Pinned against the
+  // type's own steerSpeed in test/hazards.test.js.
   weaveSpan: 40,
   weaveTime: 1.6,
 
@@ -116,23 +115,23 @@ const COMMUTER = {
   // job has turned from hitting them into blocking them.
   ramBrake: 0.5,        // a FRACTION of the player's current speed, so the block
                         // still bites at walking pace
-  ramFloor: 80,         // ...but a stalled wall reads as broken. Deliberately
-                        // under the player's own minimum of 120 (player.js), so
-                        // lifting off never escapes the block
+  ramFloor: 80,         // ...but a stalled wall reads as broken. Under the
+                        // player's own minimum of 120, so lifting off never
+                        // escapes the block
 
   // --- Nerve: what this driver will accept hitting --------------------------
   //
   // Two tolerances, one mechanism. Both are hull damage this driver will eat
-  // rather than leave its line, compared against an estimated cost — a hazard's
-  // own `threat` (obstacles.js), or for a car what collisions.js says the impact
-  // would take off. Separate numbers because the risks differ in kind:
+  // rather than leave its line, against an estimated cost — a hazard's own
+  // `threat` (obstacles.js), or what collisions.js says an impact would take
+  // off. Separate numbers because the risks differ in kind:
   //
   //   nerve    ROADBLOCKS. Must stay 0 for every civilian: an amber car swerving
   //            has to mean "there is something in that lane". The pale civilians
   //            (roadster, hypercar) are the exception the palette signals. Also
   //            what keeps mines the PLAYER's problem — no type reaches the
-  //            tetra's 24, so none reaches the mine's 30, so traffic never clears
-  //            a mine and score.js never fines the player for it.
+  //            tetra's 24, so none reaches the mine's 30, so traffic never
+  //            clears a mine and score.js never fines the player for it.
   //
   //   contact  OTHER CARS. Free to vary: a fender-bender reads as driving rather
   //            than as a mistake, and is what makes an impatient driver look it.
@@ -144,8 +143,8 @@ const COMMUTER = {
   //
   // Against the hazard catalogue (obstacletypes.js `blastDamage`: barrels 5,
   // trestle 8, tetra 24, mine 30), P(barge) = 1 - damage/nerve, or 0 when
-  // damage >= nerve. So the dial is QUANTISED: anything below 5 does nothing at
-  // all, and the first setting that exists is "sometimes barges barrels".
+  // damage >= nerve. So the dial is QUANTISED: anything below 5 does nothing,
+  // and the first setting that exists is "sometimes barges barrels".
   nerve: 0,
   contact: 0,           // defaults to `nerve` when a profile omits it (profile()
                         // below), so a profile states it only when the two differ
@@ -161,22 +160,22 @@ function profile(delta = {}) {
 // --- The catalogue ------------------------------------------------------------
 // The civilian road is a LANE GRADIENT, built here rather than in any one
 // profile: the two slow haulers want the outer lanes, the two fast machines the
-// inner, and the sedan fills in whatever is left. The road sorts itself by speed,
+// inner, and the sedan fills whatever is left. The road sorts itself by speed,
 // so the player's choice of lane is a choice about what they will meet there.
-// Asserted in test/hazards.test.js, so a retune that puts a rig in the fast
-// lane fails rather than merely looking odd.
+// Asserted in test/hazards.test.js, so a retune putting a rig in the fast lane
+// fails rather than merely looking odd.
 //
 // One profile per type. The van and the rig could share a "slow and heavy" table
 // and deliberately do not: their most legible difference is that the van wanders
-// and the rig does not, which is exactly the one field that sharing would cost.
+// and the rig does not, which is the one field sharing would cost.
 export const DRIVING_PROFILES = {
-  // The reference, and the fallback for anything that names nothing. The sedan
-  // alone drives it — it stays the plain one every other profile differs FROM.
+  // The reference, and the fallback for anything naming nothing. The sedan alone
+  // drives it — it stays the plain one every other profile differs FROM.
   commuter: profile(),
 
   // The roadster. The impatient civilian, on the same `overtake` tactic as the
-  // sedan — so every difference visible on the road comes out of this table and
-  // nothing else, which is how the profile system is observed working at all.
+  // sedan — so every difference visible on the road comes out of this table,
+  // which is how the profile system is observed working at all.
   hustler: profile({
     laneDiscipline: 0.3, // rides the lane edges. Against the sedan's dead centre
                          // this is the most visible line in the file
@@ -187,7 +186,7 @@ export const DRIVING_PROFILES = {
     passTimeout: 4,      // gives up sooner and tries again rather than committing
     // Tailgates, and only legally because nothing fast drives this profile: the
     // roadster's worst closing speed is 440, needing 285 units of road against
-    // the 306 this allows. Point a quicker type here and the invariant test fails.
+    // the 306 this allows. Point a quicker type here and the invariant fails.
     followGap: 20,
     followReaction: 0.65,
     // Barges barrels (5) about a third of the time, never a trestle (8) — the
@@ -203,16 +202,16 @@ export const DRIVING_PROFILES = {
   //
   // `contactCost` scales with the car's own steerSpeed (behaviours.js), so the
   // van's 60 against collisions.js's floor of 40 puts every contact it could
-  // make in the 0.7-1.5 hull band. A ceiling of 1.2, rolled per car, therefore
-  // comes out as: squeezes past a roadster two times in five, a sedan one in
-  // three, another van one in eight, and never a rig — a driver who leans on
-  // small cars and gives way to big ones, out of one number. The roadster cannot
-  // do this: it steers at 140, its contacts cost 4-9, and its dial is coarse.
+  // make in the 0.7-1.5 hull band. A ceiling of 1.2, rolled per car, comes out
+  // as: squeezes past a roadster two times in five, a sedan one in three,
+  // another van one in eight, never a rig — a driver who leans on small cars and
+  // gives way to big ones, out of one number. The roadster cannot do this: it
+  // steers at 140, its contacts cost 4-9, and its dial is coarse.
   //
   // Most of the table is inert here — the van's tactic is `cruise`, which never
   // passes. `passLookAhead`/`passLookBehind` ARE read (`blocked` uses them for
-  // the lane preference and the hazard dodge), which is why those two are left
-  // at the commuter's figures rather than tuned.
+  // the lane preference and the hazard dodge), which is why those two stay at
+  // the commuter's figures rather than being tuned.
   hauler: profile({
     laneDiscipline: 0.85, // a big box that never quite settles on the centre-line
     laneHome: "outer",    // keeps out of the way: the slow side of the gradient
@@ -224,8 +223,8 @@ export const DRIVING_PROFILES = {
   }),
 
   // The rig. The one that cannot react, and drives like it knows. Discipline is
-  // left at the commuter's 1.0 rather than loosened, deliberately opposite to the
-  // van: the wandering thing on this road should be the panel van, not the truck.
+  // left at the commuter's 1.0 rather than loosened, deliberately opposite to
+  // the van: the wandering thing on this road should be the van, not the truck.
   juggernaut: profile({
     laneHome: "outer",   // a lane-and-a-half of wall belongs by the barrier
     followGap: 90,       // the longest look-ahead on the road, and pure character
@@ -240,10 +239,10 @@ export const DRIVING_PROFILES = {
     // that zero means never.)
     //
     // Never is the setting, and it was measured: contacts fall from 7.0-8.8 per
-    // minute to 3.9-5.9, hazard strikes are indistinguishable either way, and the
-    // rig gives up 2-3% of its life stopped in a live lane. Free contacts are
-    // still SHOVES — a 4-mass wall displaces whatever it touches, which is chaos
-    // the damage model happens not to bill for.
+    // minute to 3.9-5.9, hazard strikes are indistinguishable either way, and
+    // the rig gives up 2-3% of its life stopped in a live lane. Free contacts
+    // are still SHOVES — a 4-mass wall displaces whatever it touches, which is
+    // chaos the damage model happens not to bill for.
     contact: 0,
   }),
 
@@ -253,9 +252,9 @@ export const DRIVING_PROFILES = {
   showpiece: profile({
     laneHome: "inner", // the fast side of the gradient
     patience: 0.15,    // it does not queue
-    // Its caution is FORCED, not chosen: at 700 the braking rule has to cover 580
-    // of closing, needing 495 units of road against the 534 this pair allows. The
-    // fastest civilian is necessarily the one leaving the most room in front.
+    // Its caution is FORCED, not chosen: at 700 the braking rule has to cover
+    // 580 of closing, needing 495 units of road against the 534 this pair
+    // allows. The fastest civilian necessarily leaves the most room in front.
     followGap: 70,
     followReaction: 0.8,
     // And the trigger has to clear that braking gap — it starts backing off
@@ -278,7 +277,7 @@ export const DRIVING_PROFILES = {
     // hull, a tenth of its life. It costs 8-11% of its life stopped against the
     // commuter's 4%, because a driver that will not take an occupied lane has
     // only the brake left. A ceiling of 7 buys two of those points back; zero is
-    // kept because "would rather stop than scrape" is the character. If the
+    // kept because "would rather stop than scrape" IS the character. If the
     // stopping ever reads as broken, this is the number to move.
     contact: 0,
   }),
@@ -289,8 +288,8 @@ export const DRIVING_PROFILES = {
   // of 3 reads as "will lean on anything smaller than a truck". The roadster is
   // the other impatient civilian and pays 4-9 hull off 40 for every liberty.
   //
-  // And it dodges every hazard, because it is AMBER — which is what keeps the two
-  // kinds of aggression separate. Barging barrels is a claim about the driver's
+  // And it dodges every hazard, because it is AMBER — which keeps the two kinds
+  // of aggression separate. Barging barrels is a claim about the driver's
   // judgement; leaning on the car beside it is a claim about their manners. This
   // one has bad manners and good judgement.
   brawler: profile({
@@ -327,17 +326,17 @@ export const DRIVING_PROFILES = {
   batterer: profile({
     nerve: 20,
     // The one hostile that chases slower than the rest. It closes to HIT rather
-    // than to hold a firing gap, so it does not need to match a fleeing player —
-    // only to catch one who is busy with the road. Still well above its own 330.
+    // than to hold a firing gap, so it need not match a fleeing player — only
+    // catch one who is busy with the road. Still well above its own 330.
     chaseSpeed: 560,
   }),
   duelist: profile({ nerve: 10 }),   // rival: a driver, not a battering ram — it
                                      // would rather keep the line clean
   // The stocker: a heavy off a circuit rather than out of a garage, and the only
   // hostile that runs a RACING line — it lives on the lane edges and pulls out
-  // early, so it arrives from the side of the road rather than up the middle. The
-  // cage is why its nerve sits above the interceptor's: junk in the road costs it
-  // paint, not a wheel.
+  // early, so it arrives from the side of the road rather than up the middle.
+  // The cage is why its nerve sits above the interceptor's: junk in the road
+  // costs it paint, not a wheel.
   roadracer: profile({
     laneDiscipline: 0.35,
     patience: 0.5,
@@ -350,20 +349,19 @@ export const DRIVING_PROFILES = {
   // The cycle: 25 hull means a trestle costs it a third of its life, and it is
   // the nimblest thing on the road. It goes round because going round is what it
   // is FOR — the contrast with the bruiser is why these are per type at all.
-  // `contact` is 0 rather than small because small would do nothing: it steers at
-  // 180, so its cheapest possible contact is 7.35 hull. Patience is next to
-  // nothing because it carries no gun — its one attack is a mine dropped after it
-  // has fought past whatever holds it up (behaviours.js's `raid`), so queueing is
-  // time spent not attacking rather than time spent being careful.
+  // `contact` is 0 rather than small because small would do nothing: it steers
+  // at 180, so its cheapest possible contact is 7.35 hull. Patience is next to
+  // nothing because it carries no gun — its one attack is a mine dropped after
+  // it has fought past whatever holds it up (behaviours.js's `raid`), so
+  // queueing is time spent not attacking rather than time spent being careful.
   darter: profile({ nerve: 0, contact: 0, patience: 0.1 }),
 
   // --- The motorcycle fleet --------------------------------------------------
-  // Three hostiles that share one physical fact — nothing here weighs more than
-  // 0.7 or carries more than 45 hull — and therefore share the two settings the
-  // fact forces: nerve 0 and contact 0. A bike does not barge, and it does not
-  // lean on anybody; both would cost it a life it does not have. Everything
-  // that tells the three apart is the chase, which is where they differ
-  // completely.
+  // Three hostiles sharing one physical fact — nothing here weighs more than 0.7
+  // or carries more than 45 hull — and therefore sharing the two settings that
+  // fact forces: nerve 0 and contact 0. A bike does not barge and does not lean
+  // on anybody; both would cost it a life it does not have. Everything telling
+  // the three apart is the chase, where they differ completely.
   //
   // Both zeros are also the only settings AVAILABLE to them, which is the
   // quantisation the two dial tests describe: at 160-200px/sec of steering, the
@@ -373,8 +371,8 @@ export const DRIVING_PROFILES = {
   // The outrider: holds a tighter gap than the interceptor's baseline 200,
   // because the SMG is a spray rather than an aimed round and a burst wants to
   // be close enough that its spread still lands. The weave is left at the
-  // reference figures — 40px either side of the player at 1.6s a sweep, which
-  // its 200px/sec steering covers three times over.
+  // reference figures — 40px either side at 1.6s a sweep, which its 200px/sec
+  // steering covers three times over.
   outrider: profile({
     laneDiscipline: 0.4, // it is never settled in a lane; saying so here keeps
                          // the approach as loose as the attack
@@ -384,11 +382,11 @@ export const DRIVING_PROFILES = {
     contact: 0,
   }),
 
-  // The outrunner: the one profile on the road whose chase is spent getting
-  // IN FRONT. Patience is the lowest of the three because everything it wants
-  // is up the road — a queue is not a delay to its attack, it IS the thing
-  // stopping the attack — and `leadHold` is left at the reference 300, which
-  // frames it high on the screen with road to spare inside the gun's reach.
+  // The outrunner: the one profile whose chase is spent getting IN FRONT.
+  // Patience is the lowest of the three because everything it wants is up the
+  // road — a queue is not a delay to its attack, it IS the thing stopping the
+  // attack — and `leadHold` stays at the reference 300, which frames it high on
+  // the screen with road to spare inside the gun's reach.
   outrunner: profile({
     patience: 0.2,
     passSpeedMargin: 6, // it will take almost any gap that gains it a length
@@ -396,10 +394,10 @@ export const DRIVING_PROFILES = {
     contact: 0,
   }),
 
-  // The sower: the cycle's own disposition, near enough, and for the cycle's
-  // own reason — it has one thing to lay and queueing is time spent not laying
-  // it. `raidGain` stays at the reference: holding station over the drop is the
-  // same problem for a strip as for a mine.
+  // The sower: the cycle's disposition, near enough, and for the cycle's reason
+  // — it has one thing to lay and queueing is time spent not laying it.
+  // `raidGain` stays at the reference: holding station over the drop is the same
+  // problem for a strip as for a mine.
   sower: profile({
     patience: 0.1,
     nerve: 0,
@@ -407,20 +405,19 @@ export const DRIVING_PROFILES = {
   }),
 
   // The siege mortar. The outrunner's disposition — everything it wants is up
-  // the road — with two figures moved for reasons that are about the BOSS
-  // rather than about driving.
+  // the road — with two figures moved for reasons about the BOSS rather than
+  // about driving.
   //
-  // `leadHold` 420 rather than the reference 300: this one holds higher on the
-  // screen than any other hostile, which is what puts a 90px hull at the top
-  // edge with the whole barrage landing in the road between it and the player.
-  // It is NOT bounded by armament.js's gun band the way the outrunner's is —
-  // this car has no gun (see behaviours.js's `siege`) — but it is still well
-  // inside the road the player can actually see ahead of them, which is the
-  // rule that does apply and the one the suite checks.
+  // `leadHold` 420 rather than the reference 300: it holds higher on the screen
+  // than any other hostile, which puts a 90px hull at the top edge with the
+  // whole barrage landing in the road between it and the player. NOT bounded by
+  // armament.js's gun band the way the outrunner's is — this car has no gun (see
+  // behaviours.js's `siege`) — but still well inside the road the player can see
+  // ahead, which is the rule that does apply and the one the suite checks.
   //
-  // NERVE AND CONTACT AT ZERO, like every other hostile here, and worth saying
-  // out loud for this one: a boss that shouldered its way through hazards would
-  // clear the very minefield it is trying to drive the player into.
+  // NERVE AND CONTACT AT ZERO, like every other hostile, and worth saying out
+  // loud here: a boss that shouldered through hazards would clear the very
+  // minefield it is trying to drive the player into.
   battery: profile({
     patience: 0.15,
     leadHold: 420,
@@ -433,18 +430,18 @@ export const DRIVING_PROFILES = {
 // falls back to the commuter rather than throwing, on the same grounds as
 // behaviourFor — a half-finished type should still drive.
 //
-// Faction is NOT a default here, unlike armament.js's: "armed" follows from being
-// hostile, but "drives like this" follows from nothing, so a hostile type that
+// Faction is NOT a default here, unlike armament.js's: "armed" follows from
+// being hostile, but "drives like this" follows from nothing, so a hostile that
 // forgot to name a profile should drive blandly rather than inherit somebody
 // else's temperament.
 export function drivingFor(type) {
   return DRIVING_PROFILES[type.driving] ?? DRIVING_PROFILES.commuter;
 }
 
-// Every car type that drives `name`. Exported for the per-profile invariant test,
-// which has to know whose speeds a profile's braking rule must cover. Takes the
-// catalogue as an argument rather than importing it, so this file keeps its
-// one-way dependency on cartypes.js.
+// Every car type that drives `name`. Exported for the per-profile invariant
+// test, which has to know whose speeds a profile's braking rule must cover.
+// Takes the catalogue as an argument rather than importing it, so this file
+// keeps its one-way dependency on cartypes.js.
 export function typesDriving(name, types) {
   return types.filter((t) => drivingFor(t) === DRIVING_PROFILES[name]);
 }
