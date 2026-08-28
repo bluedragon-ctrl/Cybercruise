@@ -124,18 +124,17 @@ function leadCar(car, world, offset, ignore) {
 
 // --- What a driver is willing to hit ------------------------------------------
 //
-// One mechanism, two tolerances — see driving.js's nerve section for why they are
-// separate numbers. Both are hull damage, compared against an ESTIMATE of what
-// the thing in question would actually cost. A hazard names its own price
-// (`threat`, obstacles.js); a car's is worked out with collisions.js's own
-// formula rather than a copy of it, since a driver deciding against arithmetic
-// the game does not run would be wrong in exactly the cases that matter.
+// One mechanism, two tolerances — see driving.js's nerve section for why they
+// are separate numbers. Both are hull damage against an ESTIMATE of what the
+// thing would cost. A hazard names its own price (`threat`, obstacles.js); a
+// car's uses collisions.js's own formula, not a copy, since a driver deciding
+// against arithmetic the game doesn't run is wrong exactly where it matters.
 //
-// LATERAL ONLY, deliberately. What a lane change risks is arriving sideways into
-// somebody, so it is priced as a SIDE-SWIPE at this car's own steering rate. The
-// head-on component is not a risk this decision takes — a car that pulls in ahead
-// of something slower brakes for it (followSpeed) — and pricing it in would make
-// every lane change look lethal to a fast car and freeze it in its lane.
+// LATERAL ONLY. A lane change risks arriving SIDEWAYS into somebody, so it is
+// priced as a side-swipe at this car's steering rate. The head-on component is
+// not a risk this decision takes — a car pulling in ahead of something slower
+// brakes for it (followSpeed) — and pricing it in would make every lane change
+// look lethal to a fast car and freeze it in its lane.
 function contactCost(car, other) {
   return impactCost(car, other, car.type.steerSpeed, SIDE_DAMAGE);
 }
@@ -157,19 +156,18 @@ function tolerated(car, other) {
 // --- Lane discipline ----------------------------------------------------------
 //
 // NOTHING ELSE RE-DERIVES WHICH LANE A CAR BELONGS IN. `cruise` never wrote
-// `targetOffset` and `startPass` returns early when there is nobody to pass, so
-// without this a car shoved sideways by a ram steers all the way back across live
-// traffic to the lane it spawned in, however many manoeuvres ago that was.
+// `targetOffset` and `startPass` returns early with nobody to pass, so without
+// this a car shoved sideways by a ram steers back across live traffic to the
+// lane it spawned in, however many manoeuvres ago that was.
 //
-// `laneDiscipline` (driving.js) is a TOLERANCE rather than a strength: the car
-// accepts sitting up to (1 - discipline) of a half-lane off centre and holds
-// whatever line it is on inside that. At 1 the slack is zero; at 0.3 it settles
-// anywhere in the middle two thirds of its lane and reads as sloppier without
-// ever actually wandering.
+// `laneDiscipline` (driving.js) is a TOLERANCE, not a strength: the car accepts
+// sitting up to (1 - discipline) of a half-lane off centre and holds whatever
+// line it is on inside that. At 1 the slack is zero; at 0.3 it settles anywhere
+// in the middle two thirds and reads as sloppier without ever wandering.
 //
-// Expressed as "move just far enough to be inside the slack" rather than "snap to
-// the centre once outside it": snapping would make the tolerance decide only WHEN
-// a car corrected, and every profile would arrive dead centre anyway.
+// "Move just far enough to be inside the slack", NOT "snap to the centre once
+// outside it" — snapping would leave the tolerance deciding only WHEN a car
+// corrected, with every profile still arriving dead centre.
 function keepLane(car, world) {
   const home = homeLane(car, world);
   const slack = LANE_WIDTH * 0.5 * (1 - car.drive.laneDiscipline);
@@ -384,41 +382,36 @@ function nearer(a, b) {
 
 // --- Road hazards ---------------------------------------------------------------
 //
-// An obstacle (game/obstacles.js) is NOT traffic, and that difference decides
-// everything. Traffic is something you QUEUE behind: it is moving, so matching
-// its speed still gets you where you were going. A roadblock is standing still
-// and always will be, so following one is not the answer while there is a lane to
-// take instead.
+// An obstacle (game/obstacles.js) is NOT traffic, and that decides everything.
+// Traffic is something you QUEUE behind — it moves, so matching its speed still
+// gets you where you were going. A roadblock never moves, so following one is
+// never the answer while there is a lane to take.
 //
-// So the answer is STEER FIRST — and slowing down helps for that same reason. A
-// hazard does not move, so going slower does not let it get away; it buys more
-// SECONDS of approach, and seconds of approach are exactly what a lane change
-// costs. A car that cannot fit its swerve into the road it has left can always
-// fit it by taking longer over that road.
+// STEER FIRST, and slow down for the same reason: going slower cannot let a
+// stationary hazard get away, it buys SECONDS OF APPROACH, which is exactly
+// what a lane change costs. A swerve that won't fit in the road left always
+// fits by taking longer over it.
 //
 // THE THREE OUTCOMES, cheapest first:
-//   1. steer to the nearest lane that is clear of the hazard and of anything
-//      this driver isn't willing to touch;
-//   2. and whatever line was chosen, slow down enough that the sideways move
-//      actually fits in the road remaining;
-//   3. with no lane available at all, STOP — see hazardStop.
-// Outcome 2 is a floor on the tactic's own speed, never a target: a car with room
-// to spare passes a hazard at full cruise and never knows this ran.
+//   1. steer to the nearest lane clear of the hazard and of anything this
+//      driver isn't willing to touch;
+//   2. whatever the line, slow enough that the sideways move fits in the road
+//      remaining — a FLOOR on the tactic's speed, never a target, so a car with
+//      room passes at full cruise and never knows this ran;
+//   3. no lane at all: STOP (hazardStop).
 //
-// There is deliberately no "take a lane that is clear of the HAZARD but has a car
-// in it" tier. That trade is made per driver by `contact` (driving.js) — a driver
-// who will accept the bump finds that lane clear at step 1, and one who won't
-// goes to step 3 and stops.
+// No "clear of the HAZARD but has a car in it" tier: that trade is `contact`
+// (driving.js), per driver. One who accepts the bump finds the lane clear at
+// step 1; one who won't reaches step 3.
 //
-// DODGES AIM AT LANE CENTRES, which is what lets this skip a "pull back in" step
-// entirely: a car that swerves ends up in a real lane and cruises on from there.
-// It also keeps the dodge STABLE — the candidate lines are fixed, so a car picks
-// a lane and holds it instead of hunting between two near-equal offsets.
+// DODGES AIM AT LANE CENTRES, which removes any need for a "pull back in" step
+// and keeps the dodge STABLE — fixed candidate lines mean a car holds its
+// choice instead of hunting between two near-equal offsets.
 //
 // WHY STEERING IS USUALLY ENOUGH: obstacles.js refuses to place a hazard in the
-// last open lane of a stretch of road, so a lane clear of the HAZARD always
-// exists. Whether it is clear of TRAFFIC too is not guaranteed, which is exactly
-// when stopping is the answer. Asserted in test/hazards.test.js.
+// last open lane, so a lane clear of the HAZARD always exists. Clear of TRAFFIC
+// too is not guaranteed — which is when stopping is the answer. Asserted in
+// test/hazards.test.js.
 
 // How far ahead a driver looks is DERIVED, not constant: a rig steers at 35px/sec
 // and a cycle at 180 while arriving nearly four times faster, so one number cannot
@@ -684,13 +677,12 @@ function raid(car, dt, world) {
 // via its `forwardOnly` field.
 //
 // GIVES UP ON LOST CONTACT, NOT ON A CLOCK. `car.lostTime` is seconds since it
-// was LAST inside firing range; every tick back in range resets it, so a car the
-// player can't shake keeps fighting indefinitely. Only after `giveUpTime`
-// continuously out of range does `car.disengaged` flip — a one-way switch that
-// hands driving over to plain `overtake` forever. It goes unarmed at the same
-// moment: `car.arms` is set to null rather than merely left un-fired, so nothing
-// in the retreat can line up a stray shot, and a moment spent ahead of the player
-// cannot read to armament.js as "ahead of my target" and drop a mine.
+// was LAST in firing range, reset every tick back in range, so a car the player
+// can't shake fights indefinitely. Only after `giveUpTime` continuously out of
+// range does `car.disengaged` flip — one-way, handing driving to plain
+// `overtake` forever. It goes unarmed at the same moment (`car.arms` nulled),
+// so nothing in the retreat can line up a stray shot and a moment spent ahead
+// of the player cannot read to armament.js as "ahead of my target".
 //
 // `giveUpTime` is a profile field (driving.js), where 0 means never and is the
 // enemy baseline. The stocker is the only row that sets it.
@@ -817,20 +809,26 @@ function pursue(car, dt, world) {
   );
 }
 
+// "This car has not laid its one deliberate charge yet." A full magazine means
+// nothing has left the tube, so the tactics gated on it — `duel`'s mine and
+// `strew`'s spike strip — need no state of their own. Same gate `raid` uses to
+// retire itself.
+function layerUnspent(car) {
+  const layer = car.arms?.layer;
+  return Boolean(layer) && layer.ammo === layer.type.ammo;
+}
+
 // --- Duelling --------------------------------------------------------------
 //
 // The rival: `raid`'s force-past-and-drop, then `pursue` for the rest of its life
 // once that mine is gone — the two composed rather than a third driving model.
 //
-// ONE DELIBERATE MINE, NOT THREE. The gate is the one raid uses to retire itself:
-// `arms.layer.ammo === arms.layer.type.ammo` is true only before the first round
-// has left the tube, so this needs no state of its own. The other two rounds are
-// not wasted, only never CHASED — `arms: true` keeps `useArms` running, and
+// ONE DELIBERATE MINE, NOT THREE — see `layerUnspent`. The other two rounds are
+// not wasted, only never CHASED: `arms: true` keeps `useArms` running, and
 // armament.js's `layMine` still fires opportunistically if the player ends up
 // trailing this car anyway.
 function duel(car, dt, world) {
-  const arms = car.arms;
-  if (arms?.layer && arms.layer.ammo === arms.layer.type.ammo) {
+  if (layerUnspent(car)) {
     raid(car, dt, world);
     return;
   }
@@ -845,13 +843,11 @@ function duel(car, dt, world) {
 // forth ACROSS it, spraying the SMG forward as it crosses.
 //
 // WHY A BIKE CANNOT DO WHAT THE INTERCEPTOR DOES. `pursue` parks a car dead
-// astern and leaves it there, which is fine for 70 hull of interceptor and
-// suicidal for 30 hull of motorcycle: everything the player drops goes out of
-// the back of their car, and a tail holding one line is a tail holding still
-// over a mine. The weave is the bike's answer — it is never on the line it was
-// on a second ago — and the sweep is also what turns a burst weapon into a
-// scythe, since a fixed tail would put every round of every burst through the
-// same square metre of road.
+// astern, fine for 70 hull of interceptor and suicidal for 30 of motorcycle:
+// everything the player drops goes out the back, and a tail holding one line is
+// a tail holding still over a mine. The weave is the answer — never on the line
+// it was on a second ago — and it also turns a burst weapon into a scythe,
+// where a fixed tail would put every round through the same square metre.
 //
 // The lateral aim is the player's own offset plus `weaveSpan` * sin(phase),
 // with `weaveTime` seconds to the sweep. Both are profile fields (driving.js),
@@ -938,44 +934,29 @@ function outrun(car, dt, world) {
 // The siege mortar — the road's first proper boss, and the only thing on it that
 // attacks the GROUND rather than a car.
 //
-// THE DRIVING IS `outrun`'s, UNCHANGED, and that is the whole of what this
-// function is: get past whatever is in the way, then hold station at the top of
-// the screen at the profile's `leadHold`. Everything that makes this a boss —
-// the hull, the three phases, the shells — lives in cartypes.js, armament.js and
-// shells.js, exactly where the road's other tactics keep their differences. A
-// boss that needed a fourth chase model would be a boss built on a special case.
+// THE DRIVING IS `outrun`'s, UNCHANGED: get past what's in the way, then hold
+// station at the top of the screen at the profile's `leadHold`. Everything that
+// makes this a boss — the hull, the three phases, the shells — lives in
+// cartypes.js, armament.js and shells.js.
 //
-// WHY IT HOLDS STATION AT ALL, given the barrage has no range gate and would
-// happily shell the player from off-screen (armament.js's fireBarrage): because
-// a boss the player cannot SEE is a boss they cannot read, and this hull is the
-// best silhouette in the game. Station-keeping is what keeps it on screen, in
-// the cannon's line, and shootable — which is what makes killing it the fast way
-// out of the encounter rather than merely the profitable one. The off-screen
-// case is the fallback for the twelve seconds of overdrive that can genuinely
-// break the hold, not the intended state of the fight.
+// WHY IT HOLDS STATION, given the barrage has no range gate and would happily
+// shell from off-screen (armament.js's fireBarrage): a boss the player cannot
+// SEE is one they cannot read, and this is the best silhouette in the game.
+// Station-keeping keeps it on screen, in the cannon's line and shootable, which
+// is what makes killing it the fast way out. Off-screen is the fallback for the
+// twelve seconds of overdrive that can break the hold, not the intended fight.
 //
-// IT NEVER TURNS TO FACE THE PLAYER, and nothing here has to enforce that: the
-// kit carries no gun (armament.js's BATTERY_KIT), so there is no firing line to
-// line up and `trackTarget`'s lane-matching is only ever about staying in front.
+// IT NEVER TURNS TO FACE THE PLAYER, and nothing enforces that: the kit carries
+// no gun (armament.js's BATTERY_KIT), so there is no firing line to line up.
 //
-// WHY THIS IS A ROW OF ITS OWN RATHER THAN THE MORTAR NAMING `outrun`, given it
-// delegates the whole manoeuvre — a fair question, and the answer is not taste:
-//
-//   `outrun` IS BOUND BY A GUN. Its hold has to sit inside armament.js's
-//   GUN_MIN_RANGE..GUN_RANGE band, or the car parks up the road and never fires
-//   (test/hazards.test.js pins every type driving that tactic against it). The
-//   mortar carries no gun at all, so that band is not a constraint it has — it
-//   is arithmetic about a weapon this car does not own. Naming `outrun` would
-//   hold the boss to it, which is precisely the invented constraint that test's
-//   own header warns against.
-//
-//   WHAT DOES STILL BIND IT is that the hold must be ON SCREEN, and that rule
-//   is about the player's eyes rather than about any weapon — so it applies to
-//   both tactics and the suite checks both.
-//
-// Delegating rather than copying is the file's own habit: `strew` runs `raid`,
-// `duel` runs `pursue`. The row is what the catalogue and the invariants read;
-// the body is where the manoeuvre actually lives, and it belongs to `outrun`.
+// WHY A ROW OF ITS OWN RATHER THAN THE MORTAR NAMING `outrun`: `outrun` IS
+// BOUND BY A GUN. Its hold must sit inside armament.js's
+// GUN_MIN_RANGE..GUN_RANGE or the car parks up the road and never fires
+// (test/hazards.test.js pins every type on that tactic against it). The mortar
+// has no gun, so that band is arithmetic about a weapon it does not own, and
+// naming `outrun` would hold the boss to it. What DOES bind both is that the
+// hold must be ON SCREEN — a rule about the player's eyes, not a weapon — and
+// the suite checks both.
 
 function siege(car, dt, world) {
   outrun(car, dt, world);
@@ -988,26 +969,19 @@ function siege(car, dt, world) {
 // the player, lay ONE spike strip in their path, and then go — flat out, and
 // never seen again.
 //
-// THE RUN IN IS `raid`, UNCHANGED. Forcing past whatever is in the way and then
-// holding station at the far end of the layer's own window is exactly the
-// cycle's mine run, and armament.js's `layMine` does not care what the payload
-// is: a strip is dropped through the same window, the same aim tolerance and the
-// same "not over somebody else's traffic" veto as a mine. What differs is the
-// PAYLOAD — a magazine of one strip, armament.js's `spiker` — and what happens
-// afterwards.
+// THE RUN IN IS `raid`, UNCHANGED — armament.js's `layMine` does not care what
+// the payload is, so a strip goes through the same window, aim tolerance and
+// "not over somebody else's traffic" veto as a mine. Only the PAYLOAD differs
+// (a magazine of one strip, armament.js's `spiker`), and what happens after.
 //
-// THE RUN OUT IS THE NEW PART. `raid` retires itself into plain `cruise` once
-// its magazine is spent, which for a car that has just laid a trap in front of
-// the player would mean loitering over it at cruising speed waiting to be
-// rammed. This one leaves — and leaving is a real escape rather than a fadeout,
-// because the sower's speed band tops out above the player's own: hold the
-// throttle down and you still watch it go.
+// THE RUN OUT IS THE NEW PART. `raid` retires into plain `cruise` once its
+// magazine is spent, which here would mean loitering over the trap it just laid
+// waiting to be rammed. This one leaves, and it is a real escape rather than a
+// fadeout: the sower's speed band tops out above the player's, so you hold the
+// throttle down and still watch it go.
 
 function strew(car, dt, world) {
-  const arms = car.arms;
-  // The same gate `duel` uses to spend its one deliberate mine: a full magazine
-  // means nothing has been laid yet, so this needs no state of its own.
-  if (arms?.layer && arms.layer.ammo === arms.layer.type.ammo) {
+  if (layerUnspent(car)) {
     raid(car, dt, world);
     return;
   }

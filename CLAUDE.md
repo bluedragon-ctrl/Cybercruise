@@ -52,10 +52,26 @@ are not known up front, each with the section that explains it.
 
 ## Conventions
 
-- Comments explain **why**, at length, and are the design record. Match that
-  register — a new module gets a header saying what decision it embodies and what
-  would go wrong without it, including the approaches that were tried and
-  rejected. Do not thin existing ones out.
+- Comments explain **why**, and are the design record. A new module gets a header
+  saying what decision it embodies and what would go wrong without it, including
+  the approaches tried and rejected. **State each decision once, in the one place
+  it belongs, as briefly as the reasoning allows**, and cross-reference it from
+  anywhere else that needs it — the same rule the README follows over the module
+  headers. Compress freely; delete a decision only when it has stopped being
+  true.
+  Specifically, and these are the habits that inflated the files before:
+  - **No counterfactuals.** The record is what the code does and why, not an
+    inventory of what it doesn't. Drop "rather than X", "exactly as it did
+    before this field existed", "which is not what anyone would expect" where
+    the sentence already stands without them. Keep the contrast only where the
+    rejected option is one somebody has actually proposed.
+  - **Say it once, then reference.** Where several call sites share a rationale,
+    write it at the definition and point at it (see `state` in `main.js`, which
+    the four frozen-state handlers refer to).
+  - **No restating the next line.** A comment naming the function below it is
+    costing context and buying nothing.
+  - Field tables and derivations of tuned numbers are the highest-value comments
+    in the repo. Keep them; it is the prose around them that shrinks.
 - Work lands as one PR per coherent change. Each one leaves the game playable.
 - Rejected approaches are written down with their measurements — in the module
   header, or the design doc if they span several — rather than deleted. Several

@@ -23,21 +23,18 @@
 //                fires a pair, the shield bites back) rather than moving a
 //                number, which is why it is not a tier. See the shelf itself.
 //
-// NOTHING SURVIVES A RUN. Both shelves are scoped to one drive: the Garage is
-// rebuilt by main.js's newGame() alongside the player and the wallet, so dying
-// costs the player every tier they bought exactly as it costs them every credit
-// they had not spent. That is deliberate and it is the same promise main.js's
-// CREDIT_STORE makes about the money itself — see its header for why a bank
-// that lives in one browser is not progress anyone owns. When player records
-// arrive and credits start persisting, this file does NOT automatically follow:
-// a run-scoped upgrade ladder and a permanent one are different games, and the
-// choice between them should be made then rather than inherited by accident.
+// NOTHING SURVIVES A RUN. The Garage is rebuilt by main.js's newGame() beside
+// the player and the wallet, so dying costs every tier bought exactly as it
+// costs every unspent credit — the same promise main.js's CREDIT_STORE makes
+// about the money. When player records arrive and credits persist, this file
+// does NOT automatically follow: a run-scoped ladder and a permanent one are
+// different games, and that choice should be made then, not inherited.
 //
-// CONSUMABLES REUSE THE PICKUP CATALOGUE'S OWN EFFECTS. An entry here carries
-// the same `kind`/`weaponId`/`amount`/`duration` fields a crate does and is
-// spent through pickuptypes.js's applyPickup — a bought repair and a driven-over
-// FIX crate are the same event, and there is no second copy of "top up a weapon,
-// capped at its own magazine" anywhere in the codebase.
+// CONSUMABLES REUSE THE PICKUP CATALOGUE'S EFFECTS. An entry here carries the
+// same `kind`/`weaponId`/`amount`/`duration` fields a crate does and is spent
+// through pickuptypes.js's applyPickup, so a bought repair and a driven-over FIX
+// crate are the same event and "top up a weapon, capped at its magazine" exists
+// once in the codebase.
 
 import { AMMO, HEAL, SHIELD, applyPickup } from "./pickuptypes.js";
 import { MAX_SPEED, PLAYER_MASS, BASE_MAX_HEALTH } from "./player.js";

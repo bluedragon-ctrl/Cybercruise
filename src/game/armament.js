@@ -13,33 +13,30 @@
 //   useArms     the default TACTIC: given a car, its kit and the world, decide
 //               whether to take a shot or lay a mine this tick.
 //
-// UNIFORM WAS THE STARTING POINT, ON PURPOSE. Every enemy-faction type got the
-// same profile and the same tactic at first, so an interceptor and a bruiser
-// shot alike — the road had to be ABLE to do these things before it was worth
-// arguing about which car does which, how often. The two seams that step cut
-// are what the first divergence (the cycle's `raider` profile, gun-less) used
-// without touching this file's structure —
+// UNIFORM WAS THE STARTING POINT: every enemy type shared one profile and one
+// tactic, so the road could DO these things before it was worth arguing about
+// which car does which. Two seams carry every divergence since, with no change
+// to this file's structure —
 //
-//   * `armamentFor` picks a profile, and a car type naming `arms: "..."`
-//     overrides the faction default. Per-type kit is then a catalogue edit.
-//   * behaviours.js calls `useArms` from each HOSTILE TACTIC separately rather
-//     than from the shared cruise/overtake path. Per-behaviour tactics are then
-//     a matter of what each of those functions asks for — `raid` lining up a
-//     single mine drop where `pursue` shoots, and so on.
+//   * `armamentFor` picks a profile, and a type naming `arms: "..."` overrides
+//     the faction default. Per-type kit is a catalogue edit.
+//   * behaviours.js calls `useArms` from each HOSTILE TACTIC separately, not
+//     from the shared cruise/overtake path. Per-behaviour tactics are then just
+//     what each function asks for — `raid` lining up one mine where `pursue`
+//     shoots.
 //
-// Note the consequence of that second seam: being ARMED follows from the
-// faction, but USING the arms follows from the behaviour. An enemy type given a
-// civilian behaviour would carry a gun it never fires. That is the right way
-// round — a car's tactics are what decide whether it is fighting — but it is
-// worth knowing before wondering why a new type sits there quietly.
+// The consequence of that second seam: being ARMED follows from the faction,
+// USING the arms follows from the behaviour. An enemy type given a civilian
+// behaviour carries a gun it never fires — the right way round, since tactics
+// are what decide whether a car is fighting, but worth knowing before wondering
+// why a new type sits there quietly.
 //
-// WHAT THIS FILE NEVER DOES: touch the world. It decides, and then calls one of
-// two hooks the world hands it (`world.fireShot`, `world.dropMine`, wired up in
-// main.js). That is what keeps traffic.js and behaviours.js free of any import
-// of projectiles.js or obstacles.js — the same trick Traffic's `onDestroyed`
-// callback uses to keep it from ever knowing what a point is. Both hooks are
-// OPTIONAL: a caller with no projectile pool (the tests, the gallery) simply
-// leaves them off and armed cars go through the motions without firing.
+// WHAT THIS FILE NEVER DOES: touch the world. It decides, then calls one of two
+// hooks the world hands it (`world.fireShot`, `world.dropMine`, wired in
+// main.js), which is what keeps traffic.js and behaviours.js free of any import
+// of projectiles.js or obstacles.js. Both are OPTIONAL: a caller with no
+// projectile pool (the tests, the gallery) leaves them off and armed cars go
+// through the motions without firing.
 
 import { Weapon, ENEMY_WEAPON_TYPES } from "./weapons.js";
 import { ENEMY_FACTION } from "./cartypes.js";
