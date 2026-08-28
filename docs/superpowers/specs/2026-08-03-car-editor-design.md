@@ -2,6 +2,16 @@
 
 Date: 2026-08-03
 
+> **SUPERSEDED — kept as the record of what was designed, not of what shipped.**
+> This spec scopes the tool to five enemy car types and their driving profiles.
+> The tool that exists is a TUNING EDITOR FOR THE WHOLE GAME: five tabs — Cars
+> (civilian and hostile alike), Hazards & pickups, Weapons, Shop, and World —
+> covering essentially every balance number in the source. The reasoning below
+> about patching by text surgery, gating the push on the test suite, and
+> finishing the PR on GitHub's compare page all still describes the shipped
+> tool; the SCOPE does not. For what the tool actually does today, see the
+> README's "Tuning editor" section.
+
 ## Purpose
 
 A local, browser-based tool for tuning enemy car parameters — hull, speed, and

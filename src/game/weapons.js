@@ -13,35 +13,26 @@
 //                 Carried by the player's Loadout and by every hostile car's
 //                 Armament (game/armament.js) alike.
 //
-// AMMUNITION. The default gun carries `Infinity` rounds — the player is never
-// left with no way to shoot at all, which is what makes the special weapons
-// (Phase 5) a choice rather than a lifeline. Every other weapon is finite, so
-// the ammo bookkeeping is built in HERE from the start rather than bolted on:
-// `tryFire` already spends a round, and an Infinity counter simply never runs
-// down (Infinity - 1 === Infinity, so the arithmetic needs no special case —
-// only the HUD does, which is why `ammoText` exists).
+// AMMUNITION. The default gun carries `Infinity` rounds, so the player is never
+// left unable to shoot — which is what makes the special weapons a choice
+// rather than a lifeline. Infinity needs no special case in the arithmetic
+// (Infinity - 1 === Infinity); only the HUD does, hence `ammoText`.
 //
-// WHAT YOU START WITH AND WHAT YOU CAN HOLD ARE TWO DIFFERENT NUMBERS, and they
-// used to be one. `ammo` is the MAGAZINE — the ceiling a refill may fill to —
-// and `startAmmo` is what is in it when a run begins, defaulting to a full
-// magazine when a weapon does not say otherwise.
+// `ammo` IS THE MAGAZINE (the ceiling a refill tops up to), `startAmmo` is what
+// is in it when a run begins, defaulting to full. The split exists because most
+// of the catalogue is EARNED rather than issued: the tracker, the rocket and
+// the spike strip all begin EMPTY. The player drives out with the cannon and
+// the mines; everything else the road drops (pickuptypes.js) or the dock sells
+// (upgrades.js). A magazine you went and got is spent differently from one you
+// were handed, and it gives the shop's consumable shelf something to matter for
+// on the first stop.
 //
-// The split exists because most of the catalogue is now EARNED rather than
-// issued. The tracker, the rocket and the spike strip all begin a run EMPTY: the
-// player drives out with the cannon and the mines, and everything else is
-// something the road drops (game/pickuptypes.js) or the dock sells
-// (game/upgrades.js). That turns each of those weapons from equipment into a
-// decision — a magazine you went and got is one you spend differently from one
-// you were handed — and it is what gives the shop's consumable shelf something
-// to matter for on the very first stop.
-//
-// WHAT THIS FILE DOES NOT DO: it never touches the world. `tryFire` answers one
-// question — "may a shot be taken this instant?" — and the caller is what turns
-// a yes into a bullet (see projectiles.js, main.js). That split is what lets the
-// enemy reuse the same class without inheriting the player's input handling, and
-// it is why game/armament.js can model a MINE LAYER as a Weapon too: a rate of
-// fire and a magazine is all a mine layer is, and what comes out at the far end
-// is the caller's business.
+// WHAT THIS FILE DOES NOT DO: touch the world. `tryFire` answers one question —
+// "may a shot be taken this instant?" — and the caller turns a yes into a
+// bullet (projectiles.js, main.js). That split lets the enemy reuse the class
+// without the player's input handling, and it is why game/armament.js can model
+// a MINE LAYER as a Weapon: a rate of fire and a magazine is all one is, and
+// what comes out at the far end is the caller's business.
 
 import { PLAYER, PLAYER_THRUST, ENEMY, ENEMY_THRUST, ROCKET, ROCKET_HOT } from "../engine/palette.js";
 
@@ -213,58 +204,47 @@ export const WEAPON_TYPES = [
     glow: PLAYER,
     length: 16,
     width: 4.5,
-    // THE SHOP CAN TEACH THE TRACKER TO TRACK — game/upgrades.js's AUTOLOCK,
-    // and it is the upgrade this weapon's own NAME has been implying since it
-    // was written. The first round of a burst that connects DESIGNATES the car
-    // it hit; every round after it steers to follow that same car instead of
-    // holding the lane it was fired up.
+    // THE SHOP CAN TEACH THE TRACKER TO TRACK — upgrades.js's AUTOLOCK. The
+    // first round of a burst that connects DESIGNATES the car it hit; every
+    // round after steers to follow it instead of holding the lane.
     //
-    // IT IS THE RIGHT UPGRADE FOR THIS GUN AND NO OTHER, because the burst is
-    // already the shape it needs: eight rounds 0.05s apart means round one
-    // designates and rounds two through eight chase, with no new timing
-    // concept anywhere. And it answers the tracker's real weakness — a lane
-    // hose is helpless against anything that changes lanes — without touching
-    // its damage, which is what keeps it from becoming a better cannon.
+    // THE RIGHT UPGRADE FOR THIS GUN AND NO OTHER: the burst is already the
+    // shape it needs (round one designates, two through eight chase, no new
+    // timing concept), and it answers the tracker's real weakness — a lane hose
+    // is helpless against anything that changes lanes — without touching its
+    // damage, which is what stops it becoming a better cannon.
     //
-    // THE LANE RAKE SURVIVES IT, for free and with no special case. A locked
-    // car sitting dead ahead leaves `target.offset - s.offset` at nearly zero,
-    // so the rounds do not steer at all: they fly the same tracking line they
-    // always did and `pierce` still punches down the row of cars in the way.
-    // The lock only bends a round when the target actually leaves the lane,
-    // which is precisely when the player wanted it to.
+    // THE LANE RAKE SURVIVES IT with no special case: a locked car dead ahead
+    // leaves `target.offset - s.offset` near zero, so the rounds fly the same
+    // tracking line and `pierce` still punches down the row. The lock bends a
+    // round only when the target actually leaves the lane.
     lock: "autolock",
-    // HOW LONG A DESIGNATION LASTS. It has to outlive the burst that made it —
-    // the rest between bursts is 0.6s — or the player re-designates from
-    // scratch every time and the upgrade is invisible. Three and a half
-    // seconds carries a lock across four or five bursts of held trigger, and
-    // still expires soon enough that a car left alone stops being yours.
+    // HOW LONG A DESIGNATION LASTS. It must outlive the burst that made it (the
+    // rest between bursts is 0.6s) or the player re-designates every time and
+    // the upgrade is invisible. 3.5s carries a lock across four or five bursts
+    // of held trigger, and still expires soon enough that a car left alone
+    // stops being yours.
     lockTime: 3.5,
-    // LATERAL UNITS/SEC A LOCKED ROUND MAY STEER, and the whole balance of the
-    // upgrade lives in this one number. WELL UNDER THE ROCKET'S 260 on
-    // purpose: the seeking weapon has to stay the best seeker in the game, or
-    // the rocket's own reason to exist goes with it.
+    // LATERAL UNITS/SEC A LOCKED ROUND MAY STEER — the whole balance of the
+    // upgrade. WELL UNDER THE ROCKET'S 260: the seeking weapon has to stay the
+    // best seeker in the game or the rocket loses its reason to exist.
     //
-    // At 150 a round crosses a lane in about two thirds of a second, which
-    // holds a car that is drifting or committed to a line and loses one that
-    // commits to a hard change the moment it sees the burst. That is the
-    // difference between "the rounds follow" and "the rounds cannot miss", and
-    // it is the second of those that would break the weapon.
+    // At 150 a round crosses a lane in about two thirds of a second, holding a
+    // car that is drifting or committed and losing one that commits to a hard
+    // change the moment it sees the burst. That is the difference between "the
+    // rounds follow" and "the rounds cannot miss".
     lockTurnRate: 150,
   },
   {
     id: "rocket",
     label: "ROCKET",
-    // The heaviest hit in the catalogue and the slowest to reload — a rocket is
-    // meant to feel like the one round that actually matters, not a faster
-    // cannon. Numbers here are a FIRST PASS, same caveat as the blaster's:
-    // retune once the upcoming attack content gives it real targets to be
-    // measured against, not by dividing hull totals by this figure.
+    // The heaviest hit in the catalogue and the slowest to reload — the one
+    // round that matters, not a faster cannon. A FIRST PASS: retune against
+    // real targets, not by dividing hull totals by this figure.
     //
-    // One CONCRETE floor for that first pass: a direct hit must one-shot the
-    // sedan (60 hull, cartypes.js) with room to spare, not just tie it exactly
-    // — a bare tie is one falling-off-by-a-fraction bug away from the rocket
-    // quietly stopping being a one-shot weapon against the lightest thing on
-    // the road.
+    // One CONCRETE floor: a direct hit must one-shot the sedan (60 hull) with
+    // room to spare, not tie it — a bare tie is one rounding bug away from the
+    // rocket quietly ceasing to one-shot the lightest thing on the road.
     damage: 98, // +50% over the original 65
     // ~2.86 shots/sec — the slowest-firing of the three, but deliberately faster
     // than the round's OWN flight time across the screen. That relationship is
@@ -284,17 +264,16 @@ export const WEAPON_TYPES = [
     accel: 1500,
     topSpeed: 1200, // ~0.6s of burn to reach it, ~290 units of road spent doing so
     // SEEKING — the one weapon that goes where the TARGET is rather than where
-    // it was aimed. This is what finally separates the rocket from the tracker:
-    // the tracker holds the lane you fired it up, this crosses the lanes to
-    // meet a car that is trying to leave. Fire-and-forget, and the reason the
-    // heavy round is worth its magazine even though it is slow off the rail.
+    // it was aimed, which is what separates it from the tracker: the tracker
+    // holds the lane you fired it up, this crosses lanes to meet a car trying
+    // to leave. Fire-and-forget, and why the heavy round earns its magazine
+    // despite being slow off the rail.
     //
-    // It is ALSO why this weapon will still make sense against the air content
-    // to come (helicopter, drones): a target that changes lanes faster than
-    // anything on the tarmac is precisely what a straight or lane-locked round
-    // cannot answer, and what a seeker can. The lock is opt-in per body
-    // (projectiles.js's `seekable`), so those types choose for themselves
-    // whether they can be locked on — no change here when they land.
+    // Also why it will still make sense against the air content to come: a
+    // target that changes lanes faster than anything on the tarmac is exactly
+    // what a straight or lane-locked round cannot answer. The lock is opt-in
+    // per body (projectiles.js's `seekable`), so those types will choose for
+    // themselves — no change here when they land.
     flight: FLIGHT_SEEKING,
     // OUT-DRIVEABLE ON PURPOSE, and this is the weapon's difficulty knob. 260
     // lateral units/sec against the road's own lane width means the rocket
@@ -702,42 +681,33 @@ export class Weapon {
 
 // Everything a car is carrying, and which of it is in hand.
 //
-// A CYCLE ONLY EVER LANDS ON SOMETHING LOADED. An empty magazine is not a
-// choice the player would ever make on purpose: selecting one costs a keypress,
-// shows "0", and refuses to fire, so every TAB through a mostly-spent catalogue
-// was a press that did nothing. Both cycles skip anything empty, and the HUD
-// already agreed — main.js lists only the loaded guns plus whatever is in hand.
+// A CYCLE ONLY EVER LANDS ON SOMETHING LOADED. Selecting an empty magazine
+// costs a keypress, shows "0" and refuses to fire, so every TAB through a
+// mostly-spent catalogue was a press that did nothing. Both cycles skip empties,
+// and the HUD already agreed — main.js lists only loaded guns plus what's held.
 //
-// The magazine, not the cooldown, is the filter. A weapon that is merely
-// COOLING is still the weapon you meant to have out and will fire again in a
-// moment; a weapon with no rounds left will not fire again until something
-// refills it (a pickup, the dock).
+// THE MAGAZINE, NOT THE COOLDOWN, IS THE FILTER: a weapon merely COOLING is
+// still the one you meant to have out and fires again in a moment; one with no
+// rounds waits on a pickup or the dock.
 //
-// WHERE NOTHING IS LOADED, THE CURSOR STAYS PUT — the cycle is a no-op rather
-// than a jump to some arbitrary empty slot, so the HUD keeps reading the
-// weapon the player last chose. The gun cycle can only reach that state in a
-// catalogue with no infinite gun in it (the player's own always carries the
-// cannon); the deployable cycle reaches it the moment the last mine is laid.
+// WHERE NOTHING IS LOADED THE CURSOR STAYS PUT — a no-op rather than a jump to
+// an arbitrary empty slot, so the HUD keeps reading the last chosen weapon. The
+// gun cycle reaches that only in a catalogue with no infinite gun (the player's
+// always has the cannon); the deployable cycle reaches it on the last mine.
 //
-// AND RUNNING DRY MOVES THE CURSOR ITSELF. `settle()` is what the firing code
-// calls after a shot is spent: the round that emptied a magazine hands the
-// player the next loaded weapon instead of leaving them holding a spent one
-// and finding out by pulling a dead trigger.
+// RUNNING DRY MOVES THE CURSOR ITSELF: `settle()` is called after a shot is
+// spent, so the round that empties a magazine hands over the next loaded weapon
+// instead of leaving the player to find out by pulling a dead trigger.
 //
 // Cooldowns run for the WHOLE loadout, not just the weapon in hand (see
-// update), so swapping cannot be used to dodge a slow weapon's fire rate by
-// flicking away and back.
-// TWO CYCLES, NOT ONE, and the split is by what a weapon PUTS INTO THE WORLD
-// rather than by any flag naming the cycle itself. Anything with a `payload` is
-// a LAYER (the mine, and the deployables to come) and lives on its own cycle
-// under its own key; everything else is a GUN and lives on TAB's. `next()` and
-// `nextDeployable()` are the same walk over the same array, filtered opposite
-// ways — so adding a second layer to WEAPON_TYPES puts it on the deployable
-// cycle automatically, with nothing here to update.
+// update), so swapping cannot dodge a slow weapon's fire rate.
 //
-// The two cycles keep INDEPENDENT cursors: laying a mine must never disturb
-// which gun is in hand, which was the whole reason the mine got its own key in
-// the first place.
+// TWO CYCLES, split by what a weapon PUTS INTO THE WORLD rather than by a flag:
+// anything with a `payload` is a LAYER and lives on its own key, everything else
+// is a GUN on TAB's. `next()` and `nextDeployable()` are the same walk filtered
+// opposite ways, so a second layer added to WEAPON_TYPES joins the deployable
+// cycle with nothing here to update. The cursors are INDEPENDENT — laying a
+// mine must never disturb which gun is in hand, which is why it got its own key.
 // What each cycle will land on. Free functions rather than methods because
 // they are about ONE weapon and nothing else about the loadout — see #step.
 const isLoadedGun = (w) => !w.type.payload && !w.empty;

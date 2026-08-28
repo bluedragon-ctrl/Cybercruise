@@ -39,30 +39,27 @@
 // machines (rival, hypercar, cycle) at or over the player's ceiling.
 //
 // WITHIN a type, no two cars drive alike, and none of it costs a sprite: the
-// range is ROLLED per spawn; each car then WANDERS ±4% around its roll on its own
-// period so a close-rolling pair separates instead of locking into formation
+// range is ROLLED per spawn; each car WANDERS ±4% around its roll on its own
+// period, so a close-rolling pair separates instead of locking into formation
 // (traffic.js DRIFT); and an overtaker spends up to its profile's `passEffort`
-// more while committed to a pass. Civilian types carry the widest ranges, since a
-// civilian type is a spread of ordinary drivers; the speed machines are defined
-// by their ceiling and stay narrow. Both extras are CAPPED by speedMin/speedMax.
+// more while committed. Civilians carry the widest ranges (a civilian type is a
+// spread of ordinary drivers); the speed machines are defined by their ceiling
+// and stay narrow. Both extras are CAPPED by speedMin/speedMax.
 //
 // The band's WIDTH is not free: traffic sheds speed at traffic.js's ACCEL, and
-// behaviours.js sizes a follower's gap from that rate. The largest closing speed
-// the catalogue can produce is 730 - 120 = 610 units/sec, and ACCEL is set so one
-// second of closing rate still covers the road needed to match it. Widening the
-// band means revisiting that pair — see driving.js's followReaction, sized per
-// profile against the types that actually drive it.
+// behaviours.js sizes a follower's gap from that rate. The largest closing
+// speed the catalogue can produce is 730 - 120 = 610 units/sec, and ACCEL is
+// set so one second of closing still covers the road needed to match it.
+// Widening the band means revisiting that pair — see driving.js's
+// followReaction, sized per profile against the types that drive it.
 //
-// SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) is a cache key
-// in sprites.js, times WHEEL_FRAMES (8), plus one more colour for the
-// critical-hull blink: 16 types * 8 * 2 = 256 sprites at worst, built lazily.
-// (Was 240 at 15 types; the boss took it to 256. A `staged` type costs exactly
-// what any other does here — the cache is keyed on artwork, and the boss's
-// artwork is built the first time the encounter fires.)
-// Keeping the catalogue a small FIXED list is what bounds it — vary cars by
+// SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) is a cache
+// key in sprites.js, times WHEEL_FRAMES (8), plus one colour for the
+// critical-hull blink: 16 types * 8 * 2 = 256 sprites at worst, built lazily. A
+// `staged` type costs what any other does — the cache is keyed on artwork.
+// Keeping the catalogue a small FIXED list is what bounds this: vary cars by
 // ADDING A TYPE, never by rolling continuous per-instance sizes or colours.
-// Per-instance variety comes from speedMin..speedMax, which costs nothing
-// because speed doesn't affect the artwork.
+// speedMin..speedMax is free variety, since speed doesn't affect the artwork.
 
 import { carShapeIndex } from "./carshapes.js";
 import { DIST_UNITS } from "./road.js";
@@ -93,43 +90,35 @@ export const ENEMY_FACTION = "enemy";
 // own traffic, but that's a starting VALUE, not a starting STRUCTURE — the
 // scaffolding for telling types apart is already in place.
 
-// THE OPENING ROAD IS CIVILIAN. Every hostile type is held back until the player
-// has covered this much road, measured in the DIST readout's units (road.js), so
-// the run starts as ordinary traffic and the enemy arrives as a CHANGE the player
-// can feel rather than as the state of the world from the first second. It also
-// gives the opening a job: learn the car and the traffic before anything is out
-// here for you.
+// THE OPENING ROAD IS CIVILIAN. Every hostile type is held back until the
+// player has covered this much road (DIST readout units, road.js), so a run
+// starts as ordinary traffic and the enemy arrives as a CHANGE the player can
+// feel. It also gives the opening a job: learn the car and the traffic first.
 //
-// 100 on the odometer is 10,000 world units — roughly 16 seconds flat out, or a
-// minute and a half at the player's minimum, so dawdling buys a longer quiet
-// spell. That is deliberate: speed is what asks for the trouble.
+// 100 on the odometer is 10,000 world units — ~16 seconds flat out, or a minute
+// and a half at the player's minimum, so dawdling buys a longer quiet spell.
+// Deliberate: speed is what asks for the trouble.
 //
-// One figure for the whole faction for now, exactly as every hostile's own
-// literal `value` (below) currently reads the same 100 — the point of putting
-// `minDistance` on every type separately is that the enemy can later be
-// STAGED (interceptors early, a rival only much later) without touching a
-// line of traffic.js. Spread the entries when there is a reason to; leave this
-// constant as the faction's floor.
+// One figure for the whole faction for now. `minDistance` is per-type so the
+// enemy can later be STAGED (interceptors early, a rival much later) without
+// touching traffic.js; spread the entries when there is a reason to.
 const ENEMY_MIN_DISTANCE = 100;
 
 // THE FOCUS SWITCH — a testing aid, and the reason `minDistance` is worth having
 // as a gate rather than as a spawn weight.
 //
-// Tuning one type's driving means watching it, and a road running the full
-// catalogue gives you a few seconds of the car you care about between everything
-// else. List the ids you are working on here and only those reach the road; an
-// EMPTY list is the shipping catalogue, untouched. Ship it empty.
+// Tuning one type's driving means watching it, and the full catalogue gives you
+// a few seconds of the car you care about between everything else. List the ids
+// you are working on and only those reach the road. SHIP IT EMPTY.
 //
 //   const FOCUS = ["sedan", "roadster"];   // civilian profiles, nothing else
 //
-// Implemented as an override on the SAME gate the game ships with, rather than
-// as a filter of its own, so a focused road is still a road the real spawner
-// built: the same reweighting, the same "everything gated" path, the same
-// pickCarType. A filter bolted on beside it would be a second code path, and the
-// one thing a measurement harness must not do is measure a different game.
-// Exported so the suite can say so out loud: a focused catalogue breaks several
-// gating invariants below, and "van never appeared" is a much worse error
-// message than "FOCUS is still set". See test/hazards.test.js.
+// An override on the SAME gate the game ships with, not a filter of its own, so
+// a focused road is still a road the real spawner built — same reweighting,
+// same "everything gated" path, same pickCarType. A measurement harness must
+// not measure a different game. Exported so the suite can say so out loud: a
+// focused catalogue breaks several gating invariants below, and "van never
+// appeared" is a much worse error message than "FOCUS is still set".
 export const FOCUS = [];
 
 // TWO AXES OF BEHAVIOUR, and a type names both.
@@ -168,64 +157,50 @@ export const FOCUS = [];
 //   blastDamage hull taken at the centre of that blast, falling off linearly to
 //               nothing at the rim. The player has 100 hull
 //   value       points scored for DESTROYING this car (score.js). A LITERAL on
-//               every entry, not a shared constant, so a type can be given its
-//               own figure at any time (a boss, a special civilian) by editing
-//               only this line. Positive for the enemy, negative for the
-//               city's own traffic — killing a civilian is a fine, not a
-//               reward. Paid however the car died, including a chain reaction
-//               the player only lit the fuse for
-//   bounty      CREDITS paid for destroying this car (game/wallet.js) — money,
-//               not points, and a separate field from `value` precisely so the
-//               two can diverge. OMITTING IT ENTIRELY means the car is worth
-//               nothing financially, which is the shape "not every enemy pays"
-//               takes: a Phase 10 boss gets a windfall here, a swarm minion
-//               gets no `bounty` line at all, and neither needs a word of code
-//               in wallet.js. Flat across the whole catalogue today (25 for the
-//               enemy, -15 for the city's own traffic) for the same reason
-//               `value` is: a starting VALUE, not a starting STRUCTURE.
-//               NEGATIVE IS A FINE, and it is deliberately gentler than
-//               `value`'s own -100 relative to the reward — a civilian kill
-//               can empty the run's earnings but never digs into credits
-//               banked from earlier runs (wallet.js's header), so the score is
-//               where carelessness is punished hard and the wallet is where it
-//               is punished honestly
-//   behaviour   key into behaviours.js — the TACTIC. The nimble types `overtake`
-//               — they pull out and pass whatever is holding them up, the player
-//               included; the heavy ones `cruise`, so sitting in front of a rig
-//               means it stays there. That split is what stops every car on the
-//               road weaving at once. Most of the enemy tactics still borrow
-//               their driving from those two; a few (`raid`) are real
-//   driving     key into driving.js — the PROFILE: following distances, patience,
-//               lane discipline, and how much hull this driver will accept
-//               hitting. Omitted means `commuter`
-//   arms        key into armament.js's ARMAMENTS — the KIT. Omitted means every
-//               enemy-faction type gets the shared `hostile` loadout (gun +
-//               mine layer) and every neutral-faction type carries nothing;
-//               name a profile to override that default, e.g. a car that
-//               fights without a gun at all
-//   staged      TRUE means the ambient spawner never rolls this type at all —
-//               the only thing that puts one on the road is an events.js
-//               encounter naming it in a `stage` spec. The boss is the first,
-//               and the field exists because "a type nobody meets" and "a type
-//               only the director may place" are opposite things that a
-//               `weight: 0` would have made look identical. Read by
-//               typeAvailable, which is the one gate the spawner consults, so a
-//               staged type is invisible to pickCarType and to nothing else:
-//               planStage looks a type up BY ID and never asks about gates,
-//               which is exactly the seam that makes this a one-word change
-//               rather than a special case in the spawner
+//               every entry, not a shared constant, so a boss or a special
+//               civilian can be given its own figure by editing one line.
+//               Positive for the enemy, negative for the city's own traffic —
+//               a civilian kill is a fine. Paid however the car died, chain
+//               reactions the player only lit the fuse for included
+//   bounty      CREDITS for destroying this car (game/wallet.js) — money, not
+//               points, separate from `value` so the two can diverge. OMITTING
+//               IT means the car pays nothing, which is how "not every enemy
+//               pays" is expressed: a boss gets a windfall, a swarm minion gets
+//               no line at all, neither needs code in wallet.js. Flat today
+//               (25 enemy, -15 civilian) — a starting VALUE, not a STRUCTURE.
+//               The negative is gentler than `value`'s -100 on purpose: a
+//               civilian kill can empty the run's earnings but never touches
+//               credits banked earlier, so the score punishes carelessness hard
+//               and the wallet punishes it honestly
+//   behaviour   key into behaviours.js — the TACTIC. Nimble types `overtake`
+//               (they pass whatever holds them up, the player included), heavy
+//               ones `cruise` (sit in front of a rig and it stays there). That
+//               split is what stops every car weaving at once. Most enemy
+//               tactics borrow their driving from those two; a few are real
+//   driving     key into driving.js — the PROFILE: following distances,
+//               patience, lane discipline, and how much hull this driver will
+//               accept hitting. Omitted means `commuter`
+//   arms        key into armament.js's ARMAMENTS — the KIT. Omitted gives every
+//               enemy type the shared `hostile` loadout (gun + mine layer) and
+//               every neutral type nothing; name a profile to override
+//   staged      TRUE means the ambient spawner never rolls this type — only an
+//               events.js encounter naming it in a `stage` spec puts one on the
+//               road. The field exists because "a type nobody meets" and "a
+//               type only the director may place" are opposite things that
+//               `weight: 0` would make identical. Read by typeAvailable, the
+//               spawner's one gate; planStage looks types up BY ID and never
+//               asks about gates, which is the seam that keeps this a one-word
+//               change rather than a special case in the spawner
 //   weight      relative spawn frequency. Meaningless on a `staged` type, which
-//               is never in a draw to be weighted — written as 0 there so the
-//               entry reads as "never rolled" at a glance rather than looking
-//               like a rarity somebody forgot to tune
-//   minDistance how far the player must have driven before this type may spawn
-//               at all, in DIST-READOUT units (road.js's DIST_UNITS) — the same
-//               number the HUD shows, so a gate reads as "this turns up at DIST
-//               100". 0 means from the first metre. Once the gate opens the type
-//               is picked on `weight` as usual; this only decides WHETHER it is
-//               in the draw. See ENEMY_MIN_DISTANCE above for why the enemy
-//               starts late, and pickCarType for what happens when everything is
-//               still gated
+//               is never in a draw — written as 0 there so it reads as "never
+//               rolled" rather than a rarity somebody forgot to tune
+//   minDistance how far the player must have driven before this type may spawn,
+//               in DIST-READOUT units (road.js's DIST_UNITS) — the number the
+//               HUD shows, so a gate reads as "turns up at DIST 100". 0 means
+//               from the first metre. This only decides WHETHER a type is in
+//               the draw; once open it is picked on `weight` as usual. See
+//               ENEMY_MIN_DISTANCE for why the enemy starts late, and
+//               pickCarType for what happens while everything is still gated
 export const CAR_TYPES = [
   // --- Neutral: the city's own traffic --------------------------------------
   {
@@ -911,26 +886,22 @@ export const CAR_TYPES = [
     // and that gap is the one escape the encounter allows.
     speedMin: 640,
     speedMax: 730,
-    // SLOW HANDS, and the split from the speed above is the whole of what keeps
-    // it fair: it can hold the pace but it cannot dodge, so it stays a big
-    // target the cannon can actually stay on. A boss that was quick in both
-    // would simply be unhittable.
+    // SLOW HANDS, and the split from the speed above is what keeps it fair: it
+    // holds the pace but cannot dodge, so it stays a big target the cannon can
+    // stay on. Quick in both would be unhittable.
     //
-    // BOUNDED FROM BELOW, though, and by a rule rather than by feel. This is the
-    // first type in the catalogue that is both FAST and WALLOWING, and
-    // obstacles.js's SPAWN_MARGIN is sized so the worst dodger on the road still
-    // has room to cross two lanes before it reaches a hazard (behaviours.js's
-    // dodgeDistance, asserted in test/hazards.test.js). At 730 units/sec the
-    // floor works out at 120; anything under that asks the spawner to place
-    // hazards this car physically cannot avoid, which is a rule about the whole
-    // road rather than a preference about this one.
+    // BOUNDED FROM BELOW BY A RULE, not by feel. This is the first type that is
+    // both FAST and WALLOWING, and obstacles.js's SPAWN_MARGIN is sized so the
+    // worst dodger on the road can still cross two lanes before reaching a
+    // hazard (behaviours.js's dodgeDistance, asserted in test/hazards.test.js).
+    // At 730 units/sec that floor is 120; under it the spawner would be placing
+    // hazards this car physically cannot avoid.
     //
-    // 130 CLEARS IT WITH ROOM and still sits at the slow end of the hostile
-    // fleet — level with the interceptor, under the rival's 150 and the
-    // outrider's 200, with only the bruiser (70) and the stocker (100) below
-    // it. What actually makes this car unable to dodge is the SPEED, not the
-    // hands: at 730 units/sec, 130px/sec of slide is a lane every half second
-    // while the road goes past at five lengths a second.
+    // 130 CLEARS IT WITH ROOM and still sits at the slow end of the fleet —
+    // level with the interceptor, under the rival's 150 and the outrider's 200.
+    // What makes this car unable to dodge is the SPEED, not the hands: at 730
+    // units/sec, 130px/sec of slide is a lane every half second while the road
+    // goes past at five lengths a second.
     steerSpeed: 130,
     // The biggest death blast in the catalogue, and still under half the
     // player's hull at the centre: winning next to it should hurt and must

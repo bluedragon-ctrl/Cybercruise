@@ -17,9 +17,11 @@
 //   HEAL    restores hull via Player.heal, capped at maxHealth there.
 //   SHIELD  banks `duration` seconds of invulnerability via
 //           Player.chargeShield — the window opens on the first hit taken,
-//           not on contact with the crate.
+//           not on contact with the crate. With a window already open the
+//           crate PROLONGS it instead of banking behind it.
 //   BOOST   lifts BOTH ends of the player's speed band by `amount` world
-//           units/sec for `duration` seconds, via Player.activateBoost. The
+//           units/sec for `duration` seconds, via Player.activateBoost,
+//           which adds `duration` to an overdrive already running. The
 //           only kind that spends TWO numbers — every other effect above is
 //           "how much" or "how long", and an overdrive is meaningless without
 //           both. That is also why tools/car-editor surfaces a crate's whole

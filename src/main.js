@@ -111,36 +111,38 @@ const SHOP_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER buy &middot; ESC un
 initInput();
 initMouse(canvas);
 
-// Top-level game state: the menu owns the screen until START GAME/CONTINUE is
-// picked, then main's own update/render (unchanged below) take over. "menu"
-// only ever happens once, before the very first game; ESC toggles "playing"
-// to "paused" and back for the rest of the session — same menu.js screen
-// both times, see its header for how it tells the two apart.
+// Top-level game state. The menu owns the screen until START GAME/CONTINUE is
+// picked, then main's own update/render take over. "menu" happens once, before
+// the first game; ESC toggles "playing"/"paused" for the rest of the session —
+// the same menu.js screen both times, see its header for how it tells them
+// apart. "gameover" is that screen a third time; RESTART calls newGame().
 //
-// "connecting" is the run of the game/jackin.js boot sequence, and it is
-// "dying"'s exact mirror in every respect: the world is fully built and drawn
-// every frame, but frozen — nothing under "playing" runs — while the raster
-// boot resolves over the top of it. EVERY run starts here: START GAME enters
-// it from "menu", RESTART enters it from "gameover" (right after newGame()
-// rebuilds the world it is about to reveal). Only the AUDIO half of the
-// jack-in stays once-per-page — see the two call sites below.
+// THE FROZEN STATES are "connecting", "dying", "lifting" and "lowering". They
+// share one shape, and their handlers below only note what is unique to each:
 //
-// "dying" is the run of the game/disconnect.js death sequence (see the check
-// at the bottom of the "playing" branch below): the world is frozen — nothing
-// under "playing" runs — but still drawn, under the glitching car, for the
-// beat the sequence takes. "gameover" is menu.js's screen a third time, once
-// that beat is over; confirming its RESTART row calls newGame() and drops
-// straight back into "playing", the same way CONTINUE drops out of "paused".
-// "lifting", "shopping" and "lowering" are the shopping interlude, and the
-// first and third are "connecting" and "dying" all over again: the world is
-// fully built and drawn every frame but frozen — nothing under "playing" runs —
-// while game/hauler.js's cargo drone carries the car off the road and, later,
-// brings it back. "shopping" is the screen between them (game/shop.js), which
-// covers the world entirely the way "paused" does.
+//   THE WORLD IS DRAWN BUT NOT ADVANCED. render() runs its whole world path,
+//   so the road, the traffic and the car stay visible exactly where they were;
+//   nothing under "playing" runs, so nothing moves. Only the sequence itself
+//   ticks.
+//   THE SYS LOG STILL ANIMATES (engine/console.js) — it is presentation, not
+//   world state, so lines have to keep sliding and fading. The exception is
+//   "shopping", where the screen covers the world and there is no log to see.
+//   INPUT IS DRAINED, not merely ignored. input.js holds an edge until
+//   something consumes it, so a key pressed mid-sequence would otherwise sit
+//   in `fresh` and be read by the NEXT screen the instant it opened — opening
+//   a pause menu or firing a RESTART the player never asked for.
+//
+// What each one is: "connecting" runs game/jackin.js's boot and EVERY run
+// starts there (START GAME from "menu", RESTART from "gameover" after
+// newGame() has rebuilt the world it is about to reveal); only the AUDIO half
+// of the jack-in is once-per-page, see the two call sites below. "dying" runs
+// game/disconnect.js under the glitching car. "lifting"/"lowering" are
+// game/hauler.js's drone carrying the car off the road and back, with
+// "shopping" (game/shop.js) between them, covering the world as "paused" does.
 //
 // THE APPROACH IS NOT A STATE. The drone's arrival happens under "playing"
-// with the world still live, on purpose — see hauler.js's phase list. Only the
-// grab itself freezes anything.
+// with the world still live — see hauler.js's phase list. Only the grab
+// freezes anything.
 const menu = createMenu();
 let state = "menu"; // "menu" | "connecting" | "playing" | "paused" | "dying" | "gameover"
                     //   | "lifting" | "shopping" | "lowering"
@@ -178,18 +180,24 @@ function syncVolumes() {
   }
 }
 
-// Phase 8 step 5, PROBLEM 1: the AudioContext has to exist before the menu's
-// own SOUND/MUSIC sliders can preview anything (menu_adjust), which happens
-// well before START GAME is ever confirmed — so this builds the bus graph on
-// the very FIRST keydown of any kind, anywhere, rather than waiting for that
-// confirm (see synth.js's own startContext() header for the full reasoning).
-// `{ once: true }` removes this listener after it fires, so a page loaded
-// and left untouched never creates a context (nothing ever calls this), and
-// a second keypress simply finds nothing left registered — belt and braces
-// alongside context.js's own start(), which is independently idempotent
-// (`if (ctx) return`) regardless. music.jackIn() (below, on START GAME's own
-// confirm) is the separate, still-once-only call that starts the music
-// SCHEDULER — see its own comment for why the two stay split.
+// One menu tick, with the SFX every menu-driven state owes it — see
+// audio/menusfx.js for why this table and not menu.js decides which id each
+// gesture plays. The three callers (menu, paused, gameover) differ only in
+// what they do with `confirmed`, which is why that is all this returns.
+function tickMenu() {
+  const menuResult = menu.update(W);
+  if (menuResult.moved) music.play(MENU_SOUND.move);
+  if (menuResult.soundAdjusted || menuResult.toggled) music.play(MENU_SOUND.adjust);
+  return menuResult.confirmed;
+}
+
+// The AudioContext must exist before the menu's SOUND/MUSIC sliders can
+// preview anything (menu_adjust), which happens well before START GAME — so
+// the bus graph is built on the FIRST keydown of any kind (synth.js's
+// startContext()). `{ once: true }` means an untouched page never creates a
+// context; context.js's start() is independently idempotent anyway.
+// music.jackIn() below is the separate once-only call that starts the music
+// SCHEDULER — see its comment for why the two stay split.
 window.addEventListener("keydown", () => music.startContext(), { once: true });
 
 // The death sequence (game/disconnect.js). One instance, reused across
@@ -203,27 +211,18 @@ const disconnect = new Disconnect();
 const jackin = new JackIn();
 
 // CREDITS DO NOT PERSIST BETWEEN RUNS — YET. wallet.js has a working, tested,
-// localStorage-backed bank (loadBanked/saveBanked, and the whole "banked
-// survives into the next run" half of test/economy.test.js), and this one null
-// is what holds it switched off: the Wallet's `store` is injectable, a null
-// store reads as "no storage", and everything downstream of that already
-// behaves correctly with a bank that is always 0 (see wallet.js's storage()
-// comment, which was written for the browser-with-storage-disabled case and
-// covers this one unchanged).
+// localStorage-backed bank; this one null holds it off. The Wallet's `store`
+// is injectable, null reads as "no storage", and everything downstream already
+// behaves with a bank that is always 0 (wallet.js's storage()).
 //
-// WHY OFF. A bank in localStorage is a bank on ONE BROWSER ON ONE MACHINE,
-// with nothing tying it to a player. Until the game has accounts and keeps
-// records per player (README's Phase 13, the online server), a persisted
-// balance is not progress the player owns — it is progress they lose by
-// switching device or clearing site data, and that nobody can carry anywhere.
-// Money that lives and dies with a single run makes an honest promise instead:
-// what you earn this run is what the shop has to spend this run.
+// WHY OFF: a localStorage bank belongs to ONE BROWSER ON ONE MACHINE, with
+// nothing tying it to a player. Until the game keeps per-player records
+// (README's Phase 13), a persisted balance is not progress the player owns —
+// it is progress they lose by switching device. Money that dies with the run
+// makes an honest promise: what you earn this run is what the shop can spend.
 //
-// TURNING IT BACK ON is this line, once player records exist: pass a real
-// store — localStorage, or whatever the server hands back for a signed-in
-// player. Nothing else in main.js or wallet.js has to change, which is exactly
-// why the switch is here at the injection seam rather than carved through the
-// money code.
+// TURNING IT ON is this line — pass a real store. Nothing else changes, which
+// is why the switch sits at the injection seam rather than in the money code.
 const CREDIT_STORE = null;
 
 // The shopping interlude's two halves, owned exactly the way `disconnect` and
@@ -235,18 +234,16 @@ const CREDIT_STORE = null;
 const hauler = new Hauler(H);
 const shop = createShop();
 
-// WHAT A STAGED EVENT IS ALLOWED TO HAND OFF TO. game/events.js schedules every
-// staged moment on the road, but most of them are cars and hazards it puts down
-// itself; a `handoff` is the other kind — an encounter whose body is a sequence
-// some other module already owns. The director names a HANDLER, never a module,
-// so it never learns that a cargo drone exists: the wiring lives here, the same
-// way every other cross-system connection in this file does (the sector gong
-// below, traffic's onDestroyed, the hostile fireShot/dropMine hooks).
+// WHAT A STAGED EVENT MAY HAND OFF TO. game/events.js schedules every staged
+// moment on the road; most are cars and hazards it places itself, but a
+// `handoff` is an encounter whose body some other module owns. The director
+// names a HANDLER, never a module, so it never learns a cargo drone exists —
+// the wiring lives here, like every other cross-system connection in this file.
 //
-// `fire` starts it; `live` is how the director knows the encounter is still
-// running, which is what holds every other event off for the whole of a shop
-// visit rather than just the tick it began. Between them they are the entire
-// interface — hauler.js's phases, its frozen lift and its timeline stay its own.
+// `fire` starts it; `live` tells the director the encounter is still running,
+// which holds every other event off for the whole shop visit rather than just
+// the tick it began. That is the entire interface — hauler.js's phases, its
+// frozen lift and its timeline stay its own.
 const EVENT_HANDLERS = {
   shop: {
     fire: () => hauler.approach(player.x, player.y),
@@ -361,27 +358,22 @@ function onPickupCollected(type) {
   music.play(PICKUP_SOUND[type.kind]);
 }
 
-// Phase 8 step 4's audio hook onto engine/console.js's subscriber seam
-// (onPush) — registered below, in newGame(), rather than here at module
-// scope. Every OTHER audio hook in this file (onCarDestroyed,
-// onPlayerDamage, onPickupCollected above) is handed to a per-run object's
-// constructor and never needs re-wiring; this one is different because
-// console.js's own reset() deliberately clears its subscriber (see that
-// function's own comment on why), so newGame() has to re-register it every
-// time, the same way it re-registers everything else PER-RUN below. See
-// console.js's own onPush() header for why the wiring lives here at all
-// rather than inside console.js.
-// Two listeners off one seam, fanned out HERE rather than by growing
-// console.js's `subscriber` into a list. The seam has had exactly one consumer
-// for its whole life and the second one is in this same file — a subscriber
-// array would be more machinery than the two lines it saves, and it would move
-// the question of "what listens to the log" out of the one file that already
-// answers every other wiring question in this game.
+// The audio hook onto engine/console.js's subscriber seam (onPush). Registered
+// in newGame(), not at module scope: every other audio hook here is handed to a
+// per-run object's constructor, but console.js's reset() clears its subscriber,
+// so this one must be re-registered per run. See console.js's onPush() header
+// for why the wiring lives in main.js at all.
 //
-// The gutter gets the line VERBATIM apart from telemetry.js's own prefix: it is
-// the same log, shown somewhere with room for it, not a second commentary. What
-// makes it a bigger log rather than a duplicate one is that the in-canvas panel
-// stops drawing most of it while the gutter is up (see setDivert above).
+// TWO LISTENERS OFF ONE SEAM, fanned out here rather than by growing
+// console.js's `subscriber` into a list. The seam has had one consumer for its
+// whole life and the second is in this same file — an array would be more
+// machinery than the two lines it saves, and would move "what listens to the
+// log" out of the file that answers every other wiring question.
+//
+// The gutter gets the line VERBATIM apart from telemetry.js's prefix: the same
+// log shown where there is room, not a second commentary. What keeps it from
+// being a duplicate is that the in-canvas panel stops drawing most of it while
+// the gutter is up (see setDivert above).
 function onConsolePush(text, severity) {
   music.play(CONSOLE_SOUND[severity]);
   const line = telemetry.eventLine(text, severity);
@@ -394,25 +386,18 @@ function onConsolePush(text, severity) {
 // this in newGame() would blank a row describing something still audible.
 let currentTrack = "STANDBY";
 
-// The deck reporting its own audio feed — synth.js's own onTrackChange
-// facade, forwarding trackmusic.js's subscriber seam (see that file's
-// header). Registered ONCE, below, right after `music` exists, unlike
-// onConsolePush just above: there is no per-run reset to survive here
-// (trackmusic.js's subscriber isn't touched by newGame() or
-// gameConsole.reset()), and the track backend itself only ever starts once
-// per page life (synth.js's jackIn() header) — one subscription made now
-// covers the first track and every later handoff for the rest of the
-// session. Composing the actual SYS LOG line is main.js's job, not
-// trackmusic.js's or synth.js's, for the same reason CONSOLE_SOUND above
-// lives here rather than in console.js: the fiction (matching links.js's
-// own "//"-joined register) belongs with the module that already owns every
-// other console line's wording, not buried in the audio layer.
+// The deck reporting its own audio feed — synth.js's onTrackChange facade over
+// trackmusic.js's subscriber seam. Registered ONCE, right after `music` exists,
+// unlike onConsolePush above: nothing resets that subscriber per run, and the
+// track backend starts once per page life, so one subscription covers every
+// handoff for the session.
 //
-// Never fires before a run is underway: trackmusic.js only ever invokes its
-// subscriber from playIndex(), which nothing reaches before jackIn() commits
-// to the track backend (see trackmusic.js's own comment on that call site) —
-// so there's no way for this to write into a SYS LOG the player isn't even
-// looking at yet.
+// Composing the SYS LOG line is main.js's job for the same reason CONSOLE_SOUND
+// is: the fiction (links.js's "//"-joined register) belongs with the module
+// that owns every other console line's wording, not the audio layer.
+//
+// Never fires before a run is underway — trackmusic.js only invokes its
+// subscriber from playIndex(), which nothing reaches before jackIn().
 function onTrackChange(name) {
   // Also parked for the rig panel's FEED row, which reports what is playing
   // continuously rather than only at the moment it changed. Read off the same
@@ -677,14 +662,11 @@ function dropMine(car, type) {
 // one 400-line function.
 // How often the rig panel's readouts are resampled, in seconds.
 //
-// FOUR TIMES A SECOND, NOT SIXTY. The panel is DOM, and the one rule the whole
-// gutter design rests on is that it never repaints on the game's clock — a
-// per-frame write of nine values would put a steady text repaint next to the
-// canvas forever, to show numbers nobody can read changing faster than 4Hz
-// anyway. Fast enough that the panel never looks frozen, slow enough that it is
-// not in the frame budget at all. gutter.setStatus() then diffs on top of this,
-// so the sample rate is the CEILING on DOM writes, not the actual rate: a parked
-// car in the menu resamples four times a second and writes nothing.
+// FOUR TIMES A SECOND, NOT SIXTY. The panel is DOM, and the gutter design
+// rests on it never repainting on the game's clock. 4Hz is below what anyone
+// can read and out of the frame budget entirely. gutter.setStatus() diffs on
+// top of this, so it is the CEILING on DOM writes, not the rate: a parked car
+// in the menu resamples four times a second and writes nothing.
 const RIG_SAMPLE = 0.25;
 let rigDue = 0;
 
@@ -694,55 +676,39 @@ let rigDue = 0;
 // drawHud, which by definition has no running timer behind it).
 let hudClock = 0;
 
-// What the deck knows about itself this instant, in the shape game/telemetry.js
-// wants. Assembled here because main.js is the only module that holds all of it
-// — the player, the wallet, the score, the odometer and the state machine live
-// at this level and nowhere below it.
+// How each game state reads on the deck. ONE table for both columns, so the
+// nine states can never be listed twice and drift apart.
 //
-// `link` is the state machine's own vocabulary, translated. Reporting the raw
-// state name would leak an implementation detail into the fiction, and half of
-// them ("lifting", "lowering") describe a crane rather than a connection.
-const LINK_STATE = {
-  menu: "STANDBY",
-  connecting: "HANDSHAKE",
-  playing: "ACTIVE",
-  paused: "HELD",
-  dying: "SIGNAL LOST",
-  gameover: "OFFLINE",
-  lifting: "DOCKING",
-  shopping: "DOCKED",
-  lowering: "UNDOCKING",
+//   link  the state machine's vocabulary, TRANSLATED. The raw state name would
+//         leak an implementation detail into the fiction, and half of them
+//         ("lifting", "lowering") describe a crane rather than a connection.
+//   mode  which VOICE the deck talks in — a coarser question, nine states to
+//         three voices, drawing the line at "is the world actually running".
+//         telemetry.js's routine pool is road strips, lot lookups and nav
+//         vectors, and printing those over a menu or a wreck describes
+//         something that is not happening. "connecting" is idle for the same
+//         reason: the world is frozen, and jackin.js's scripted boot beats
+//         should own the log for that stretch rather than compete with filler.
+const DECK_STATE = {
+  menu:       { link: "STANDBY",     mode: "idle" },
+  connecting: { link: "HANDSHAKE",   mode: "idle" },
+  playing:    { link: "ACTIVE",      mode: "live" },
+  paused:     { link: "HELD",        mode: "idle" },
+  dying:      { link: "SIGNAL LOST", mode: "down" },
+  gameover:   { link: "OFFLINE",     mode: "down" },
+  lifting:    { link: "DOCKING",     mode: "idle" },
+  shopping:   { link: "DOCKED",      mode: "idle" },
+  lowering:   { link: "UNDOCKING",   mode: "idle" },
 };
-
-// Which VOICE the deck talks in, which is a coarser question than which state
-// the game is in — nine states, three voices.
-//
-// The distinction the map exists to draw is "is the world actually running":
-// telemetry.js's routine pool is all road strips, lot lookups and nav vectors,
-// and printing those over a menu or a wreck describes something that is not
-// happening. "connecting" is idle rather than live on the same principle — the
-// world is built but frozen, and jackin.js's own scripted boot beats should own
-// the log for that stretch rather than compete with filler about traffic.
-const DECK_MODE = {
-  menu: "idle",
-  connecting: "idle",
-  playing: "live",
-  paused: "idle",
-  dying: "down",
-  gameover: "down",
-  lifting: "idle",
-  shopping: "idle",
-  lowering: "idle",
-};
+const DECK_STATE_FALLBACK = DECK_STATE.menu;
 
 // Bytes to a human string, for the BUFFER readout.
 //
-// performance.memory is CHROME-ONLY and non-standard, so this is written to
-// degrade rather than to be relied on: no reading means the row prints "n/a" and
-// the log's buffer line quietly says the same. Worth having anyway — the browser
-// this is developed and played in is the one that reports it, and a heap figure
-// climbing across a long run is the one leak signal this game could plausibly
-// produce (the sprite cache and the road strips both grow with `scale`).
+// performance.memory is CHROME-ONLY and non-standard, so this degrades: no
+// reading prints "n/a". Worth having anyway — Chrome is where this is
+// developed, and a heap figure climbing across a long run is the one leak
+// signal this game could plausibly produce (the sprite cache and the road
+// strips both grow with `scale`).
 function heapText() {
   const mem = performance.memory;
   if (!mem || !mem.usedJSHeapSize) return "n/a";
@@ -777,9 +743,11 @@ function deckSnapshot() {
   // row worth reading.
   const entities = traffic.cars.length + obstacles.list.length + pickups.list.length;
 
+  const deck = DECK_STATE[state] ?? DECK_STATE_FALLBACK;
+
   return {
-    mode: DECK_MODE[state] ?? "idle",
-    link: LINK_STATE[state] ?? "STANDBY",
+    mode: deck.mode,
+    link: deck.link,
     fps,
     loss,
     frameMs: frame.workMs.toFixed(1),
@@ -846,61 +814,43 @@ function update(dt) {
 }
 
 function updateMenu() {
-
-  const menuResult = menu.update(W);
-  // Phase 8 step 5's menu SFX — see audio/menusfx.js's own header for why
-  // this table, not menu.js itself, decides which id each gesture plays.
-  // "confirm" is handled separately below: START GAME gets jack_in
-  // instead of the plain menu_confirm tone (see music.jackIn()'s own
-  // comment for why the two never both fire for the same confirm).
-  if (menuResult.moved) music.play(MENU_SOUND.move);
-  if (menuResult.soundAdjusted || menuResult.toggled) music.play(MENU_SOUND.adjust);
-  if (menuResult.confirmed) {
-    // Into game/jackin.js's boot sequence, NOT straight into "playing" — see
-    // the `state` comment above. The hint bar stays empty for its duration,
-    // the same way it does while "dying": there is nothing to steer yet.
+  // START GAME gets jack_in INSTEAD of the plain confirm tone — see
+  // music.jackIn() for why the two never both fire for one confirm.
+  if (tickMenu()) {
+    // Into game/jackin.js's boot, NOT straight into "playing". The hint bar
+    // stays empty for its duration: there is nothing to steer yet.
     state = "connecting";
     hint.innerHTML = "";
-    // THE START GAME transition. The keypress that just confirmed this
-    // row is also the user gesture AudioContext creation needs — see
-    // synth.js's header — though in practice the context has usually
-    // already been built by the FIRST keypress of the session (see the
-    // startContext() listener above), START GAME just being the common
-    // case where that happens to be the very same press. jackIn() plays
-    // the descending riser and starts the music scheduler timed to land
-    // its first downbeat right as the riser ends — see its own comment.
-    // ONCE PER PAGE, unlike the visual sequence on the line below, which
-    // RESTART runs again (see the "gameover" branch).
+    // The confirming keypress doubles as the user gesture AudioContext
+    // creation needs (synth.js), though in practice the FIRST keypress of the
+    // session has usually built it already (the startContext() listener
+    // above). jackIn() plays the descending riser and starts the music
+    // scheduler timed to land its first downbeat as the riser ends. ONCE PER
+    // PAGE, unlike the visual sequence below, which RESTART runs again.
     music.jackIn();
     jackin.trigger(player.x, player.y, player.w, player.h);
   }
-  // The MUSIC/SOUND rows can only have moved on the update() call just above.
+  // The MUSIC/SOUND rows can only have moved on the tick just above.
   syncVolumes();
 }
 
 function updatePaused() {
-
-  // ESC again resumes directly, without going through CONTINUE — the same
-  // key that opened the pause screen closes it. A fresh consumePress each
-  // time, so this never fires on the very keypress that just opened pause.
+  // ESC resumes directly, without going through CONTINUE — the same key that
+  // opened pause closes it. A fresh consumePress, so this never fires on the
+  // very keypress that opened it.
   if (consumePress("pause")) {
     state = "playing";
     hint.innerHTML = PLAY_HINT;
-    // Backing out of the menu WITHOUT confirming a row — the one place
-    // menu_back plays; see audio/menusfx.js's own header.
+    // Backing out WITHOUT confirming a row — the one place menu_back plays.
     music.play(MENU_SOUND.back);
     return;
   }
-  const menuResult = menu.update(W);
-  if (menuResult.moved) music.play(MENU_SOUND.move);
-  if (menuResult.soundAdjusted || menuResult.toggled) music.play(MENU_SOUND.adjust);
-  if (menuResult.confirmed) {
+  if (tickMenu()) {
     state = "playing";
     hint.innerHTML = PLAY_HINT;
-    // CONTINUE resumes a run whose music has been playing the whole
-    // time it was paused (the scheduler never stops — see proceduralmusic.js's own
-    // header) — a plain confirm tone, not jack_in, which is reserved for
-    // the one moment the scheduler itself actually starts.
+    // CONTINUE gets a plain confirm tone, not jack_in: the music never stopped
+    // while paused (the scheduler never stops — proceduralmusic.js), and
+    // jack_in is reserved for the one moment the scheduler actually starts.
     music.play(MENU_SOUND.confirm);
   }
   syncVolumes();
@@ -908,21 +858,11 @@ function updatePaused() {
 
 function updateConnecting(dt) {
 
-  // "dying" in reverse, and frozen for the same reason: the world is built
-  // and drawn (render() runs its whole world path below) but nothing under
-  // "playing" advances it, so the road, the traffic and the player's car all
-  // sit exactly where newGame() put them until the feed is up.
+  // A FROZEN STATE — see `state` above for the shape all four share. The world
+  // sits where newGame() put it until the feed is up.
   jackin.update(dt);
-  // The SYS LOG's own animation, though — the boot lines jackin.update()
-  // just pushed have to slide and fade like any other line, so this ONE
-  // system keeps ticking while everything else is held. It is presentation,
-  // not world state (engine/console.js).
   gameConsole.update(dt);
-  // Drained every tick for exactly the reason the "dying" branch drains
-  // "fire": input.js holds an edge until something consumes it, so an ESC
-  // pressed during the boot would otherwise sit in `fresh` and open the
-  // pause menu on the first real gameplay tick, a screen the player never
-  // asked for. Nothing is steerable yet, so nothing else is read.
+  // Only "pause" is drained: nothing is steerable yet, so nothing else is read.
   consumePress("pause");
   if (jackin.done) {
     state = "playing";
@@ -932,21 +872,13 @@ function updateConnecting(dt) {
 
 function updateDying(dt) {
 
-  // The world is frozen — nothing below this branch runs, so the road,
-  // traffic and the player's own last position all just sit exactly where
-  // they were the instant the hull hit zero (render() still draws them
-  // every frame; it's only update() that has stopped moving them). Only the
-  // death sequence itself advances.
+  // A FROZEN STATE — see `state` above. Everything sits where it was the
+  // instant the hull hit zero; only the death sequence advances.
   disconnect.update(dt);
-  // Drained every tick, not just the one the sequence ends on: "fire" is
-  // held down (isDown, see the weapon check under "playing") rather than
-  // edge-consumed while shooting, so a press mid-sequence — the player
-  // still mashing fire as the car glitches out — would otherwise sit in
-  // input.js's `fresh` set until "gameover" opens below and consumePress
-  // reads it as THAT screen's confirm, instantly firing RESTART before the
-  // player has even seen it. Input is already ignored while "dying" (see
-  // the branch's own header comment); this just makes "fire" ignored too,
-  // instead of silently queuing itself for the next screen.
+  // "fire" is the one drained here, because it is HELD (isDown) rather than
+  // edge-consumed while shooting: a player still mashing it as the car
+  // glitches out would have that press read as "gameover"'s confirm, firing
+  // RESTART before they had seen the screen.
   consumePress("fire");
   if (disconnect.done) {
     state = "gameover";
@@ -956,56 +888,39 @@ function updateDying(dt) {
 }
 
 function updateGameOver() {
-
-  // Same screen, same interaction as "paused" above — RESTART is row 0's
-  // label here (menu.js's ROW0_LABEL) the way CONTINUE is there — except
-  // confirming it starts a fresh run instead of resuming a frozen one.
-  const menuResult = menu.update(W);
-  if (menuResult.moved) music.play(MENU_SOUND.move);
-  if (menuResult.soundAdjusted || menuResult.toggled) music.play(MENU_SOUND.adjust);
-  if (menuResult.confirmed) {
+  // Same screen and interaction as "paused" — RESTART is row 0's label here
+  // (menu.js's ROW0_LABEL) where CONTINUE is there — but it starts a fresh run
+  // instead of resuming a frozen one.
+  if (tickMenu()) {
+    // newGame() FIRST: it resets the jack-in and clears the SYS LOG, so the
+    // boot lines pushed below belong to the new run instead of being wiped.
     newGame();
-    // RESTART jacks in again, exactly like START GAME did — a run always
-    // begins with the rig coming up, and the game-over screen the player is
-    // confirming from has just told them the deck is REACQUIRING SIGNAL
-    // (game/disconnect.js's own readout), so cutting straight to a moving
-    // road would leave that sentence unanswered. newGame() FIRST: it resets
-    // this sequence and clears the SYS LOG, so the boot lines pushed from
-    // here on belong to the new run rather than being wiped by it.
+    // RESTART jacks in again. The game-over screen has just told the player
+    // the deck is REACQUIRING SIGNAL (disconnect.js's readout), so cutting
+    // straight to a moving road would leave that sentence unanswered.
     state = "connecting";
     hint.innerHTML = "";
     jackin.trigger(player.x, player.y, player.w, player.h);
-    // RESTART — same plain confirm tone as CONTINUE (see its own comment
-    // above): the scheduler is already running, this is just resuming the
-    // GAME, not the deck jacking in a second time. So the boot above plays
-    // over music that never stopped, with no riser of its own — the riser
-    // and the backend start are once-per-page (synth.js's jackIn()).
+    // Plain confirm tone, as CONTINUE gets: the scheduler is already running,
+    // so the boot plays over music that never stopped, with no riser. The
+    // riser and the backend start are once-per-page (synth.js's jackIn()).
     music.play(MENU_SOUND.confirm);
   }
   syncVolumes();
 }
 
-// THE FROZEN HALVES of the shopping interlude, and they are updateConnecting()
-// almost line for line — same freeze, same reasons, same two exceptions. The
-// world is built and drawn (render() runs its whole world path) but nothing
-// under "playing" advances it, so the road, the traffic and the car all sit
-// where they were while the drone does its work over the top.
+// THE FROZEN HALVES of the shopping interlude — see `state` above for the
+// shape all four frozen states share. The drone does its work over a world
+// that is drawn but not advancing.
 //
-// `player.x` is handed to hauler.update() so the drone keeps tracking the lane
-// the car is in — the car is not moving any more, so this is really just the
-// smoothing finishing its converge on a value that has stopped changing (see
-// hauler.js's update()).
+// `player.x` is handed to hauler.update() so the drone keeps tracking the
+// car's lane; the car has stopped, so this is the smoothing finishing its
+// converge on a value that no longer changes (hauler.js's update()).
 function updateLifting(dt) {
   hauler.update(dt, player.x);
-  // The SYS LOG's own animation, the one system that keeps ticking through a
-  // freeze because it is presentation rather than world state — updateConnecting
-  // and updateDying make the same exception for the same reason.
   gameConsole.update(dt);
-  // Drained every tick, exactly as the boot and death sequences drain theirs:
-  // input.js holds an edge until something consumes it, so a key pressed while
-  // the car is in the air would otherwise sit in `fresh` and be read as the
-  // shop screen's own undock the instant it opened — skipping a screen the
-  // player never saw. Nothing is steerable here, so nothing else is read.
+  // Both drained, or a key pressed while the car is in the air is read as the
+  // shop screen's undock the instant it opens — skipping a screen unseen.
   consumePress("pause");
   consumePress("fire");
   if (hauler.done) {
@@ -1226,27 +1141,22 @@ function updatePlaying(dt) {
     // re-based on the centre-line, exactly as collisions.js does it. What the
     // bullet does with it from here is the weapon's flight mode's business.
     const centerX = road.centerXAt(distance, W);
-    // ONE PULL, ONE OR MORE ROUNDS. muzzleOffsets is the whole of what the TWIN
-    // CANNON and TWIN RACK specials do at the trigger (weapons.js): a stock car
-    // gets back a single [0] and this loop runs once, exactly as the single
-    // spawn call here always did.
+    // ONE PULL, ONE OR MORE ROUNDS — muzzleOffsets is the whole of what the
+    // TWIN CANNON and TWIN RACK specials do at the trigger (weapons.js); a
+    // stock car gets back a single [0].
     //
-    // THE ROUNDS SHARE THE COOLDOWN AND THE ROUND, deliberately: tryFire above
-    // has already been called once, so a paired weapon fires twice as much
-    // metal for the same rate of fire and the same ammunition. That IS the
-    // upgrade — pairing a weapon that then burned two rounds a press would be
-    // selling the player nothing but a louder magazine.
+    // THE ROUNDS SHARE THE COOLDOWN AND THE ROUND: tryFire has already been
+    // called once, so a paired weapon fires twice the metal for the same rate
+    // and the same ammunition. That IS the upgrade — a pairing that burned two
+    // rounds a press would sell the player nothing but a louder magazine.
     const muzzles = muzzleOffsets(weapon.type, player.specials);
-    // AUTOLOCK, both halves of it: what this round will designate if it
-    // connects, and what it should chase if something is designated already.
-    // Both are 0/null for every weapon the player has not bought it for, which
-    // is the case that costs projectiles.js nothing.
+    // AUTOLOCK, both halves: what this round designates if it connects, and
+    // what it chases if something is designated already. Both 0/null for any
+    // weapon it was not bought for, which costs projectiles.js nothing.
     //
-    // The lock is read HERE, at the muzzle, rather than looked up mid-flight —
-    // so a round chases the car that was designated when it was FIRED. A burst
-    // whose rounds re-checked in the air would swing mid-flight the moment the
-    // player designated something else, which is not what "the rest of the
-    // burst follows" means to anyone watching it.
+    // Read HERE, at the muzzle, not mid-flight, so a round chases the car that
+    // was designated when it was FIRED — rounds re-checking in the air would
+    // swing the whole burst the moment the player designated something else.
     SHOT_OPTS.lockOn = shotLock(weapon.type, player.specials);
     SHOT_OPTS.target = SHOT_OPTS.lockOn > 0 ? lock.car : null;
     SHOT_OPTS.turnRate = lockTurnRate(weapon.type, player.specials);
@@ -1562,14 +1472,20 @@ function drawHud() {
     // player would have no way to know they are carrying one. Breathes
     // instead of counting down — there is nothing running to count — at the
     // shield halo's own pulse rate so the HUD reads as the same system.
-    // The banked figure is now printed too, not just implied: chargeShield
+    // The banked figure is printed too, not just implied: chargeShield
     // stacks (player.js), so a player who has driven over two or three crates
     // needs to see that the bank actually grew, not just that something is
     // armed.
+    //
+    // SAME "SHIELD <n>s" WORDING AS THE RUNNING STATE ABOVE, not "SHIELD
+    // CHARGED <n>s": this readout is right-aligned into the same row as the
+    // HULL label on the left, and the longer string ran into it. The breath
+    // is what distinguishes armed from running — steady text counts down, a
+    // pulsing one is waiting for a hit.
     const breath = (Math.sin(hudClock * 4.2) + 1) / 2; // player.js's SHIELD_PULSE_RATE
     ctx.save();
     ctx.globalAlpha = 0.55 + 0.45 * breath;
-    glowText(ctx, `SHIELD CHARGED ${player.shieldCharge.toFixed(1)}s`, bx + bw, by - 16, PLAYER, 12, "right", 8);
+    glowText(ctx, `SHIELD ${player.shieldCharge.toFixed(1)}s`, bx + bw, by - 16, PLAYER, 12, "right", 8);
     ctx.restore();
   }
 
