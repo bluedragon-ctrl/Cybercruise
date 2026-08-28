@@ -55,8 +55,9 @@
 //
 // SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) is a cache
 // key in sprites.js, times WHEEL_FRAMES (8), plus one colour for the
-// critical-hull blink: 16 types * 8 * 2 = 256 sprites at worst, built lazily. A
-// `staged` type costs what any other does — the cache is keyed on artwork.
+// critical-hull blink: 17 types * 8 * 2 = 272 sprites at worst, built lazily. A
+// `staged` type costs what any other does — the cache is keyed on artwork, and
+// the gunship's is built the first time its encounter rolls.
 // Keeping the catalogue a small FIXED list is what bounds this: vary cars by
 // ADDING A TYPE, never by rolling continuous per-instance sizes or colours.
 // speedMin..speedMax is free variety, since speed doesn't affect the artwork.
@@ -183,6 +184,20 @@ export const FOCUS = [];
 //   arms        key into armament.js's ARMAMENTS — the KIT. Omitted gives every
 //               enemy type the shared `hostile` loadout (gun + mine layer) and
 //               every neutral type nothing; name a profile to override
+//   airborne    TRUE means this thing FLIES, and it is the one field here that
+//               changes what a car IS rather than how it drives. It says one
+//               thing — THIS BODY IS NOT IN THE ROAD PLANE — and four systems
+//               each read it once to say what that costs:
+//                 traffic.js      keeps it out of the ramming solver and off the
+//                                 tarmac clamp, and mirrors it onto the body as
+//                                 `airborne` for the two below
+//                 behaviours.js   skips its hazard reflex: it flies over mines
+//                                 rather than round them
+//                 projectiles.js  refuses it to any round that is not SEEKING
+//                 collisions.js   inBlastPlane, which the three blast sweeps ask
+//               The third is the point of the flag — see the gunship record for
+//               why ALTITUDE, not lateral position, is what decides which
+//               weapons can touch it
 //   staged      TRUE means the ambient spawner never rolls this type — only an
 //               events.js encounter naming it in a `stage` spec puts one on the
 //               road. The field exists because "a type nobody meets" and "a
@@ -935,6 +950,116 @@ export const CAR_TYPES = [
     // health threshold: a future boss buys the instrument with one line, and no
     // ordinary enemy ever grows one by accident.
     hullMeter: true,
+  },
+
+  // --- The air ---------------------------------------------------------------
+  {
+    // THE GUNSHIP. The first thing in this catalogue that is not on the road,
+    // and — like the boss above — still a plain CAR_TYPES row driven by a plain
+    // behaviours.js tactic. It cost the game one flag and no new entity.
+    //
+    // WHAT MAKES IT AIRBORNE is `airborne` below, and what that flag BUYS is one
+    // rule the player can state in a sentence: the cannon shoots along the road,
+    // and this is not on the road, so only the rocket can reach it. weapons.js's
+    // ROCKET already anticipated exactly this — "a target that changes lanes
+    // faster than anything on the tarmac is exactly what a straight or
+    // lane-locked round cannot answer" — and said the types would opt in for
+    // themselves. This is the type that does.
+    //
+    // NOT A BOSS, deliberately. No hull meter, no phases, no `at` milestone: it
+    // is a rolled encounter the player meets repeatedly and learns to answer, and
+    // the answer is a weapon they have to have gone shopping for.
+    id: "gunship",
+    label: "COMBAT DRONE",
+    // Authored in bossshapes.js as ARMORED QUAD and graduated into carshapes.js
+    // the day this record was written — the second hull to come across, after
+    // the SIEGE MORTAR above.
+    shape: carShapeIndex("ARMORED QUAD"),
+    faction: ENEMY_FACTION,
+    color: ENEMY_DEEP,
+    thrust: ENEMY_THRUST,
+    // The shape's own authored size, unchanged. Square, which nothing else on
+    // the road is, and the four rotors reach past it — see the hull's
+    // `overhang`, which is what the sprite bounds are actually sized from.
+    w: 70,
+    h: 70,
+    // FOUR ROCKETS EXACTLY. The rocket does 98 (weapons.js), so 392 is four
+    // rounds with nothing wasted and three rounds (294) comfortably short. That
+    // is the whole fight: the player carries 50 rockets at most and buys them 18
+    // at a time for 50 CR, so this costs a measurable ~11 CR of ammunition to
+    // kill and the `bounty` below has to clear that or winning is a fine.
+    //
+    // It sits level with the rival's 400 on purpose. The rival is the toughest
+    // thing the free cannon can kill; this is the same weight of enemy that the
+    // cannon cannot touch at all, which is what the payout is priced against.
+    health: 392,
+    // NEVER READ. An airborne body is not handed to collisions.js at all
+    // (traffic.js's collide), so this is the one field on this row that does
+    // nothing — stated at the reference 1 rather than omitted, because a missing
+    // `mass` would read as an oversight where a stated one reads as "the solver
+    // never sees this car", which is the fact worth recording.
+    mass: 1,
+    // Spanning the player's own 620 ceiling, the same shape of band the boss
+    // has and for the same reason: the fight has to STAY ON SCREEN, and it must
+    // not survive the twelve seconds of overdrive a boost buys (pickuptypes.js
+    // lifts the player's whole band by 200). That gap is the escape.
+    speedMin: 580,
+    speedMax: 660,
+    // THE FASTEST THING ACROSS THE ROAD IN THE GAME, past the outrider's 200,
+    // and it should be: it is the only one not steering on tyres.
+    //
+    // BOUNDED FROM ABOVE BY THE ROCKET, and that bound is the single most
+    // important relation on the row: the rocket steers at turnRate 260
+    // (weapons.js) and is the ONLY weapon permitted to reach this thing, so a
+    // gunship that could out-slide a seeker could not be killed by anything at
+    // all. 240 leaves 20 units/sec of margin.
+    //
+    // IN PRACTICE THE MARGIN IS NOT THE FIGHT, and it is worth saying so rather
+    // than claiming a duel the numbers do not support. Measured: a player
+    // holding the trigger kills one in ~1.6-2.0s having fired 5 rockets for the
+    // 4 hits it takes, i.e. essentially none are dodged. The reason is flight
+    // TIME, not turn rate — the round covers the gap in about 0.4s, and the
+    // sweep only moves ~84px in that window against the 104px the rocket can
+    // correct. What actually rations this fight is rocket AMMUNITION, which the
+    // player has to have gone shopping for; the margin here is the guard-rail
+    // that keeps the weapon working at all, not the challenge.
+    steerSpeed: 240,
+    // NO BLAST, and it is the only hostile row with none. Not an omission and
+    // not shyness about the number: it is the other half of the rule the whole
+    // type exists to state. Nothing at road level reaches the air
+    // (collisions.js's inBlastPlane, which three separate sweeps ask), so the
+    // air does not reach the road either — one rule the player can hold in their
+    // head, working the same way in both directions.
+    //
+    // A falling-wreck blast was the alternative and it reads well in isolation;
+    // it was dropped because it would be the single exception to that rule, and
+    // it would arrive as damage from something the player had just killed with
+    // a rocket they paid for. That is the worst possible moment to teach an
+    // exception. The kill still gets its fireball — that is Explosions' own
+    // wreck effect (traffic.js's detonate), which owes nothing to these two.
+    blastRadius: 0,
+    blastDamage: 0,
+    // PRICED AGAINST THE AMMUNITION, which no other row has to be: four rockets
+    // is ~11 CR at the shop's 50-for-18 (upgrades.js). 100 clears that by a wide
+    // enough margin that hunting these is worth doing, and matches the rival's
+    // bounty — the same weight of enemy, paid the same, with the score half
+    // ahead of the rival's 300 because this one costs consumables to reach.
+    value: 400,
+    bounty: 100,
+    // FLYING. See the field table above for the three places this is read; the
+    // header of this record for what it is FOR.
+    airborne: true,
+    // Never rolled — the `airstrike` encounter (eventtypes.js) is the only thing
+    // that puts one in the sky. Same reasoning as the boss's, above.
+    staged: true,
+    minDistance: 0,
+    weight: 0,
+    behaviour: "patrol", // station-keeping and a sweep that crosses the whole
+                         // frame rather than the road (behaviours.js)
+    arms: "rocketeer",   // the interceptor's kit, unchanged: one heavy missile,
+                         // no mine layer. A thing that never touches the tarmac
+                         // has nothing to lay a mine on (armament.js)
+    driving: "gunship",
   },
 ];
 

@@ -1703,10 +1703,24 @@ function render(alpha) {
     }
   }
 
-  // THE DRONE, last of everything in the world block — above the car, which is
-  // what the CLAW LIFTER's open middle is designed to survive (bossshapes.js),
-  // and inside the block so it rides the same frozen scene the car does. Draws
-  // nothing at all while idle, which is every frame outside an interlude.
+  // THE AIR, over the bullets and over the player's own car. traffic.render
+  // above drew only what is ON the road; this is the second half of that split,
+  // and the gap between the two calls — bullets, then the player — is the whole
+  // altitude cue. A tracer drawn OVER a gunship reads as a hit that did not
+  // register; drawn under it, the same tracer reads as passing beneath it,
+  // which is what is actually happening. See Traffic.render's own note.
+  //
+  // OUTSIDE the lift block above, unlike the player's car: an encounter in the
+  // sky has nothing to do with whether the player is currently being carried
+  // off to the shop, and a gunship that vanished for the duration of a lift
+  // would be the frame going wrong rather than the fiction.
+  traffic.renderAir(ctx, camY, player.y, W, H, alpha, lock);
+
+  // THE CARGO DRONE, last of everything in the world block — above the car,
+  // which is what the CLAW LIFTER's open middle is designed to survive
+  // (bossshapes.js), and inside the block so it rides the same frozen scene the
+  // car does. Draws nothing at all while idle, which is every frame outside an
+  // interlude.
   hauler.render(ctx);
   ctx.restore();
 

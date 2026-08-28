@@ -72,6 +72,32 @@ export function overlaps(a, b) {
   );
 }
 
+// Whether a blast that goes off AT ROAD LEVEL reaches this body.
+//
+// THE ONE PLACE THIS IS ARGUED, and it is argued here because three separate
+// sweeps ask it — Traffic.blast (a dying car), Obstacles.blast (a mine, a
+// roadblock) and Projectiles.detonate (a rocket's splash). All three measure
+// falloff in the same two ROAD coordinates, between box edges, and all three
+// were written when everything in the game was on the tarmac.
+//
+// An `airborne` body (cartypes.js) is not. Its worldY and offset say where it is
+// over the ground, not where it IS — the altitude is in the drawing (carshapes.js's
+// `hover`) and in one rule in projectiles.js's firstHit, which is that only a
+// SEEKING round climbs to it. A blast on the road that reached it anyway would
+// undo that rule quietly and from three directions at once: the player would
+// find they could kill a gunship by detonating a rig underneath it, which is
+// precisely the shot the whole design says is impossible.
+//
+// SYMMETRICAL, and cheaply so: an airborne type gives no blast either, because
+// its catalogue row states blastRadius 0 rather than because anything here
+// checks. One rule, stated once, with nothing to keep in step.
+//
+// Bodies that are not cars (the player, an obstacle) carry no `airborne` field
+// at all and are always in the plane, which is the correct answer for them.
+export function inBlastPlane(body) {
+  return !body.airborne;
+}
+
 // Resolve every overlap in `bodies`. Mutates positions, speeds and health.
 export function resolveCollisions(bodies, dt) {
   // Lateral speed has to be MEASURED (the player steers positionally, so it has

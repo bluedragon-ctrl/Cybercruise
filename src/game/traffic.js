@@ -34,7 +34,7 @@ import { pickCarType, ENEMY_FACTION } from "./cartypes.js";
 import { drivingFor } from "./driving.js";
 import { armFor, BARRAGE } from "./armament.js";
 import { Explosions, drawTargetMark, drawHullMeter } from "./effects.js";
-import { resolveCollisions, PlayerBody } from "./collisions.js";
+import { resolveCollisions, PlayerBody, inBlastPlane } from "./collisions.js";
 import { PLAYER_MASS } from "./player.js";
 import { centerXAt, headingAt, laneOffset, laneAt, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 import { CRITICAL_FLASH } from "../engine/palette.js";
@@ -211,6 +211,14 @@ class TrafficCar {
     // (main.js) — a rocket that turned across two lanes to chase a trestle
     // would be both useless and a betrayal of the shot the player took.
     this.seekable = true;
+    // ...AND HOW HIGH IT IS FLYING, in the one form projectiles.js can use: a
+    // body that is off the road plane entirely, which only a SEEKING round may
+    // reach (see that file's firstHit). Mirrored onto the body from the type
+    // for the same reason `seekable` is a body field rather than a type lookup
+    // — the player's gunfire runs against one flat list of cars AND road
+    // obstacles (main.js), and an obstacle has no `type.airborne` to ask about.
+    // Every body in that list answers the same two questions the same way.
+    this.airborne = !!type.airborne;
     this.exploded = false; // set when its wreck has been spawned (see Traffic.detonate),
                            // so a chain reaction can't set the same car off twice
     this.spikeTime = 0;  // seconds of punctured-tyre crawl left (see puncture)
@@ -342,7 +350,21 @@ class TrafficCar {
   // what passes the hit back. Called again after the collision pass, which moves
   // offsets around and would otherwise leave a squeezed car hanging over the
   // edge for a frame.
+  //
+  // NOT FOR AN AIRBORNE CAR (cartypes.js), and the check is HERE rather than at
+  // the two call sites for a reason worth the line: the road's width is a fact
+  // about the tarmac, and a car that is not on the tarmac is not held to it. Put
+  // at the callers instead, this was silently wrong — the gunship's whole
+  // character is a sweep that leaves the road and comes back, and the clamp
+  // inside update() quietly held it to 108px of a 150px sweep. It looked like a
+  // tuning problem and was not one. One guard, in the one place the road's width
+  // is applied, cannot be half-added.
+  //
+  // Its own lateral bound is the FRAME, and it lives where the sweep is decided
+  // (behaviours.js's `patrol` and FLIGHT_MARGIN) — a limit that keeps a thing
+  // on screen belongs with the tactic that aims it, not with the road.
   clampToRoad() {
+    if (this.type.airborne) return;
     const limit = ROAD_HALF_WIDTH - this.type.w / 2;
     if (this.offset < -limit) {
       this.offset = -limit;
@@ -474,7 +496,18 @@ export class Traffic {
   collide(dt) {
     this.bodies.length = 0;
     this.bodies.push(this.playerBody);
-    for (const car of this.cars) this.bodies.push(car);
+    // AN AIRBORNE CAR IS NOT A BODY (cartypes.js's `airborne`). It is drawn
+    // flying, with the whole road drawn passing underneath it (see render), and
+    // handing it to a solver that resolves overlaps in flat road coordinates
+    // would let the player ram something that is not down here — the one thing
+    // that would flatly contradict the artwork. Kept out of the list rather
+    // than given a huge mass: mass makes a thing hard to shove, absence makes
+    // it unreachable, and unreachable is what altitude means.
+    //
+    // ...AND IT IS NOT PUT BACK ON THE ROAD BELOW EITHER, for the same reason —
+    // but that half is clampToRoad's own business rather than this loop's, so it
+    // is stated once there and nothing here has to remember it.
+    for (const car of this.cars) if (!car.type.airborne) this.bodies.push(car);
     resolveCollisions(this.bodies, dt);
     // The solver doesn't know where the road is; put anything it pushed over an
     // edge back on the tarmac. (The player clamps itself — see PlayerBody.)
@@ -556,6 +589,8 @@ export class Traffic {
       // their own detonation coming, and this is what stops two dying cars
       // trading blasts.
       if (body === car || !body.alive) return;
+      // Nothing at road level reaches the air — see collisions.js's inBlastPlane.
+      if (!inBlastPlane(body)) return;
       const dx = Math.max(0, Math.abs(body.offset - car.offset) - (body.w + car.w) / 2);
       const dy = Math.max(0, Math.abs(body.worldY - car.worldY) - (body.h + car.h) / 2);
       const dist = Math.hypot(dx, dy);
@@ -701,8 +736,43 @@ export class Traffic {
   // disagree with itself the way a flag copied onto every car could; and
   // because traffic has no more business owning the player's targeting system
   // than it has owning the scoreboard.
+  //
+  // TWO PASSES, BECAUSE THE ROAD IS NOT THE ONLY PLANE ANY MORE. This one draws
+  // everything ON the road; renderAir below draws what is above it, and main.js
+  // puts the bullets and the player's own car between the two. That ORDER is
+  // what makes altitude legible, and it is the whole answer to the question a
+  // player asks the first time they meet a gunship: my rounds are going right
+  // at it, why is nothing happening?
+  //
+  // Drawn OVER the drone, a tracer reads as passing through it and the game
+  // looks broken. Drawn UNDER it, the same tracer reads as passing beneath it,
+  // which is exactly what is happening and needs no explaining at all. The
+  // hauler already draws in that band for the same reason (main.js).
   render(ctx, distance, playerY, W, H, alpha, lock = null) {
+    this.drawCars(ctx, distance, playerY, W, H, alpha, lock, false);
+    // Wrecks last, so a fireball is never drawn under the traffic still driving
+    // through it. (The player is drawn after all of this — see main.js — so its
+    // car stays readable inside a blast.)
+    //
+    // IN THE ROAD PLANE, including an airborne car's own wreck. That is a
+    // deliberate small inaccuracy rather than an oversight: the pool is shared
+    // by every explosion in the game and splitting it in two to move one
+    // fireball would cost more than it buys. A gunship dies at the top of the
+    // screen and the player sits at 62% down it, so the two almost never
+    // overlap in the first place.
+    this.explosions.render(ctx, distance, playerY, W, H);
+  }
+
+  // Everything ABOVE the road. Called by main.js after the bullets and the
+  // player — see render() above for why that order is the point.
+  renderAir(ctx, distance, playerY, W, H, alpha, lock = null) {
+    this.drawCars(ctx, distance, playerY, W, H, alpha, lock, true);
+  }
+
+  // One pass over the cars in one plane. `air` picks which.
+  drawCars(ctx, distance, playerY, W, H, alpha, lock, air) {
     for (const car of this.cars) {
+      if (!!car.type.airborne !== air) continue;
       const sy = playerY - (car.worldY - distance);
       if (sy < -SPAWN_MARGIN || sy > H + SPAWN_MARGIN) continue;
 
@@ -752,10 +822,5 @@ export class Traffic {
         drawHullMeter(ctx, sx, sy, car.type.h, car.health / car.type.health, METER_MARKS);
       }
     }
-
-    // Wrecks last, so a fireball is never drawn under the traffic still driving
-    // through it. (The player is drawn after all of this — see main.js — so its
-    // car stays readable inside a blast.)
-    this.explosions.render(ctx, distance, playerY, W, H);
   }
 }

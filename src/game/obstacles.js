@@ -56,7 +56,7 @@ import {
 } from "./obstacletypes.js";
 import { OBSTACLE_SHAPES, MINE } from "./obstacleshapes.js";
 import { CAR_TYPES } from "./cartypes.js";
-import { ramSpeed, overlaps } from "./collisions.js";
+import { ramSpeed, overlaps, inBlastPlane } from "./collisions.js";
 import { centerXAt, headingAt, laneOffset, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 
 
@@ -488,6 +488,8 @@ export class Obstacles {
     if (!radius || !peak) return;
 
     const hurt = (body) => {
+      // Nothing at road level reaches the air — see collisions.js's inBlastPlane.
+      if (!inBlastPlane(body)) return;
       const dx = Math.max(0, Math.abs(body.offset - o.offset) - (body.w + o.w) / 2);
       const dy = Math.max(0, Math.abs(body.worldY - o.worldY) - (body.h + o.h) / 2);
       const dist = Math.hypot(dx, dy);

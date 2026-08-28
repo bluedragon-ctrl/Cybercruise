@@ -14,6 +14,8 @@ import * as events from "../src/game/events.js";
 import { EVENT_TYPES, FOCUS, eventAvailable, eventTypeById } from "../src/game/eventtypes.js";
 import { EVENT_AT_OVERRIDES, EVENT_GATE_OVERRIDES } from "../src/testoptions.js";
 import { CAR_TYPES, carTypeById } from "../src/game/cartypes.js";
+import { WEAPON_TYPES, FLIGHT_SEEKING } from "../src/game/weapons.js";
+import { PICKUP_TYPES } from "../src/game/pickuptypes.js";
 import { obstacleTypeById } from "../src/game/obstacletypes.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import {
@@ -188,6 +190,44 @@ test("a rolled entry stages nothing the road has not unlocked yet", () => {
       }
     }
   }
+});
+
+test("an encounter only one weapon can answer waits for that weapon", () => {
+  // THE GATE THE RULE ABOVE CANNOT SEE. `staged` types carry minDistance 0 —
+  // being unrollable IS their gate (cartypes.js) — so the invariant above binds
+  // on nothing for an encounter built out of one. For the airstrike that is not
+  // good enough: the gunship is `airborne`, and projectiles.js will let nothing
+  // but a SEEKING round touch it, which in the whole catalogue is the ROCKET
+  // alone. An encounter that can only be answered by one weapon must not come
+  // up before the player can have that weapon, or it is not a fight — it is a
+  // thing that shoots at them for `duration` while they watch.
+  //
+  // The rocket starts every run empty (weapons.js's `startAmmo: 0`) and has two
+  // sources: the shop, and the ROCKET+ crate. The crate's gate is the later of
+  // the two and therefore the binding one.
+  const seeking = WEAPON_TYPES.filter((w) => w.flight === FLIGHT_SEEKING);
+  assert.equal(
+    seeking.length,
+    1,
+    "more than one weapon seeks now — the airstrike's gate assumes exactly one",
+  );
+  const crate = PICKUP_TYPES.find((p) => p.weaponId === seeking[0].id);
+  assert.ok(crate, `nothing on the road resupplies the ${seeking[0].id}`);
+
+  const airstrike = eventTypeById("airstrike");
+  assert.ok(
+    airstrike.minDistance >= crate.minDistance,
+    `the airstrike opens at ${airstrike.minDistance} but the ${crate.id} crate that ` +
+      `answers it is gated at ${crate.minDistance} — the player would meet something ` +
+      "they cannot shoot at",
+  );
+  // ...and the shop has come round at least once by then, which is the other
+  // source and the one a player who is paying attention will have used.
+  assert.ok(
+    airstrike.minDistance >= SHOP_INTERVAL,
+    `the airstrike opens at ${airstrike.minDistance}, before the first shop visit at ` +
+      `${SHOP_INTERVAL}`,
+  );
 });
 
 test("only a one-shot may introduce a type the road has not unlocked", () => {

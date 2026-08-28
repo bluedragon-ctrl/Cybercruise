@@ -16,7 +16,7 @@
 // exactly this job and says so in its own header: two end beams instead of a
 // fuselage so the car stays visible between them, a C-clamp jaw per flank
 // sitting where the car's door would be, and `hover: { blot: false }` because
-// the ground blot is opaque and would be painted straight over the very car the
+// the ground track would be drawn straight across the very car the
 // vehicle exists to carry. Nothing here draws a new silhouette; it drives that
 // one.
 //
