@@ -46,14 +46,14 @@ const SAMPLE_CARTYPES = `export const CAR_TYPES = [
   {
     id: "sedan",
     health: 60,
-    speedMin: 215,
+    hardFloor: 215,
     speedMax: 290,
   },
   {
     id: "interceptor",
     health: 70,
     mass: 1.1,
-    speedMin: 400,
+    hardFloor: 400,
     speedMax: 470, // just under the rival
   },
 ];
@@ -68,10 +68,10 @@ test("patchCarType replaces a single field without touching others", () => {
 
 test("patchCarType replaces multiple fields on the same entry", () => {
   const result = patchCarType(SAMPLE_CARTYPES, "interceptor", {
-    speedMin: 420,
+    hardFloor: 420,
     speedMax: 500,
   });
-  assert.match(result, /speedMin: 420,/);
+  assert.match(result, /hardFloor: 420,/);
   assert.match(result, /speedMax: 500, \/\/ just under the rival/);
 });
 
@@ -192,7 +192,7 @@ test("patchDrivingProfile works against the real src/game/driving.js", () => {
     "utf8"
   );
   const result = patchDrivingProfile(realSource, "pursuer", { nerve: 99 });
-  assert.match(result, /pursuer: profile\(\{ nerve: 99 \}\)/);
+  assert.match(result, /pursuer: profile\(\{ nerve: 99, contact: 0 \}\)/);
   // The rest of the file must be untouched — same length delta as exactly
   // one number changing from "12" to "99".
   assert.equal(result.length - realSource.length, "99".length - "12".length);
@@ -202,7 +202,7 @@ const SAMPLE_CARTYPES_NEGATIVE = `export const CAR_TYPES = [
   {
     id: "wreck",
     health: -50,
-    speedMin: 200,
+    hardFloor: 200,
     speedMax: 260,
   },
 ];
@@ -225,20 +225,25 @@ test("patchDrivingProfile can find and replace a field whose current value is al
 });
 
 test("patchDrivingProfile inserts a field into a real single-line profile with no trailing comma", () => {
-  // `enforcer: profile({ nerve: 16 }),` is a genuine single-line profile in
-  // driving.js whose last (only) field has no trailing comma inside the
-  // braces, and it has no `contact` override yet. This is exactly the shape
-  // that used to produce invalid JS before the trailing-comma fix (91d1039):
-  // the insert used to land as `nerve: 16\n    contact: 5,` with no comma
-  // separating the two fields.
+  // `enforcer: profile({ nerve: 16, contact: 0 }),` is a genuine single-line
+  // profile in driving.js whose last field has no trailing comma inside the
+  // braces. This is exactly the shape that used to produce invalid JS before
+  // the trailing-comma fix (91d1039): the insert landed as
+  // `contact: 0\n    patience: 0.5,` with no comma separating the two fields.
+  //
+  // THE FIELD INSERTED IS `patience`, not `contact`, because every hostile
+  // profile now states `contact` explicitly — driving.js dropped the
+  // nerve-to-contact default — so no real single-line profile is missing one
+  // any more. What this guards is the comma, not the field name, so any field
+  // the profile does not already set exercises the identical path.
   const realSource = readFileSync(
     new URL("../src/game/driving.js", import.meta.url),
     "utf8"
   );
-  const result = patchDrivingProfile(realSource, "enforcer", { contact: 5 });
+  const result = patchDrivingProfile(realSource, "enforcer", { patience: 0.5 });
   assert.match(
     result,
-    /enforcer: profile\(\{ nerve: 16,\n {4}contact: 5,\n {2}\}\)/
+    /enforcer: profile\(\{ nerve: 16, contact: 0,\n {4}patience: 0.5,\n {2}\}\)/
   );
 });
 

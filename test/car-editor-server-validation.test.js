@@ -33,18 +33,18 @@ test("validateChanges rejects a negative health value", () => {
   );
 });
 
-// A zero `speedMin` is the HARD FLOOR saying "this car can be brought to a full
+// A zero `hardFloor` is the HARD FLOOR saying "this car can be brought to a full
 // stop" (cartypes.js's THE TWO SPEED BANDS), and it is what every civilian ships
 // with — so it must pass, where the old cruise-band meaning of the field made it
 // a rejection.
-test("validateChanges accepts a zero speedMin value", () => {
-  assert.doesNotThrow(() => validateChanges({ rival: { speedMin: 0 } }));
+test("validateChanges accepts a zero hardFloor value", () => {
+  assert.doesNotThrow(() => validateChanges({ rival: { hardFloor: 0 } }));
 });
 
-test("validateChanges rejects a negative speedMin value", () => {
+test("validateChanges rejects a negative hardFloor value", () => {
   assert.throws(
-    () => validateChanges({ rival: { speedMin: -10 } }),
-    /field "speedMin" for "rival" must not be negative, got -10/
+    () => validateChanges({ rival: { hardFloor: -10 } }),
+    /field "hardFloor" for "rival" must not be negative, got -10/
   );
 });
 
@@ -55,9 +55,9 @@ test("validateChanges rejects a zero cruiseMin value", () => {
   );
 });
 
-test("validateChanges accepts a valid speedMin/cruiseMin/speedMax ordering", () => {
+test("validateChanges accepts a valid hardFloor/cruiseMin/speedMax ordering", () => {
   assert.doesNotThrow(() =>
-    validateChanges({ rival: { speedMin: 100, cruiseMin: 420, speedMax: 470 } })
+    validateChanges({ rival: { hardFloor: 100, cruiseMin: 420, speedMax: 470 } })
   );
 });
 
@@ -71,10 +71,10 @@ test("validateChanges rejects speedMax < cruiseMin when both are given", () => {
 // The relation the second band bought: a car may not be rolled below the speed
 // it is physically capable of, or it would spawn in a state traffic.js clamps it
 // straight back out of on its first tick.
-test("validateChanges rejects a speedMin above the car's cruiseMin", () => {
+test("validateChanges rejects a hardFloor above the car's cruiseMin", () => {
   assert.throws(
-    () => validateChanges({ rival: { speedMin: 400, cruiseMin: 300 } }),
-    /cruiseMin \(300\) must be >= speedMin \(400\) for "rival"/
+    () => validateChanges({ rival: { hardFloor: 400, cruiseMin: 300 } }),
+    /cruiseMin \(300\) must be >= hardFloor \(400\) for "rival"/
   );
 });
 

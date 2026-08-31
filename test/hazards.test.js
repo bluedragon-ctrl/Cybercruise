@@ -13,7 +13,14 @@ import path from "node:path";
 import { CAR_TYPES, typeAvailable } from "../src/game/cartypes.js";
 import { carShapeExtent } from "../src/game/carshapes.js";
 import { RETIRE_MARGIN as TRAFFIC_RETIRE_MARGIN, Traffic } from "../src/game/traffic.js";
-import { driveCar, dodgeDistance, TACTIC_NAMES, TRAIL_ENGAGE } from "../src/game/behaviours.js";
+import {
+  driveCar,
+  dodgeDistance,
+  PURSUE_RANGE,
+  RAM_FLOOR,
+  TACTIC_NAMES,
+  TRAIL_ENGAGE,
+} from "../src/game/behaviours.js";
 import { DRIVING_PROFILES, drivingFor, typesDriving } from "../src/game/driving.js";
 import { BAND_RECOVER, MIN_SPEED, PLAYER_MASS, Player } from "../src/game/player.js";
 import { initInput } from "../src/engine/input.js";
@@ -101,7 +108,7 @@ test("the spike strip takes speed, not hull — and the mine is still the killer
   // exists: cartypes.js and traffic.js both call the puncture the one deliberate
   // exception to the floor, so a strip that could not reach under the highest
   // floor on the road would do nothing at all to the type carrying it.
-  const highestFloor = Math.max(...CAR_TYPES.map((t) => t.speedMin));
+  const highestFloor = Math.max(...CAR_TYPES.map((t) => t.hardFloor));
   assert.ok(
     spikes.slowTo < highestFloor,
     `a strip's ${spikes.slowTo} is not below the highest floor on the road ` +
@@ -647,15 +654,18 @@ test("a chasing driver holds a gap it would still count as contact", () => {
 });
 
 test("a chase range is wider than the gap it chases down to", () => {
-  // `pursueRange` is the gap at which chasing STARTS and `pursueHold` the gap
-  // it settles at. Inverted, the car would only ever chase when it was already
-  // closer than it wanted to be, and would cruise the rest of the time — a
-  // hostile that never actually comes after anyone.
+  // behaviours.js's PURSUE_RANGE is the gap at which chasing STARTS and the
+  // profile's `pursueHold` the gap it settles at. Inverted, the car would only
+  // ever chase when it was already closer than it wanted to be, and would cruise
+  // the rest of the time — a hostile that never actually comes after anyone.
+  //
+  // The range moved off the profile when it turned out no profile differed from
+  // it, so this now pins every profile's hold against the one shared figure.
   for (const [name, p] of Object.entries(DRIVING_PROFILES)) {
     assert.ok(
-      p.pursueHold < p.pursueRange,
-      `profile "${name}" holds at ${p.pursueHold} but only chases inside ` +
-        `${p.pursueRange}: it would never close on the player at all`,
+      p.pursueHold < PURSUE_RANGE,
+      `profile "${name}" holds at ${p.pursueHold} but chasing only starts inside ` +
+        `${PURSUE_RANGE}: it would never close on the player at all`,
     );
   }
 });
@@ -683,15 +693,15 @@ test("a hostile's floor is either unshakeable or a speed the player can drop to"
     // hold on the way in, and floored at the player's own minimum the boss could
     // match a crawl but never recover the overshoot — braking parked it off the
     // top of the screen for good. Measured; see cartypes.js.
-    if (t.speedMin === 0) continue;
+    if (t.hardFloor === 0) continue;
     assert.ok(
-      t.speedMin > MIN_SPEED,
-      `${t.id} floors at ${t.speedMin}, under the player's ${MIN_SPEED} but not at ` +
+      t.hardFloor > MIN_SPEED,
+      `${t.id} floors at ${t.hardFloor}, under the player's ${MIN_SPEED} but not at ` +
         `0. A floor that low is meant to be unshakeable, and unshakeable is 0`,
     );
     assert.ok(
-      t.speedMin < START_SPEED,
-      `${t.id} floors at ${t.speedMin}, at or above the speed a run STARTS at ` +
+      t.hardFloor < START_SPEED,
+      `${t.id} floors at ${t.hardFloor}, at or above the speed a run STARTS at ` +
         `(${START_SPEED}). It cannot hold station on an ordinary player, so it is ` +
         `broken rather than escapable`,
     );
@@ -702,13 +712,13 @@ test("the shakeable hostiles all share one floor", () => {
   // Four bikes, one number, because it is one physical fact about bikes — they
   // cannot be ridden at walking pace — rather than four dispositions. Asserted
   // so a retune of one of them silently splits the rule into four.
-  const shakeable = CAR_TYPES.filter((t) => t.value >= 0 && t.speedMin > MIN_SPEED);
-  const floors = new Set(shakeable.map((t) => t.speedMin));
+  const shakeable = CAR_TYPES.filter((t) => t.value >= 0 && t.hardFloor > MIN_SPEED);
+  const floors = new Set(shakeable.map((t) => t.hardFloor));
   assert.equal(
     floors.size,
     1,
     `the escapable hostiles floor at ${[...floors].join(", ")}. One fact, one ` +
-      `number: ${shakeable.map((t) => `${t.id} ${t.speedMin}`).join(", ")}`,
+      `number: ${shakeable.map((t) => `${t.id} ${t.hardFloor}`).join(", ")}`,
   );
 });
 
@@ -720,9 +730,9 @@ test("every civilian can be brought to a full stop", () => {
   // that has done exactly that. A civilian floor above zero reaches under both.
   for (const t of CAR_TYPES.filter((t) => t.value < 0)) {
     assert.equal(
-      t.speedMin,
+      t.hardFloor,
       0,
-      `${t.id} floors at ${t.speedMin}: it can no longer stop for a roadblock, ` +
+      `${t.id} floors at ${t.hardFloor}: it can no longer stop for a roadblock, ` +
         `nor brake behind a civilian that has`,
     );
   }
@@ -738,7 +748,8 @@ test("the floor outranks the tactic, and only the strip escapes it", () => {
   const car = traffic.place(type, 400, 0, type.cruiseMin);
   assert.ok(car, "expected place() to put the car on an empty road");
 
-  // 200 units back — inside `pursueRange`, so the chase is live — and crawling.
+  // 200 units back — inside behaviours.js's PURSUE_RANGE, so the chase is live —
+  // and crawling.
   const world = {
     cars: traffic.cars,
     obstacles: [],
@@ -747,14 +758,14 @@ test("the floor outranks the tactic, and only the strip escapes it", () => {
   for (let i = 0; i < 60 * 4; i++) car.update(1 / 60, world);
 
   assert.ok(
-    car.targetSpeed >= type.speedMin,
+    car.targetSpeed >= type.hardFloor,
     `the outrider ASKED for ${car.targetSpeed.toFixed(0)} against a floor of ` +
-      `${type.speedMin} — the clamp is not outranking the tactic`,
+      `${type.hardFloor} — the clamp is not outranking the tactic`,
   );
   assert.ok(
-    car.speed >= type.speedMin - 1,
+    car.speed >= type.hardFloor - 1,
     `the outrider settled at ${car.speed.toFixed(0)}, under its own floor of ` +
-      `${type.speedMin}`,
+      `${type.hardFloor}`,
   );
 
   // ...and the one exception still reaches under it, which is what makes the
@@ -771,16 +782,20 @@ test("the floor outranks the tactic, and only the strip escapes it", () => {
 
 test("the ram's block is slower than the player's own minimum", () => {
   // behaviours.js's `ram`, once ahead of the player, asks for a fraction of
-  // THEIR speed with `ramFloor` underneath it. That floor has to sit below the
+  // THEIR speed with RAM_FLOOR underneath it. That floor has to sit below the
   // player's own MIN_SPEED or simply lifting off the throttle would out-slow
   // the roadblock and the whole second half of the tactic would go slack.
-  for (const [name, p] of Object.entries(DRIVING_PROFILES)) {
-    assert.ok(
-      p.ramFloor < MIN_SPEED,
-      `profile "${name}" blocks at a floor of ${p.ramFloor}, at or above the ` +
-        `player's own minimum of ${MIN_SPEED}: they could simply coast past it`,
-    );
-  }
+  //
+  // ONE ASSERTION RATHER THAN ONE PER PROFILE, because the floor is now one
+  // figure stated next to the tactic that reads it — which is the point of
+  // moving it there: it is arithmetic against player.js, and no profile can
+  // state it correctly without knowing MIN_SPEED.
+  assert.ok(
+    RAM_FLOOR > 0 && RAM_FLOOR < MIN_SPEED,
+    `the ram blocks at a floor of ${RAM_FLOOR}, which must sit above a standstill ` +
+      `and below the player's own minimum of ${MIN_SPEED}: otherwise they could ` +
+      `either coast past it or watch it stall`,
+  );
 });
 
 // A hostile that wants the player's line, with that line already occupied by
@@ -969,7 +984,7 @@ test("the civilian road is a speed gradient across the lanes", () => {
   // road just quietly stops making sense — so it is asserted rather than written
   // down.
   const civilians = CAR_TYPES.filter((t) => t.value < 0);
-  const pace = (t) => (t.speedMin + t.speedMax) / 2;
+  const pace = (t) => (t.hardFloor + t.speedMax) / 2;
   const paces = civilians.map(pace).sort((a, b) => a - b);
   const median = paces[Math.floor(paces.length / 2)];
 

@@ -157,7 +157,7 @@ async function readBody(req) {
 
 // Fields that must be strictly positive numbers, beyond just finite. Applied
 // after the generic finite-number check below, and also cross-checked as an
-// ORDERING (speedMin <= cruiseMin <= speedMax) whatever subset of the three a
+// ORDERING (hardFloor <= cruiseMin <= speedMax) whatever subset of the three a
 // request touches — catching nonsensical values like `health: -50` or an
 // inverted speed range at the boundary, rather than relying on downstream
 // game-invariant tests to notice.
@@ -185,12 +185,12 @@ export const POSITIVE_FIELDS = new Set([
 // The rest are fields where zero genuinely means "none of this": a weapon
 // that deals no direct damage (the mine layer's payload does the work), a
 // wreck with no blast, a burst of one shot, a magazine you start empty.
-// `speedMin` is the car's HARD FLOOR, and 0 — "this car can be brought to a
+// `hardFloor` is the car's HARD FLOOR, and 0 — "this car can be brought to a
 // full stop" — is the setting every civilian ships with (cartypes.js's THE TWO
 // SPEED BANDS), so it belongs here rather than with the positive-only fields
 // where its old cruise-band meaning put it.
 const NON_NEGATIVE_FIELDS = new Set([
-  "speedMin", "minDistance", "weight", "damage", "blastRadius", "blastDamage",
+  "hardFloor", "minDistance", "weight", "damage", "blastRadius", "blastDamage",
   "contactDamage", "threat", "slowTime", "pierce", "burstCount",
   "burstInterval", "accel", "turnRate", "aimSlack", "ammo", "startAmmo",
 ]);
@@ -270,17 +270,17 @@ export function validateChanges(changes) {
     // obvious.
     //
     // THREE FIELDS, TWO RELATIONS, because the floor and the cruise bottom are
-    // different numbers (cartypes.js): speedMin <= cruiseMin says a car may not
+    // different numbers (cartypes.js): hardFloor <= cruiseMin says a car may not
     // be rolled below what it is capable of, and cruiseMin <= speedMax is the
     // old range check. Checked in that order so the message names the pair that
     // actually broke.
     crossCheck(fields, carId) {
-      const SPEEDS = ["speedMin", "cruiseMin", "speedMax"];
+      const SPEEDS = ["hardFloor", "cruiseMin", "speedMax"];
       if (!SPEEDS.some((f) => has(fields, f))) return;
       const current = buildCarState(carId).values;
       const tag = (f) => (has(fields, f) ? "" : ", unchanged");
       const value = (f) => (has(fields, f) ? fields[f] : current[f]);
-      for (const [lo, hi] of [["speedMin", "cruiseMin"], ["cruiseMin", "speedMax"]]) {
+      for (const [lo, hi] of [["hardFloor", "cruiseMin"], ["cruiseMin", "speedMax"]]) {
         if (value(hi) < value(lo)) {
           throw new Error(
             `${hi} (${value(hi)}${tag(hi)}) must be >= ` +

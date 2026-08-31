@@ -103,6 +103,83 @@ export const CONSTANT_GROUPS = [
     ],
   },
   {
+    id: "driving",
+    label: "Driving tactics",
+    // The counterpart to the behavior screen. A PROFILE says how boldly one
+    // driver runs a manoeuvre; these say what the manoeuvre IS, so each of them
+    // reaches every type on that tactic at once. They live in behaviours.js
+    // rather than on a profile because each is arithmetic against another file
+    // — the player's minimum speed, the mine layer's window, the road a hazard
+    // may be spawned on — which no single profile could state correctly.
+    note: "Shared figures behind the hostile tactics (behaviours.js). A driving profile decides how boldly one type runs a manoeuvre; these decide what the manoeuvre is, so a change here reaches every type on that tactic at once.",
+    constants: [
+      {
+        id: "driving.PURSUE_RANGE", name: "PURSUE_RANGE", file: "src/game/behaviours.js", min: 1,
+        description: "Gap (world units) inside which a chasing car actually chases; outside it, it just cruises. Must stay ABOVE every profile's pursueHold, or a hostile would only give chase once it was already closer than it wanted to be.",
+      },
+      {
+        id: "driving.RAM_FLOOR", name: "RAM_FLOOR", file: "src/game/behaviours.js", min: 1,
+        description: "Slowest speed the bruiser's roadblock runs at once it is ahead of the player. Must stay UNDER the player's own MIN_SPEED (World -> Player car), or simply lifting off the throttle would out-slow the block and the second half of the ram goes slack.",
+      },
+      {
+        id: "driving.TRAIL_ENGAGE", name: "TRAIL_ENGAGE", file: "src/game/behaviours.js", min: 1,
+        description: "Gap within which the stocker counts as still in contact with the player. Its give-up clock only runs OUTSIDE this, so it has to stay above that profile's pursueHold — otherwise a stocker holding its station perfectly would still time out and ride off.",
+      },
+      {
+        id: "driving.RAID_CLEARANCE", name: "RAID_CLEARANCE", file: "src/game/behaviours.js", min: 0,
+        description: "Extra px the cycle and the sower hold clear of the player's own line while still fighting their way past traffic, so an ordinary overtake never satisfies the mine layer's aim and drops their one charge early.",
+      },
+      {
+        id: "driving.HAZARD_DODGE_SPAN", name: "HAZARD_DODGE_SPAN", file: "src/game/behaviours.js", min: 0.1,
+        description: "Lane widths a car assumes it may have to cross to get round a roadblock. This feeds the road every type needs to see a hazard coming, and obstacles.js sizes its whole spawn margin from that — so raising it pushes every hazard further up the road.",
+      },
+      {
+        id: "driving.HAZARD_SAFETY", name: "HAZARD_SAFETY", file: "src/game/behaviours.js", min: 1,
+        description: "Slack multiplier on that dodge distance, so a car arrives already clear of an obstacle rather than finishing its swerve exactly at it.",
+      },
+    ],
+  },
+  {
+    id: "impact",
+    label: "Ramming & contact",
+    // Why these belong on a car-tuning tool at all: a profile's `contact`
+    // ceiling is a HULL COST, and nothing in driving.js decides what a hull
+    // cost is — these do. The rig's dial is binary rather than graded purely
+    // because its steerSpeed of 35 sits under DAMAGE_FLOOR's 40, and that is a
+    // relation between two files a tuner has to be able to see both halves of.
+    note: "What a collision costs. Every driving profile's contact ceiling is priced against these, so they decide whether a type's dial has a usable range at all or only never and always — a car steering slower than DAMAGE_FLOOR prices every lane change it could make at zero.",
+    constants: [
+      {
+        id: "impact.DAMAGE_FLOOR", name: "DAMAGE_FLOOR", file: "src/game/collisions.js", min: 0,
+        description: "Closing speed that does no harm at all. Also the floor a lane change is priced against, so a type steering slower than this (the rig, at 35) prices every lane change at zero hull and its contact dial has only two settings rather than a range.",
+      },
+      {
+        id: "impact.IMPACT_DAMAGE", name: "IMPACT_DAMAGE", file: "src/game/collisions.js", min: 0.001,
+        description: "Hull lost per unit of closing speed above the floor. At equal mass a 300 unit/sec rear-end costs each car (300 - DAMAGE_FLOOR) times this.",
+      },
+      {
+        id: "impact.SIDE_DAMAGE", name: "SIDE_DAMAGE", file: "src/game/collisions.js", min: 0.001,
+        description: "How much of a head-on a side-swipe costs at the same speed. behaviours.js prices every lane change as a side-swipe, so this scales what contact means for every profile at once.",
+      },
+      {
+        id: "impact.PUSH_GAIN", name: "PUSH_GAIN", file: "src/game/collisions.js", min: 0,
+        description: "Sideways speed handed to a body per px of overlap, per second. This is what turns steady pressure into a slide that keeps going after contact ends, and what carries an impact down a chain of cars.",
+      },
+      {
+        id: "impact.RESTITUTION", name: "RESTITUTION", file: "src/game/collisions.js", min: 0,
+        description: "Bounce, 0..1. Deliberately low: cars crumple, they do not ping.",
+      },
+      {
+        id: "impact.RAM_MAXED_ATTACK_FLOOR", name: "RAM_MAXED_ATTACK_FLOOR", file: "src/game/collisions.js", min: 0,
+        description: "The maxed RAM PLATE's own damage floor, replacing DAMAGE_FLOOR on the PLAYER's hits only. Lower means ordinary driving contact starts to cost the other car something, not just a charge lined up in advance.",
+      },
+      {
+        id: "impact.RAM_MAXED_SHOVE_POWER", name: "RAM_MAXED_SHOVE_POWER", file: "src/game/collisions.js", min: 0,
+        description: "How much harder a maxed RAM PLATE's side-swipes shove whatever they land on. Above 1 a hit is meant to carry into the struck car's neighbour as well as clearing the first overlap.",
+      },
+    ],
+  },
+  {
     id: "road",
     label: "Road shape",
     note: "The wander of the road itself. tuning.js documents each of these at length — the short version is here; the trade-offs are in the file.",

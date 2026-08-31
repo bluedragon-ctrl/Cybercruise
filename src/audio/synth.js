@@ -6,7 +6,7 @@
 //                see "Music backend selection" below
 //   soundtypes.js + sfx.js   the SFX catalogue and its player, `play(id)`
 //   sustainedtypes.js + sustained.js + sustainedfx.js   the second voice
-//                lifecycle: voices (hull_hiss, shield_drone, wall_scrape) that
+//                lifecycle: voices (shield_drone, wall_scrape, dread_pulse) that
 //                live for a whole run instead of one-shot-and-forget
 //
 // main.js owns WHEN this plays, and that "when" is TWO moments:
@@ -25,9 +25,9 @@
 //
 // --- Music backend selection ------------------------------------------------
 //
-// Both backends implement the only two things any call site here asks of "the
-// music": start(delaySeconds) and disturb(amount). Nothing wider is assumed
-// anywhere in this file on purpose (see MUSIC_BACKEND_METHODS below).
+// Both backends implement the only thing any call site here asks of "the
+// music": start(delaySeconds). Nothing wider is assumed anywhere in this
+// file on purpose (see MUSIC_BACKEND_METHODS below).
 //
 //   proceduralmusic.js   the synthesized loop. ALWAYS available.
 //   trackmusic.js        recorded Ogg Vorbis tracks from assets/music/. Depends
@@ -56,10 +56,10 @@ import { play as playSfx, JACK_IN_DURATION } from "./sfx.js";
 import * as sustainedfx from "./sustainedfx.js";
 
 // Documents the interface both backends implement — not enforced by the
-// language, just the two names every call site below (and the invariant
-// tests, which assert both backend modules actually export exactly these
-// as functions) agree to.
-export const MUSIC_BACKEND_METHODS = ["start", "disturb"];
+// language, just the name every call site below (and the invariant tests,
+// which assert both backend modules actually export exactly these as
+// functions) agrees to.
+export const MUSIC_BACKEND_METHODS = ["start"];
 
 // Pure: the decision resolveBackend() makes on every call. `alreadySelected` is
 // null before the first decision this page life, or "track"/"procedural" once
@@ -260,15 +260,6 @@ function play(id, opts) {
   playSfx(id, opts);
 }
 
-// The music-disturbance seam. Forwards to WHICHEVER backend is already selected,
-// never resolveBackend(): if nothing has started playing there is nothing to
-// disturb, so this is a harmless no-op rather than a reason to freeze the
-// selection a moment before jackIn() would have anyway.
-function disturb(amount) {
-  if (selectedBackendName === "track") trackmusic.disturb(amount);
-  else if (selectedBackendName === "procedural") proceduralmusic.disturb(amount);
-}
-
 // The sector-transition re-sync: the gong (soundtypes.js's sector_shift) plus
 // the musicFilter collapse/reopen (context.js's beginSectorTransition). Bundled
 // into one call so main.js's edge-detector on sectors.glitching() has exactly one
@@ -280,9 +271,6 @@ function triggerSectorTransition() {
 
 // The sustained-voice drivers — main.js calls these once per "playing" tick.
 // Each is a thin forward to sustainedfx.js; see its header for what drives each.
-function updateHullHiss(dt, hullFrac, glitching) {
-  sustainedfx.updateHullHiss(dt, hullFrac, glitching);
-}
 function updateShieldDrone(shieldTime) {
   sustainedfx.updateShieldDrone(shieldTime);
 }
@@ -310,7 +298,7 @@ function updateMusicCutoff(speed) {
 // bundled into the one call it makes. Three concerns, each with its own
 // reason a stale run mustn't leak into a new one:
 //   - sustainedfx.reset() releases every sustained voice, so a fresh run
-//     never inherits a hiss/drone/scrape from the run that just ended — see
+//     never inherits a drone/scrape/pulse from the run that just ended — see
 //     that function's own header for why this also has to be more than just
 //     "silence everything".
 //   - context.resetMusicCutoffTransition() cancels a sector-transition
@@ -346,9 +334,9 @@ function currentTrackName() {
 
 export function createMusic() {
   return {
-    startContext, startMusicLoop, jackIn, setVolume, setSfxVolume, playDisconnect, play, disturb,
+    startContext, startMusicLoop, jackIn, setVolume, setSfxVolume, playDisconnect, play,
     triggerSectorTransition,
-    updateHullHiss, updateShieldDrone, updateWallScrape,
+    updateShieldDrone, updateWallScrape,
     updateDreadPulse, updateMusicCutoff, resetForNewRun,
     setBackendPreference, getSelectedBackendName, currentTrackName,
     onTrackChange,

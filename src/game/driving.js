@@ -24,6 +24,18 @@
 //
 // `commuter` is both the reference and the documentation: every field appears
 // once, here. Every other profile is a DELTA from it.
+//
+// FOUR FIELDS ARE MARKED "baseline only" — no profile in the catalogue below
+// turns them. That is not the same as a constant, and the distinction is what
+// decides where a number lives: a knob stays here when a future type could
+// plausibly want its own, and moves next to the tactic when the figure is
+// ARITHMETIC AGAINST ANOTHER FILE that no profile could state correctly on its
+// own. behaviours.js's PURSUE_RANGE and RAM_FLOOR left on those grounds — the
+// second is sized against player.js's minimum speed. These four did not.
+//
+// The marker exists so a reader tuning the road knows which knobs the catalogue
+// is actually using (twenty-one of them) without diffing every profile against
+// this one.
 const COMMUTER = {
   // --- Following ------------------------------------------------------------
   followGap: 40,        // clear road wanted nose-to-tail (behaviours.js followSpeed)
@@ -52,7 +64,8 @@ const COMMUTER = {
   // --- Overtaking -----------------------------------------------------------
   patience: 1.2,        // seconds held up before it commits to a pass
   passTrigger: 220,     // world units: a blocker further off isn't holding us up
-  passMargin: 30,       // ...the nose must clear before pulling back in
+  passMargin: 30,       // ...the nose must clear before pulling back in.
+                        // BASELINE ONLY: every profile runs the same margin
   passTimeout: 6,       // seconds before an unfinished pass is abandoned
   passSpeedMargin: 15,  // how much faster we must want to be to bother
   passClearance: 12,    // px of daylight between the boxes as it goes by
@@ -74,11 +87,9 @@ const COMMUTER = {
                         // inside armament.js's GUN_RANGE, with slack either side
                         // for pursueGain to correct in without clipping the
                         // firing window
-  pursueRange: 500,     // gap inside which chasing is worth doing at all. Well
-                        // outside pursueHold: room to spend a couple of seconds
-                        // genuinely closing before it must be in range
   pursueGain: 1.2,      // proportional term on the gap error, not a limit —
-                        // traffic.js's ACCEL still gets `speed` there
+                        // traffic.js's ACCEL still gets `speed` there.
+                        // BASELINE ONLY
   // The chase ceiling, and the one field deliberately allowed ABOVE the type's
   // own speedMax: the speed band governs ordinary cruise, this is what it spends
   // once the player is worth chasing, so it can keep pace with a player near
@@ -95,7 +106,10 @@ const COMMUTER = {
   raidGain: 1.5,        // gain on the MINE RUN's hold (behaviours.js `raid`),
                         // separate from pursueGain because holding station AHEAD
                         // of a target you must not out-pace is tighter. Read by
-                        // `outrun` too, which is that hold without the mine
+                        // `outrun` too, which is that hold without the mine.
+                        // BASELINE ONLY, and kept a knob rather than a constant
+                        // because the three tactics reading it are exactly where
+                        // a boss would want its own
   // The gap held AHEAD of the player by behaviours.js's `outrun` — the one
   // tactic that attacks from in front. Bounded at both ends by the gun rather
   // than by taste: under armament.js's GUN_MIN_RANGE it is inside contact range,
@@ -112,15 +126,13 @@ const COMMUTER = {
 
   // --- Ramming --------------------------------------------------------------
   // Read only by behaviours.js's `ram`, once it is ahead of the player and the
-  // job has turned from hitting them into blocking them.
+  // job has turned from hitting them into blocking them. How hard the block
+  // bites is a disposition and lives here; the SPEED IT MAY NOT DROP UNDER is
+  // arithmetic against player.js's own minimum, so it is RAM_FLOOR next to the
+  // tactic instead.
   ramBrake: 0.5,        // a FRACTION of the player's current speed, so the block
-                        // still bites at walking pace
-  ramFloor: 80,         // ...but a stalled wall reads as broken. Under the
-                        // player's own minimum of 100 (player.js), so lifting
-                        // off never escapes the block. The bruiser's own hard
-                        // floor is 0 (cartypes.js), leaving this the only thing
-                        // setting the block's pace — a type floor above it would
-                        // be a second, quieter answer to the same question
+                        // still bites at walking pace. BASELINE ONLY: one type
+                        // rams today, and how hard it leans is its own to set
 
   // --- Nerve: what this driver will accept hitting --------------------------
   //
@@ -148,16 +160,24 @@ const COMMUTER = {
   // trestle 8, tetra 24, mine 30), P(barge) = 1 - damage/nerve, or 0 when
   // damage >= nerve. So the dial is QUANTISED: anything below 5 does nothing,
   // and the first setting that exists is "sometimes barges barrels".
+  // BOTH DEFAULT TO 0, AND NEITHER DEFAULTS TO THE OTHER. `contact` used to
+  // inherit `nerve` wherever a profile omitted it, and that was a units error:
+  // the two are weighed against different quantities — `nerve` against a
+  // hazard's `threat` (5 to 30 across obstacletypes.js), `contact` against a
+  // hull cost that runs 0.3 to 9.6 across the whole catalogue — and they only
+  // looked interchangeable because those ranges overlap. The four hostiles that
+  // set a nerve inherited a contact ceiling of 10-20 against costs of at most
+  // 9.6, i.e. "leans on anything, always", which was nobody's decision.
+  //
+  // Every profile now states both. The cost of that is five more lines; what it
+  // buys is that a driver willing to shoulder through traffic has to SAY so.
   nerve: 0,
-  contact: 0,           // defaults to `nerve` when a profile omits it (profile()
-                        // below), so a profile states it only when the two differ
+  contact: 0,
 };
 
 // Build one profile from COMMUTER plus a delta, and freeze it.
 function profile(delta = {}) {
-  const merged = { ...COMMUTER, ...delta };
-  if (delta.contact === undefined) merged.contact = merged.nerve;
-  return Object.freeze(merged);
+  return Object.freeze({ ...COMMUTER, ...delta });
 }
 
 // --- The catalogue ------------------------------------------------------------
@@ -317,24 +337,36 @@ export const DRIVING_PROFILES = {
   // One per enemy type, because the numbers genuinely differ per type. Most say
   // nothing about the chase fields on COMMUTER, which is the system working — a
   // hostile states a figure only where it differs from the enemy baseline.
-  pursuer: profile({ nerve: 12 }),   // interceptor: through a trestle a third of
-                                     // the time — the baseline gamble
+  //
+  // EVERY HOSTILE SETS `contact` TO 0, and it is one decision rather than six.
+  // The enemy's aggression is its WEAPONS: a car that also shouldered its way
+  // through the traffic between it and the player would be spending hull on the
+  // approach, and the road would fill with wrecks the player never touched. The
+  // hostile that leans on people is a role the catalogue can still add — it just
+  // has to be chosen, which is the whole point of no longer inheriting it from
+  // `nerve`. Its own bikes and the darter already reasoned their way to 0
+  // independently; this is the rest of the fleet agreeing.
+  pursuer: profile({ nerve: 12, contact: 0 }), // interceptor: through a trestle
+                                     // a third of the time — the baseline gamble
   // UNCLAIMED — no type drives this, and behaviours.js's `block` tactic is
   // likewise unclaimed. Kept because the role is still wanted: a heavy hostile
-  // that shoves. A profile nobody drives constrains nothing (the braking-rule
-  // invariant skips it) and costs nothing.
-  enforcer: profile({ nerve: 16 }),
+  // that shoves — and the one profile where a nonzero `contact` would be the
+  // point, whenever a type claims it. A profile nobody drives constrains nothing
+  // (the braking-rule invariant skips it) and costs nothing.
+  enforcer: profile({ nerve: 16, contact: 0 }),
   // The bruiser: three in five through a trestle, the type least interested in
-  // going round anything.
+  // going round anything. Its `contact` of 0 says nothing about how it treats
+  // the PLAYER — ramming is behaviours.js's `ram`, which never consults this.
   batterer: profile({
     nerve: 20,
+    contact: 0,
     // The one hostile that chases slower than the rest. It closes to HIT rather
     // than to hold a firing gap, so it need not match a fleeing player — only
     // catch one who is busy with the road. Still well above its own 330.
     chaseSpeed: 560,
   }),
-  duelist: profile({ nerve: 10 }),   // rival: a driver, not a battering ram — it
-                                     // would rather keep the line clean
+  duelist: profile({ nerve: 10, contact: 0 }), // rival: a driver, not a battering
+                                     // ram — it would rather keep the line clean
   // The stocker: a heavy off a circuit rather than out of a garage, and the only
   // hostile that runs a RACING line — it lives on the lane edges and pulls out
   // early, so it arrives from the side of the road rather than up the middle.
@@ -344,6 +376,7 @@ export const DRIVING_PROFILES = {
     laneDiscipline: 0.35,
     patience: 0.5,
     nerve: 14,
+    contact: 0,
     // The only driver on the road that ever gives the player up; everything else
     // hostile keeps coming forever. Counted in seconds of LOST CONTACT, not
     // seconds of fight, so a stocker glued to your bumper is never on a timer.

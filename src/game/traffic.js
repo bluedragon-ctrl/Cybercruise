@@ -314,7 +314,7 @@ class TrafficCar {
     // cannot crawl, so braking sheds them; the cars and the boss can, so it
     // doesn't. Every civilian's floor is 0, which makes this line a no-op for
     // them and leaves the civilian road exactly as it was.
-    this.targetSpeed = Math.max(this.type.speedMin, this.targetSpeed);
+    this.targetSpeed = Math.max(this.type.hardFloor, this.targetSpeed);
 
     // PUNCTURED TYRES OVERRULE EVEN THAT, and are therefore applied after it:
     // the strip is the ONE deliberate exception to the floor, and it has to sit
@@ -532,9 +532,9 @@ export class Traffic {
   // turn that into a threat level. Lives HERE, not in the audio layer,
   // because traffic.js is what owns the cars and their factions — the audio
   // side only ever sees a plain {gap, closing} pair (or null), never a car
-  // reference, exactly the way main.js already hands hull fraction rather
-  // than a Player instance to updateHullHiss. See main.js's own call site for
-  // where this is turned into sound.
+  // reference, the same way every other update*() in sustainedfx.js is fed a
+  // scalar rather than a game object. See main.js's own call site for where
+  // this is turned into sound.
   //
   // "BEHIND" is worldY less than the player's own, and `gap` is written the
   // same sign every other chase in this codebase uses (behaviours.js's
