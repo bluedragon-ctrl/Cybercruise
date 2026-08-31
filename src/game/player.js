@@ -111,18 +111,19 @@ export const SHIELD_EXPIRING = 1; // seconds left when the flicker starts
 const SHIELD_FLICKER_RATE = 26; // rad/sec of the flicker's own sine
 
 // The overdrive buff (game/pickuptypes.js's BOOST entry activates this).
-// While it runs, the car's whole speed BAND slides up by a flat amount: the
-// floor the throttle can fall back to and the ceiling it can climb to both
-// move by the same number, which is what makes the buff felt without the
-// player having to do anything about it.
+// While it runs, the car's speed band CLOSES onto a single value: the ceiling
+// goes up by a flat amount and the floor comes up to meet it, so for the
+// duration the car has exactly one speed and the throttle has nothing left to
+// ask for.
 //
-// LIFTING THE FLOOR IS THE HALF THAT MATTERS. A raised ceiling alone sells a
-// top speed that only holds while the throttle is held — most of a short buff
-// would be spent asking the player to hold a key. The floor is enforced by
-// update() every tick, so raising it drives the car up to the new speed
-// whatever the player is doing with the throttle, and takes away the option of
-// slowing down while the buff runs: an overdrive is something that happens TO
-// the car, not something to be opted out of.
+// THE FLOOR IS THE HALF THAT MATTERS. A raised ceiling alone sells a top speed
+// that only holds while the throttle is held — most of a short buff would be
+// spent asking the player to hold a key. The floor is enforced by update()
+// every tick, so putting it AT the ceiling drives the car up to the new speed
+// whatever the player is doing, and takes away the option of slowing down while
+// the buff runs: an overdrive is something that happens TO the car, not
+// something to be opted out of. See minSpeed for why the floor has to reach the
+// ceiling rather than rise by the crate's amount.
 //
 // Both ends move by RAMP, not by jump — see BAND_RECOVER and update()'s own
 // comment on the band clamp.
@@ -344,9 +345,9 @@ export class Player {
     this.shieldTime = Math.max(this.shieldTime, seconds + this.shieldBonus);
   }
 
-  // Grant `seconds` of overdrive worth `amount` world units/sec on both ends
-  // of the speed band (see BOOST_EXPIRING's header for what that means and
-  // why it is both ends).
+  // Grant `seconds` of overdrive worth `amount` world units/sec on the car's
+  // CEILING, which the floor is then held level with for the duration — see
+  // minSpeed below for why the band closes rather than sliding up.
   //
   // THE TWO HALVES BEHAVE DIFFERENTLY, deliberately. The LIFT is a MAXIMUM:
   // a cluster of crates caps out at the strongest one rather than chaining
@@ -367,7 +368,7 @@ export class Player {
     this.boostTime += seconds; // boostTime is 0 when nothing runs, so this is `seconds` then
   }
 
-  // How much the band is lifted RIGHT NOW — 0 whenever no boost is running,
+  // How much the CEILING is lifted RIGHT NOW — 0 whenever no boost is running,
   // so the two accessors below are the only thing anything else has to read.
   get boost() {
     return this.boostTime > 0 ? this.boostAmount : 0;
@@ -377,8 +378,22 @@ export class Player {
   // normalises against or displays the band goes through these rather than
   // through MIN_SPEED/this.maxSpeed, so a boosted car's exhaust plume, HUD and
   // clamp all agree on where its band currently sits.
+  //
+  // AN OVERDRIVE CLOSES THE BAND: the floor is not lifted BY the crate's amount,
+  // it is lifted TO the ceiling the crate just raised. For the duration the car
+  // has one speed — its boosted top — and the throttle has nothing left to ask
+  // for. That is the whole buff: the crate takes the car, wherever it was, and
+  // spools it up to a speed it cannot otherwise reach (BAND_RECOVER, so ~0.8s
+  // from a mid-band cruise) and holds it there.
+  //
+  // Lifting the floor BY the amount instead was what shipped first, and it is
+  // the wrong shape. A player at 503 of a 100..620 band who drove over a crate
+  // got a floor of 300 — under where they already were — so the car did not
+  // move, did not accelerate, and the only thing that happened was a number in
+  // the HUD. The crate has to be felt from any speed the player might be doing
+  // when they take it, and only a floor at the top does that.
   get minSpeed() {
-    return MIN_SPEED + this.boost;
+    return this.boost > 0 ? this.topSpeed : MIN_SPEED;
   }
 
   get topSpeed() {
