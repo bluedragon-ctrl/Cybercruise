@@ -549,16 +549,28 @@ rounds".
 | TWIN CANNON | the cannon fires a parallel pair — same rate, same round | `weapons.js` |
 | TWIN RACK | two rockets a press, each seeking separately, so a press into a pack splits | `projectiles.js` |
 | SHIELD STORM | the shield arcs into anything that drives close, civilians included | `game/shieldstorm.js` |
-| AUTOLOCK | a tracer hit designates a car; every round for the next 3.5s steers to follow it | `game/targeting.js` |
+| AUTOLOCK | pulling the tracer's trigger designates one hostile ahead at random; every round for the next 3.5s steers to follow it | `game/targeting.js` |
 
 They are ownership **flags** and nothing more — `upgrades.js` knows what each one
 costs and nothing about what it does; each system reads the flag off
 `player.specials` and says for itself what to do with it. The join is a bare
 string, so `test/specials.test.js` pins both directions: every flag sold is read
 by something, and every claim names a flag on sale. `targeting.js` is worth
-reading for how an upgrade like this was kept from becoming "cannot miss" — it
-steers slower than the rocket seeks, and rounds do not re-lock when their target
-dies mid-burst.
+reading for how an upgrade like this was kept from becoming "cannot miss" — a
+round takes the lateral speed that actually *arrives* (the gap left to cross
+over the time left to cross it) up to a **cap**, so what the cap decides is the
+range at which a given crossing is possible: the whole road from about 350 units
+out, one lane down to about 120, and nothing at all when a car commits to a hard
+change late and wide. Rounds also never re-lock when their target dies
+mid-burst. The rocket keeps a flat 260/sec because it is doing a different job —
+it *hunts*, finding its own targets, reaching the air and carrying splash, where
+a tracer round is *aimed* and chases only what the player designated. The pick is made at the TRIGGER rather than by the first round
+that connects (`traffic.js`'s `randomHostileAhead`, which skips civilians and
+the air), because in a fast fight the car a burst has already hit is usually
+dead before the rest of the burst can benefit — designating something the
+player has *not* hit is what lets the tracer answer a hostile that never
+entered their lane, and what makes it worth carrying against the cannon's
+infinite ammunition.
 
 **Nothing survives a run.** The tiers and the specials die with the car exactly as
 unspent credits do. Whether the ladder should persist once there is a real bank is

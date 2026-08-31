@@ -186,12 +186,6 @@ export class Projectiles {
   // see `detonate()` below.
   constructor(explosions = null) {
     this.explosions = explosions;
-    // Called as onLock(car, seconds) when a round carrying `lockOn` hits a car
-    // that can be designated. A CALLBACK rather than a reference to whatever
-    // holds the lock, exactly as Traffic takes onDestroyed rather than a
-    // scoreboard (traffic.js): this file has no business knowing that a target
-    // lock exists, only that something wants telling when one is earned.
-    this.onLock = null;
     this.shots = Array.from({ length: MAX_SHOTS }, () => ({
       alive: false,
       worldY: 0,
@@ -220,10 +214,9 @@ export class Projectiles {
       impact: "spark",  // "spark" | "fireball" — see detonate() below
       blastRadius: 0,   // splash — see detonate() below. 0 = direct hit only
       blastDamage: 0,
-      lockOn: 0,        // seconds of DESIGNATION this round grants the car it
-                        // hits (weapons.js's AUTOLOCK). 0 for every round the
-                        // shop has not been asked to change, which is all of
-                        // them by default — see the hit loop in update()
+      lead: 0,          // CEILING on lateral units/sec for a locked round, and
+                        // the whole of the lead steer below. 0 = steer at the
+                        // flat `turnRate` instead, which is what a rocket does
       locked: false,    // this round is chasing a car the PLAYER designated,
                         // not one it found for itself. It steers exactly as a
                         // seeker does and differs in one way only: it never
@@ -253,9 +246,9 @@ export class Projectiles {
   // because they depend on what the player has BOUGHT and on what is already
   // designated — the caller's knowledge, not the weapon's:
   //
-  //   lockOn   seconds of designation this round grants what it hits
-  //   target   a car the player has already designated, for this round to chase
-  //   turnRate how fast it may steer to do so
+  //   target   a car the player designated at the trigger, for this round to
+  //            chase (game/targeting.js)
+  //   lead     the CEILING on how fast it may cross the road to do so
   //
   // It defaults to null, so every existing caller — and every hostile round,
   // forever — reads exactly as it did before the parameter existed. The object
@@ -296,17 +289,21 @@ export class Projectiles {
     s.blastDamage = type.blastDamage ?? 0;
 
     // --- What the shop bought (see `opts` above) ---------------------------
-    s.lockOn = opts?.lockOn ?? 0;
     // A ROUND HANDED A TARGET CHASES IT. This is the whole of AUTOLOCK at the
     // muzzle: the round borrows the seeking STEER (it is road-relative already,
     // so `tracking` is untouched) and nothing else about being a rocket. Its
     // own much slower turnRate overrides the type's, and `locked` is what tells
     // update() never to go looking for a replacement.
+    s.lead = 0;
     s.locked = !!opts?.target;
     if (s.locked) {
       s.target = opts.target;
       s.seeking = true;
-      s.turnRate = opts.turnRate ?? 0;
+      // The lead REPLACES the flight mode's own rate rather than adding to it —
+      // the two are different quantities and a round steers by exactly one of
+      // them (see the steer in update()).
+      s.turnRate = 0;
+      s.lead = opts.lead ?? 0;
     }
     return s;
   }
@@ -358,8 +355,32 @@ export class Projectiles {
           }
         }
         if (s.target) {
-          const step = s.turnRate * dt;
           const want = s.target.offset - s.offset;
+          // TWO STEERS, and which one a round uses is set at the muzzle.
+          //
+          // A SEEKER turns at a FLAT rate: it acquired this car in flight and
+          // is chasing it, so how hard it may turn is a property of the round
+          // and of nothing else. That is the rocket.
+          //
+          // A LOCKED ROUND FLIES A LEAD: it was aimed at a car the player had
+          // already designated, so it takes the lateral speed that actually
+          // ARRIVES — the gap left to cross divided by the time left to cross
+          // it — capped at what the weapon allows. This is the difference
+          // between the two, and the reason a flat rate was wrong here: time to
+          // impact shrinks as the round closes, so a flat rate is weakest at
+          // point-blank range, which is the shot that should never miss. See
+          // weapons.js's `lockLead` for the measured table.
+          //
+          // ETA falls out of the two speeds along the road. A round that is not
+          // gaining on its target has no arrival to lead (`closing <= 0`), and
+          // one arriving THIS TICK has no time left to spend: both mean "take
+          // the cap", which the Infinity does without a second branch.
+          let step = s.turnRate * dt;
+          if (s.lead > 0) {
+            const closing = s.dir * (s.speed - (s.target.speed ?? 0));
+            const eta = closing > 0 ? ((s.target.worldY - s.worldY) * s.dir) / closing : 0;
+            step = Math.min(s.lead, eta > 0 ? Math.abs(want) / eta : Infinity) * dt;
+          }
           s.offset += Math.max(-step, Math.min(step, want));
         }
       }
@@ -392,21 +413,6 @@ export class Projectiles {
         const hit = this.firstHit(s, targets);
         if (!hit) break;
         hit.damage(s.damage);
-        // ...and DESIGNATE it, if this round was fired with AUTOLOCK. The lock
-        // is earned by a hit rather than by aiming: the player cannot lock
-        // something they have not actually touched, which is what makes round
-        // one of a burst the one that does the work.
-        //
-        // ONLY A CAR, never road furniture. `seekable` is the same opt-in flag
-        // a rocket's own lock respects (see seek), so a trestle cannot become
-        // the thing eight rounds chase — and anything added to the target list
-        // later says for itself whether it can be locked, with no change here.
-        //
-        // A PIERCING BURST DESIGNATES WHAT IT PUNCHES THROUGH, so the last car
-        // a round reached is the one the rest of the burst follows. That reads
-        // correctly: the round carried on because the car in front died, and
-        // the thing still standing is the thing worth chasing.
-        if (s.lockOn > 0 && hit.seekable && this.onLock) this.onLock(hit, s.lockOn);
         if (s.pierce > 0 && !hit.alive) {
           // Through it and onward. The flash sits on the body it passed
           // through rather than at the round's own position, so a burst that

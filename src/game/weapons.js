@@ -204,36 +204,87 @@ export const WEAPON_TYPES = [
     glow: PLAYER,
     length: 16,
     width: 4.5,
-    // THE SHOP CAN TEACH THE TRACKER TO TRACK — upgrades.js's AUTOLOCK. The
-    // first round of a burst that connects DESIGNATES the car it hit; every
-    // round after steers to follow it instead of holding the lane.
+    // THE SHOP CAN TEACH THE TRACKER TO TRACK — upgrades.js's AUTOLOCK. THE
+    // TRIGGER DESIGNATES: a pull with nothing designated picks one hostile
+    // ahead at random (traffic.js's randomHostileAhead) and every round of that
+    // burst steers to follow it instead of holding the lane. Holding the
+    // trigger renews the same car; letting go drops it after `lockTime`.
+    //
+    // IT WAS THE HIT THAT DESIGNATED, and that is what this replaces. Earning
+    // the lock by connecting sounded right and played dead: a car you have
+    // already hit with round one of a burst is usually dead by round four, so
+    // the designation kept arriving for a target that no longer needed it, and
+    // the gun was still a lane hose in exactly the fights that were too fast
+    // for it. Designating at the trigger is what makes the upgrade WORTH the
+    // 350: it lets the player shoot a hostile that was never in their lane,
+    // which is the one thing the cannon's infinite ammunition cannot buy.
     //
     // THE RIGHT UPGRADE FOR THIS GUN AND NO OTHER: the burst is already the
-    // shape it needs (round one designates, two through eight chase, no new
-    // timing concept), and it answers the tracker's real weakness — a lane hose
-    // is helpless against anything that changes lanes — without touching its
-    // damage, which is what stops it becoming a better cannon.
+    // shape it needs (eight rounds already leave one muzzle together, so one
+    // designation covers all of them and no new timing concept appears), and it
+    // answers the tracker's real weakness — a lane hose is helpless against
+    // anything not in its lane — without touching its damage, which is what
+    // stops it becoming a better cannon.
     //
     // THE LANE RAKE SURVIVES IT with no special case: a locked car dead ahead
     // leaves `target.offset - s.offset` near zero, so the rounds fly the same
     // tracking line and `pierce` still punches down the row. The lock bends a
-    // round only when the target actually leaves the lane.
+    // round only when the target is not in the lane already.
     lock: "autolock",
-    // HOW LONG A DESIGNATION LASTS. It must outlive the burst that made it (the
-    // rest between bursts is 0.6s) or the player re-designates every time and
-    // the upgrade is invisible. 3.5s carries a lock across four or five bursts
-    // of held trigger, and still expires soon enough that a car left alone
-    // stops being yours.
+    // HOW LONG A DESIGNATION LASTS ONCE THE TRIGGER IS RELEASED. It must
+    // outlive the rest between bursts (0.6s) or a held trigger would re-roll a
+    // new car every burst, which is the one thing a random pick must not do.
+    // 3.5s also holds the lock across a short pause to swerve, and still
+    // expires soon enough that a car left alone stops being yours.
     lockTime: 3.5,
-    // LATERAL UNITS/SEC A LOCKED ROUND MAY STEER — the whole balance of the
-    // upgrade. WELL UNDER THE ROCKET'S 260: the seeking weapon has to stay the
-    // best seeker in the game or the rocket loses its reason to exist.
+    // HOW FAR UP THE ROAD THE TRIGGER WILL REACH FOR A CAR. DERIVED, not
+    // picked: the player sits at H * 0.62 (main.js), so 800 * 0.62 = 496 world
+    // units of road are visible above them and 520 is that plus a little for
+    // a car crossing the top edge. A longer reach would designate hostiles
+    // offscreen — the reticle is the upgrade's only explanation (effects.js),
+    // and brackets the player cannot see read as the burst bending for no
+    // reason. Anything at all in view is fair game laterally; crossing the road
+    // to reach it is what `lockLead` rations.
+    lockRange: 520,
+    // THE CEILING ON A LOCKED ROUND'S LATERAL SPEED — the whole balance of the
+    // upgrade, and a CAP rather than a rate. projectiles.js works out what the
+    // shot actually needs (the lateral gap divided by the time left to reach
+    // the car) and spends only that, up to this.
     //
-    // At 150 a round crosses a lane in about two thirds of a second, holding a
-    // car that is drifting or committed and losing one that commits to a hard
-    // change the moment it sees the burst. That is the difference between "the
-    // rounds follow" and "the rounds cannot miss".
-    lockTurnRate: 150,
+    // A FLAT RATE WAS THE FIRST VERSION AND IT WAS BACKWARDS. 150 units/sec is
+    // whatever the flight time can pay for, and flight time COLLAPSES as the
+    // target nears — a round closes at its own 820 relative to a car pacing the
+    // player, so:
+    //
+    //   gap 520 (top of the screen)  0.63s of flight   95 units   1.3 lanes
+    //   gap 350                      0.43s             64 units   0.9 lanes
+    //   gap 143 (two car lengths)    0.17s             26 units   0.4 lanes
+    //
+    // The gun was weakest at point blank, which is the shot it should never
+    // miss, and it could not reach past the next lane over from anywhere. What
+    // a round needs is gap/time, and that is what it now takes.
+    //
+    // 500 IS AN ANGLE, not a distance: against ~1220 absolute it is a 22°
+    // diagonal off the barrel, the steepest a round may leave at and still read
+    // as a bullet rather than a homing drone. What it buys, at the 71.5-unit
+    // lane width road.js sets:
+    //
+    //   ALL FOUR LANES from a gap of ~350 out — the top half of the screen
+    //   ONE lane down to a gap of ~117 — close-range shots snap on
+    //   and it still runs out. MEASURED against a car swerving a full lane away
+    //   mid-flight: an outrider (steerSpeed 200) two lanes over escapes inside
+    //   a gap of 450, a stocker (100) only inside 350, and NOTHING is hit
+    //   across a lane from a gap of 70. That is the whole difference between
+    //   "the rounds follow" and "the rounds cannot miss"
+    //
+    // IT EXCEEDS THE ROCKET'S OWN 260 AND THAT IS FINE. The rocket's claim was
+    // never the turn rate: it HUNTS — it finds its own targets anywhere inside
+    // 1100 units, re-acquires when one dies, reaches the air, and carries 98
+    // damage and a splash. A tracer round is AIMED: it chases only what the
+    // player designated, never re-acquires, and cannot touch anything flying.
+    // Aimed fire arriving where it was pointed is not the seeker's job taken
+    // away.
+    lockLead: 500,
   },
   {
     id: "rocket",
@@ -591,25 +642,36 @@ export function muzzleOffsets(type, specials = null) {
   return pair;
 }
 
-// Does this weapon designate what it hits, and for how long? Seconds, or 0 for
-// every weapon and every unowned upgrade — which is the case that costs
-// projectiles.js nothing at all (see its `lockOn` field).
-export function shotLock(type, specials = null) {
+// Does pulling this trigger designate a car, and for how long does the
+// designation hold? Seconds, or 0 for every weapon and every unowned upgrade —
+// and 0 is also the "do not go looking for a target at all" answer main.js
+// tests, so an unowned upgrade costs the trigger one comparison and nothing
+// else.
+export function lockSeconds(type, specials = null) {
   if (!type.lock || !specials || !specials[type.lock]) return 0;
   return type.lockTime ?? 0;
 }
 
-// How fast a round from this weapon may steer toward a car the player has
-// already designated. 0 means "this round does not chase" — either the weapon
+// How far ahead of the player that trigger will look for one (see `lockRange`
+// on the TRACKER). Same 0-when-unowned rule, so the two are read as a pair.
+export function lockRange(type, specials = null) {
+  if (!type.lock || !specials || !specials[type.lock]) return 0;
+  return type.lockRange ?? 0;
+}
+
+// The fastest a round from this weapon may travel sideways to reach the car the
+// player designated. 0 means "this round does not chase" — either the weapon
 // has no lock upgrade or it has not been bought, and in both cases the round
 // flies exactly as it always did.
 //
-// SEPARATE FROM `turnRate`, which is the rocket's own seeking rate and belongs
-// to the flight mode. A locked tracer round is NOT a rocket: it borrows the
-// seeking steer and nothing else, at its own much slower rate.
-export function lockTurnRate(type, specials = null) {
+// SEPARATE FROM `turnRate`, which is the rocket's own constant seeking rate and
+// belongs to the flight mode. The two are not the same quantity: a rocket
+// steers at its rate the whole way in, while this is only a CEILING on what a
+// locked round spends on the lead it was fired with — see the TRACKER entry
+// and projectiles.js's steer.
+export function lockLead(type, specials = null) {
   if (!type.lock || !specials || !specials[type.lock]) return 0;
-  return type.lockTurnRate ?? 0;
+  return type.lockLead ?? 0;
 }
 
 // One weapon, as carried by one car.

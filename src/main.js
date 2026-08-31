@@ -35,7 +35,7 @@ import { createShop } from "./game/shop.js";
 // file's header for why the tier ladder is scoped to one run, exactly as the
 // credits paying for it are (CREDIT_STORE below).
 import { Garage } from "./game/upgrades.js";
-import { Loadout, muzzleOffsets, shotLock, lockTurnRate } from "./game/weapons.js";
+import { Loadout, muzzleOffsets, lockSeconds, lockRange, lockLead } from "./game/weapons.js";
 import { ShieldStorm } from "./game/shieldstorm.js";
 import { Lock } from "./game/targeting.js";
 import { createMenu } from "./game/menu.js";
@@ -426,11 +426,12 @@ const shotTargets = [];
 const shellTargets = [];
 
 // Scratch for the per-shot options projectiles.js's spawn() takes — what this
-// round designates, and what it chases. REUSED rather than built per shot, for
+// round chases, and how fast it may cross the road to. REUSED rather than built
+// per shot, for
 // the same reason the array above is: the trigger is pulled several times a
 // second forever, and spawn() reads and copies every field immediately without
 // keeping the object (see its own note saying so).
-const SHOT_OPTS = { lockOn: 0, target: null, turnRate: 0 };
+const SHOT_OPTS = { target: null, lead: 0 };
 
 // Reused every tick rather than rebuilt, same as shotTargets — but its ONE
 // entry (Traffic's PlayerBody, already the player expressed as something with
@@ -482,7 +483,6 @@ function respawnWorld() {
   // a shop visit would be aimed at a car that no longer exists on a road that
   // no longer exists.
   lock.reset();
-  shots.onLock = (car, seconds) => lock.acquire(car, seconds);
   // HOSTILE FIRE GETS ITS OWN POOL, and the reason is targeting rather than
   // bookkeeping. projectiles.js resolves one pool against one list of
   // targets — "WHO CAN BE HIT is the CALLER'S choice" — so two pools is how a
@@ -1150,16 +1150,28 @@ function updatePlaying(dt) {
     // and the same ammunition. That IS the upgrade — a pairing that burned two
     // rounds a press would sell the player nothing but a louder magazine.
     const muzzles = muzzleOffsets(weapon.type, player.specials);
-    // AUTOLOCK, both halves: what this round designates if it connects, and
-    // what it chases if something is designated already. Both 0/null for any
-    // weapon it was not bought for, which costs projectiles.js nothing.
+    // AUTOLOCK — THE TRIGGER DESIGNATES (weapons.js's TRACKER, game/targeting.js).
+    // A pull renews whatever is already locked and otherwise picks one hostile
+    // ahead at random; either way the whole burst is handed the same car, and
+    // every weapon the upgrade was not bought for gets 0 here and skips the
+    // block entirely.
     //
+    // RENEWING RATHER THAN RE-ROLLING is what keeps a random pick playable: a
+    // held trigger stays on the car it chose for as long as it is being shot
+    // at, and only a lock left to expire (lockTime after the last pull) puts
+    // the next pull back in the lottery.
+    //
+    // A pick that finds nothing leaves the lock empty — acquire(null) is a
+    // no-op — and the burst flies as a stock tracker burst does.
+    const seconds = lockSeconds(weapon.type, player.specials);
+    if (seconds > 0) {
+      lock.acquire(lock.car ?? traffic.randomHostileAhead(lockRange(weapon.type, player.specials)), seconds);
+    }
     // Read HERE, at the muzzle, not mid-flight, so a round chases the car that
     // was designated when it was FIRED — rounds re-checking in the air would
     // swing the whole burst the moment the player designated something else.
-    SHOT_OPTS.lockOn = shotLock(weapon.type, player.specials);
-    SHOT_OPTS.target = SHOT_OPTS.lockOn > 0 ? lock.car : null;
-    SHOT_OPTS.turnRate = lockTurnRate(weapon.type, player.specials);
+    SHOT_OPTS.target = seconds > 0 ? lock.car : null;
+    SHOT_OPTS.lead = lockLead(weapon.type, player.specials);
     for (const dx of muzzles) {
       shots.spawn(distance + player.h / 2, player.x - centerX + dx, player.speed, weapon.type, W, 1, SHOT_OPTS);
     }

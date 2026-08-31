@@ -417,7 +417,7 @@ export const SPECIALS = [
     id: "autolock",
     label: "AUTOLOCK",
     detail: "ROUNDS CHASE",
-    note: "TRACER HITS DESIGNATE — THE REST OF THE BURST FOLLOWS",
+    note: "THE TRACER PICKS A HOSTILE — THE WHOLE BURST FOLLOWS IT",
     // Same price as the storm and for a related reason: it is a multiplier on
     // shots the player still has to take, not damage of its own. It adds no
     // damage at all — every round still hits for 22 — it only stops them
