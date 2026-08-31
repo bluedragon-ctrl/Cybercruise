@@ -249,7 +249,8 @@ const KINDS = {
     groups: () => [{ heading: "Obstacles", entries: data.obstacles }],
     sections(obstacle) {
       // Only the fields this hazard actually has: the slow-effect group exists
-      // for the SPIKES strip alone, and an empty fieldset is noise.
+      // for the two punctures alone (the strip and the spike mine), and an empty
+      // fieldset is noise.
       return obstacleFieldGroups
         .map(({ label, fields }) => ({
           legend: label,

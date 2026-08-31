@@ -35,7 +35,7 @@ import { createShop } from "./game/shop.js";
 // file's header for why the tier ladder is scoped to one run, exactly as the
 // credits paying for it are (CREDIT_STORE below).
 import { Garage } from "./game/upgrades.js";
-import { Loadout, muzzleOffsets, lockSeconds, lockRange, lockLead } from "./game/weapons.js";
+import { Loadout, laidPayload, muzzleOffsets, lockSeconds, lockRange, lockLead } from "./game/weapons.js";
 import { ShieldStorm } from "./game/shieldstorm.js";
 import { Lock } from "./game/targeting.js";
 import { createMenu } from "./game/menu.js";
@@ -102,7 +102,7 @@ gameConsole.setDivert(gutter.logVisible);
 
 const MENU_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm";
 const PAUSE_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER confirm &middot; ESC resume";
-const PLAY_HINT = "&larr;/&rarr; or A/D steer &middot; &uarr;/&darr; speed &middot; SPACE fire &middot; TAB weapon &middot; CTRL deploy &middot; E select &middot; ESC pause";
+const PLAY_HINT = "&larr;/&rarr; or A/D steer &middot; &uarr;/&darr; speed &middot; SPACE fire &middot; TAB weapon &middot; CTRL deploy &middot; ESC pause";
 // The shop screen's own bar. The lift and lower sequences either side of it
 // leave the bar EMPTY, the way "connecting" and "dying" do — there is nothing
 // to press while the car is in the air.
@@ -1190,15 +1190,6 @@ function updatePlaying(dt) {
     music.play("dry_fire");
   }
 
-  // E cycles the DEPLOYABLES — the layers, on their own cursor, so picking a
-  // different thing to drop never disturbs which gun is in hand (weapons.js's
-  // Loadout). Edge-triggered like TAB, and a no-op while the mine is the only
-  // layer carried.
-  if (consumePress("deploy")) {
-    loadout.nextDeployable();
-    music.play("weapon_swap");
-  }
-
   // CTRL lays whichever deployable is selected, independent of whichever gun
   // is currently selected — no more tabbing onto the mine layer to drop one
   // and back to a gun afterwards. Mirrors armament.js's own layMine: the drop
@@ -1211,7 +1202,14 @@ function updatePlaying(dt) {
     // obstacles.js's drop() wants — worldY/offset/h, the same shape a car
     // satisfies without an adapter.
     const body = { worldY: distance, offset: player.x - centerX, h: player.h };
-    if (obstacles.drop(obstacleTypeById(deployable.type.payload), body)) {
+    // WHICH HAZARD, decided at the drop rather than carried on the weapon: the
+    // SPIKE MINES special (upgrades.js) swaps the mine's payload for the one
+    // that punctures whatever lives through the blast, and the flag it sets
+    // lives on the CAR (Player.applyUpgrades). The rule itself is weapons.js's
+    // — see laidPayload — so a Loadout built before the dock and a car upgraded
+    // at it never have to agree about anything.
+    const laid = laidPayload(deployable.type, player.specials);
+    if (obstacles.drop(obstacleTypeById(laid), body)) {
       deployable.tryFire();
       music.play(PLAYER_FIRE_SOUND[deployable.type.id]);
       // Same rule as the gun above: the drop that empties the last mine selects

@@ -559,8 +559,9 @@ and a colour scheme over it and owns no numbers of its own. Three shelves.
 **Consumables** — hull repair, a shield, and ammunition for each weapon that has a
 magazine. A bought repair and a driven-over `FIX` crate are literally the same
 event applied by the same code. Guns are topped up by the crate's own quantity;
-layers (the mine, the spike strip) are rearmed as a whole set instead, because a
-"+1" row would be a rounding error on a decision you walked down a menu to make.
+the mine — the one thing the player lays rather than fires — is rearmed as a
+whole set instead, because a "+1" row would be a rounding error on a decision
+you walked down a menu to make.
 A row that would do nothing — full hull, a full magazine — refuses the sale
 rather than take the money for it, unlike a driven-over crate on the road,
 which is free either way. The shield has no ceiling of its own to be full
@@ -597,6 +598,7 @@ rounds".
 | TWIN RACK | two rockets a press, each seeking separately, so a press into a pack splits | `projectiles.js` |
 | SHIELD STORM | the shield arcs into anything that drives close, civilians included | `game/shieldstorm.js` |
 | AUTOLOCK | pulling the tracer's trigger designates one hostile ahead at random; every round for the next 3.5s steers to follow it | `game/targeting.js` |
+| SPIKE MINES | the mine you already lay sprays spikes: whatever lives through the blast crawls at 150 for three seconds | `game/obstacles.js` |
 
 They are ownership **flags** and nothing more — `upgrades.js` knows what each one
 costs and nothing about what it does; each system reads the flag off
@@ -675,11 +677,11 @@ phases' code.
         as a catalogue in the `cartypes.js` style (`src/game/upgrades.js`) with
         a navigable storefront over it (`src/game/shop.js`) spending
         `Wallet.spend()`
-  - [x] **11c** — Specials: four one-off upgrades that change a VERB rather than
-        move a number — TWIN CANNON, TWIN RACK, SHIELD STORM, AUTOLOCK — sold
-        from a third shelf as ownership flags, each read by the system it
-        changes and by nothing else. See The upgrade shop above. More are a
-        catalogue entry plus whichever system reads the flag
+  - [x] **11c** — Specials: one-off upgrades that change a VERB rather than
+        move a number — TWIN CANNON, TWIN RACK, SHIELD STORM, AUTOLOCK, and
+        SPIKE MINES — sold from a third shelf as ownership flags, each read by
+        the system it changes and by nothing else. See The upgrade shop above.
+        More are a catalogue entry plus whichever system reads the flag
   - [ ] **11d** — Persistence, once players have records to hold one: turn
         `main.js`'s `CREDIT_STORE` back on and decide, then, whether the
         upgrade ladder persists with the money or stays scoped to a run

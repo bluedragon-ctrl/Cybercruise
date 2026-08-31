@@ -116,21 +116,27 @@ test("a LAYER is rearmed as a whole set, whatever was left in it", () => {
   }
 });
 
-test("rearming a layer costs more per round than topping up a gun", () => {
+test("rearming the layer costs more per round than topping up a gun", () => {
   // A set bought in one press is a much bigger favour than a crate's worth of
-  // rounds — the strip's three-round magazine is the entire reason a belted road
-  // is not permanent (weapons.js) — so the layers stay the dearest rounds on the
-  // shelf. Per ROUND rather than per row, since the rows sell wildly different
-  // counts.
-  const perRound = (id) => {
-    const row = CONSUMABLES.find((e) => e.id === id);
-    return row.price / row.amount;
-  };
-  const dearestGun = Math.max(perRound("buy_rocket_ammo"), perRound("buy_tracer_ammo"));
-  assert.ok(perRound("buy_mine_ammo") > dearestGun, "mines are cheaper per round than a gun");
-  // ...and the strip is dearer still, being the stingiest magazine in the game.
-  assert.ok(perRound("buy_spikes_ammo") > perRound("buy_mine_ammo"),
-    "spike strips must stay the dearest round on the shelf");
+  // rounds, and a mine is the hardest single hit on the road (obstacletypes.js)
+  // — so the layer stays the dearest round on the shelf. Per ROUND rather than
+  // per row, since the rows sell wildly different counts.
+  //
+  // WALKED FROM THE CATALOGUE, not from two named ids: the relation is "every
+  // layer row is dearer per round than every gun row", and spelling out the
+  // rows was what left this test asserting nothing about a row added later.
+  const perRound = (row) => row.price / row.amount;
+  const rows = CONSUMABLES.filter((e) => e.kind === AMMO);
+  const isLayer = (row) => !!WEAPON_TYPES.find((t) => t.id === row.weaponId)?.payload;
+  const layers = rows.filter(isLayer);
+  const guns = rows.filter((r) => !isLayer(r));
+  assert.ok(layers.length > 0 && guns.length > 0, "the shelf has no layer or no gun to compare");
+
+  const dearestGun = Math.max(...guns.map(perRound));
+  for (const row of layers) {
+    assert.ok(perRound(row) > dearestGun,
+      `${row.id} is cheaper per round (${perRound(row)}) than a gun (${dearestGun})`);
+  }
 });
 
 test("the repair and the shield say on the shelf exactly what they hand over", () => {

@@ -36,17 +36,11 @@ const CODE_ALIASES = {
   // reason to tab away from it and back. See weapons.js's Loadout.next().
   ControlLeft: "mine",
   ControlRight: "mine",
-  // ...and their own SELECTOR, so the deploy key above can reach a second
-  // deployable without the gun in hand ever changing. E rather than CAPS LOCK:
-  // CapsLock toggles a real OS state as a side effect (the player's keyboard
-  // LED would blink through a whole run), and Firefox on macOS only reports
-  // the keyup of the OFF toggle — so half its presses would go unseen by the
-  // consumePress channel this action uses.
-  KeyE: "deploy",
-  // Numpad . mirrors E, for the same arrow-key player Numpad0 above is for —
-  // it sits directly below the numpad's own arrow cluster, an easy reach
-  // without leaving it.
-  NumpadDecimal: "deploy",
+  // THERE IS NO SELECTOR FOR THEM, and E and Numpad . are free again because of
+  // it. The player carries one deployable; what it drops is changed by an
+  // upgrade bought at the dock (upgrades.js's SPIKE MINES), not by a key held
+  // over from when there were two. See weapons.js's Loadout — the second
+  // cursor is still there, nothing cycles it.
   Escape: "pause",
 };
 

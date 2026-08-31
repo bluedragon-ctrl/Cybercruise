@@ -482,6 +482,28 @@ export class Obstacles {
   // Traffic.blast() — peak damage at the box edge, nothing at `blastRadius` —
   // so a roadblock's tight radius and a mine's wide one are the same formula
   // at two different settings, not two mechanics to keep in sync.
+  //
+  // A BLAST THAT CARRIES TEETH punctures what it does not kill. A type naming
+  // `slowTo` alongside a radius (obstacletypes.js's SPIKE MINE, and only that)
+  // sprays its spikes over the same falloff area, so the heavy that drove out
+  // of its own wreckage limps out of it instead. AFTER the damage and only on
+  // survivors: puncturing a body that this same call just killed would be an
+  // effect nobody could ever see, and Traffic.puncture would take its
+  // contactDamage against a car already at zero hull.
+  //
+  // FLAT ACROSS THE RADIUS, not scaled by the falloff like the damage above. A
+  // puncture is not a quantity — traffic.js's puncture takes the type's whole
+  // slowTime or nothing at all, and a car grazed at the rim is exactly the car
+  // this is FOR (the one the falloff barely hurt), so scaling it toward nothing
+  // there would delete the upgrade's one job.
+  //
+  // WHOEVER CAN BE PUNCTURED, which today is every live car and not the player:
+  // Traffic carries puncture(), main.js's playerBox does not, and the player
+  // lays these BEHIND themselves (drop()) so the question is academic for their
+  // own. The moment Player grows a puncture() to match — the strip laid in
+  // their path by a sower is inert until it does, see the contact pass above —
+  // this line starts reaching them too, which is the correct answer for a
+  // hostile spike mine and would need a look at the player's own.
   blast(o, playerBox, cars) {
     const radius = o.type.blastRadius;
     const peak = o.type.blastDamage;
@@ -495,6 +517,7 @@ export class Obstacles {
       const dist = Math.hypot(dx, dy);
       if (dist >= radius) return;
       body.damage(peak * (1 - dist / radius));
+      if (o.type.slowTo && body.alive && body.puncture) body.puncture(o.type);
     };
 
     hurt(playerBox);

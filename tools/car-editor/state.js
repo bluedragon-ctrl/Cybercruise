@@ -240,8 +240,9 @@ export const OBSTACLE_IDS = live.obstacletypes.OBSTACLE_TYPES.map((t) => t.id);
 // change how OFTEN a hazard appeared but not how much it hurt. The rest of the
 // entry is here now, in the same two-group shape the cars use.
 //
-// Not every field is on every type: only the SPIKES strip has the slow-effect
-// fields, and `threat` only means anything for a hazard the AI actively avoids.
+// Not every field is on every type: only the two punctures (the SPIKES strip
+// and the SPIKE MINE) have the slow-effect fields, and `threat` only means
+// anything for a hazard the AI actively avoids.
 // Like a pickup's amount/duration split, a field is reported only when the
 // entry actually has a finite number for it — a form field writing a key the
 // catalogue does not read is a change with no effect.

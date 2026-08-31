@@ -20,9 +20,9 @@
 //
 // `ammo` IS THE MAGAZINE (the ceiling a refill tops up to), `startAmmo` is what
 // is in it when a run begins, defaulting to full. The split exists because most
-// of the catalogue is EARNED rather than issued: the tracker, the rocket and
-// the spike strip all begin EMPTY. The player drives out with the cannon and
-// the mines; everything else the road drops (pickuptypes.js) or the dock sells
+// of the catalogue is EARNED rather than issued: the tracker and the rocket
+// both begin EMPTY. The player drives out with the cannon and the mines;
+// everything else the road drops (pickuptypes.js) or the dock sells
 // (upgrades.js). A magazine you went and got is spent differently from one you
 // were handed, and it gives the shop's consumable shelf something to matter for
 // on the first stop.
@@ -392,17 +392,38 @@ export const WEAPON_TYPES = [
     // mine or a red pylon would break the two-family read"). A mine reads as a
     // mine, whoever laid it.
     payload: "caltrop",
+    // WHAT THE SPIKE MINES SPECIAL LAYS INSTEAD (upgrades.js's `spikeMines`).
+    // A SECOND PAYLOAD RATHER THAN A SECOND WEAPON, and that is the whole
+    // lesson of the spike strip this replaced: the strip was a separate entry
+    // in this catalogue with its own magazine, its own shop row, its own crate
+    // and its own cursor on the deploy key, and asking a player mid-corner to
+    // pick between two things dropped behind them with the same colour, the
+    // same sound and the same key is a decision nobody made. An upgrade that
+    // changes what the ONE deploy key puts down is the same tactical choice
+    // with none of the bookkeeping: one magazine, one key, one crate, and the
+    // player owns it or does not.
+    //
+    // Resolved at the DROP (main.js), not here — the flag lives on the car
+    // (player.specials), a weapon has no view of it, and a Loadout built before
+    // the shop was visited must not have to be rebuilt after it.
+    //
+    // NAMED IN TWO FIELDS, exactly as `twin`/`twinSpread` and `lock`/`lockTime`
+    // above are: `upgrade` is the SHELF FLAG (upgrades.js's `special`), and
+    // test/specials.test.js walks this catalogue for those fields to prove
+    // every flag sold is read and every flag read is sold. `upgradePayload` is
+    // what the flag buys. A payload named without a flag is a hazard nothing can
+    // reach, which is the failure that join exists to catch.
+    upgrade: "spikeMines",
+    upgradePayload: "spikemine",
     // SIX SECONDS, THREE ROUNDS is the enemy's own layer (armament.js). The
     // player gets a much shorter rest and more than twice the magazine: a held
     // trigger there is an AI's rare tactical choice, but here it is a deliberate
     // press every time, so the tighter enemy rationing would read as broken
     // rather than scarce. The magazine, not the reload, is what rations this.
     interval: 1,
-    // SIXTEEN IN THE MAGAZINE, EIGHT IN HAND. THE ONE DEPLOYABLE THE PLAYER IS
-    // ISSUED — something has to be behind the deploy key on the first corner or
-    // the key is a mystery, and the mine is the right one to be it: its whole
-    // behaviour — one hazard, dropped behind, dodgeable — is legible the first
-    // time you use it. The strip below is the one you earn. Issued at HALF the
+    // SIXTEEN IN THE MAGAZINE, EIGHT IN HAND. THE PLAYER'S ONLY DEPLOYABLE, and
+    // the right one to be it: its whole behaviour — one hazard, dropped behind,
+    // dodgeable — is legible the first time you use it. Issued at HALF the
     // magazine rather than full, so the dock's SET OF 16 (upgrades.js) is a real
     // top-up on the very first stop instead of a row with nothing to sell yet.
     ammo: 16,
@@ -414,44 +435,26 @@ export const WEAPON_TYPES = [
     color: PLAYER_THRUST,
     glow: PLAYER,
   },
-  {
-    id: "spikes",
-    label: "SPIKES",
-    // THE SECOND LAYER, and the first weapon in the game that is not trying to
-    // destroy anything. Where the mine above kills what is chasing you, this
-    // takes its SPEED: a car that crosses the belt limps at 150 for five
-    // seconds (obstacletypes.js), drops out of gun range, and is simply no
-    // longer part of the fight. It is also 2.4 lanes wide against the mine's
-    // 26px — the mine is a point you dodge, this is a wall you go around.
-    //
-    // Its existence is why the deploy cycle (Loadout.nextDeployable, E) exists
-    // rather than the mine owning the CTRL key outright.
-    payload: "spikes",
-    // THE MAGAZINE IS THE WHOLE BALANCE OF THIS WEAPON. A strip is not dodged
-    // so much as routed around, and a player who could keep one on the road at
-    // all times would make the road behind them permanently impassable — so what
-    // stops it being oppressive is HOW FEW THERE ARE, not that any one of them
-    // is weak. Three fewer than the mine's eight for that reason, despite being
-    // the gentler hazard of the pair.
-    ammo: 5,
-    // AND NONE AT THE START. This is the strongest form the rationing takes: the
-    // strip is not equipment the player owns and spends, it is something they
-    // buy or find, run out of, and buy again. Between that and the magazine, a
-    // permanently belted road is out of reach — which is the entire design
-    // constraint this weapon is written around.
-    startAmmo: 0,
-    // Slower than the mine's 1s. A strip is a lane-wide commitment laid at a
-    // moment you chose, not something to sprinkle — and at three rounds the
-    // magazine would otherwise be gone inside three seconds of a held key.
-    interval: 2.5,
-    // HUD-only, as with the mine above: a strip never flies. Deliberately the
-    // same pair the mine uses — both are read by main.js's weapon list for the
-    // deployable readout, and a second colour there would imply a difference
-    // in how they are USED rather than in what they do.
-    color: PLAYER_THRUST,
-    glow: PLAYER,
-  },
 ];
+
+// WHICH HAZARD A LAYER ACTUALLY PUTS DOWN, given the specials block off the car
+// (Player.applyUpgrades). An OBSTACLE_TYPES id, or null for a weapon that lays
+// nothing at all.
+//
+// HERE RATHER THAN AT THE CALL SITE (main.js's deploy branch, the only caller)
+// because the rule belongs to the catalogue that states it: `upgrade` and
+// `upgradePayload` are fields on a weapon entry, and reading them is this
+// file's business. It also makes the rule testable — main.js touches the DOM at
+// module scope and no test can import it, which is exactly how a one-line
+// resolution goes unchecked.
+//
+// RESOLVED PER DROP, not once. The flag can turn on mid-run at a dock, and the
+// Loadout is built long before the shop is ever visited.
+export function laidPayload(type, specials) {
+  if (!type?.payload) return null;
+  const { upgrade, upgradePayload, payload } = type;
+  return upgrade && upgradePayload && specials?.[upgrade] ? upgradePayload : payload;
+}
 
 // The default loadout: what the player starts every run holding.
 const DEFAULT_WEAPON = WEAPON_TYPES[0];
@@ -766,13 +769,23 @@ export class Weapon {
 // Cooldowns run for the WHOLE loadout, not just the weapon in hand (see
 // update), so swapping cannot dodge a slow weapon's fire rate.
 //
-// TWO CYCLES, split by what a weapon PUTS INTO THE WORLD rather than by a flag:
-// anything with a `payload` is a LAYER and lives on its own key, everything else
-// is a GUN on TAB's. `next()` and `nextDeployable()` are the same walk filtered
-// opposite ways, so a second layer added to WEAPON_TYPES joins the deployable
-// cycle with nothing here to update. The cursors are INDEPENDENT — laying a
-// mine must never disturb which gun is in hand, which is why it got its own key.
-// What each cycle will land on. Free functions rather than methods because
+// TWO CURSORS, ONE CYCLE KEY, split by what a weapon PUTS INTO THE WORLD rather
+// than by a flag: anything with a `payload` is a LAYER, everything else is a GUN
+// on TAB's cycle. The cursors are INDEPENDENT — laying a mine must never disturb
+// which gun is in hand, which is why the deploy key is its own.
+//
+// ONLY THE GUNS CYCLE. The layer cursor exists and moves — settle() runs it, and
+// `deployable` is what the deploy key fires — but nothing CYCLES it, because the
+// player carries exactly one layer and a key that selects between one thing is a
+// key that does nothing. There was a second deployable (a spike strip) and its
+// own E to switch, and it went for the reason weapons.js's `upgradePayload` now
+// records: two things dropped behind you on the same key, in the same colour,
+// with the same sound is a choice nobody makes at speed. What replaced it
+// changes what the ONE key lays. A genuinely second layer would need its cycle
+// back — `#step(this.deployIndex, isLoadedLayer)`, the same walk settle() below
+// already makes — but it should have to argue for itself first.
+//
+// What each cursor will land on. Free functions rather than methods because
 // they are about ONE weapon and nothing else about the loadout — see #step.
 const isLoadedGun = (w) => !w.type.payload && !w.empty;
 const isLoadedLayer = (w) => !!w.type.payload && !w.empty;
@@ -785,8 +798,9 @@ export class Loadout {
     // any kind and finally to -1 when there are none. Not 0: index 0 is a gun,
     // and a `deployable` that silently returned the cannon would let the deploy
     // key fire it. The fallback is what keeps a catalogue whose layers all
-    // start empty (see startAmmo) showing one on the HUD rather than nothing —
-    // the cycle itself will find it again the moment a pickup fills it.
+    // start empty (see startAmmo) showing one on the HUD rather than nothing;
+    // the player's own mine is issued half full, so it is the enemy's Armament
+    // that reaches for it.
     this.deployIndex = this.weapons.findIndex(isLoadedLayer);
     if (this.deployIndex < 0) this.deployIndex = this.weapons.findIndex((w) => w.type.payload);
   }
@@ -810,27 +824,15 @@ export class Loadout {
     return this.weapons.find((w) => w.type.id === id) ?? null;
   }
 
-  // GUNS ONLY, AND LOADED ONES. A layer (type.payload set — the mine, see
-  // WEAPON_TYPES above) is skipped here on purpose: it has its own key now
-  // (main.js's "mine" action) rather than a slot in this cycle, so a player
-  // laying one is never forced to tab away from whatever gun they had and back
-  // again afterwards. Empty guns are skipped for the reason in the header.
+  // GUNS ONLY, AND LOADED ONES. The mine (type.payload set — see WEAPON_TYPES
+  // above) is skipped here on purpose: it has its own key (main.js's "mine"
+  // action) rather than a slot in this cycle, so a player laying one is never
+  // forced to tab away from whatever gun they had and back again afterwards.
+  // Empty guns are skipped for the reason in the header.
   next() {
     const idx = this.#step(this.index, isLoadedGun);
     if (idx >= 0) this.index = idx;
     return this.current;
-  }
-
-  // LAYERS ONLY — the same walk as next(), filtered the other way, and equally
-  // uninterested in empty magazines. A no-op while the mine is the only layer
-  // carried, which is deliberate: the key works from the day it is bound rather
-  // than appearing along with the second deployable, so nothing about the
-  // controls changes under the player when one is added.
-  nextDeployable() {
-    if (this.deployIndex < 0) return null;
-    const idx = this.#step(this.deployIndex, isLoadedLayer);
-    if (idx >= 0) this.deployIndex = idx;
-    return this.deployable;
   }
 
   // THE AUTOMATIC HALF OF THE SAME RULE. Called by whatever just spent a round
