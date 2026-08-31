@@ -35,7 +35,7 @@ import { createShop } from "./game/shop.js";
 // file's header for why the tier ladder is scoped to one run, exactly as the
 // credits paying for it are (CREDIT_STORE below).
 import { Garage } from "./game/upgrades.js";
-import { Loadout, laidPayload, muzzleOffsets, lockSeconds, lockRange, lockLead } from "./game/weapons.js";
+import { Loadout, laidPayloads, muzzleOffsets, lockSeconds, lockRange, lockLead } from "./game/weapons.js";
 import { ShieldStorm } from "./game/shieldstorm.js";
 import { Lock } from "./game/targeting.js";
 import { createMenu } from "./game/menu.js";
@@ -649,7 +649,10 @@ function fireShell(worldY, offset, fuse, radius, damage) {
 // A mine is laid immediately behind `car`. Returns whether the road had room —
 // see obstacles.js's drop(), which owns the placement and the budget.
 function dropMine(car, type) {
-  const placed = obstacles.drop(type, car);
+  // `true` — a hostile layer spends the hostile half of the laid budget, which
+  // is what stops the player's own drops from disarming the road (obstacles.js's
+  // MAX_LAID_PLAYER / MAX_LAID_HOSTILE).
+  const placed = obstacles.drop(type, car, true);
   // Only on an actual placement — a drop the road had no room for spends
   // nothing (see armament.js's layMine), so it should confirm nothing either.
   if (placed) music.play("mine_placed");
@@ -1191,7 +1194,7 @@ function updatePlaying(dt) {
   // is currently selected — no more tabbing onto the mine layer to drop one
   // and back to a gun afterwards. Mirrors armament.js's own layMine: the drop
   // is attempted BEFORE the round is spent, so a mine the road had no room for
-  // (obstacles.js's MAX_LAID) costs the player nothing.
+  // (obstacles.js's laid budget) costs the player nothing.
   const deployable = loadout.deployable;
   if (deployable && isDown("mine") && deployable.ready) {
     const centerX = road.centerXAt(distance, W);
@@ -1199,14 +1202,16 @@ function updatePlaying(dt) {
     // obstacles.js's drop() wants — worldY/offset/h, the same shape a car
     // satisfies without an adapter.
     const body = { worldY: distance, offset: player.x - centerX, h: player.h };
-    // WHICH HAZARD, decided at the drop rather than carried on the weapon: the
-    // SPIKE MINES special (upgrades.js) swaps the mine's payload for the one
-    // that punctures whatever lives through the blast, and the flag it sets
-    // lives on the CAR (Player.applyUpgrades). The rule itself is weapons.js's
-    // — see laidPayload — so a Loadout built before the dock and a car upgraded
-    // at it never have to agree about anything.
-    const laid = laidPayload(deployable.type, player.specials);
-    if (obstacles.drop(obstacleTypeById(laid), body)) {
+    // WHICH HAZARDS, decided at the drop rather than carried on the weapon: the
+    // SPIKE MINES special (upgrades.js) turns the mine into a mine AND a strip,
+    // and the flag it sets lives on the CAR (Player.applyUpgrades). The rule
+    // itself is weapons.js's — see laidPayloads — so a Loadout built before the
+    // dock and a car upgraded at it never have to agree about anything.
+    //
+    // ALL OF THE SET OR NONE, which drop() enforces: half a pair is the player
+    // spending a round on something they did not buy.
+    const laid = laidPayloads(deployable.type, player.specials).map(obstacleTypeById);
+    if (obstacles.drop(laid, body)) {
       deployable.tryFire();
       music.play(PLAYER_FIRE_SOUND[deployable.type.id]);
       // Same rule as the gun above: the drop that empties the last mine selects

@@ -393,7 +393,7 @@ export const WEAPON_TYPES = [
     // mine, whoever laid it.
     payload: "caltrop",
     // WHAT THE SPIKE MINES SPECIAL LAYS INSTEAD (upgrades.js's `spikeMines`).
-    // A SECOND PAYLOAD RATHER THAN A SECOND WEAPON, and that is the whole
+    // A BIGGER PAYLOAD RATHER THAN A SECOND WEAPON, and that is the whole
     // lesson of the spike strip this replaced: the strip was a separate entry
     // in this catalogue with its own magazine, its own shop row, its own crate
     // and its own cursor on the deploy key, and asking a player mid-corner to
@@ -403,6 +403,22 @@ export const WEAPON_TYPES = [
     // with none of the bookkeeping: one magazine, one key, one crate, and the
     // player owns it or does not.
     //
+    // THE MINE AND THE STRIP, LAID TOGETHER, not a third hazard that is both.
+    // The mine is 26px of the 286px road and the strip is 171.6 — so the middle
+    // is a kill and the way around it is a crawl, which is the geometry the
+    // upgrade is bought for. Written as the two catalogue ids rather than as a
+    // composite entry because that is honestly what goes on the road: two
+    // objects, drawn, dodgeable, each doing exactly what its own entry already
+    // says it does. See obstacles.js's drop(), which lays the set atomically.
+    //
+    // AN EARLIER VERSION SPRAYED THE SPIKES OFF THE MINE'S BLAST and is worth
+    // recording, because the measurements are the argument against it: the
+    // punctured span came to 158px against the strip's 171.6 — near enough the
+    // same belt for 13.6px — but nothing was drawn for it and behaviours.js's
+    // `hazardAhead` tests a hazard's own box, so cars dodged the 26px mine and
+    // were punctured by something that had never been on screen. The width was
+    // never the problem; the invisibility was.
+    //
     // Resolved at the DROP (main.js), not here — the flag lives on the car
     // (player.specials), a weapon has no view of it, and a Loadout built before
     // the shop was visited must not have to be rebuilt after it.
@@ -410,11 +426,11 @@ export const WEAPON_TYPES = [
     // NAMED IN TWO FIELDS, exactly as `twin`/`twinSpread` and `lock`/`lockTime`
     // above are: `upgrade` is the SHELF FLAG (upgrades.js's `special`), and
     // test/specials.test.js walks this catalogue for those fields to prove
-    // every flag sold is read and every flag read is sold. `upgradePayload` is
+    // every flag sold is read and every flag read is sold. `upgradeLays` is
     // what the flag buys. A payload named without a flag is a hazard nothing can
     // reach, which is the failure that join exists to catch.
     upgrade: "spikeMines",
-    upgradePayload: "spikemine",
+    upgradeLays: ["caltrop", "spikes"],
     // SIX SECONDS, THREE ROUNDS is the enemy's own layer (armament.js). The
     // player gets a much shorter rest and more than twice the magazine: a held
     // trigger there is an AI's rare tactical choice, but here it is a deliberate
@@ -439,23 +455,24 @@ export const WEAPON_TYPES = [
   },
 ];
 
-// WHICH HAZARD A LAYER ACTUALLY PUTS DOWN, given the specials block off the car
-// (Player.applyUpgrades). An OBSTACLE_TYPES id, or null for a weapon that lays
-// nothing at all.
+// WHICH HAZARDS A LAYER ACTUALLY PUTS DOWN, given the specials block off the car
+// (Player.applyUpgrades). An array of OBSTACLE_TYPES ids — EMPTY for a weapon
+// that lays nothing at all, so every caller walks the same shape rather than
+// branching on a null.
 //
 // HERE RATHER THAN AT THE CALL SITE (main.js's deploy branch, the only caller)
 // because the rule belongs to the catalogue that states it: `upgrade` and
-// `upgradePayload` are fields on a weapon entry, and reading them is this
-// file's business. It also makes the rule testable — main.js touches the DOM at
-// module scope and no test can import it, which is exactly how a one-line
-// resolution goes unchecked.
+// `upgradeLays` are fields on a weapon entry, and reading them is this file's
+// business. It also makes the rule testable — main.js touches the DOM at module
+// scope and no test can import it, which is exactly how a one-line resolution
+// goes unchecked.
 //
 // RESOLVED PER DROP, not once. The flag can turn on mid-run at a dock, and the
 // Loadout is built long before the shop is ever visited.
-export function laidPayload(type, specials) {
-  if (!type?.payload) return null;
-  const { upgrade, upgradePayload, payload } = type;
-  return upgrade && upgradePayload && specials?.[upgrade] ? upgradePayload : payload;
+export function laidPayloads(type, specials) {
+  if (!type?.payload) return [];
+  const { upgrade, upgradeLays, payload } = type;
+  return upgrade && upgradeLays?.length && specials?.[upgrade] ? upgradeLays : [payload];
 }
 
 // The default loadout: what the player starts every run holding.
@@ -780,7 +797,7 @@ export class Weapon {
 // `deployable` is what the deploy key fires — but nothing CYCLES it, because the
 // player carries exactly one layer and a key that selects between one thing is a
 // key that does nothing. There was a second deployable (a spike strip) and its
-// own E to switch, and it went for the reason weapons.js's `upgradePayload` now
+// own E to switch, and it went for the reason the mine's `upgradeLays` now
 // records: two things dropped behind you on the same key, in the same colour,
 // with the same sound is a choice nobody makes at speed. What replaced it
 // changes what the ONE key lays. A genuinely second layer would need its cycle

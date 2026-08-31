@@ -175,7 +175,7 @@ export class Pickups {
   // hostile's chance to leave a FIX crate where it died, main.js).
   //
   // NO SEPARATE BUDGET, unlike obstacles.js's own drop() for a laid mine.
-  // That one needs MAX_LAID because a live car can lay a mine every few
+  // That one needs its laid budget because a live car can lay a mine every few
   // seconds for as long as it survives — a repeating source that could carpet
   // the road. A death drop is self-limiting by construction: a car can only
   // die once, so the rate this can possibly fire at is already bounded by how
