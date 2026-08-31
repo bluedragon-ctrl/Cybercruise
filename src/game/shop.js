@@ -181,6 +181,7 @@ export function createShop() {
       // is the answer to "which did they mean" and it costs nothing to state it.
       if (consumePress("pause")) {
         boughtHere.clear();
+        garage.endVisit();
         return "undock";
       }
 
@@ -188,6 +189,7 @@ export function createShop() {
         const entry = ROWS[selected];
         if (entry.undock) {
           boughtHere.clear();
+          garage.endVisit();
           return "undock";
         }
         if (!purchase(entry, wallet, player, loadout, garage)) return "deny";
@@ -261,7 +263,7 @@ export function createShop() {
       // tell them apart, which is far too quiet a way to say something the
       // player is actively asking. So the note takes priority over the row's own
       // description and says which it is, in words, with the shortfall in it.
-      const note = noteFor(ROWS[selected], garage, wallet);
+      const note = noteFor(ROWS[selected], garage, wallet, player, loadout);
       if (note) {
         glowText(ctx, note.text, W / 2, 668, note.urgent ? HAZARD : GREEN_DIM,
           11, "center", note.urgent ? 6 : 0);
@@ -277,7 +279,7 @@ export function createShop() {
 // costs, whether you can afford it, whether it is finished — so the player
 // reads the shelf rather than a column of status words.
 function drawRow(ctx, entry, y, selected, bought, wallet, garage, player, loadout) {
-  const price = priceOf(entry, garage);
+  const price = priceOf(entry, garage, player, loadout);
   const affordable = price !== null && price <= wallet.credits;
   const soldOut = price === null; // a stat at its last tier
 
@@ -416,12 +418,20 @@ function format(stat, value) {
 // repeating its description (the player who got it there knows what it does),
 // and a consumable in reach says nothing at all, its `detail` column having
 // already said it.
-function noteFor(entry, garage, wallet) {
+//
+// A CONSUMABLE'S "NOTHING TO SELL" HAS TWO READINGS, not the stat shelf's
+// one — a maxed ladder is always the same fact, but a blocked consumable can
+// be full, or capped for the stop, and the two need different words (see
+// upgrades.js's consumableWasted / oncePerVisit).
+function noteFor(entry, garage, wallet, player, loadout) {
   if (entry.undock) return { text: "FLY BACK TO THE ROAD" };
 
-  const price = priceOf(entry, garage);
+  const price = priceOf(entry, garage, player, loadout);
   if (price === null) {
-    return { text: entry.special ? "ALREADY FITTED — IT IS YOURS FOR THE RUN" : "FULLY UPGRADED" };
+    if (entry.special) return { text: "ALREADY FITTED — IT IS YOURS FOR THE RUN" };
+    if (!entry.kind) return { text: "FULLY UPGRADED" };
+    if (entry.oncePerVisit) return { text: "ONE PER STOP — ALREADY BOUGHT THIS VISIT" };
+    return { text: entry.kind === HEAL ? "HULL ALREADY FULL" : "MAGAZINE ALREADY FULL" };
   }
   if (price > wallet.credits) {
     // The SHORTFALL, not just the price — the price is already on the row, and

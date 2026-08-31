@@ -370,8 +370,10 @@ test("each tier costs what the ladder says, taken out of the wallet in order", (
 
 test("a consumable is spent through the crate's own effect, capped where the crate is capped", () => {
   // A bought repair IS a FIX crate (upgrades.js's header), so it inherits
-  // Player.heal's cap and Weapon.refill's: a purchase over a full magazine costs
-  // the player their money exactly as driving over a crate at full ammo would.
+  // Player.heal's cap and Weapon.refill's. Exercised here on rows still short
+  // of the cap — a purchase landing exactly ON the cap is refused outright
+  // rather than merely capped; see the dedicated "wasted purchase" test below
+  // for that half.
   const { wallet, player, loadout, garage } = shopper();
 
   const rocketRow = CONSUMABLES.find((e) => e.weaponId === "rocket");
@@ -379,14 +381,35 @@ test("a consumable is spent through the crate's own effect, capped where the cra
   rocket.ammo = 0;
   assert.equal(purchase(rocketRow, wallet, player, loadout, garage), true);
   assert.equal(rocket.ammo, rocketRow.amount);
-  rocket.ammo = rocket.type.ammo;
-  purchase(rocketRow, wallet, player, loadout, garage);
-  assert.equal(rocket.ammo, rocket.type.ammo, "a refill overflowed the magazine");
 
   const repair = CONSUMABLES.find((e) => e.kind === HEAL);
   player.damage(500); // more than the hull holds; floors at 0
   purchase(repair, wallet, player, loadout, garage);
   assert.equal(player.health, repair.amount);
+});
+
+test("a consumable that would do nothing is refused, and the wallet keeps the money", () => {
+  // Driving over a crate at full ammo just shrugs — nothing was on offer for
+  // free. Paying a shop price for the same nothing is a different act, so
+  // priceOf/purchase (upgrades.js) refuse the sale before the wallet ever
+  // moves, on every kind that has a ceiling to be full against.
+  const { wallet, player, loadout, garage } = shopper();
+
+  const rocketRow = CONSUMABLES.find((e) => e.weaponId === "rocket");
+  const rocket = loadout.get("rocket");
+  rocket.ammo = rocket.type.ammo; // already full
+  let before = wallet.credits;
+  assert.equal(priceOf(rocketRow, garage, player, loadout), null,
+    "a full magazine still quotes a price");
+  assert.equal(purchase(rocketRow, wallet, player, loadout, garage), false,
+    "sold a refill nobody needed");
+  assert.equal(wallet.credits, before, "charged for a purchase that did nothing");
+
+  const repair = CONSUMABLES.find((e) => e.kind === HEAL);
+  before = wallet.credits;
+  assert.equal(purchase(repair, wallet, player, loadout, garage), false,
+    "sold a repair at full hull");
+  assert.equal(wallet.credits, before, "charged for a repair at full hull");
 });
 
 test("one press rearms a layer from any state, and never past its magazine", () => {
@@ -397,25 +420,54 @@ test("one press rearms a layer from any state, and never past its magazine", () 
   for (const weapon of WEAPON_TYPES.filter((w) => w.payload)) {
     const row = CONSUMABLES.find((e) => e.kind === AMMO && e.weaponId === weapon.id);
     const carried = loadout.get(weapon.id);
-    for (const left of [0, 1, weapon.ammo]) {
+    for (const left of [0, 1]) {
       carried.ammo = left;
       assert.equal(purchase(row, wallet, player, loadout, garage), true);
       assert.equal(carried.ammo, weapon.ammo,
         `${weapon.id} was not a full set after one press (had ${left})`);
     }
+    // ...and a press once the magazine is already full is refused, exactly
+    // like the gun rows above.
+    assert.equal(purchase(row, wallet, player, loadout, garage), false,
+      `${weapon.id} sold a set nobody needed`);
   }
 });
 
 test("a consumable can be bought over and over — only the stats are rationed", () => {
   // The two shelves are different KINDS of thing (upgrades.js's header), and this
-  // is the difference: a flat price that never rises and no counter behind it.
+  // is the difference: a flat price that never rises and no PERMANENT counter
+  // behind it — a stat stops being for sale forever once maxed, but a consumable
+  // is buyable again the moment there's room for it (here: more hull lost).
+  const { wallet, player, loadout, garage } = shopper();
+  const repair = CONSUMABLES.find((e) => e.kind === HEAL);
+  for (let i = 0; i < 5; i++) {
+    player.damage(10);
+    const before = wallet.credits;
+    assert.equal(purchase(repair, wallet, player, loadout, garage), true, `refused sale ${i + 1}`);
+    assert.equal(before - wallet.credits, repair.price, "a consumable's price moved");
+  }
+});
+
+test("the shield is rationed to one purchase a stop, and the cap resets on the next visit", () => {
+  // A banked shield has no ceiling of its own (unlike a magazine or a hull
+  // bar), so it is the one consumable capped by `oncePerVisit` instead of by
+  // wasted effect — see upgrades.js's header on buy_shield. Garage.endVisit()
+  // is what game/shop.js calls on undock, so this pins the cap to the STOP
+  // rather than to the run.
   const { wallet, player, loadout, garage } = shopper();
   const shield = CONSUMABLES.find((e) => e.kind === SHIELD);
-  for (let i = 0; i < 5; i++) {
-    const before = wallet.credits;
-    assert.equal(purchase(shield, wallet, player, loadout, garage), true, `refused sale ${i + 1}`);
-    assert.equal(before - wallet.credits, shield.price, "a consumable's price moved");
-  }
+
+  assert.equal(purchase(shield, wallet, player, loadout, garage), true);
+  const before = wallet.credits;
+  assert.equal(priceOf(shield, garage, player, loadout), null,
+    "a second shield this stop still quotes a price");
+  assert.equal(purchase(shield, wallet, player, loadout, garage), false,
+    "sold a second shield the same stop");
+  assert.equal(wallet.credits, before, "charged for a shield the cap refused");
+
+  garage.endVisit();
+  assert.equal(purchase(shield, wallet, player, loadout, garage), true,
+    "the cap should have reset for the next stop");
 });
 
 test("the mass the shop sells is the mass the collision solver reads", () => {

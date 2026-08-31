@@ -514,6 +514,10 @@ magazine. A bought repair and a driven-over `FIX` crate are literally the same
 event applied by the same code. Guns are topped up by the crate's own quantity;
 layers (the mine, the spike strip) are rearmed as a whole set instead, because a
 "+1" row would be a rounding error on a decision you walked down a menu to make.
+A row that would do nothing — full hull, a full magazine — refuses the sale
+rather than take the money for it, unlike a driven-over crate on the road,
+which is free either way. The shield has no ceiling of its own to be full
+against, so it is rationed differently: once a stop.
 
 **Car systems** — three tiers each, the third costing four times the first, kept
 for the rest of the run:

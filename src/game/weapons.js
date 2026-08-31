@@ -398,13 +398,15 @@ export const WEAPON_TYPES = [
     // press every time, so the tighter enemy rationing would read as broken
     // rather than scarce. The magazine, not the reload, is what rations this.
     interval: 1,
-    ammo: 8,
-    // THE ONE DEPLOYABLE THE PLAYER IS ISSUED, and the only finite weapon in the
-    // catalogue that starts full — it names no `startAmmo`, so the magazine is
-    // what it begins with. Something has to be behind the deploy key on the
-    // first corner or the key is a mystery, and the mine is the right one to be
-    // it: its whole behaviour — one hazard, dropped behind, dodgeable — is
-    // legible the first time you use it. The strip below is the one you earn.
+    // SIXTEEN IN THE MAGAZINE, EIGHT IN HAND. THE ONE DEPLOYABLE THE PLAYER IS
+    // ISSUED — something has to be behind the deploy key on the first corner or
+    // the key is a mystery, and the mine is the right one to be it: its whole
+    // behaviour — one hazard, dropped behind, dodgeable — is legible the first
+    // time you use it. The strip below is the one you earn. Issued at HALF the
+    // magazine rather than full, so the dock's SET OF 16 (upgrades.js) is a real
+    // top-up on the very first stop instead of a row with nothing to sell yet.
+    ammo: 16,
+    startAmmo: 8,
     // HUD-only below this line — a mine never flies, so length/width/flight/
     // muzzleSpeed/render/impact mean nothing here and main.js never reads them
     // for this weapon. color/glow still matter: the HUD readout (main.js's
