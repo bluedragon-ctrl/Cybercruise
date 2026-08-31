@@ -108,6 +108,46 @@ test("a maxed RAM PLATE's shovePower throws a side-swiped target harder", () => 
   );
 });
 
+test("a rear-end is billed on ARRIVAL, and leaning is not a second arrival", () => {
+  // rearEnd's header: contact held from one tick into the next is pressure, not
+  // an impact. Re-billing it every tick made contact a speed sink proportional
+  // to closing speed, which is what let one heavy car switch off a boosted
+  // player's speed floor (the hazards.test.js pair below).
+  const rear = body({ worldY: 0, speed: 400 });
+  const front = body({ worldY: 50, speed: 100 });
+  resolveCollisions([rear, front], 1 / 60);
+  const arrivalCost = 400 - rear.speed;
+  const damaged = rear.taken;
+  assert.ok(arrivalCost > 0 && damaged > 0, "the arrival must cost speed and hull");
+
+  // Held together, still closing, on the next tick — same pair objects, which
+  // is what the solver recognises.
+  rear.speed = 400;
+  front.speed = 100;
+  front.worldY = rear.worldY + 50;
+  resolveCollisions([rear, front], 1 / 60);
+  assert.equal(rear.taken, damaged, "a lean must not be charged hull a second time");
+  assert.ok(400 - rear.speed < arrivalCost, "nor the full partly-elastic impact again");
+  assert.ok(front.speed > 100, "the push still reaches the car in front");
+});
+
+test("a lean cannot push a body under its speedFloor; the surplus goes forward", () => {
+  // The floor is read off the body being SLOWED (collisions.js's interface
+  // block). PlayerBody reports Player.speedFloor there, which is how an
+  // overdrive's raised floor survives being leaned against.
+  const rear = body({ worldY: 0, speed: 300, speedFloor: 300 });
+  const front = body({ worldY: 50, speed: 100, mass: 4 });
+  resolveCollisions([rear, front], 1 / 60); // the arrival, which the floor does not gate
+  rear.speed = 300;
+  front.speed = 100;
+  front.worldY = rear.worldY + 50;
+  const before = front.speed;
+
+  resolveCollisions([rear, front], 1 / 60); // ...and the lean that follows it
+  assert.equal(rear.speed, 300, "a body already on its floor cannot be leaned under it");
+  assert.ok(front.speed > before, "what the floor refused has to go somewhere: into the car ahead");
+});
+
 test("ramSpeed costs a body more speed against a heavier blocker", () => {
   // The same idea sideSwipe/rearEnd give two moving bodies, generalised to a
   // blocker that never moves — see obstacles.js, which prices a static hazard
