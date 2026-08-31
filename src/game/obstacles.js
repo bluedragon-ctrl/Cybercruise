@@ -324,6 +324,12 @@ export class Obstacles {
       w: player.w,
       h: player.h,
       damage: (hp) => player.damage(hp),
+      puncture: (type) => player.puncture(type),
+      // Player carries no `alive` of its own — main.js watches `health` and
+      // switches to the death sequence itself (see player.js's damage()). The
+      // blast below asks, so it is answered here rather than by teaching the
+      // whole codebase a second way to spell it.
+      get alive() { return player.health > 0; },
     };
 
     // Contact: the player or any live car driving into a hazard breaks it —
@@ -347,11 +353,14 @@ export class Obstacles {
       // reaches detonate() below.
       if (o.type.effect === "spikes") {
         for (const c of hitCars) c.puncture(o.type);
-        // NO PLAYER CASE, and it is unreachable rather than unwritten: a strip
-        // is `laidOnly` (obstacletypes.js), the player is the only thing that
-        // lays one, drop() puts it BEHIND the layer, and the player cannot
-        // reverse. If a hostile layer ever carries these, this is the one line
-        // that has to grow a Player.puncture to match.
+        // AND THE PLAYER, which is who the strips on the road are FOR now. The
+        // sower (cartypes.js) lays its strip while the player trails it —
+        // armament.js's layMine only fires on a target BEHIND the layer — so
+        // what goes down behind the sower goes down in front of the player.
+        // This line was missing for as long as the strip was something the
+        // player laid rather than met, and its absence made the sower's whole
+        // errand cost nothing.
+        if (hitPlayer) player.puncture(o.type);
         continue;
       }
 
@@ -497,13 +506,12 @@ export class Obstacles {
   // this is FOR (the one the falloff barely hurt), so scaling it toward nothing
   // there would delete the upgrade's one job.
   //
-  // WHOEVER CAN BE PUNCTURED, which today is every live car and not the player:
-  // Traffic carries puncture(), main.js's playerBox does not, and the player
-  // lays these BEHIND themselves (drop()) so the question is academic for their
-  // own. The moment Player grows a puncture() to match — the strip laid in
-  // their path by a sower is inert until it does, see the contact pass above —
-  // this line starts reaching them too, which is the correct answer for a
-  // hostile spike mine and would need a look at the player's own.
+  // WHOEVER CAN BE PUNCTURED, which is every live car AND the player: both
+  // carry puncture() (traffic.js, player.js) and the playerBox above forwards
+  // to it. That reaches the player's OWN spike mine in one case — a chaser
+  // setting one off inside 66px of the car that laid it — and that is correct
+  // rather than tolerated: the blast already costs the player hull at that
+  // range, and a mine dropped under one's own back bumper should.
   blast(o, playerBox, cars) {
     const radius = o.type.blastRadius;
     const peak = o.type.blastDamage;

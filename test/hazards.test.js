@@ -1941,6 +1941,136 @@ function holdBrake(down) {
     Object.assign(new Event(down ? "keydown" : "keyup"), { code: "KeyS", repeat: false }));
 }
 
+// --- The player's own puncture ------------------------------------------------
+//
+// player.js's puncture(), which is the other end of the sower's errand: it lays
+// a strip while the player TRAILS it (armament.js's layMine only fires on a
+// target behind the layer), so the strip goes down in the player's path. Until
+// this existed, obstacles.js's contact pass had no player case and the one car
+// every strip on the road is laid for drove over them for free.
+
+test("a crawl the player is held to must still be a speed, not a stop", () => {
+  // obstacletypes.js's slowTo against player.js's MIN_SPEED. A crawl at or
+  // below the player's own floor is not a puncture the player can tell from
+  // lifting off the throttle — and at that point the strip has no effect on
+  // them that a brake does not.
+  const strip = obstacleTypeById("spikes");
+  assert.ok(strip.slowTo > MIN_SPEED,
+    `a strip's ${strip.slowTo} is not above the player's own ${MIN_SPEED} floor`);
+});
+
+test("the player crossing a strip is punctured once, not once per tick", () => {
+  // player.js's guard, and traffic.js's before it: a car sits on a strip for
+  // many ticks, and the scratch taken sixty times a second would make the
+  // gentlest hazard in the game the deadliest thing on the road.
+  const strip = obstacleTypeById("spikes");
+  const player = new Player(0, 0);
+  const before = player.health;
+
+  for (let i = 0; i < 60; i++) player.puncture(strip);
+
+  assert.equal(before - player.health, strip.contactDamage, "the strip bit the player more than once");
+  assert.equal(player.spikeTime, strip.slowTime);
+  assert.equal(player.spikeSpeed, strip.slowTo);
+});
+
+test("a punctured player is eased down to the crawl and held there, then recovers", () => {
+  // player.js: applied AFTER the band clamp, or the floor would drive the car
+  // straight back up next tick. Eased at BAND_RECOVER rather than snapped —
+  // dropping the whole difference in a frame is what hitting a wall reads
+  // like, which is the mine's job.
+  const strip = obstacleTypeById("spikes");
+  const player = new Player(0, 0);
+  const bounds = { left: -10000, right: 10000 };
+  player.speed = player.topSpeed;
+  player.puncture(strip);
+
+  player.update(1 / 60, bounds);
+  assert.ok(player.speed > strip.slowTo, "a one-frame drop to the crawl reads as a collision");
+  assert.equal(player.speed, player.topSpeed - BAND_RECOVER / 60, "easing at exactly BAND_RECOVER");
+
+  for (let i = 0; i < 60 * 3; i++) player.update(1 / 60, bounds);
+  assert.equal(player.speed, strip.slowTo, "the crawl must be a floor the car settles on");
+
+  // ...and once the window is up the band takes the car back.
+  for (let i = 0; i < 60 * Math.ceil(strip.slowTime + 2); i++) player.update(1 / 60, bounds);
+  assert.equal(player.spikeTime, 0, "the puncture never wore off");
+  assert.ok(player.speed >= player.minSpeed,
+    `the car is still at ${player.speed}, below its own floor`);
+});
+
+test("a shield stops the puncture, not just the scratch", () => {
+  // player.js: the shield is total invulnerability while it runs, and the crawl
+  // is by far the larger half of what a strip costs — a shielded car that lost
+  // its top end anyway would make a mockery of the promise.
+  const strip = obstacleTypeById("spikes");
+  const player = new Player(0, 0);
+  player.activateShield(10);
+  const before = player.health;
+
+  player.puncture(strip);
+  assert.equal(player.health, before, "the shield let the scratch through");
+  assert.equal(player.spikeTime, 0, "the shield let the puncture through");
+
+  // A BANKED shield fires on this hit like any other — that is what banking is
+  // for, and it must cover the puncture it opened the window against.
+  const banked = new Player(0, 0);
+  banked.chargeShield(10);
+  banked.puncture(strip);
+  assert.ok(banked.shieldTime > 0, "the banked shield did not fire on the strip");
+  assert.equal(banked.spikeTime, 0, "the shield it opened did not cover the puncture");
+});
+
+test("an invulnerable player is not punctured either", () => {
+  // testoptions.js's cheat has to mean what it says: player.js funnels every
+  // damage source through one guard, and the crawl now sits behind the same one.
+  const strip = obstacleTypeById("spikes");
+  const player = new Player(0, 0);
+  player.invulnerable = true;
+  player.puncture(strip);
+  assert.equal(player.spikeTime, 0);
+  assert.equal(player.health, player.maxHealth);
+});
+
+test("a running overdrive does not out-rank a puncture", () => {
+  // player.js: a boost lifts minSpeed ABOVE the crawl, and when the two
+  // disagree the puncture wins — one rule for the player and the traffic, and a
+  // strip that could be no-sold by having drunk a crate first would stop being
+  // the thing the sower's errand is built around.
+  const strip = obstacleTypeById("spikes");
+  const player = new Player(0, 0);
+  const bounds = { left: -10000, right: 10000 };
+  player.activateBoost(200, 10);
+  assert.ok(player.minSpeed > strip.slowTo,
+    "the test is meaningless unless the boosted floor sits above the crawl");
+
+  player.puncture(strip);
+  for (let i = 0; i < 60 * 4; i++) player.update(1 / 60, bounds);
+  assert.equal(player.speed, strip.slowTo, "the boosted floor overruled the puncture");
+});
+
+test("a strip laid in the player's path actually bites them", () => {
+  // The end-to-end join, through obstacles.js's contact pass rather than by
+  // calling puncture() by hand: the pass had no player case at all, so every
+  // assertion above could pass while the strip on the road did nothing.
+  const strip = obstacleTypeById("spikes");
+  const obstacles = new Obstacles(new Explosions());
+  const world = obstacleWorld();
+  obstacles.drop(strip, { worldY: world.distance + 200, offset: 0, h: 60 });
+  const o = obstacles.list[0];
+  assert.ok(o, "expected the strip to go down");
+
+  // Drive the player exactly onto it.
+  world.distance = o.worldY;
+  world.player.x = centerXAt(o.worldY, world.W) + o.offset;
+  obstacles.update(1 / 60, world);
+
+  assert.equal(world.player.spikeTime, strip.slowTime, "the player drove over the strip untouched");
+  // ...and the strip is still lying there, because a belt is not consumed by
+  // the first car that finds it.
+  assert.ok(obstacles.list.includes(o), "the strip was eaten by the car that crossed it");
+});
+
 test("a boost lifts BOTH ends of the player's speed band by its amount", () => {
   const player = new Player(0, 0);
   const stockMin = player.minSpeed;
