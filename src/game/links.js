@@ -34,12 +34,15 @@ import { clock, floorDist, visibleNodes } from "./scenery.js";
 import { neonStroke } from "../engine/neon.js";
 import { CONDUIT_LINE, CONDUIT_PACKET, PING_RING } from "../engine/palette.js";
 import * as gameConsole from "../engine/console.js";
+import { worldSeed } from "./worldseed.js";
 
 // Deterministic hash -> [0, 1) from any number (same trick as road.js,
 // scenery.js, citygrid.js and drones.js — each file keeps its own copy
-// rather than sharing one, per those files' own comments on why).
+// rather than sharing one, per those files' own comments on why), salted with
+// this run's world seed so a conduit, a callsign and a node's price belong to
+// the same city the buildings around them do. See worldseed.js.
 function hash(n) {
-  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  const x = Math.sin((n + worldSeed()) * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);
 }
 

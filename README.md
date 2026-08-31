@@ -241,6 +241,30 @@ Three things about them are design rather than plumbing, and `telemetry.js` and
   during play rather than behind a devtools panel covering the thing being
   judged.
 
+### The world seed
+
+The city floor is a **pure function of position** — `citygrid.js`'s plots and
+lots, `links.js`'s conduits, callsigns and node prices, `sectors.js`'s names,
+`drones.js`'s flight lanes. That is what makes it infinite and free: nothing is
+generated as the player drives, nothing is freed behind them, no module down
+there keeps state. It also used to make it the *same city every run*.
+
+`game/worldseed.js` adds one number to the position each roll hashes, fixed once
+per run by `newGame()`. Within a run the pure-function property is untouched — a
+lot answers the same the tenth time it is asked as the first — and between runs
+the whole city moves. **A seed reproduces its city exactly**, so a world bug
+found at one is reachable again by seeding it back.
+
+Two things there are decisions rather than plumbing, and the module header
+carries the argument: only the **salt** is shared, while the four files keep
+their own copies of the three-line hash they deliberately never shared; and the
+salt goes in **inside each `hash()`**, not at the ten seed functions, so a roll
+added to a world file later is in this run's world by default. It **defaults to
+0, which is the city that shipped before the file existed**, which is what keeps
+the invariant suite reproducible — `test/city-floor.test.js`'s measured lot
+fractions are seed-0 numbers, and it checks separately that they hold across
+seeds and that no layer is left frozen at 0.
+
 ## Traffic
 
 The other cars are split so that adding a kind of traffic doesn't mean touching
@@ -553,7 +577,8 @@ for Phase 10 — by editing the catalogue, not the wallet.
 
 **Siphoning.** The nodes on the city floor (`game/links.js`) are worth credits,
 hash-derived from the plot index like the callsign, so a node's name and its price
-are both stable facts about that place. There is **one** way to take one: hold the
+are both stable facts about that place for as long as the run lasts (the next run
+is a different city — see The world seed). There is **one** way to take one: hold the
 shoulder on the node's side and it drains, faster the closer you are — no
 threshold anywhere in it, so the pickup that feels instant and the one you work
 for are the same act at two ends of one curve. **The middle of the road pays

@@ -24,13 +24,17 @@ import { setSector } from "../engine/palette.js";
 import { announceCityLine } from "./links.js";
 import { HINT } from "../engine/console.js";
 import * as gameConsole from "../engine/console.js";
+import { worldSeed } from "./worldseed.js";
 
 // Same hash trick as road.js/scenery.js/citygrid.js/links.js — each file
 // keeps its own copy rather than sharing one, per those files' own comments
 // on why (a shared utility module would be one more file to open to follow
-// what is, everywhere it's used, a three-line deterministic PRNG).
+// what is, everywhere it's used, a three-line deterministic PRNG). Salted with
+// this run's world seed, like the other three, so a run's sectors are named
+// after the city it is actually driving through. See worldseed.js — which is
+// the salt alone, and does not disturb the copies-not-shared decision above.
 function hash(n) {
-  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  const x = Math.sin((n + worldSeed()) * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);
 }
 
@@ -48,8 +52,9 @@ function sectorNameSeed(index) {
 
 // A sector's stable name, derived from its own index the same deterministic
 // way every other label on this floor is (citygrid.js's hash trick, links.js's
-// callsign) — same index in, same name out, forever, which is what lets the
-// SYS LOG line mean something rather than just noting "something changed".
+// callsign) — same index in, same name out for the whole of a run, which is what
+// lets the SYS LOG line mean something rather than just noting "something
+// changed".
 // Unlike a node's callsign, a sector index never repeats across a single run
 // (it only counts up with distance), so "stable" here matters for the TEST
 // suite's own sake more than for the player's — but it costs nothing extra
