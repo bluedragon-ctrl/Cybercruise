@@ -98,11 +98,14 @@ const ROWS = SHELVES.flatMap((shelf) => shelf.entries);
 // mockup before this both do. The frame is the mockup's own, unchanged — the
 // screen the player already knows, with contents in it.
 //
-// TIGHTENED FOR THE THIRD SHELF. Sixteen rows and three headings have to fit
+// TIGHTENED FOR THE THIRD SHELF. Seventeen rows and three headings have to fit
 // between the credit readout and the frame's own bottom edge (H - 182 + 64.5,
 // which is 682 on the 800-tall canvas), and they only do at this pitch — the
 // alternative was a scrolling shelf, which is a worse answer to "the shop sells
-// four more things" than four fewer pixels a row.
+// five more things" than four fewer pixels a row. The STOP NUMBER folded into
+// the title line (see render() below) is what bought back the room for the
+// sixth SPECIALS row — SHELF_TOP held the old header's four-line height and
+// a fifth line had nothing left to give.
 //
 // SHELF_GAP stays comfortably larger than HEADING_DROP on purpose: a heading
 // has to sit closer to the shelf it names than to the one above it, or the
@@ -118,7 +121,7 @@ const MARK_X = 176;   // the "bought this visit" receipt, just past the label
 const DETAIL_X = 322; // what one purchase gives you (centred)
 const VALUE_X = 440;  // a stat's current -> next reading (centred)
 
-const SHELF_TOP = 186; // first heading's own baseline
+const SHELF_TOP = 162; // first heading's own baseline
 
 // Tier pips — three small boxes per stat row, filled for each tier owned.
 // DRAWN rather than written as text: a "2/3" reads as a fraction to be parsed,
@@ -223,16 +226,20 @@ export function createShop() {
       ctx.strokeRect(24.5, 64.5, W - 49, H - 182);
       ctx.restore();
 
-      glowText(ctx, "CARGO DOCK", W / 2, 84, GREEN_BRIGHT, 22, "center", 14, true);
-      glowText(ctx, `STOP ${visit}`, W / 2, 112, GREEN_PALE, 11, "center", 6);
+      // ONE LINE, "//" joining them the same way a SYS LOG line joins a
+      // callsign to its status (links.js's announcement) — the stop number was
+      // its own line until the SPECIALS shelf grew a sixth row with nowhere
+      // left to sit; folding it behind the shop's own name bought back a full
+      // row's worth of height for the shelves below (see SHELF_TOP).
+      glowText(ctx, `CARGO DOCK // STOP ${visit}`, W / 2, 84, GREEN_BRIGHT, 22, "center", 14, true);
 
       // The one live number on the screen: what this run has to spend, right
       // now. `credits`, not `banked` — credits do not survive a run at all at
       // the moment (see main.js's CREDIT_STORE), so a "BANK" figure here would
       // be promising the player a balance that dies with their next crash.
       // The subtitle says so out loud rather than letting them find out.
-      glowText(ctx, `${wallet.credits} CR`, W / 2, 132, PLAYER, 26, "center", 16, true);
-      glowText(ctx, "THIS RUN ONLY — NOT CARRIED OVER", W / 2, 160, GREEN_DIM, 10, "center", 0);
+      glowText(ctx, `${wallet.credits} CR`, W / 2, 108, PLAYER, 26, "center", 16, true);
+      glowText(ctx, "THIS RUN ONLY — NOT CARRIED OVER", W / 2, 136, GREEN_DIM, 10, "center", 0);
 
       // The shelves. `index` walks ROWS in the same order the cursor does, so
       // the drawn row and the selected row can never disagree — they are the
