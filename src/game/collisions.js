@@ -15,6 +15,14 @@
 //   alive            skipped when false
 //   damage(hp)       take a hit
 //
+// OPTIONAL, and read off the body doing the hitting rather than the one taking
+// it — see impactCost and sideSwipe for why:
+//
+//   attackFloor      closing speed under which THIS body's hits do no harm to
+//                    whatever they land on. Undefined defaults to DAMAGE_FLOOR.
+//   shovePower       multiplies the lateral velocity THIS body hands to
+//                    whatever it hits in a side-swipe. Undefined defaults to 1.
+//
 // TrafficCar implements it directly; the player gets the adapter at the bottom.
 // Adding a body type later (a barrel, a boss) means implementing those fields,
 // not editing the solver.
@@ -183,21 +191,25 @@ function sideSwipe(a, b, sign, overlap, shareA, shareB, relative, first) {
 
   // Standing pressure becomes a slide. Applied whether or not they're closing,
   // so a car pinned between the player and its neighbour keeps being squeezed
-  // out rather than sitting inside them.
+  // out rather than sitting inside them. Each side's push is scaled by the
+  // OTHER body's shovePower (undefined defaults to 1, via impactCost's own
+  // pattern) — a maxed RAM PLATE (PlayerBody, below) throws harder without
+  // getting thrown any softer itself.
   const push = overlap * PUSH_GAIN;
-  a.vLateral -= sign * push * shareA;
-  b.vLateral += sign * push * shareB;
+  a.vLateral -= sign * push * shareA * (b.shovePower ?? 1);
+  b.vLateral += sign * push * shareB * (a.shovePower ?? 1);
 
   // The impact itself counts ONCE. Unlike a rear-end — where the impulse lands
   // on `speed`, so a later pass sees the pair already parting — a sideways
   // impulse goes into vLateral, which the snapshot above doesn't track. Left
   // ungated, a pair still touching after four passes would be hit four times.
   // Chains still carry: the shove becomes measured motion on the next tick, and
-  // hits the neighbour then.
+  // hits the neighbour then — which a bigger shovePower makes more likely to
+  // reach a second car instead of just clearing the first one's overlap.
   if (!first || closing <= 0) return;
   const impulse = closing * (1 + RESTITUTION);
-  a.vLateral -= sign * impulse * shareA;
-  b.vLateral += sign * impulse * shareB;
+  a.vLateral -= sign * impulse * shareA * (b.shovePower ?? 1);
+  b.vLateral += sign * impulse * shareB * (a.shovePower ?? 1);
 
   applyDamage(a, b, closing, SIDE_DAMAGE);
 }
@@ -217,17 +229,22 @@ function sideSwipe(a, b, sign, overlap, shareA, shareB, relative, first) {
 // `mass` defaults to 1 for a body that has none: the world's real bodies all
 // carry one, but the aim is that a fixture can be priced without inventing a
 // weight for it.
-export function impactCost(a, b, closing, scale = 1) {
-  if (closing <= DAMAGE_FLOOR) return 0;
+//
+// `floor` defaults to the shared DAMAGE_FLOOR but is `b`'s to set: it is `b`
+// doing the hitting from `a`'s side of this call, so a lower floor on `b`
+// (its optional `attackFloor` — a maxed RAM PLATE, see PlayerBody) means `a`
+// starts taking damage at a gentler contact than the shared default asks for.
+export function impactCost(a, b, closing, scale = 1, floor = DAMAGE_FLOOR) {
+  if (closing <= floor) return 0;
   const invA = 1 / (a.mass ?? 1);
   const invB = 1 / (b.mass ?? 1);
   const shareA = invA / (invA + invB);
-  return (closing - DAMAGE_FLOOR) * IMPACT_DAMAGE * scale * 2 * shareA;
+  return (closing - floor) * IMPACT_DAMAGE * scale * 2 * shareA;
 }
 
 function applyDamage(a, b, closing, scale) {
-  a.damage(impactCost(a, b, closing, scale));
-  b.damage(impactCost(b, a, closing, scale));
+  a.damage(impactCost(a, b, closing, scale, b.attackFloor));
+  b.damage(impactCost(b, a, closing, scale, a.attackFloor));
 }
 
 // The speed a body keeps after ramming something that never moves — a static
@@ -249,6 +266,22 @@ export function ramSpeed(speed, moverMass, blockerMass) {
   const impulse = speed * (1 + RESTITUTION);
   return Math.max(0, speed - impulse * share);
 }
+
+// The maxed RAM PLATE's bonus, on top of what its mass alone buys (see
+// upgrades.js's `ram` entry) — defined here, not as catalogue data, because
+// they are collision-solver tuning exactly like DAMAGE_FLOOR and PUSH_GAIN
+// above, just gated on a flag instead of always-on.
+//
+// ATTACK_FLOOR trades DAMAGE_FLOOR's 40 for 20 on the player's OWN hits (see
+// impactCost's `floor` param) — half the closing speed needed before contact
+// starts to hurt, so ordinary driving contact starts to cost something, not
+// just a full-speed charge lined up in advance.
+const RAM_MAXED_ATTACK_FLOOR = 20;
+// SHOVE_POWER multiplies the lateral velocity the player's OWN hits hand to
+// whatever they land on (see sideSwipe). +60%, a starting figure pending a
+// drivesim pass: big enough that a side-swipe into a car with a neighbour is
+// meant to carry into that neighbour too, not just clear the first overlap.
+const RAM_MAXED_SHOVE_POWER = 1.6;
 
 // --- The player as a body ---------------------------------------------------
 // The player lives in screen x and is pinned to the row where worldY ===
@@ -282,6 +315,12 @@ export class PlayerBody {
   // moment the player undocked. `baseMass` is the fallback for the tick before
   // sync() has ever run, and for a fixture with no player at all.
   get mass() { return this.player ? this.player.mass : this.baseMass; }
+
+  // Undefined (collisions.js's own defaults apply) until the RAM PLATE is
+  // maxed — see the constants above and upgrades.js's `ram` entry for why
+  // this rides on the tier flag rather than a mass threshold.
+  get attackFloor() { return this.player?.ramMaxed ? RAM_MAXED_ATTACK_FLOOR : undefined; }
+  get shovePower() { return this.player?.ramMaxed ? RAM_MAXED_SHOVE_POWER : undefined; }
 
   // Never false. A hull running out doesn't remove the player from this
   // solver at all — it ends the "playing" state one level up in main.js,

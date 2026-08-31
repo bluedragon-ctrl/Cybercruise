@@ -867,6 +867,26 @@ test("a driver prices a contact with the same formula the solver applies", () =>
   assert.equal(taken, impactCost(a, b, 200, 1), "the solver and the estimate disagree");
 });
 
+test("the same agreement holds once a body carries its own attackFloor", () => {
+  // contactCost (behaviours.js) passes `other.attackFloor` through to
+  // impactCost exactly as applyDamage (collisions.js) does — this is the
+  // plumbing that lets a maxed RAM PLATE change what an ESTIMATE costs, not
+  // just what the solver actually charges. Same fixture as above, one body
+  // given a lower floor.
+  const a = { mass: 1 };
+  const b = { mass: 1, attackFloor: 20 };
+  let taken = 0;
+  const bodies = [
+    { ...a, worldY: 0, offset: 0, prevOffset: 0, w: 34, h: 60, speed: 130,
+      vLateral: 0, alive: true, damage: (hp) => (taken += hp) },
+    { ...b, worldY: 40, offset: 0, prevOffset: 0, w: 34, h: 60, speed: 100,
+      vLateral: 0, alive: true, damage: () => {} },
+  ];
+  resolveCollisions(bodies, 1 / 60); // closing 30: under the shared floor, over b's
+  assert.ok(taken > 0, "the lower floor must have let this contact through");
+  assert.equal(taken, impactCost(a, b, 30, 1, b.attackFloor), "the solver and the estimate disagree");
+});
+
 // --- Enemy armament -----------------------------------------------------------
 
 const ENEMY_GUN = ENEMY_WEAPON_TYPES[0];

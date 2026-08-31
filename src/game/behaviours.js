@@ -140,18 +140,26 @@ function leadCar(car, world, offset, ignore) {
 // not a risk this decision takes — a car pulling in ahead of something slower
 // brakes for it (followSpeed) — and pricing it in would make every lane change
 // look lethal to a fast car and freeze it in its lane.
+//
+// `other`'s own `attackFloor` rides along, same as it does inside
+// applyDamage — the player's PlayerBody is the one body that ever sets it (a
+// maxed RAM PLATE, collisions.js). Nothing in today's catalogue has both a
+// steerSpeed in the gap that opens up (20-40) and a nonzero `contact`
+// ceiling, so this changes no decision yet — it exists so a driver's ESTIMATE
+// never diverges from the solver's own arithmetic, per this function's header.
 function contactCost(car, other) {
-  return impactCost(car, other, car.type.steerSpeed, SIDE_DAMAGE);
+  return impactCost(car, other, car.type.steerSpeed, SIDE_DAMAGE, other.attackFloor);
 }
 
 // Would this driver accept putting itself where `other` is?
 //
 // A CEILING OF ZERO MEANS "NOBODY", not "anybody it happens to be free to hit".
-// `contactCost` is zero whenever the car's own steering rate is under
-// collisions.js's DAMAGE_FLOOR, so the rig (35px/sec against a floor of 40)
-// prices every lane change at nothing and `0 <= 0` would wave all of them
-// through. Read the ceiling off the PROFILE rather than the rolled figure, so a
-// car that merely rolled low is still just a timid car and not a special case.
+// `contactCost` is zero whenever the car's own steering rate is under the
+// floor it's priced against — collisions.js's DAMAGE_FLOOR of 40 against
+// ordinary traffic, so the rig (35px/sec) prices every lane change at
+// nothing and `0 <= 0` would wave all of them through. Read the ceiling off
+// the PROFILE rather than the rolled figure, so a car that merely rolled low
+// is still just a timid car and not a special case.
 function tolerated(car, other) {
   if (other.threat !== undefined) return other.threat <= car.nerve;
   if (car.drive.contact <= 0) return false;

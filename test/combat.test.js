@@ -76,6 +76,38 @@ test("a side-swipe pushes the target into a slide, not just apart", () => {
   assert.ok(target.offset > 30, "separation alone should have moved it further from the pusher");
 });
 
+test("a lower attackFloor lets a body's OWN hits land sooner, not hits it takes", () => {
+  // applyDamage draws a's floor from b's attackFloor and b's from a's — the
+  // bonus belongs to whoever is doing the hitting, not whoever gets hit. This
+  // is what lets a maxed RAM PLATE (PlayerBody, attackFloor 20 vs the shared
+  // DAMAGE_FLOOR of 40) make the player's own ramming land at gentler contact
+  // without also making the player easier to hurt at low speed.
+  const rear = body({ worldY: 0, speed: 130, attackFloor: 20 }); // closing 30
+  const front = body({ worldY: 50, speed: 100 });
+  resolveCollisions([rear, front], 1 / 60);
+  assert.ok(front.taken > 0, "30 clears the rear car's 20 floor, so the front car should be hurt");
+  assert.equal(rear.taken, 0, "the rear car's floor is the FRONT car's (default 40) — 30 doesn't clear it");
+});
+
+test("a maxed RAM PLATE's shovePower throws a side-swiped target harder", () => {
+  // shovePower multiplies the lateral velocity a hit hands to whatever it's
+  // hit (sideSwipe), which is the lever for making a side-swipe reliably
+  // carry into whatever's next to the target rather than just clearing the
+  // overlap with the car actually touched.
+  const stockPusher = body({ worldY: 0, offset: 0, speed: 200 });
+  const stockTarget = body({ worldY: 0, offset: 30, speed: 200 });
+  resolveCollisions([stockPusher, stockTarget], 1 / 60);
+
+  const maxedPusher = body({ worldY: 0, offset: 0, speed: 200, shovePower: 1.6 });
+  const maxedTarget = body({ worldY: 0, offset: 30, speed: 200 });
+  resolveCollisions([maxedPusher, maxedTarget], 1 / 60);
+
+  assert.ok(
+    Math.abs(maxedTarget.vLateral) > Math.abs(stockTarget.vLateral),
+    "a higher shovePower must throw the target harder sideways than the stock 1x",
+  );
+});
+
 test("ramSpeed costs a body more speed against a heavier blocker", () => {
   // The same idea sideSwipe/rearEnd give two moving bodies, generalised to a
   // blocker that never moves — see obstacles.js, which prices a static hazard

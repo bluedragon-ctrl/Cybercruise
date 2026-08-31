@@ -274,6 +274,15 @@ export const STATS = [
     // out-masses the rig" asserts both ends against the live catalogue
     // values rather than numbers restated here, since car-editor can retune
     // any of PLAYER_MASS, `step`, or either car's mass independently.
+    //
+    // MASS ALONE STAYS TIMID, because the rig ceiling above caps how far it
+    // can go — a ladder that only moved mass would always leave the top tier
+    // reading as "somewhat sturdier" rather than "a weapon". So the LAST tier
+    // also flips `ramMaxed` on `stats` (below), which collisions.js's
+    // PlayerBody turns into two bonuses mass by itself can't buy without
+    // breaking the rig invariant: it takes less speed for the player's hits to
+    // start hurting something, and a sideways shove throws its target harder
+    // into whatever's next to it. See PlayerBody's own comment for the values.
     step: 0.8,
     price: 100,
     unit: "",
@@ -491,6 +500,13 @@ export class Garage {
       maxHealth: value("chassis"),
       shieldBonus: value("deflector"),
       mass: value("ram"),
+      // WHETHER, not how much — collisions.js's PlayerBody reads this flag
+      // rather than comparing `mass` against a threshold, so a car-editor
+      // retune of PLAYER_MASS, `step`, or the rig's own mass can't silently
+      // flip it. It gates two bonuses raw mass alone can't buy without
+      // outmassing the rig (see `ram`'s own comment): a lower closing-speed
+      // floor on what the player hits, and a stronger sideways shove.
+      ramMaxed: this.maxed(statById("ram")),
       // THE RAW TIER, not a computed value like the four above — game/
       // wallet.js's SIPHON_TIERS is indexed by level directly (it drives
       // three different numbers off one tier, not one), so what Player wants
