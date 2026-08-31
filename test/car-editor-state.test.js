@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   buildCarState,
   buildAllCarState,
@@ -90,38 +91,61 @@ test("laneHome is always one of the three known lane preferences", () => {
   }
 });
 
-test("nerve is not flagged as inherited for any hostile type, except the ones that really do dodge everything", () => {
-  // Every hostile profile explicitly sets its own nerve figure (see
-  // driving.js's "Hostile dispositions" section) — this is the field where
-  // the roster is least likely to accidentally read as bland defaults.
+test("the inherited flag reports what driving.js actually spells out", () => {
+  // The flag used to be a value comparison against the commuter default, which
+  // could not tell "the source states 0" from "the source states nothing and 0
+  // is the default". That gap stopped being cosmetic when driving.js dropped
+  // the nerve-to-contact default: every hostile now writes `contact: 0` on
+  // purpose, and all of them were being reported as having inherited it.
   //
-  // The exceptions are the hostiles that dodge EVERYTHING: the cycle's
-  // "darter", and the motorcycle fleet's three profiles, all of which
-  // explicitly write `nerve: 0` — the same figure the commuter default
-  // already uses (COMMUTER.nerve = 0 in driving.js). buildCarState's
-  // "inherited" flag is a value-based approximation of "not explicitly
-  // overridden" (see state.js's header comment) — it cannot see that the
-  // source spells the value out, only that it matches the default — so it
-  // reports those as inherited even though driving.js states them
-  // explicitly. That's the documented, accepted limitation of the approach,
-  // not a bug: a bike really does dodge every hazard, same as a bland
-  // commuter, so the value is correct even if the "(overridden)" cosmetic
-  // tag would be missing in the UI.
-  //
-  // Expressed as "zero reads as inherited" rather than as a list of ids, so
-  // the next fragile hostile that has no business barging a roadblock does
-  // not have to be remembered here.
-  for (const id of HOSTILE_IDS) {
+  // So it is read from the source text now, and this checks the property that
+  // matters — every field a profile SPELLS OUT reads as overridden, whatever
+  // its value, and every field it omits reads as inherited.
+  const source = readFileSync(
+    new URL("../src/game/driving.js", import.meta.url),
+    "utf8"
+  );
+  for (const id of CAR_IDS) {
     const state = buildCarState(id);
-    const expected = state.behavior.nerve.value === 0;
-    assert.equal(
-      state.behavior.nerve.inherited,
-      expected,
-      `${id}.nerve inherited flag should be ${expected}`
-    );
+    const profileName = drivingProfileNameFor(id);
+    // The profile's own delta, as text: everything between `name: profile({`
+    // and its matching brace, with comments stripped so a field MENTIONED in a
+    // trailing note is not mistaken for one that is set.
+    const marker = `${profileName}: profile({`;
+    const at = source.indexOf(marker);
+    const body =
+      at === -1
+        ? ""
+        : source
+            .slice(at + marker.length, source.indexOf("}", at + marker.length))
+            .replace(/\/\/[^\n]*/g, "");
+    for (const [field, cell] of Object.entries(state.behavior)) {
+      const spelledOut = new RegExp(String.raw`(?:^|[{,])\s*` + field + String.raw`\s*:`, "m").test(body);
+      assert.equal(
+        cell.inherited,
+        !spelledOut,
+        `${id} (${profileName}).${field}: source ${spelledOut ? "states" : "omits"} it, ` +
+          `so inherited should be ${!spelledOut}`
+      );
+    }
   }
 });
 
+test("every hostile's contact reads as a choice, not as a default", () => {
+  // The point of driving.js dropping the nerve-to-contact default is that a
+  // hostile has to SAY it will not shoulder through traffic. If the editor
+  // showed that as inherited, a tuner would read the fleet as never having
+  // considered the question — which is exactly what the old flag did.
+  for (const id of HOSTILE_IDS) {
+    const state = buildCarState(id);
+    assert.equal(state.behavior.contact.value, 0, `${id} should not lean on traffic`);
+    assert.equal(
+      state.behavior.contact.inherited,
+      false,
+      `${id}.contact is stated in driving.js and must not read as inherited`
+    );
+  }
+});
 test("buildCarState throws for a car id outside the catalogue", () => {
   assert.throws(() => buildCarState("ghost"), /unknown car id "ghost"/);
 });
@@ -473,4 +497,33 @@ test("no weapon starts a run with more rounds than its magazine holds", () => {
 
 test("buildWeaponState throws for a weapon id outside either array", () => {
   assert.throws(() => buildWeaponState("raygun"), /unknown weapon id "raygun"/);
+});
+test("every editable car and behavior field has a description, and every description names a field", () => {
+  // editor.js's CAR_FIELD_DESCRIPTIONS is the help text under each input. The
+  // two failures this catches are opposite and both silent: a field added to
+  // state.js renders as a bare name with no explanation, and a description left
+  // behind by a field that moved (pursueRange and ramFloor both left for
+  // behaviours.js) sits in the file forever describing nothing.
+  //
+  // Read from editor.js's SOURCE because it is browser code — it imports
+  // nothing and is served as a static asset, so there is no module to import.
+  const source = readFileSync(
+    new URL("../tools/car-editor/editor.js", import.meta.url),
+    "utf8"
+  ).replace(/\r\n/g, "\n");
+  const block = source.match(/const CAR_FIELD_DESCRIPTIONS = \{\n([\s\S]*?)\n\};/);
+  assert.ok(block, "CAR_FIELD_DESCRIPTIONS should be a flat object literal");
+  const described = [...block[1].matchAll(/^ {2}([A-Za-z]+):/gm)].map((m) => m[1]);
+  const editable = [...CAR_TYPE_FIELDS, ...BEHAVIOR_FIELDS];
+
+  assert.deepEqual(
+    editable.filter((f) => !described.includes(f)),
+    [],
+    "these fields are editable but render with no help text"
+  );
+  assert.deepEqual(
+    described.filter((d) => !editable.includes(d)),
+    [],
+    "these descriptions name a field the editor no longer shows"
+  );
 });

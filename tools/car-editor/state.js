@@ -1,11 +1,8 @@
 // Reads the whole roster's CURRENT values by importing the real game
 // modules — same trick tools/drivesim.js already uses — so the editor never
-// shows a stale snapshot. A field is reported "inherited" when its value
-// equals the commuter default, which is a value-based approximation of "not
-// explicitly overridden in the source": correct in every case the source
-// actually looks like today, and if a profile were ever written to spell
-// out a value equal to the default anyway, the worst outcome is a cosmetic
-// "(overridden)" tag missing in the UI — not a wrong edit.
+// shows a stale snapshot. VALUES come from the modules; the "inherited" flag
+// comes from the SOURCE TEXT instead, because it is a question about what the
+// file says rather than about what a number is — see statedFieldsFor below.
 
 //
 // The five catalogues are held in the mutable `live` registry below rather
@@ -16,6 +13,7 @@
 // reads through `live`, and refreshCatalogues() swaps in freshly re-imported
 // copies (see its own note on how).
 
+import { readFileSync } from "node:fs";
 import { stat as statFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -80,9 +78,20 @@ export async function refreshCatalogues() {
 export const CAR_IDS = live.cartypes.CAR_TYPES.map((t) => t.id);
 
 // Every tunable number that lives on the CAR_TYPES entry itself, grouped the
-// way the editor shows them. Everything NOT in here and not decoration
-// (shape/colour/label) belongs to the driving profile instead, which is a
-// different file and a different blast radius — see BEHAVIOR_FIELDS below.
+// way the editor shows them. THREE PLACES A CAR'S NUMBERS CAN LIVE, and which
+// one a figure is in decides its blast radius:
+//
+//   here                 the type's own — changing it moves ONE car
+//   BEHAVIOR_FIELDS      its driving profile — moves every type sharing it
+//   constants.js         a shared figure in behaviours.js or collisions.js —
+//                        moves every type on that tactic, or every collision
+//                        in the game (the "Driving tactics" and "Ramming &
+//                        contact" groups on the World screen)
+//
+// Not here and not in either of those: `shape`/`color`/`label` (decoration —
+// and colour now follows the faction, cartypes.js's FACTION_LIVERY), and `w`/
+// `h`, which are the collision box AND the drawn size. The artwork is authored
+// for that ratio, so those two are a carshapes.js edit rather than a tuning one.
 //
 // The split into groups is by what a change DOES: `mass` is a hull property
 // even though it never appears on a health bar, and `value`/`bounty` are one
@@ -90,7 +99,7 @@ export const CAR_IDS = live.cartypes.CAR_TYPES.map((t) => t.id);
 // other is credits.
 export const CAR_FIELD_GROUPS = [
   { label: "Hull", fields: ["health", "mass"] },
-  { label: "Speed", fields: ["speedMin", "cruiseMin", "speedMax", "steerSpeed"] },
+  { label: "Speed", fields: ["hardFloor", "cruiseMin", "speedMax", "steerSpeed"] },
   { label: "Wreck", fields: ["blastRadius", "blastDamage"] },
   { label: "Reward", fields: ["value", "bounty"] },
   { label: "Spawn", fields: ["minDistance", "weight"] },
@@ -118,8 +127,12 @@ export const BEHAVIOR_FIELDS = [
   // `strafe`, `outrun` and `strew`) — but they live on the same profile
   // object as everything above, so they surface here on the same terms and the
   // "(inherited)" tag does the explaining.
+  //
+  // The chase's own SHAPE is not here: PURSUE_RANGE and RAM_FLOOR are shared
+  // figures in behaviours.js, on the World screen's "Driving tactics" group,
+  // because no profile differed from the baseline and each is arithmetic
+  // against another file. What is left here is genuinely per-driver.
   "pursueHold",
-  "pursueRange",
   "pursueGain",
   "chaseSpeed",
   "giveUpTime",
@@ -131,7 +144,6 @@ export const BEHAVIOR_FIELDS = [
   "weaveSpan",
   "weaveTime",
   "ramBrake",
-  "ramFloor",
   "nerve",
   "contact",
 ];
@@ -161,11 +173,11 @@ export const BEHAVIOR_FIELD_GROUPS = [
   {
     label: "Chasing the player",
     fields: [
-      "pursueHold", "pursueRange", "pursueGain", "chaseSpeed", "giveUpTime", "raidGain",
+      "pursueHold", "pursueGain", "chaseSpeed", "giveUpTime", "raidGain",
       "leadHold", "weaveSpan", "weaveTime",
     ],
   },
-  { label: "Ramming", fields: ["ramBrake", "ramFloor"] },
+  { label: "Ramming", fields: ["ramBrake"] },
   { label: "Nerve", fields: ["nerve", "contact"] },
 ];
 
@@ -193,19 +205,82 @@ export function drivingProfileScope(carId) {
   return { name, sharedWith, isBaseline: name === "commuter" };
 }
 
+// --- Which fields a profile actually SPELLS OUT -------------------------------
+//
+// The editor tags a behavior row "(inherited)" or "(overridden)", and the flag
+// used to be a value comparison against the commuter: equal to the default
+// meant inherited. That was a documented approximation, and it stopped being
+// good enough when driving.js dropped the nerve-to-contact default and every
+// hostile started stating `contact: 0` on purpose. Five profiles that had
+// CHOSEN a figure were all reported as having inherited it — the flag said the
+// opposite of what the source says, on the very field the explicit statement
+// was the point of.
+//
+// So it is read from the SOURCE TEXT, the same technique and the same reason as
+// constants.js: what is being asked is "does this profile's delta name this
+// field", which is a fact about the file, not about the resolved value.
+//
+// Comments are stripped before the field names are collected, because a
+// trailing comment inside a profile block may well mention another field by
+// name (`passEffort`'s does) and a mention is not a statement.
+function statedFieldsFor(profileName, sourceText) {
+  const marker = `${profileName}: profile(`;
+  const at = sourceText.indexOf(marker);
+  if (at === -1) return new Set();
+  const open = sourceText.indexOf("{", at + marker.length);
+  // `commuter: profile()` takes the defaults wholesale: no argument object at
+  // all, so it states nothing. Guarded by checking the brace belongs to THIS
+  // call rather than to the next profile down the file.
+  const callEnd = sourceText.indexOf(")", at + marker.length);
+  if (open === -1 || open > callEnd) return new Set();
+
+  let depth = 0;
+  let close = -1;
+  for (let i = open; i < sourceText.length; i++) {
+    if (sourceText[i] === "{") depth++;
+    else if (sourceText[i] === "}") {
+      depth--;
+      if (depth === 0) { close = i; break; }
+    }
+  }
+  if (close === -1) return new Set();
+
+  const body = sourceText.slice(open + 1, close).replace(/\/\/[^\n]*/g, "");
+  // Anchored on the SEPARATOR rather than on the line start: `pursuer:
+  // profile({ nerve: 12, contact: 0 })` states two fields on one line, and a
+  // line-anchored match would report only the first.
+  return new Set(
+    [...body.matchAll(/(?:^|[{,])\s*([A-Za-z_$][\w$]*)\s*:/gm)].map((m) => m[1])
+  );
+}
+
+// One read per buildCarState call, not one per field. Uncached on purpose, for
+// the same reason `live` is refreshed: a tuning session rewrites this file, and
+// a flag computed from a stale read would describe a version that is gone.
+function statedFields(profileName) {
+  try {
+    return statedFieldsFor(profileName, readFileSync(path.join(GAME_DIR, "driving.js"), "utf8"));
+  } catch {
+    // A source read is a nicety here — the VALUES all come from the live
+    // modules. If the file cannot be read, fall back to reporting nothing as
+    // stated rather than failing the whole screen.
+    return new Set();
+  }
+}
+
 export function buildCarState(carId) {
   if (!CAR_IDS.includes(carId)) {
     throw new Error(`buildCarState: unknown car id "${carId}"`);
   }
   const type = live.cartypes.carTypeById(carId);
   const profile = live.driving.drivingFor(type);
-  const commuter = live.driving.DRIVING_PROFILES.commuter;
+  const stated = statedFields(drivingProfileNameFor(carId));
 
   const behavior = {};
   for (const field of BEHAVIOR_FIELDS) {
     behavior[field] = {
       value: profile[field],
-      inherited: profile[field] === commuter[field],
+      inherited: !stated.has(field),
     };
   }
 
