@@ -22,7 +22,7 @@ import {
   TRAIL_ENGAGE,
 } from "../src/game/behaviours.js";
 import { DRIVING_PROFILES, drivingFor, typesDriving } from "../src/game/driving.js";
-import { BAND_RECOVER, MIN_SPEED, PLAYER_MASS, Player } from "../src/game/player.js";
+import { BAND_RECOVER, MAX_SPEED, MIN_SPEED, PLAYER_MASS, Player } from "../src/game/player.js";
 import { initInput } from "../src/engine/input.js";
 import {
   LANE_COUNT,
@@ -2106,34 +2106,39 @@ test("a strip laid in the player's path actually bites them", () => {
   assert.ok(obstacles.list.includes(o), "the strip was eaten by the car that crossed it");
 });
 
-test("a boost lifts BOTH ends of the player's speed band by its amount", () => {
+test("a boost CLOSES the band: the ceiling goes up by its amount, the floor to meet it", () => {
   const player = new Player(0, 0);
-  const stockMin = player.minSpeed;
   const stockTop = player.topSpeed;
-  assert.equal(stockMin, MIN_SPEED);
+  assert.equal(player.minSpeed, MIN_SPEED);
 
   player.activateBoost(200, 6);
-  assert.equal(player.minSpeed, stockMin + 200);
   assert.equal(player.topSpeed, stockTop + 200);
+  assert.equal(player.minSpeed, player.topSpeed,
+    "a running overdrive leaves the car one speed, not a band to drive around in");
 });
 
-test("a boost drives the car up to the raised floor without touching the throttle", () => {
-  const player = new Player(0, 0);
+test("a boost drives the car up to its ceiling from ANY speed, throttle untouched", () => {
+  // The failure this replaces: with the floor merely lifted BY the amount, a
+  // player already doing 503 of a 100..620 band got a floor of 300 — under
+  // where they were — so the crate moved nothing and changed no more than a
+  // HUD readout. Taken at any speed in the band, the car has to go somewhere.
   const bounds = { left: -10000, right: 10000 };
-  player.speed = MIN_SPEED;
+  for (const start of [MIN_SPEED, 260, 503, MAX_SPEED]) {
+    const player = new Player(0, 0);
+    player.speed = start;
+    player.activateBoost(200, 12);
 
-  player.activateBoost(200, 6);
-  player.update(1 / 60, bounds);
-  assert.ok(player.speed > MIN_SPEED,
-    "the raised floor is what makes a boost felt without the player doing anything");
-  assert.ok(player.speed < MIN_SPEED + 200,
-    "but it is a spool-up, not a one-frame jump of the whole lift");
-  assert.equal(player.speed, MIN_SPEED + BAND_RECOVER / 60, "climbing at exactly BAND_RECOVER");
+    player.update(1 / 60, bounds);
+    assert.equal(player.speed, start + BAND_RECOVER / 60, "climbing at exactly BAND_RECOVER");
+    assert.ok(player.speed < player.topSpeed, "a spool-up, not a one-frame jump to the ceiling");
 
-  // Long enough to cover the 200 at BAND_RECOVER, with room to spare — and the
-  // ramp must STOP at the floor rather than sail past it.
-  for (let i = 0; i < 60; i++) player.update(1 / 60, bounds);
-  assert.equal(player.speed, MIN_SPEED + 200, "and it settles exactly on the raised floor");
+    // Long enough to cover the worst case (the whole band plus the lift) at
+    // BAND_RECOVER, and the ramp must STOP at the ceiling rather than sail past.
+    const ticks = Math.ceil(((MAX_SPEED - MIN_SPEED + 200) / BAND_RECOVER) * 60) + 1;
+    for (let i = 0; i < ticks; i++) player.update(1 / 60, bounds);
+    assert.equal(player.speed, MAX_SPEED + 200,
+      `a crate taken at ${start} has to end at the boosted ceiling like every other`);
+  }
 });
 
 test("a running boost takes the brake away — the floor cannot be driven under", () => {
@@ -2142,9 +2147,9 @@ test("a running boost takes the brake away — the floor cannot be driven under"
   holdBrake(true); // full brake, held for the whole test
 
   try {
-    player.activateBoost(200, 6);
-    for (let i = 0; i < 120; i++) player.update(1 / 60, bounds);
-    assert.equal(player.speed, MIN_SPEED + 200,
+    player.activateBoost(200, 12);
+    for (let i = 0; i < 240; i++) player.update(1 / 60, bounds);
+    assert.equal(player.speed, MAX_SPEED + 200,
       "braking against a running overdrive must not move the car off its raised floor");
   } finally {
     holdBrake(false);
@@ -2258,20 +2263,29 @@ test("an overdrive's floor survives being leaned on by a car heavy enough to hol
   }
 });
 
-test("the ramp back to the floor is the band's, not the solver's — about half a second", () => {
+test("the ramp back to the floor is the band's, not the solver's", () => {
   // The recovery a player actually sees after being rammed while boosted:
   // BAND_RECOVER from wherever the impact left them, which is the same ramp a
   // fresh crate spools up through. Asserted as a DURATION because that is the
-  // thing being promised — the 200 lift over BAND_RECOVER is 0.53s.
+  // thing being promised, and the worst case is the whole band plus the lift —
+  // an overdrive's floor is its CEILING (player.js's minSpeed), so a ram that
+  // drops the car to the blocker's speed has the full climb to make again.
+  //
+  // TWICE that ramp, because a car held nose-to-tail against something 660
+  // units slower does not make the climb once: it pulls away, catches the
+  // blocker again and is billed a fresh ARRIVAL each time (collisions.js).
+  // Those re-arrivals stretch a 1.9s ramp to about 2.5s and no further — what
+  // this is guarding is that they cannot stretch it forever, which is the
+  // failure the speedFloor rule exists to stop.
   const player = new Player(0, 0);
-  player.speed = MIN_SPEED + 200;
+  player.speed = MAX_SPEED + 200;
   player.activateBoost(200, 30);
 
-  const ticks = Math.ceil((200 / BAND_RECOVER) * 60) + 1;
+  const ticks = 2 * Math.ceil(((MAX_SPEED - MIN_SPEED + 200) / BAND_RECOVER) * 60);
   const { lowest } = leanOnBlocker(player, { mass: 4, holds: 160, seconds: ticks / 60 });
   assert.ok(lowest < player.minSpeed, "the ram has to have taken speed for this to measure anything");
   assert.equal(player.speed, player.minSpeed,
-    "the worst case is a full lift's worth of ramp, and one tick more than that must clear it");
+    "a blocker may stretch the ramp; it may not hold the car under the floor indefinitely");
 });
 
 test("a puncture still overrules the floor a lean is measured against", () => {
