@@ -59,17 +59,30 @@ import { ROCKET, PLAYER_THRUST, ENEMY, GREEN_BRIGHT, PLAYER } from "../engine/pa
 // magazine is exactly "top it right up" whatever was left in it — there is no
 // separate refill-to-full path, and no way to overfill by buying two.
 //
+// A ROW WITH NOTHING TO GIVE ISN'T FOR SALE. A crate on the road is free, so
+// driving over one at full ammo costing nothing but the drive-over is a
+// shrug; a shop row costs actual credits, and priceOf/purchase below refuse an
+// AMMO or HEAL purchase that would have no effect (a full magazine, a full
+// hull) rather than take the money for it — see consumableWasted. SHIELD is
+// the one kind this never applies to (see its own `oncePerVisit` note above)
+// because a banked shield has no ceiling to be "full" against.
+//
 // Fields:
-//   id/label   stable key / the caption on the shelf
-//   detail     what one purchase actually does, in the player's own units.
-//              Written out rather than derived, because "+18 RDS" and "+70 HULL"
-//              and "5 SEC" are three different units and a formatter covering
-//              all three would be longer than the three strings
-//   price      credits, FLAT. Consumables never get more expensive: the tier
-//              curve is the STATS shelf's idea, and applying it here would mean
-//              a run that goes long slowly loses the ability to rearm
-//   kind       plus whichever fields that kind reads — see pickuptypes.js
-//   color      the row's accent, matching the crate that grants the same thing
+//   id/label      stable key / the caption on the shelf
+//   detail        what one purchase actually does, in the player's own units.
+//                 Written out rather than derived, because "+18 RDS" and
+//                 "+70 HULL" and "5 SEC" are three different units and a
+//                 formatter covering all three would be longer than the three
+//                 strings
+//   price         credits, FLAT. Consumables never get more expensive: the
+//                 tier curve is the STATS shelf's idea, and applying it here
+//                 would mean a run that goes long slowly loses the ability to
+//                 rearm
+//   kind          plus whichever fields that kind reads — see pickuptypes.js
+//   oncePerVisit  OPTIONAL. See buy_shield's own note — the one row capped by
+//                 the visit rather than by whether it would do anything
+//   color         the row's accent, matching the crate that grants the same
+//                 thing
 export const CONSUMABLES = [
   {
     id: "buy_repair",
@@ -103,6 +116,16 @@ export const CONSUMABLES = [
     // reprieve the road handed over mid-fight, this is a stretch of cover the
     // player paid for and gets to spend where they choose.
     duration: 30,
+    // ONE PER STOP. A shield has no ceiling of its own — chargeShield banks
+    // whatever it is handed, unlike a magazine or a hull bar — so nothing
+    // about buying a second one this visit would be WASTED the way a repair at
+    // full hull is. It is rationed anyway, because unlimited banked seconds
+    // bought in one stand at the counter is a player converting a stop's whole
+    // wallet into a run nothing on the road can end, which is a bigger hole
+    // than "one purchase did nothing" is on the other two rows below.
+    // Garage.boughtThisVisit is the counter, cleared by endVisit() when the
+    // player undocks (game/shop.js), so the cap is per STOP, not per run.
+    oncePerVisit: true,
     color: PLAYER,
   },
   {
@@ -128,14 +151,16 @@ export const CONSUMABLES = [
   {
     id: "buy_mine_ammo",
     label: "MINES",
-    detail: "SET OF 8",
-    // The whole magazine (weapons.js's `mine`), at well under four times what
-    // the road's own two-mine crate is worth — a set bought in one press is
-    // priced as a set, not as four separate crates carried out one at a time.
+    detail: "SET OF 16",
+    // The whole magazine (weapons.js's `mine`) — twice the eight the player is
+    // issued with (weapons.js's `startAmmo`), so this is a real top-up from the
+    // first stop rather than a row with nothing left to sell until the player
+    // has burned through the run's own supply. Priced as a set, not as eight
+    // separate two-mine crates carried out one at a time.
     price: 50,
     kind: AMMO,
     weaponId: "mine",
-    amount: 8,
+    amount: 16,
     color: ENEMY,
   },
   {
@@ -442,6 +467,12 @@ export class Garage {
     // would make every reader write `?.` or `??` for no reason.
     this.specials = {};
     for (const item of SPECIALS) this.specials[item.special] = false;
+    // Consumable ids bought at the CURRENT stop, for the `oncePerVisit` rows
+    // (buy_shield, so far). Cleared by endVisit() rather than carried for the
+    // whole run — this is the one piece of state on Garage that is scoped to a
+    // STOP rather than to the run, which is why it isn't a `levels`-style
+    // counter: there is nothing to remember once the player undocks.
+    this.visitPurchases = new Set();
   }
 
   levelOf(stat) {
@@ -475,6 +506,26 @@ export class Garage {
     return true;
   }
 
+  // Has `entry` already been bought at this stop? Only `oncePerVisit` rows
+  // are ever checked against this — see priceOf.
+  boughtThisVisit(entry) {
+    return this.visitPurchases.has(entry.id);
+  }
+
+  // Books one `oncePerVisit` purchase for the stop. Same contract as addTier
+  // and addSpecial: purchase() below is the only caller, and only after the
+  // money has moved.
+  recordVisit(entry) {
+    this.visitPurchases.add(entry.id);
+  }
+
+  // The stop is over — game/shop.js calls this on undock, right alongside its
+  // own boughtHere.clear() (the shelf's "BOUGHT" marks), so the two per-visit
+  // records reset together even though one lives here and one lives there.
+  endVisit() {
+    this.visitPurchases.clear();
+  }
+
   // Everything the tiers add up to, in the shape Player.applyUpgrades wants.
   // Recomputed on read — see the header.
   get stats() {
@@ -503,14 +554,37 @@ export class Garage {
 
 // --- Buying ------------------------------------------------------------------
 
-// What `entry` costs right now, or null if it is not for sale (a maxed stat).
-// One function over both shelves, so the screen never has to branch on which
-// kind of row it is pricing.
-export function priceOf(entry, garage) {
+// Would buying `entry` right now do NOTHING — a magazine already topped up, a
+// hull already full? AMMO and HEAL only; SHIELD has no ceiling of its own
+// (Player.chargeShield banks whatever it is handed) and is rationed by
+// `oncePerVisit` instead, checked separately in priceOf below. `player`/
+// `loadout` are optional and default to "not wasted" when absent, mirroring
+// shop.js's own statusFor — priceOf is called from contexts (tests, an
+// unlanded car) that have neither.
+function consumableWasted(entry, player, loadout) {
+  if (!player) return false;
+  if (entry.kind === HEAL) return player.health >= player.maxHealth;
+  if (entry.kind === AMMO) {
+    const weapon = loadout && loadout.get(entry.weaponId);
+    return weapon ? weapon.ammo >= weapon.type.ammo : false;
+  }
+  return false;
+}
+
+// What `entry` costs right now, or null if it is not for sale (a maxed stat,
+// a full magazine, a shield already bought this stop). One function over
+// every shelf, so the screen never has to branch on which kind of row it is
+// pricing. `player`/`loadout` are only read for the consumable checks above —
+// see priceOf.
+export function priceOf(entry, garage, player, loadout) {
   // Told apart by whether the row names a `kind`, exactly the way weapons.js
   // tells a layer from a gun by whether it names a `payload` — the field that
   // decides what a thing IS also decides which shelf it came from.
-  if (entry.kind) return entry.price;
+  if (entry.kind) {
+    if (entry.oncePerVisit && garage.boughtThisVisit(entry)) return null;
+    if (consumableWasted(entry, player, loadout)) return null;
+    return entry.price;
+  }
   // A SPECIAL is a one-rung ladder: its own flat price until it is owned, and
   // then not for sale at all — the same null a maxed stat returns, so the
   // shelf draws "SOLD" through the machinery that already draws "MAX".
@@ -529,7 +603,7 @@ export function priceOf(entry, garage) {
 // (wallet.js), so the affordability check here is belt and braces rather than
 // the only guard.
 export function purchase(entry, wallet, player, loadout, garage) {
-  const price = priceOf(entry, garage);
+  const price = priceOf(entry, garage, player, loadout);
   if (price === null || price > wallet.credits) return false;
   if (!wallet.spend(price)) return false;
 
@@ -537,6 +611,7 @@ export function purchase(entry, wallet, player, loadout, garage) {
     // A consumable — the crate's own effect, applied by the crate's own code.
     // See the header: a bought repair IS a FIX crate.
     applyPickup(entry, player, loadout);
+    if (entry.oncePerVisit) garage.recordVisit(entry);
   } else if (entry.special) {
     // A special — booked, then re-derived onto the car through the SAME
     // absolute assignment a tier uses. The car gets a flag it reads for the
