@@ -1,15 +1,15 @@
 // The SECOND voice lifecycle, alongside sfx.js's one-shot play(). Every other
 // sound is a one-shot: allocate nodes, schedule, return a duration, forget. This
-// is for sounds with no duration at all — a hiss that tracks hull, a drone that
-// lasts as long as a shield, a scrape that lasts as long as contact. Those don't
-// fit the one-shot contract:
+// is for sounds with no duration at all — a drone that lasts as long as a
+// shield, a scrape that lasts as long as contact, a pulse that tracks a
+// hostile on your tail. Those don't fit the one-shot contract:
 //
 //   - no duration, so context.js's commitVoiceDuration is meaningless for them
-//   - they must NEVER be stolen by the one-shot voice limiter: a hiss evicted
+//   - they must NEVER be stolen by the one-shot voice limiter: a voice evicted
 //     mid-firefight and never returning is hard to notice and confusing to hear,
 //     since nothing about losing a voice slot LOOKS wrong on screen
-//   - they need LEVEL CHANGES over time, not retriggering — hull_hiss gets
-//     louder as hull falls, it does not replay
+//   - they need LEVEL CHANGES over time, not retriggering — dread_pulse gets
+//     louder as a hostile closes, it does not replay
 //
 // THE FIX: build each sustained voice's graph exactly ONCE, the first time it is
 // acquired, and leave it running silently (gain 0) for the rest of the page's
@@ -34,7 +34,7 @@
 // reuses rather than rebuilds) under plain Node. acquire()/setLevel()/release()
 // are the only things here that touch a real AudioContext.
 //
-// SOUND-SPECIFIC GRAPHS (what hull_hiss/shield_drone/wall_scrape actually
+// SOUND-SPECIFIC GRAPHS (what shield_drone/wall_scrape/dread_pulse actually
 // sound like) live in sustainedfx.js, mirroring sfx.js/soundtypes.js's own
 // split: this file owns the LIFECYCLE only — build-once, gain-ramp,
 // registry — and knows nothing about bandpass filters or tremolo LFOs.
@@ -42,7 +42,7 @@
 import { isStarted, getCtx, getSfxBus } from "./context.js";
 import { sustainedTypeById } from "./sustainedtypes.js";
 
-const DEFAULT_RAMP = 0.5; // seconds — hull_hiss's own figure; every caller may override
+const DEFAULT_RAMP = 0.5; // seconds — a deliberately slow default, so a level that moves reads as a change of state rather than a click; every caller may override
 const DEFAULT_RELEASE = 0.5;
 
 // --- Pure registry bookkeeping ----------------------------------------
@@ -65,7 +65,7 @@ export function planAcquire(state, id) {
 // Returns { state, changed }. `changed` is false — and `state` is the SAME
 // object passed in — when `value` matches what's already tracked, which is
 // the whole mechanism behind "ramp on change, do not set every frame": a
-// caller polling this every game tick (hull_hiss's own contract) only pays
+// caller polling this every game tick (every sustained voice's own contract) only pays
 // for a Web Audio ramp on the ticks where the target actually moved.
 export function planSetLevel(state, id, value) {
   const entry = state[id];
@@ -114,8 +114,8 @@ export function acquire(id) {
 }
 
 // Ramps `id`'s gain toward `value` over `rampSeconds` — never snaps, so a
-// value polled every frame (hull_hiss's hull fraction, shield_drone's
-// countdown) doesn't click. Lazily acquires `id` first, so a caller never
+// value polled every frame (shield_drone's countdown, dread_pulse's threat
+// proximity) doesn't click. Lazily acquires `id` first, so a caller never
 // has to sequence "acquire, then setLevel" by hand. A no-op before start(),
 // and a no-op if `value` matches what's already tracked (see planSetLevel).
 export function setLevel(id, value, rampSeconds = DEFAULT_RAMP) {
@@ -143,8 +143,8 @@ export function release(id, rampSeconds = DEFAULT_RELEASE) {
 
 // Releases every sustained voice that has ever been acquired. Called by
 // sustainedfx.js's own reset() (in turn called from main.js's newGame()) —
-// see that function's header for why a fresh run must never inherit a hiss,
-// drone or scrape still ramping down from the run that just ended.
+// see that function's header for why a fresh run must never inherit a drone,
+// scrape or pulse still ramping down from the run that just ended.
 export function releaseAll(rampSeconds) {
   for (const id of Object.keys(nodes)) release(id, rampSeconds);
 }

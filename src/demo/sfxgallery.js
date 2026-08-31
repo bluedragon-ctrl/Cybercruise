@@ -76,7 +76,6 @@ speedSlider.addEventListener("input", () => setSpeed(Number(speedSlider.value)))
 //     on timing, and this page is exactly where that needs to be visible.
 const trackListEl = document.getElementById("trackList");
 const statusEl = document.getElementById("status");
-const disturbTestBtn = document.getElementById("disturbTest");
 
 fetch(MUSIC_LISTING_URL)
   .then((res) => res.json())
@@ -88,8 +87,6 @@ fetch(MUSIC_LISTING_URL)
   .catch(() => {
     trackListEl.textContent = "tracks: listing fetch failed (server not running the /api/music endpoint?)";
   });
-
-disturbTestBtn.addEventListener("click", () => music.disturb(1));
 
 // Before start, music.play()/setVolume()/setSfxVolume()/updateMusicCutoff()
 // are all silent no-ops (see synth.js/context.js's own contract) — so the
@@ -162,36 +159,24 @@ SOUND_TYPES.forEach((entry, i) => {
 //
 // Unlike the one-shots above (click it, hear it, done), a sustained voice
 // (audio/sustained.js) has no "play once" — it's acquired, held at a level
-// for as long as it's toggled on, and released. Auditioning the interesting
-// part of hull_hiss (its dropouts and crackle, which only fire well below
-// the hiss's own on/off threshold — see sustainedfx.js) needs it held at a
-// LOW hull fraction for several real seconds, not a single click, so each
-// card here is a toggle plus (where the voice has one continuous driving
-// value worth scrubbing by hand) a slider, ticked by a small setInterval
-// loop rather than needing a real "playing" tick from main.js.
+// for as long as it's toggled on, and released. Auditioning one means
+// holding it at a level for several real seconds, not a single click, so
+// each card here is a toggle plus (where the voice has one continuous
+// driving value worth scrubbing by hand) a slider, ticked by a small
+// setInterval loop rather than needing a real "playing" tick from main.js.
 //
 // PER-ID DRIVING CONFIG, not fully catalogue-generic like the one-shot grid
 // above: each sustained voice is driven by a DIFFERENT kind of game state
-// (a hull fraction, a countdown of seconds, a boolean), so there's no single
-// slider shape that fits all three. A voice with no entry here (a future
-// fourth sustained sound, say) just gets a plain toggle — still fully
+// (a countdown of seconds, a boolean, a threat closeness), so there's no
+// single slider shape that fits all three. A voice with no entry here just
+// gets a plain toggle — still fully
 // auditionable, only without a value to scrub.
 const SUSTAINED_DRIVERS = {
-  hull_hiss: {
-    sliderLabel: "hull %",
-    min: 0, max: 100, step: 1, start: 40,
-    // `value` is the slider's raw 0-100; drive() is called every tick while
-    // toggled on. `glitching` is always false here — there's no sectors.js
-    // rescan running on this page, so the crackle-sync nudge (sustainedfx.js's
-    // own updateHullHiss) simply never fires; the crackle still fires on its
-    // own schedule regardless.
-    drive: (value, dt) => music.updateHullHiss(dt, value / 100, false),
-    off: () => music.updateHullHiss(1 / 60, 1, false), // force above HULL_HISS_ON so it releases cleanly
-  },
   shield_drone: {
     sliderLabel: "shield s",
     min: 0, max: 6, step: 0.1, start: 5,
-    // A manual scrub, not an auto-countdown — dragging the slider down
+    // `value` is the slider's raw value; drive() is called every tick while
+    // toggled on. A manual scrub, not an auto-countdown — dragging the slider down
     // through SHIELD_DRONE_FADE_WINDOW is what auditions the fade-out.
     drive: (value) => music.updateShieldDrone(value),
     off: () => music.updateShieldDrone(0),

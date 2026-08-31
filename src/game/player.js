@@ -240,7 +240,7 @@ export class Player {
     // returns BEFORE the shield charge is spent, so a test run does not quietly
     // burn its banked shield on hits that were never going to land — and with
     // no onDamage call at all, since a hit that did nothing must not flash,
-    // shake or hiss.
+    // shake or sound.
     if (this.invulnerable) return;
     // A banked shield (chargeShield) fires HERE, before the hit is applied —
     // that is the whole point of charging rather than activating: the window
