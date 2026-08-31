@@ -42,6 +42,7 @@ import {
   announce,
   activePing,
   announceActive,
+  nodeValue,
   reset as linksReset,
 } from "../src/game/links.js";
 import { HINT as CONSOLE_HINT } from "../src/engine/console.js";
@@ -96,6 +97,7 @@ import {
   reset as sectorsReset,
   glitching as sectorsGlitching,
 } from "../src/game/sectors.js";
+import { worldSeed, reseedWorld } from "../src/game/worldseed.js";
 import { slowest } from "../test-support/fixtures.js";
 
 // --- The city floor is a pure function of its lot index -----------------------
@@ -322,6 +324,146 @@ test("the eligible-lot and realized-build fractions, re-measured now that NODE c
     Math.abs(builtFrac - 0.4123) < 0.01,
     `realized-build fraction drifted to ${builtFrac.toFixed(4)}, expected ~0.4123`,
   );
+});
+
+// --- The run's own world seed (worldseed.js) ----------------------------------
+//
+// Every other measurement in this file is taken at SEED 0 — the city that
+// shipped before worldseed.js existed, and the one citygrid.js's own BUILD_
+// CHANCE and NODE_CHANCE comments were measured against. The three tests below
+// are the only ones in the suite that move the seed, and each puts it back, so
+// nothing here depends on the order the file happens to run in.
+
+// The city as ONE SIGNATURE PER SALTED FILE, not one for the city as a whole.
+// The distinction is the entire point: the salt is added inside four separate
+// copies of hash(), so the failure to catch is one of them losing it while the
+// other three still move. A single whole-city signature cannot see that — the
+// three that still move keep the signature changing, and the frozen layer rides
+// along invisibly. (Written that way first, and it passed with the salt stripped
+// out of citygrid.js entirely.) Each key below comes from exactly one file, so a
+// desalted file turns into a named failing assertion.
+function cityLayers() {
+  const lots = [];
+  for (let lx = -6; lx < 6; lx++) {
+    for (let ly = -30; ly < 30; ly++) {
+      const lot = lotAt(lx, ly);
+      lots.push(`${lot.type}:${lot.variant ?? ""}`);
+    }
+  }
+  const nodes = [];
+  const links = [];
+  for (let bx = -10; bx < 10; bx++) {
+    for (let by = -40; by < 40; by++) {
+      const plot = plotAt(bx, by);
+      if (plot && plot.type === NODE) nodes.push(`${bx},${by}:${plot.variant}`);
+      // Sampled at EVERY plot index, not just the ones currently holding a
+      // node, and that is not laziness about the walk: WHICH plots are nodes is
+      // a citygrid.js roll, so a list gathered only at node plots moves with
+      // citygrid's salt even when links.js has lost its own. (Written that way
+      // first, and links.js was the one file the desalting check then missed.)
+      // A fixed index set makes this layer answer for links.js alone.
+      links.push(`${callsign(bx, by)}:${nodeValue(bx, by)}`);
+    }
+  }
+  const sectorNames = [];
+  for (let i = 0; i < 20; i++) sectorNames.push(sectorName(i));
+  const drones = droneField(12.5, 4321, 496, 600, 800).map((d) => `${d.x.toFixed(2)},${d.y.toFixed(2)}`);
+  return {
+    // citygrid.js — the buildings and their variants
+    lots: lots.join("|"),
+    // citygrid.js — which plots are nodes at all, and which variant
+    nodes: nodes.join("|"),
+    // links.js — callsigns and prices (its conduit, ping and status rolls all
+    // share this file's one hash, so these two answer for the file)
+    links: links.join("|"),
+    // sectors.js
+    sectorNames: sectorNames.join("|"),
+    // drones.js
+    drones: drones.join("|"),
+  };
+}
+
+test("the world seed defaults to 0 — the city this whole suite measures", () => {
+  // Not a triviality: it is the reason every measured number in this file (and
+  // in citygrid.js's own comments) means something run to run. If the default
+  // ever became a random draw, nothing below would be reproducible and a red
+  // test would be unrepeatable rather than informative. main.js's newGame() is
+  // the ONE caller that asks for a random seed — see worldseed.js.
+  assert.equal(worldSeed(), 0, `the world seed defaults to ${worldSeed()}, not 0`);
+});
+
+test("every salted layer follows the seed — no layer left frozen at seed 0", () => {
+  // The failure this exists for is a SILENT one: any one of the four hash()
+  // copies losing its salt — a refactor, a merge, a hand-inlined hash — leaves
+  // that layer frozen while the rest of the city moves around it. Nothing about
+  // it is visible in a screenshot (a frozen layer is still perfectly
+  // self-consistent) and no other test in this file would notice. Checked layer
+  // by layer for the reason cityLayers() gives.
+  const atZero = cityLayers();
+  try {
+    reseedWorld(4242);
+    const atFourK = cityLayers();
+    reseedWorld(90210);
+    const atNinety = cityLayers();
+    for (const layer of Object.keys(atZero)) {
+      assert.notEqual(atFourK[layer], atZero[layer], `the "${layer}" layer did not follow the world seed`);
+      assert.notEqual(atNinety[layer], atFourK[layer], `the "${layer}" layer is the same at two different seeds`);
+    }
+
+    // The other half of the contract, and the one that makes a seed worth
+    // printing: a run is replayable. Same seed in, same city out — which is also
+    // what lets a world bug found at some seed be reached again by seeding it
+    // back, rather than by re-rolling until it happens to return.
+    reseedWorld(4242);
+    assert.deepEqual(cityLayers(), atFourK, "the same seed did not reproduce the same city");
+    reseedWorld(0);
+    assert.deepEqual(cityLayers(), atZero, "seeding back to 0 did not restore the shipped city");
+  } finally {
+    reseedWorld(0);
+  }
+});
+
+test("the eligible-lot and realized-build fractions hold across seeds, not just at seed 0", () => {
+  // The risk this change introduced. citygrid.js's BUILD_CHANCE comment states
+  // two measured fractions, and the test above pins them at seed 0 — but the
+  // player now gets an arbitrary seed, so those numbers are only worth stating
+  // if they describe EVERY city rather than the one that used to be the only
+  // one. The sin-hash is not a real PRNG, and a salt that happened to correlate
+  // with the lot lattice is exactly the way this could go quietly wrong.
+  //
+  // MEASURED across 401 salts while writing this: eligible 0.4831-0.4895, built
+  // 0.4093-0.4170 — both comfortably inside the +/-0.01 band the seed-0 test
+  // already uses, which is why that band is reused here rather than widened.
+  // The seeds below are fixed rather than drawn, for the same reason the default
+  // seed is 0: a red result has to be repeatable.
+  const seeds = [];
+  for (let i = 0; i < 16; i++) seeds.push(i * 61549 + 7);
+  try {
+    for (const s of seeds) {
+      reseedWorld(s);
+      const counts = {};
+      let total = 0;
+      for (let lx = -40; lx < 40; lx++) {
+        for (let ly = -400; ly < 400; ly++) {
+          const t = lotAt(lx, ly).type;
+          counts[t] = (counts[t] ?? 0) + 1;
+          total++;
+        }
+      }
+      const eligibleFrac = ((counts[BUILDING] ?? 0) + (counts[EMPTY] ?? 0)) / total;
+      const builtFrac = (counts[BUILDING] ?? 0) / total;
+      assert.ok(
+        Math.abs(eligibleFrac - 0.4854) < 0.01,
+        `seed ${s}: eligible-lot fraction ${eligibleFrac.toFixed(4)}, expected ~0.4854`,
+      );
+      assert.ok(
+        Math.abs(builtFrac - 0.4123) < 0.01,
+        `seed ${s}: realized-build fraction ${builtFrac.toFixed(4)}, expected ~0.4123`,
+      );
+    }
+  } finally {
+    reseedWorld(0);
+  }
 });
 
 // --- Distinguished nodes (Phase 7d) -------------------------------------------

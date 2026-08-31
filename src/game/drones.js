@@ -39,6 +39,7 @@
 
 import { clock, floorDist, laneDotPositions } from "./scenery.js";
 import { DRONE_BODY, DRONE_NAV, DRONE_SHADOW } from "../engine/palette.js";
+import { worldSeed } from "./worldseed.js";
 
 // Between the floor (0.5) and the road (1) — tuned by eye, not derived; see
 // the design doc's 7c section for the stratification this is the point of.
@@ -116,9 +117,10 @@ const BLINK_ON = 0.18;    // seconds lit within each cycle — short, like a str
 const DRONE_ALTITUDE_MAX = 14; // px, the ceiling the gap saturates toward
 
 // Deterministic hash -> [0, 1) from any number (same trick as road.js,
-// scenery.js and citygrid.js).
+// scenery.js and citygrid.js), salted with this run's world seed so the air
+// over a city is that city's — see worldseed.js.
 function hash(n) {
-  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  const x = Math.sin((n + worldSeed()) * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);
 }
 

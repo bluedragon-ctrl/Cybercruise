@@ -26,7 +26,11 @@
 //
 // STATELESS, like the road and the old placement: what occupies a plot OR a lot
 // is a pure function of its index, so the city is infinite, identical every
-// time you drive past, and needs nothing generated or freed as we go. Plot/lot
+// time you drive past, and needs nothing generated or freed as we go. The one
+// input besides the index is the run's own world seed (worldseed.js), and it is
+// fixed before the first plot is asked about and never moves again, so "pure
+// function of its index" holds for the whole of any run — it is only BETWEEN
+// runs that the same index answers differently. Plot/lot
 // rows are indexed in FLOOR-WORLD units (the parallax-scaled distance — see
 // scenery.js); columns are indexed in screen x, matching the drawn grid's fixed
 // columns, since the floor never pans sideways.
@@ -39,6 +43,7 @@ import { BUILDING_VARIANTS, buildingFootprint } from "./sprites.js";
 // node has no equivalent of: a node's variant is just a catalogue index, so
 // there is nothing sprites.js needs to derive before this file can use it.
 import { NODE_VARIANTS } from "./nodeshapes.js";
+import { worldSeed } from "./worldseed.js";
 
 export const CELL = 64;        // floor grid cell size (world units on the floor plane)
 const BLOCK_CELLS = 2;         // a plot is this many cells on a side
@@ -181,9 +186,12 @@ export function isCrossStreetRow(by) {
   return mod(by + 1, CROSS_STREET_ROWS) === 0;
 }
 
-// Deterministic hash -> [0, 1) from any number (same trick as road/scenery).
+// Deterministic hash -> [0, 1) from any number (same trick as road/scenery),
+// salted with this run's world seed — see worldseed.js for why the salt is
+// shared when the hash itself deliberately is not, and why it goes in here
+// rather than at each seed function below.
 function hash(n) {
-  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  const x = Math.sin((n + worldSeed()) * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);
 }
 

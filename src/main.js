@@ -54,6 +54,7 @@ import * as scenery from "./game/scenery.js";
 import * as drones from "./game/drones.js";
 import * as links from "./game/links.js";
 import * as sectors from "./game/sectors.js";
+import { reseedWorld } from "./game/worldseed.js";
 import * as events from "./game/events.js";
 import * as gameConsole from "./engine/console.js";
 import * as gutter from "./engine/gutter.js";
@@ -501,6 +502,14 @@ function respawnWorld() {
 
 function newGame() {
   distance = 0;
+  // THE CITY THIS RUN HAPPENS IN, drawn first because everything below is built
+  // to drive through it. A fresh seed each time, so the buildings, the nodes and
+  // their callsigns and prices, the sector names and the drone lanes are this
+  // run's rather than the same city every player has always seen — see
+  // game/worldseed.js. Deliberately NOT in respawnWorld(): a shop visit calls
+  // that too, and the city must not change while the player is still driving
+  // through it.
+  reseedWorld();
   // Player sits around mid-screen (Spy Hunter framing) so traffic catching up
   // from behind is visible below before it draws level. onPlayerDamage is
   // Phase 8 step 3's audio hook — see its own comment above.
