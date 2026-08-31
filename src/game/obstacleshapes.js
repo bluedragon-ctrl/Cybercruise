@@ -193,6 +193,14 @@ const CALTROP_CORE = 9;
 const CALTROP_SPIKE = 8;       // spike length at rest...
 const CALTROP_SPIKE_PULSE = 2; // ...and how much further a full pulse pushes it
 const CALTROP_REACH = CALTROP_CORE + CALTROP_SPIKE + CALTROP_SPIKE_PULSE;
+const CALTROP_SPIKE_HALFWIDTH = 2.4; // spike base half-width — narrower than the
+                                      // pickup glyph's 1.6 scaled up, so the wedge
+                                      // stays a wire prong rather than a filled tooth
+
+// Near-black, not CAR_FILL_HIGH — see CALTROP's entry below for why the core
+// stays dark. Matches pickupshapes.js's drawMineGlyph exactly, so the crate
+// icon and the road hazard read as the same object at two weights.
+const MINE_CORE_FILL = "#2a0a0a";
 
 // THE SPIKE STRIP IS THE WIDE ONE, and that is its entire silhouette argument.
 //
@@ -213,6 +221,8 @@ const SPIKES_SPINE_HALF = 3.5; // half the belt's own thickness, up and down roa
 const SPIKES_TOOTH = 6;        // how far a tooth reaches past the spine...
 const SPIKES_TOOTH_PULSE = 1.5; // ...and how much further at the top of a pulse
 const SPIKES_TOOTH_COUNT = 13;
+const SPIKES_TOOTH_HALFWIDTH = 2.2; // tooth base half-width — down from the old
+                                     // filled tooth's 3, to match a hollow wedge
 const SPIKES_REACH_Y = SPIKES_SPINE_HALF + SPIKES_TOOTH + SPIKES_TOOTH_PULSE;
 
 export const OBSTACLE_SHAPES = [
@@ -349,6 +359,15 @@ export const OBSTACLE_SHAPES = [
     // The mine. A spiked ball: the silhouette alone says "this will hurt", so it
     // stays readable at speed even in the frame before the pulse comes round.
     // Small on purpose — a mine is a POINT threat, not a wall.
+    //
+    // HOLLOW, not filled — a mine is a coil of laid wire, not a welded object
+    // like the amber blocks it shares the road with, and an opaque fill read
+    // as the same kind of solid steel the tetra is. Spikes carry no fill at
+    // all and the core's is near-black (MINE_CORE_FILL) rather than the
+    // bright CAR_FILL_HIGH every raised car/block surface uses, so the only
+    // genuinely bright part of the mine is the pulsing centre below — which
+    // is also its one load-bearing "this is live" tell, and used to be
+    // competing with a core that was already lit at full brightness.
     name: "CALTROP",
     family: MINE,
     size: [26, 26],
@@ -365,12 +384,14 @@ export const OBSTACLE_SHAPES = [
 
       // Tapered triangles, not lines, so they survive the glow at this size —
       // see polygon.js's caltropSpikes, which pickupshapes.js's MINE glyph
-      // draws from too so the crate keeps the hazard's exact silhouette.
-      for (const tri of caltropSpikes(cx, cy, r, spike, 3.5)) {
-        glowPoly(ctx, tri, ENEMY, 1.5, 9, CAR_FILL_RAISED);
+      // draws from too so the crate keeps the hazard's exact silhouette. Left
+      // unfilled (unlike the glyph's own ENEMY stroke, matched here) so the
+      // wedge reads as a wire prong rather than a solid tooth.
+      for (const tri of caltropSpikes(cx, cy, r, spike, CALTROP_SPIKE_HALFWIDTH)) {
+        glowPoly(ctx, tri, ENEMY, 1.2, 7);
       }
 
-      glowPoly(ctx, ngon(cx, cy, r, 6), ENEMY_PALE, 2, 11, CAR_FILL_HIGH);
+      glowPoly(ctx, ngon(cx, cy, r, 6), ENEMY_PALE, 1.3, 8, MINE_CORE_FILL);
 
       // Pulsing core, in ALPHA rather than size: a mine that visibly grew would
       // read as already detonating.
@@ -388,6 +409,16 @@ export const OBSTACLE_SHAPES = [
     // tarmac, not road furniture, and the red-and-pulsing family is what says
     // so. See SPIKES_WIDTH above for the silhouette argument against the
     // caltrop.
+    //
+    // A TAUT WIRE, not a curb. It used to be an opaque slab with solid teeth
+    // welded to it — at 2.4 lanes wide that read as the same class of object
+    // as the amber blocks' welded steel, undercutting the one thing separating
+    // the two families (see the file header: colour carries "how dangerous",
+    // silhouette carries "what is it" — a filled belt was quietly arguing
+    // "roadblock" underneath the red). The spine is now a single glowLine and
+    // the teeth are hollow, same fillless treatment CALTROP's spikes got
+    // above, so the strip reads as a strand of hooked wire the width of the
+    // road rather than a curb with teeth.
     name: "SPIKES",
     family: MINE,
     size: [SPIKES_WIDTH, SPIKES_SPINE_HALF * 2],
@@ -400,14 +431,11 @@ export const OBSTACLE_SHAPES = [
     draw(ctx, cx, cy, pulse) {
       const half = SPIKES_WIDTH / 2;
       const tooth = SPIKES_TOOTH + pulse * SPIKES_TOOTH_PULSE; // teeth breathe,
-                                                  // the belt itself does not
-      // The belt: one opaque slab the teeth are mounted on, so the strip still
-      // reads as a single laid object at distance rather than as a scattering
-      // of small red marks.
-      glowPoly(ctx, [
-        [cx - half, cy - SPIKES_SPINE_HALF], [cx + half, cy - SPIKES_SPINE_HALF],
-        [cx + half, cy + SPIKES_SPINE_HALF], [cx - half, cy + SPIKES_SPINE_HALF],
-      ], ENEMY, 1.5, 9, CAR_FILL_RAISED);
+                                                  // the spine itself does not
+      // The spine: one wire the teeth are strung from, always visible so the
+      // strip still reads at the dim end of the pulse — the CRITICAL_FLASH
+      // line below is the live TELL, not the strip's only visible structure.
+      glowLine(ctx, cx - half, cy, cx + half, cy, ENEMY, 1.2, 7);
 
       // Teeth, alternating up-road and down-road so the strip bites whichever
       // way it is crossed — and so the silhouette is a saw rather than a comb.
@@ -417,16 +445,16 @@ export const OBSTACLE_SHAPES = [
         const base = cy + dy * SPIKES_SPINE_HALF;
         glowPoly(ctx, [
           [x, base + dy * tooth],
-          [x - 3, base],
-          [x + 3, base],
-        ], ENEMY_PALE, 1.2, 8, CAR_FILL_HIGH);
+          [x - SPIKES_TOOTH_HALFWIDTH, base],
+          [x + SPIKES_TOOTH_HALFWIDTH, base],
+        ], ENEMY_PALE, 1, 6);
       }
 
       // The live tell, in ALPHA like the caltrop's core and for the same
       // reason: a strip that visibly grew would read as already going off.
       ctx.save();
       ctx.globalAlpha = 0.25 + 0.75 * pulse;
-      glowLine(ctx, cx - half, cy, cx + half, cy, CRITICAL_FLASH, 1.5, 10);
+      glowLine(ctx, cx - half, cy, cx + half, cy, CRITICAL_FLASH, 1.3, 8);
       ctx.restore();
     },
   },
