@@ -290,11 +290,15 @@ export const STATS = [
     // lighter hit taken and a car that gets pushed around less. Physically
     // honest, which is why it is one shelf entry rather than three.
     //
-    // +0.4 a tier walks 1.4 up to 2.6: past the bruiser (2.2), just under the
-    // bus (2.8) and well under the rig's 4 (cartypes.js), which has to stay
-    // what its own catalogue entry calls it — "immovable in practice: ram it
-    // and you lose, not the rig". A ladder that climbed past the rig would
-    // delete the one thing on the road the player is meant to drive around.
+    // Three tiers of `step` on top of PLAYER_MASS have to clear the bruiser
+    // — the car built to ram — while staying under the rig (cartypes.js),
+    // which has to stay what its own catalogue entry calls it: "immovable in
+    // practice: ram it and you lose, not the rig". A ladder that climbed past
+    // the rig would delete the one thing on the road the player is meant to
+    // drive around. shop.test.js's "a fully upgraded ram plate never
+    // out-masses the rig" asserts both ends against the live catalogue
+    // values rather than numbers restated here, since car-editor can retune
+    // any of PLAYER_MASS, `step`, or either car's mass independently.
     step: 0.8,
     price: 100,
     unit: "",
