@@ -15,7 +15,7 @@ import { PLAYER_MASS, Player } from "../src/game/player.js";
 import { DIST_UNITS } from "../src/game/road.js";
 import { resolveCollisions, ramSpeed } from "../src/game/collisions.js";
 import { Score, DISTANCE_POINTS } from "../src/game/score.js";
-import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES, laidPayload } from "../src/game/weapons.js";
+import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES, laidPayloads } from "../src/game/weapons.js";
 import { OBSTACLE_TYPES, obstacleTypeById, obstacleAvailable } from "../src/game/obstacletypes.js";
 import { driver } from "../test-support/fixtures.js";
 
@@ -557,25 +557,33 @@ test("the player's mine is the same hazard the enemy's own mine layer lays", () 
   assert.equal(mineType.payload, "caltrop");
 });
 
-test("an unupgraded car lays the plain mine, and the special swaps what it lays", () => {
-  // weapons.js's laidPayload, which is main.js's whole deploy decision. Lives
+test("an unupgraded car lays the plain mine, and the special lays the pair", () => {
+  // weapons.js's laidPayloads, which is main.js's whole deploy decision. Lives
   // in weapons.js precisely so it can be asserted: main.js touches the DOM at
   // module scope, so nothing here can import it, and a payload resolved at the
   // call site would be the one line in this feature no test ever ran.
   const mine = WEAPON_TYPES.find((t) => t.id === "mine");
-  assert.equal(laidPayload(mine, {}), mine.payload, "a stock car must lay the plain mine");
-  assert.equal(laidPayload(mine, undefined), mine.payload,
+  const stock = [mine.payload];
+  assert.deepEqual(laidPayloads(mine, {}), stock, "a stock car must lay the plain mine");
+  assert.deepEqual(laidPayloads(mine, undefined), stock,
     "a car with no specials block at all must still lay something");
-  assert.equal(laidPayload(mine, { [mine.upgrade]: false }), mine.payload,
+  assert.deepEqual(laidPayloads(mine, { [mine.upgrade]: false }), stock,
     "an unbought flag must read exactly like no flag");
-  assert.equal(laidPayload(mine, { [mine.upgrade]: true }), mine.upgradePayload,
+  assert.deepEqual(laidPayloads(mine, { [mine.upgrade]: true }), mine.upgradeLays,
     "the bought special did not change what the mine lays");
+
+  // The upgraded set is a SUPERSET of the stock drop — the special adds a
+  // hazard, it never trades the mine away for one.
+  for (const id of stock) {
+    assert.ok(mine.upgradeLays.includes(id), `the upgrade dropped ${id} from the set`);
+  }
+  assert.ok(mine.upgradeLays.length > stock.length, "the upgrade lays no more than the stock mine");
 
   // A gun lays nothing, whatever the car has bought — the deploy branch guards
   // on `deployable`, but the rule has to be true on its own terms too.
   const gun = WEAPON_TYPES.find((t) => !t.payload);
-  assert.equal(laidPayload(gun, { [mine.upgrade]: true }), null);
-  assert.equal(laidPayload(null, {}), null, "no weapon at all must be null, not a throw");
+  assert.deepEqual(laidPayloads(gun, { [mine.upgrade]: true }), []);
+  assert.deepEqual(laidPayloads(null, {}), [], "no weapon at all must be empty, not a throw");
 });
 
 test("every payload a weapon can lay names a real hazard", () => {
@@ -587,9 +595,10 @@ test("every payload a weapon can lay names a real hazard", () => {
     if (type.payload) {
       assert.ok(obstacleTypeById(type.payload), `${type.id}'s payload "${type.payload}" is not a hazard`);
     }
-    if (type.upgradePayload) {
-      assert.ok(obstacleTypeById(type.upgradePayload),
-        `${type.id}'s upgradePayload "${type.upgradePayload}" is not a hazard`);
+    for (const id of type.upgradeLays ?? []) {
+      assert.ok(obstacleTypeById(id), `${type.id}'s upgradeLays names "${id}", which is not a hazard`);
+    }
+    if (type.upgradeLays) {
       assert.ok(type.payload, `${type.id} has an upgraded payload but nothing to upgrade FROM`);
     }
   }

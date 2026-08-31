@@ -68,14 +68,27 @@ import { centerXAt, headingAt, laneOffset, LANE_COUNT, ROAD_HALF_WIDTH } from ".
 // player meets an obstacle at all.
 const MAX_OBSTACLES = 8;
 
-// ...and, COUNTED SEPARATELY, mines laid on the road by hostile cars (see
-// drop()). Two budgets rather than one shared cap, because the two compete for
-// nothing and mean opposite things: road furniture is scenery the spawner puts
-// out ahead of the player, and a laid mine is something a car just DID to them.
-// Sharing one number would let a run of roadblocks quietly disarm every enemy on
-// the road, and let a busy firefight starve the road of obstacles — each failure
-// looking like a bug in the other system.
-const MAX_LAID = 4;
+// ...and, COUNTED SEPARATELY, hazards laid on the road by a car (see drop()).
+// Separate budgets rather than one shared cap, because they compete for nothing
+// and mean opposite things: road furniture is scenery the spawner puts out ahead
+// of the player, and a laid mine is something a car just DID to them. Sharing one
+// number would let a run of roadblocks quietly disarm every enemy on the road,
+// and let a busy firefight starve the road of obstacles — each failure looking
+// like a bug in the other system.
+//
+// AND THE LAID BUDGET IS ITSELF TWO, by the same argument one step further in.
+// The player's own drops and the hostiles' were one number until the SPIKE MINES
+// special (upgrades.js) started laying a PAIR per press: against a shared four,
+// two presses filled the road and the next enemy layer to come along found
+// nothing left to lay with — a hostile silently disarmed by the player having
+// used their own weapon, which is exactly the cross-system failure the split
+// above exists to prevent.
+//
+// FOUR EACH, so the player still gets two full pairs down at once — which is
+// what "block the road behind me" has to mean to be worth 350 CR — without the
+// hostiles noticing that the player bought anything.
+const MAX_LAID_PLAYER = 4;
+const MAX_LAID_HOSTILE = 4;
 
 // World units of clear road left between a car's tail and the mine it lays, so
 // the dropper is not sitting inside its own mine on the tick it leaves it (the
@@ -325,11 +338,6 @@ export class Obstacles {
       h: player.h,
       damage: (hp) => player.damage(hp),
       puncture: (type) => player.puncture(type),
-      // Player carries no `alive` of its own — main.js watches `health` and
-      // switches to the death sequence itself (see player.js's damage()). The
-      // blast below asks, so it is answered here rather than by teaching the
-      // whole codebase a second way to spell it.
-      get alive() { return player.health > 0; },
     };
 
     // Contact: the player or any live car driving into a hazard breaks it —
@@ -400,11 +408,17 @@ export class Obstacles {
   }
 
   // How many live obstacles were laid by a car (`true`) or placed by the spawner
-  // (`false`). The budgets are kept apart — see MAX_LAID and RoadObstacle's own
-  // `staged`. Staged hazards belong to neither and are excluded from both.
-  count(laid) {
+  // (`false`). The budgets are kept apart — see MAX_LAID_PLAYER and
+  // RoadObstacle's own `staged`. Staged hazards belong to neither and are
+  // excluded from both.
+  //
+  // `hostile` narrows a laid count to one side's drops. Omitted, it counts both
+  // — which is what the passage rule wants, since a strip narrows the road just
+  // as much whoever laid it.
+  count(laid, hostile) {
     return this.list.reduce(
-      (n, o) => n + (o.alive && !o.staged && o.laid === laid ? 1 : 0),
+      (n, o) => n + (o.alive && !o.staged && o.laid === laid
+        && (hostile === undefined || !!o.hostile === hostile) ? 1 : 0),
       0,
     );
   }
@@ -431,7 +445,8 @@ export class Obstacles {
   // is the opposite kind of event: somebody aimed it, the player watched them do
   // it, and the answer is to not be there. It goes exactly where that car was,
   // whatever its type's placement says, and the only things bounding it are
-  // MAX_LAID and the layer's own magazine.
+  // the laid budget (MAX_LAID_PLAYER / MAX_LAID_HOSTILE) and the layer's own
+  // magazine.
   //
   // A laid mine still COUNTS against the passage rule for later spawns, so the
   // road can be narrowed by enemy action but never sealed by the spawner adding
@@ -448,16 +463,48 @@ export class Obstacles {
   // for a spawned hazard. It never refuses the drop: sliding a wide strip back
   // onto the road is the right answer, where rejecting it would make the
   // weapon silently fail exactly where a player most wants to use it.
-  drop(type, body) {
-    if (!type || this.count(true) >= MAX_LAID) return false;
-    const [w, h] = OBSTACLE_SHAPES[type.shape].size;
-    const worldY = body.worldY - (body.h + h) / 2 - DROP_CLEARANCE;
-    const limit = Math.max(0, ROAD_HALF_WIDTH - w / 2);
+  //
+  // A SET, AND ALL OF IT OR NONE. `types` is one type or several, and the whole
+  // set is laid on one press: SPIKE MINES (upgrades.js) is a mine and a strip
+  // together, the mine for whoever drives over the middle and the strip for
+  // whoever goes around it. The budget is checked for the WHOLE set up front,
+  // because half a pair is not a cheaper version of the weapon — it is the
+  // player spending a round and getting something they did not buy.
+  //
+  // ONE SPOT FOR THE WHOLE SET, measured off its DEEPEST and WIDEST member. The
+  // obvious reading — place each type by its own box — puts the pair 9 units
+  // apart down the road, because the mine is 26 deep and the strip is 7, and
+  // half that difference is the gap: the mine sits just off the belt instead of
+  // in the middle of it, which is the one thing the pair is meant to look like.
+  // Sizing the spot by the deepest member keeps the whole set clear of the
+  // layer's own tail, and clamping by the widest keeps them RIGID against a
+  // barrier — the mine slides inboard with its strip rather than drifting
+  // toward one end of it.
+  //
+  // A one-type drop is unaffected, since the max of one box is that box.
+  //
+  // `hostile` says whose budget to spend. The caller knows and this class
+  // cannot: an enemy layer and the player's deploy key reach the same method
+  // (armament.js's layMine, main.js's deploy branch) with the same shaped body.
+  drop(types, body, hostile = false) {
+    const set = (Array.isArray(types) ? types : [types]).filter(Boolean);
+    if (!set.length) return false;
+    const cap = hostile ? MAX_LAID_HOSTILE : MAX_LAID_PLAYER;
+    if (this.count(true, hostile) + set.length > cap) return false;
+
+    const boxes = set.map((type) => OBSTACLE_SHAPES[type.shape].size);
+    const deepest = Math.max(...boxes.map(([, h]) => h));
+    const widest = Math.max(...boxes.map(([w]) => w));
+    const worldY = body.worldY - (body.h + deepest) / 2 - DROP_CLEARANCE;
+    const limit = Math.max(0, ROAD_HALF_WIDTH - widest / 2);
     const offset = Math.max(-limit, Math.min(limit, body.offset));
 
-    const o = new RoadObstacle(type, worldY, offset);
-    o.laid = true;
-    this.list.push(o);
+    for (const type of set) {
+      const o = new RoadObstacle(type, worldY, offset);
+      o.laid = true;
+      o.hostile = hostile;
+      this.list.push(o);
+    }
     return true;
   }
 
@@ -492,26 +539,13 @@ export class Obstacles {
   // so a roadblock's tight radius and a mine's wide one are the same formula
   // at two different settings, not two mechanics to keep in sync.
   //
-  // A BLAST THAT CARRIES TEETH punctures what it does not kill. A type naming
-  // `slowTo` alongside a radius (obstacletypes.js's SPIKE MINE, and only that)
-  // sprays its spikes over the same falloff area, so the heavy that drove out
-  // of its own wreckage limps out of it instead. AFTER the damage and only on
-  // survivors: puncturing a body that this same call just killed would be an
-  // effect nobody could ever see, and Traffic.puncture would take its
-  // contactDamage against a car already at zero hull.
-  //
-  // FLAT ACROSS THE RADIUS, not scaled by the falloff like the damage above. A
-  // puncture is not a quantity — traffic.js's puncture takes the type's whole
-  // slowTime or nothing at all, and a car grazed at the rim is exactly the car
-  // this is FOR (the one the falloff barely hurt), so scaling it toward nothing
-  // there would delete the upgrade's one job.
-  //
-  // WHOEVER CAN BE PUNCTURED, which is every live car AND the player: both
-  // carry puncture() (traffic.js, player.js) and the playerBox above forwards
-  // to it. That reaches the player's OWN spike mine in one case — a chaser
-  // setting one off inside 66px of the car that laid it — and that is correct
-  // rather than tolerated: the blast already costs the player hull at that
-  // range, and a mine dropped under one's own back bumper should.
+  // NO PUNCTURE HERE. An earlier spike mine sprayed its teeth over this same
+  // falloff area, which measured 158px across against the strip's 171.6 — near
+  // enough the same belt, except invisible: nothing was drawn for it, and the
+  // AI dodged the 26px mine box and was punctured by a hazard that had never
+  // been on screen. The upgrade lays a REAL STRIP alongside the mine instead
+  // (upgrades.js's SPIKE MINES), which is drawn, which `hazardAhead` can see,
+  // and which stays in the road after the mine has gone off. See drop().
   blast(o, playerBox, cars) {
     const radius = o.type.blastRadius;
     const peak = o.type.blastDamage;
@@ -525,7 +559,6 @@ export class Obstacles {
       const dist = Math.hypot(dx, dy);
       if (dist >= radius) return;
       body.damage(peak * (1 - dist / radius));
-      if (o.type.slowTo && body.alive && body.puncture) body.puncture(o.type);
     };
 
     hurt(playerBox);

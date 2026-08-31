@@ -34,7 +34,7 @@ import {
 } from "../src/game/road.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import { resolveCollisions, impactCost, ramSpeed, SIDE_DAMAGE } from "../src/game/collisions.js";
-import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES } from "../src/game/weapons.js";
+import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES, laidPayloads } from "../src/game/weapons.js";
 import {
   OBSTACLE_TYPES,
   obstacleTypeById,
@@ -207,153 +207,167 @@ test("the strip is feared out of proportion to what it costs", () => {
   );
 });
 
-// --- The spike mine ----------------------------------------------------------
+// --- The spike-mine pair ------------------------------------------------------
 //
-// upgrades.js's SPIKE MINES special: the mine the player already lays, with the
-// strip's puncture riding out on its blast. Two rules hold it together and both
-// are asserted below — it must add NO damage to the mine (a special buys a verb,
-// see the SPECIALS header) and it must reach only what the blast failed to kill,
-// which is what keeps a 350 CR purchase from being a second, better mine.
+// upgrades.js's SPIKE MINES special: one press lays the mine the player already
+// lays AND a strip across it, so the middle of the road is a kill and the way
+// around it is a crawl. The two hazards are unchanged — what is under test is
+// that the pair goes down together, whose budget it spends, and that neither
+// half can turn up without the other.
 
-test("the spike mine is the mine's blast, field for field", () => {
-  // obstacletypes.js pins its damage figures to `caltrop`'s rather than
-  // restating them, precisely so car-editor retuning the mine moves both — an
-  // upgraded mine that quietly stopped tracking the plain one is the failure
-  // this catches.
-  const mine = obstacleTypeById("caltrop");
-  const spikemine = obstacleTypeById("spikemine");
-  for (const field of ["health", "mass", "blastRadius", "blastDamage", "shape"]) {
-    assert.equal(spikemine[field], mine[field],
-      `the spike mine's ${field} (${spikemine[field]}) has drifted off the mine's ${mine[field]}`);
-  }
-  // Feared identically, which follows from neither naming a `threat` of its own
-  // — the AI cannot see a difference between them, so it must not weigh one.
-  assert.equal(spikemine.threat ?? spikemine.blastDamage, mine.threat ?? mine.blastDamage);
-  // And nothing on top of the blast: Traffic.puncture spends contactDamage, and
-  // a car inside the radius has already taken up to the full blast.
-  assert.equal(spikemine.contactDamage ?? 0, 0,
-    "a spike mine that scratches as well is the mine plus a bigger number");
-});
+test("the upgrade lays a mine and a strip, and the strip is the wider half", () => {
+  // weapons.js's `upgradeLays`, and the geometry that is the whole point of it:
+  // a mine you drive around is a mine that cost nothing, so the thing beside it
+  // has to span most of the road.
+  const mine = WEAPON_TYPES.find((t) => t.id === "mine");
+  const set = mine.upgradeLays.map(obstacleTypeById);
+  assert.equal(set.length, 2, "the pair is a mine and a strip");
+  assert.ok(set.includes(obstacleTypeById("caltrop")), "the pair must still contain the mine");
+  assert.ok(set.includes(obstacleTypeById("spikes")), "the pair must contain the strip");
 
-test("the spike mine borrows the strip's crawl and spends it faster", () => {
-  // obstacletypes.js: a punctured car is a punctured car whatever punched the
-  // holes, so `slowTo` MUST match — two crawl speeds would be two mechanics.
-  // The window is shorter because the strip stays in the road and bites again,
-  // where the mine is gone in the flash that laid the teeth.
+  const width = (t) => OBSTACLE_SHAPES[t.shape].size[0];
   const strip = obstacleTypeById("spikes");
-  const spikemine = obstacleTypeById("spikemine");
-  assert.equal(spikemine.slowTo, strip.slowTo, "two crawl speeds is two mechanics");
-  assert.ok(spikemine.slowTime > 0, "a puncture with no window is not a puncture");
-  assert.ok(spikemine.slowTime < strip.slowTime,
-    `the mine's ${spikemine.slowTime}s must be shorter than the strip's ${strip.slowTime}s`);
+  const caltrop = obstacleTypeById("caltrop");
+  assert.ok(width(strip) > width(caltrop) * 4,
+    "a strip barely wider than the mine it sits on adds nothing to go around");
+  // ...and it must still leave a road, which the strip's own test above pins
+  // against LANE_COUNT. Restated here only as the pair's own precondition.
+  assert.ok(width(strip) < ROAD_HALF_WIDTH * 2,
+    "a pair that seals the road is a pair the player cannot be allowed to lay");
 });
 
-// Two cars, both real TrafficCars (the puncture under test is theirs), set down
-// on a hazard the caller names. blast() is called directly rather than driven
-// into: what is asserted is the FALLOFF's reach, and steering a car to a chosen
-// distance from a blast would be a test of the driving instead.
-function blastScenario(typeId, { survivor = "rival", victim = "cycle", gap = 0 } = {}) {
-  const type = obstacleTypeById(typeId);
+test("laying the pair puts the mine exactly on its own belt", () => {
+  // obstacles.js's drop() takes a SET and gives the whole of it ONE spot. Both
+  // axes matter and both were wrong when each type was placed by its own box:
+  // the mine is 26 deep against the strip's 7, so half that difference put the
+  // mine 9 units off the belt down the road, and near a barrier the two clamped
+  // on different widths and split sideways as well.
+  const mine = WEAPON_TYPES.find((t) => t.id === "mine");
+  const set = laidPayloads(mine, { [mine.upgrade]: true }).map(obstacleTypeById);
+
+  // Mid-road, and then hard against each barrier — the case where a wide strip
+  // has to slide and the narrow mine has no reason to.
+  for (const offset of [0, ROAD_HALF_WIDTH, -ROAD_HALF_WIDTH]) {
+    const obstacles = new Obstacles(new Explosions());
+    assert.ok(obstacles.drop(set, { worldY: 0, offset, h: 60 }), `the pair was refused at ${offset}`);
+    assert.equal(obstacles.list.length, set.length, "expected every half on the road");
+
+    const [first, ...rest] = obstacles.list;
+    for (const o of rest) {
+      assert.equal(o.worldY, first.worldY,
+        `laid at ${offset}, ${o.type.id} sits ${Math.abs(o.worldY - first.worldY)} up the road from ${first.type.id}`);
+      assert.equal(o.offset, first.offset,
+        `laid at ${offset}, ${o.type.id} sits ${Math.abs(o.offset - first.offset)} across from ${first.type.id}`);
+    }
+    assert.ok(obstacles.list.every((o) => o.laid), "a laid hazard must count as laid");
+    assert.ok(obstacles.list.every((o) => !o.hostile), "the player's drop went on the hostile budget");
+  }
+});
+
+test("the pair clears the layer's own tail, deepest box included", () => {
+  // The spot is sized off the DEEPEST member, so no part of the set is laid
+  // under the car that laid it — the reason DROP_CLEARANCE exists.
+  //
+  // THE MARGIN HERE IS HALF A UNIT, and that is worth knowing rather than
+  // discovering. DROP_CLEARANCE is 12, and the mine's box is 19 deeper than
+  // the strip's; sizing the spot off the SHALLOWEST member instead would leave
+  // the mine's leading edge 0.5 units clear of the layer's tail rather than
+  // 10. It would still pass — this test does not distinguish the two, and the
+  // alignment test above is what pins that choice — but the pair would be one
+  // retune of either box away from a car detonating its own mine on the tick
+  // it laid it.
+  const mine = WEAPON_TYPES.find((t) => t.id === "mine");
+  const set = laidPayloads(mine, { [mine.upgrade]: true }).map(obstacleTypeById);
+  const obstacles = new Obstacles(new Explosions());
+  const body = { worldY: 1000, offset: 0, h: 60 };
+  obstacles.drop(set, body);
+
+  for (const o of obstacles.list) {
+    const half = OBSTACLE_SHAPES[o.type.shape].size[1] / 2;
+    assert.ok(o.worldY + half < body.worldY - body.h / 2,
+      `${o.type.id} is laid inside the tail of the car that dropped it`);
+  }
+});
+
+test("a pair is laid whole or not at all", () => {
+  // Half a pair is not a cheaper version of the weapon — it is the player
+  // spending a round and getting something they did not buy. drop() checks the
+  // budget for the WHOLE set before laying any of it.
+  const mine = WEAPON_TYPES.find((t) => t.id === "mine");
+  const set = laidPayloads(mine, { [mine.upgrade]: true }).map(obstacleTypeById);
+  const obstacles = new Obstacles(new Explosions());
+
+  let laid = 0;
+  for (let i = 0; i < 20; i++) {
+    if (obstacles.drop(set, { worldY: i * 400, offset: 0, h: 60 })) laid += 1;
+  }
+  assert.ok(laid > 0, "the budget refused even the first pair");
+  assert.equal(obstacles.list.length, laid * set.length,
+    "the road holds a number of hazards that is not a whole number of pairs");
+});
+
+test("the player laying pairs never disarms a hostile layer", () => {
+  // obstacles.js's MAX_LAID_PLAYER / MAX_LAID_HOSTILE. One shared budget was
+  // fine while the player laid one hazard a press; a pair fills it in two
+  // presses, and the next enemy to reach for its own mine would have found
+  // nothing left — a hostile silently disarmed by the player using their own
+  // weapon, which is the cross-system failure the budgets exist to prevent.
+  const mine = WEAPON_TYPES.find((t) => t.id === "mine");
+  const set = laidPayloads(mine, { [mine.upgrade]: true }).map(obstacleTypeById);
+  const obstacles = new Obstacles(new Explosions());
+
+  // Fill the player's side right up, whatever it holds.
+  for (let i = 0; i < 20; i++) obstacles.drop(set, { worldY: i * 400, offset: 0, h: 60 });
+  assert.ok(!obstacles.drop(set, { worldY: 9999, offset: 0, h: 60 }),
+    "the player's own budget is not bounded at all");
+
+  // The enemy's own is untouched by any of it.
+  assert.ok(obstacles.drop(obstacleTypeById("caltrop"), { worldY: 8000, offset: 0, h: 60 }, true),
+    "a hostile layer was disarmed by the player filling the road");
+});
+
+test("the strip is laid by the sower and by the player's upgrade, and spawns for neither", () => {
+  // obstacletypes.js's laidOnly. The strip stopped being the enemy's alone the
+  // day SPIKE MINES shipped, and it must still never turn up on the road by
+  // itself — a belt of teeth is somebody's deliberate act either way.
+  const strip = obstacleTypeById("spikes");
+  assert.ok(strip.laidOnly, "a strip appearing by itself reads as the city trapping its own traffic");
+  assert.equal(strip.weight, 0);
+  assert.equal(armFor(CAR_TYPES.find((t) => t.id === "sower")).payload, strip,
+    "the sower must still be the hostile that lays strips");
+
+  const mine = WEAPON_TYPES.find((t) => t.id === "mine");
+  assert.ok(mine.upgradeLays.includes(strip.id), "the player's upgrade must lay the same strip");
+  // ...but never as the weapon's own payload: the player carries a MINE, and
+  // what the upgrade adds is laid, not carried.
+  assert.ok(!WEAPON_TYPES.some((t) => t.payload === strip.id),
+    "the player carries a spike strip as a weapon again");
+  assert.ok(!PICKUP_TYPES.some((t) => t.weaponId === "spikes"), "the road drops strip ammo again");
+});
+
+test("a mine going off does not punch holes in anything by itself", () => {
+  // The reverted mechanic, pinned so it cannot creep back: the mine's blast is
+  // damage and nothing else. An earlier spike mine sprayed spikes over the same
+  // falloff, which measured 158px against the strip's 171.6 — near enough the
+  // same belt, except invisible, with the AI dodging the 26px mine box and being
+  // punctured by a hazard never drawn. The strip beside it does the puncturing
+  // now, in the open.
   const obstacles = new Obstacles(new Explosions());
   const traffic = new Traffic();
-  // Separate lanes, or place() refuses the second as a car parked on the first;
-  // both are then moved onto the hazard by hand, which is the whole point.
-  const at = (id, lane, offset) => {
-    traffic.place(CAR_TYPES.find((t) => t.id === id), 0, lane, 300);
-    const car = traffic.cars[traffic.cars.length - 1];
-    assert.equal(car.type.id, id, `place() did not put a ${id} on the road`);
-    car.worldY = 0;
-    car.offset = offset;
-    return car;
-  };
-  const tough = at(survivor, 0, gap);
-  const light = at(victim, 1, 0);
-  assert.ok(tough.health > type.blastDamage,
-    `${survivor} (${tough.health} hull) cannot survive a ${type.blastDamage} blast`);
-  assert.ok(light.health <= type.blastDamage,
-    `${victim} (${light.health} hull) survives the blast — pick a lighter car`);
+  traffic.place(CAR_TYPES.find((t) => t.id === "rival"), 0, 0, 300);
+  const tough = traffic.cars[0];
+  tough.worldY = 0;
+  tough.offset = 0;
+  assert.ok(tough.health > obstacleTypeById("caltrop").blastDamage,
+    "the test needs a car that lives through the blast");
 
-  obstacles.drop(type, { worldY: 60, offset: 0, h: 60 });
+  obstacles.drop(obstacleTypeById("caltrop"), { worldY: 60, offset: 0, h: 60 });
   const o = obstacles.list[0];
   o.worldY = 0;
-  // A player far enough up the road to be outside every radius: this is about
-  // the cars, and main.js's playerBox carries no puncture() anyway.
   obstacles.blast(o, { worldY: 5000, offset: 0, w: 34, h: 60, damage() {} }, traffic.cars);
-  return { tough, light, type };
-}
 
-test("a spike mine punctures what lives through its blast, and kills what does not", () => {
-  // obstacles.js's blast(): the puncture is applied AFTER the damage and only
-  // to survivors. This is the whole upgrade — the heavy that used to drive out
-  // of its own wreckage now limps out of it.
-  const { tough, light, type } = blastScenario("spikemine");
-  assert.ok(!light.alive, "the blast must still kill what it always killed");
-  assert.ok(tough.alive, "the survivor was meant to live through this");
-  assert.equal(tough.spikeTime, type.slowTime, "the survivor drove away unpunctured");
-  assert.equal(tough.spikeSpeed, type.slowTo);
-});
-
-test("a plain mine punctures nobody, upgrade or no upgrade", () => {
-  // The other half of the same rule, and the reason the spike mine is a second
-  // catalogue entry rather than a flag: `caltrop` is shared hardware — the
-  // cycle and the rival lay it too (armament.js) — so a puncture on the type
-  // itself would arm the enemy with what the player paid 350 CR for.
-  const { tough } = blastScenario("caltrop");
-  assert.equal(tough.spikeTime, 0, "the plain mine punctured a car");
-});
-
-test("the spike mine's puncture is flat across the blast, not scaled toward the rim", () => {
-  // obstacles.js: the damage falls off with distance, the puncture does not. A
-  // car grazed at the rim is exactly the car this upgrade is FOR — the one the
-  // falloff barely hurt — so scaling the puncture with the damage would delete
-  // its one job.
-  const spikemine = obstacleTypeById("spikemine");
-  const rival = CAR_TYPES.find((t) => t.id === "rival");
-  // Far enough out that the falloff has almost nothing left, still inside the
-  // radius. Measured off the two boxes exactly as blast() measures it.
-  const edge = (rival.w + OBSTACLE_SHAPES[spikemine.shape].size[0]) / 2;
-  const { tough } = blastScenario("spikemine", { gap: edge + spikemine.blastRadius * 0.95 });
-  assert.ok(tough.health > rival.health - spikemine.blastDamage * 0.1,
-    "the test is meaningless unless the falloff has nearly nothing left out here");
-  assert.equal(tough.spikeTime, spikemine.slowTime,
-    "a car grazed at the rim limped less than one at the centre");
-});
-
-test("the spike mine is laid by one thing only, and never spawns", () => {
-  // obstacletypes.js's laidOnly, and the join upgrades.js/weapons.js make: the
-  // hazard is reachable ONLY through the shelf flag that buys it. A payload
-  // named by nothing is 350 CR of nothing, the same failure
-  // test/specials.test.js catches from the other end.
-  const spikemine = obstacleTypeById("spikemine");
-  assert.ok(spikemine.laidOnly, "an upgraded mine that spawns by itself is not an upgrade");
-  assert.equal(spikemine.weight, 0);
-
-  const carriers = WEAPON_TYPES.filter((t) => t.upgradePayload === "spikemine");
-  assert.equal(carriers.length, 1, "exactly one weapon may lay the spike mine");
-  assert.equal(carriers[0].id, "mine", "the spike mine must be an upgrade to the MINE");
-  assert.ok(carriers[0].upgrade, "an upgraded payload with no flag can never be reached");
-  // No hostile carries it: armament.js's profiles name their payload by id, and
-  // the enemy's is the plain mine or the strip.
-  for (const type of CAR_TYPES) {
-    const arms = armamentFor(type);
-    assert.notEqual(arms?.payload, spikemine, `${type.id} lays the player's upgraded mine`);
-  }
-});
-
-test("the spike strip is the enemy's alone — nothing the player carries, finds or buys is one", () => {
-  // The removal this upgrade replaced. A strip in the player's hands was a
-  // second deployable with its own magazine, crate, shop row and cycle key, and
-  // the point of SPIKE MINES is that none of those came back. The strip itself
-  // stays exactly where it was: in the sower's hands.
-  const strip = obstacleTypeById("spikes");
-  assert.ok(strip, "the enemy's strip must still exist");
-  assert.ok(
-    !WEAPON_TYPES.some((t) => t.payload === "spikes" || t.upgradePayload === "spikes"),
-    "the player carries a spike strip again",
-  );
-  assert.ok(!PICKUP_TYPES.some((t) => t.weaponId === "spikes"), "the road drops strip ammo again");
-  assert.equal(armFor(CAR_TYPES.find((t) => t.id === "sower")).payload, strip,
-    "the sower must still be the thing that lays strips");
+  assert.ok(tough.health < tough.type.health, "the blast must still cost hull");
+  assert.equal(tough.spikeTime, 0, "the mine punctured a car with no strip on the road");
 });
 
 test("a laid hazard is never left hanging over a barrier", () => {
