@@ -163,6 +163,10 @@ export class Player {
     // which is exactly why the two are now separate things.
     this.maxSpeed = MAX_SPEED;
     this.mass = PLAYER_MASS;
+    // The RAM PLATE's top tier, not the mass figure above — collisions.js's
+    // PlayerBody reads this to arm the two bonuses that ride on the LAST tier
+    // rather than on mass itself (see upgrades.js's `ram` entry).
+    this.ramMaxed = false;
     // Extra seconds every shield the player picks up (or buys) is worth — the
     // DEFLECTOR tiers. Added in activateShield rather than baked into the
     // pickup catalogue, so one upgrade covers every shield source at once.
@@ -415,6 +419,7 @@ export class Player {
   applyUpgrades(stats) {
     this.maxSpeed = stats.maxSpeed;
     this.mass = stats.mass;
+    this.ramMaxed = stats.ramMaxed;
     this.shieldBonus = stats.shieldBonus;
     this.siphonLevel = stats.siphonLevel;
     // The Garage's own flag block, by reference — see its `stats` getter. The

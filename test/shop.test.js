@@ -39,6 +39,7 @@ import { CAR_TYPES } from "../src/game/cartypes.js";
 import { fastest } from "../test-support/fixtures.js";
 import { OBSTACLE_TYPES } from "../src/game/obstacletypes.js";
 import { Wallet } from "../src/game/wallet.js";
+import { PlayerBody } from "../src/game/collisions.js";
 
 // A player and a full wallet, which is what nearly every purchase test needs.
 // The Player constructor's x/y are screen framing and nothing here reads them.
@@ -247,6 +248,23 @@ test("a fully upgraded ram plate never out-masses the rig", () => {
     `a maxed ram plate (${top}) must beat the bruiser (${bruiser.mass})`);
 });
 
+test("ramMaxed flips only once every ram tier is bought, and reaches the player", () => {
+  // collisions.js's PlayerBody gates the attackFloor/shovePower bonus on this
+  // flag rather than on a mass threshold, specifically so a car-editor retune
+  // of any figure in the mass ladder can't flip it early or late by accident.
+  const { player, garage } = shopper();
+  const ram = statById("ram");
+  for (let level = 0; level < TIER_COUNT; level++) {
+    assert.equal(garage.stats.ramMaxed, false, `ramMaxed set early, at ${level} of ${TIER_COUNT} tiers`);
+    player.applyUpgrades(garage.stats);
+    assert.equal(player.ramMaxed, false);
+    garage.addTier(ram);
+  }
+  assert.equal(garage.stats.ramMaxed, true, "the last tier should have set it");
+  player.applyUpgrades(garage.stats);
+  assert.equal(player.ramMaxed, true, "applyUpgrades must carry the flag onto the car");
+});
+
 test("three chassis tiers are worth about one mine", () => {
   // CHASSIS is sized against what actually removes hull rather than as a round
   // fraction of the bar — obstacletypes.js calls the mine "the single hardest
@@ -269,6 +287,7 @@ test("a Garage starts stock, and its stats block is what a fresh Player already 
   assert.equal(stats.maxHealth, player.maxHealth);
   assert.equal(stats.shieldBonus, player.shieldBonus);
   assert.equal(stats.mass, player.mass);
+  assert.equal(stats.ramMaxed, player.ramMaxed);
   assert.equal(stats.siphonLevel, player.siphonLevel);
 });
 
@@ -486,6 +505,23 @@ test("the mass the shop sells is the mass the collision solver reads", () => {
   purchase(ram, wallet, player, loadout, garage);
   assert.equal(player.mass, PLAYER_MASS + ram.step);
   assert.notEqual(player.mass, PLAYER_MASS, "the upgrade left the car at stock mass");
+});
+
+test("only a fully maxed ram plate arms PlayerBody's attackFloor/shovePower", () => {
+  // Same proxy, same reason: the two ramMaxed bonuses (collisions.js) must
+  // read the CAR's live flag, not a snapshot, or a shop visit that buys the
+  // last tier would leave the adapter one purchase behind.
+  const { wallet, player, loadout, garage } = shopper();
+  const ram = statById("ram");
+  const adapter = new PlayerBody(PLAYER_MASS, 300);
+  adapter.sync(player, 0, 0);
+  assert.equal(adapter.attackFloor, undefined, "unmaxed must not arm the floor bonus");
+  assert.equal(adapter.shovePower, undefined, "unmaxed must not arm the shove bonus");
+
+  for (let i = 0; i < TIER_COUNT; i++) purchase(ram, wallet, player, loadout, garage);
+  assert.equal(player.ramMaxed, true, "the fixture must actually max the tier, or this proves nothing");
+  assert.equal(adapter.attackFloor, 20);
+  assert.equal(adapter.shovePower, 1.6);
 });
 
 test("an upgraded car can actually reach the speed it paid for", () => {

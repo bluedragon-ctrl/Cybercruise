@@ -412,11 +412,17 @@ export const CAR_TYPES = [
     cruiseMin: 180,
     speedMax: 215,
     // UNDER collisions.js's DAMAGE_FLOOR of 40, and left there on purpose. It
-    // means every lane change a rig makes is free, so its `contact` dial has only
-    // two settings rather than a range — see driving.js's `juggernaut`. Raising
-    // it to clear the floor would also shrink dodgeDistance, which is the figure
-    // obstacles.js sizes its whole spawn margin against, so this number is not
-    // the rig's alone to change.
+    // means every lane change a rig makes is priced at zero against ordinary
+    // traffic, so its `contact` dial has only two settings rather than a range
+    // — see driving.js's `juggernaut`, whose contact ceiling of 0 is what
+    // actually makes the rig's driving "never", independent of that price. A
+    // maxed RAM PLATE (PlayerBody, collisions.js) is the one body that prices
+    // above zero against the rig's 35 — juggernaut's own ceiling means this
+    // changes no driving decision today, but it is why the price and the
+    // decision are two different things and not one number wearing two hats.
+    // Raising steerSpeed to clear the floor would also shrink dodgeDistance,
+    // which is the figure obstacles.js sizes its whole spawn margin against,
+    // so this number is not the rig's alone to change.
     steerSpeed: 35,
     // It is carrying something. Killing a rig in traffic is the biggest event on
     // the road — the blast covers most of the tarmac around it and will take a

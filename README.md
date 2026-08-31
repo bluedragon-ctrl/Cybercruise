@@ -581,7 +581,14 @@ for the rest of the run:
 Two of those are one row for opposite reasons. The **ram plate** is one row
 because mass is one number that buys three things — `collisions.js` splits damage
 and separation by inverse mass, so a heavier car hits harder, takes less and gets
-shoved around less. The **siphon rig** is one row because two of its three numbers
+shoved around less. Mass alone is capped well short of a real weapon — the ladder
+has to stay under the rig's own mass, or ramming would kill the one car the game
+promises is unrammable — so the LAST tier also arms two bonuses that don't move
+mass at all: hits land at a gentler contact than the shared default asks for, and
+a side-swipe throws its target harder into whatever's next to it, more reliably
+carrying a hit into a second car. See `collisions.js`'s `PlayerBody` for both.
+
+The **siphon rig** is one row because two of its three numbers
 would not sell: `npm run econ` found reach and drain both saturate almost at once,
 so yield is the only figure the shelf advertises and the other two ride the same
 tier. `wallet.js`'s `SIPHON_TIERS` header has that argument in full, including why
