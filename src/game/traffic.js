@@ -314,7 +314,7 @@ class TrafficCar {
     // cannot crawl, so braking sheds them; the cars and the boss can, so it
     // doesn't. Every civilian's floor is 0, which makes this line a no-op for
     // them and leaves the civilian road exactly as it was.
-    this.targetSpeed = Math.max(this.type.speedMin, this.targetSpeed);
+    this.targetSpeed = Math.max(this.type.hardFloor, this.targetSpeed);
 
     // PUNCTURED TYRES OVERRULE EVEN THAT, and are therefore applied after it:
     // the strip is the ONE deliberate exception to the floor, and it has to sit

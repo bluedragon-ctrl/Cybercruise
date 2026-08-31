@@ -398,7 +398,7 @@ test("a car staged ahead never arrives faster than the player", () => {
     { kind: "cars", type: "outrider", count: 1, side: "behind", spread: 0 }, world,
   );
   const type = carTypeById("outrider");
-  assert.ok(behind[0].speed >= type.speedMin, "a staged pack must keep its own speed band");
+  assert.ok(behind[0].speed >= type.hardFloor, "a staged pack must keep its own speed band");
 });
 
 test("a car wall always leaves a lane open", () => {

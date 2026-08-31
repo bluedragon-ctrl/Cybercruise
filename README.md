@@ -247,9 +247,13 @@ the simulation:
 | `game/effects.js` | wrecks |
 
 **Shape carries identity; colour carries only faction** (red hostile / amber
-civilian) and weight class, so shades repeat across types. The one silhouette
-shared with the player is given to an enemy — your own outline in red reads as a
-rival.
+civilian) and weight class, so shades repeat across types. The faction now
+SUPPLIES that colour rather than each entry restating it: `cartypes.js`'s
+`FACTION_LIVERY` fills in `color` and `thrust`, and an entry names either one
+only to break the rule — two do (the rig and the bus, whose deep exhaust glow is
+what marks the heaviest traffic once the chassis colour cannot). The one
+silhouette shared with the player is given to an enemy — your own outline in red
+reads as a rival.
 
 `behaviours.js`'s tactic table lists every manoeuvre with a one-line summary,
 including what the compositions (`duel`, `strafe`, `outrun`, `strew`, `patrol`)
@@ -360,8 +364,9 @@ the road used to be hard-coded in `behaviours.js`, so two civilians naming
 function. Now it is a data table in `driving.js`, and a new car type is usually no
 new code at all.
 
-Fifteen types name fourteen profiles, and the near-miss is the point: a profile is
-a driving STYLE, so a type gets its own only where it actually drives differently.
+Seventeen types name sixteen profiles, and the near-miss is the point: a profile
+is a driving STYLE, so a type gets its own only where it actually drives
+differently.
 The van and the bus share `hauler`; anything naming none falls back to `commuter`,
 the reference every other table is described as a difference from.
 
@@ -372,7 +377,11 @@ the roadster's **18.1**, and commits **1.0** pass per car-minute against **10.7*
 `driving.js` has a row per profile and what each field costs; three of them
 (`nerve`, `contact`, and a careful driver's refusal to hit anything) are quantised
 in ways that make settings silently equivalent, and its header spells out the
-traps.
+traps. `nerve` (what a driver will drive THROUGH) and `contact` (who it will
+lean on) are independent: `contact` used to default to `nerve`, which compared a
+hazard's threat against a hull cost and handed four hostiles a ceiling nobody
+chose. Every profile now states both, and every hostile states `contact: 0` —
+the enemy's aggression is its weapons, not its shoulders.
 
 The preferences also add up to a **lane gradient**: the slow haulers want the
 lanes by the barrier and the fast machines the lanes by the centre-line, so
@@ -382,7 +391,7 @@ breaks nothing — it just quietly stops making sense.
 
 **Two speed bands, not one.** `cruiseMin`–`speedMax` is what a type rolls at
 spawn and wanders within — how it drives when nothing is happening to it.
-`speedMin`–`speedMax` is what it is physically capable of, and `traffic.js`
+`hardFloor`–`speedMax` is what it is physically capable of, and `traffic.js`
 applies that floor once per tick after every behaviour has spoken, so nothing can
 reach under it: not the tactic, not braking behind another car, not slowing to fit
 a swerve past a roadblock. The ceiling is shared because a car's top speed is the

@@ -98,10 +98,10 @@ test("every car type has a coherent speed range", () => {
   // A floor of 0 is valid and is what every civilian ships — "can be brought to
   // a full stop" — so only the cruise bottom has to be positive.
   for (const t of CAR_TYPES) {
-    assert.ok(t.speedMin >= 0, `${t.id}: speedMin must not be negative`);
+    assert.ok(t.hardFloor >= 0, `${t.id}: hardFloor must not be negative`);
     assert.ok(
-      t.speedMin <= t.cruiseMin,
-      `${t.id}: speedMin ${t.speedMin} > cruiseMin ${t.cruiseMin} — it would spawn ` +
+      t.hardFloor <= t.cruiseMin,
+      `${t.id}: hardFloor ${t.hardFloor} > cruiseMin ${t.cruiseMin} — it would spawn ` +
         `below its own hard floor`,
     );
     assert.ok(t.cruiseMin <= t.speedMax, `${t.id}: cruiseMin > speedMax`);

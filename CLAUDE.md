@@ -16,7 +16,7 @@ are not known up front, each with the section that explains it.
 | | |
 | --- | --- |
 | play | `npm run serve`, or `play.bat` on Windows — never `file://` |
-| test | `npm test` (709 assertions; `node --test "test/*.test.js"`, pattern quoted so Node globs it) |
+| test | `npm test` (719 assertions; `node --test "test/*.test.js"`, pattern quoted so Node globs it) |
 | driving profiles | `npm run sim`, and `node tools/drivesim.js 300 60` for an actual tuning decision |
 | economy | `npm run econ` |
 | balance numbers | `tools/car-editor/` — a browser UI over essentially every tuned constant |

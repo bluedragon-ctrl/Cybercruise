@@ -755,8 +755,19 @@ function trail(car, dt, world) {
 // player's lane while asking for LESS speed than they are running IS the block —
 // the player either brakes to match a wall heavier than they are, or rear-ends it.
 //
-// All three numbers are profile fields (driving.js): `chaseSpeed`, `ramBrake`,
-// `ramFloor`.
+// `chaseSpeed` and `ramBrake` are profile fields (driving.js) — how fast this
+// driver chases and how hard it leans on the brake are dispositions. The floor
+// under the block is not, and is RAM_FLOOR below.
+
+// The slowest the block may run, and A CONTRACT WITH player.js rather than a
+// temperament: it sits UNDER the player's own minimum of 100, so lifting off can
+// never escape a block, and above zero, because a stalled wall reads as broken
+// rather than as a tactic. A profile could not state this correctly without
+// knowing that 100, which is the test for whether a number belongs on a profile
+// at all. The bruiser's own `hardFloor` is 0 (cartypes.js), so this is the only
+// thing setting the block's pace — a type floor above it would be a second,
+// quieter answer to the same question.
+export const RAM_FLOOR = 80;
 
 function ram(car, dt, world) {
   const target = world.playerBody;
@@ -773,7 +784,7 @@ function ram(car, dt, world) {
   const ahead = car.worldY - target.worldY; // positive once past the player
 
   if (ahead > 0) {
-    const held = Math.max(car.drive.ramFloor, target.speed * car.drive.ramBrake);
+    const held = Math.max(RAM_FLOOR, target.speed * car.drive.ramBrake);
     car.targetSpeed = followSpeed(car, lead, held);
     return;
   }
@@ -789,15 +800,24 @@ function ram(car, dt, world) {
 // as the road's baseline pressure rather than a timed encounter.
 //
 // What each type FIRES is not this function's business — `useArms` reads whatever
-// `car.arms` says. All four numbers are profile fields (driving.js's "Chasing the
-// player"): `pursueRange`, `pursueHold`, `pursueGain`, `chaseSpeed`.
+// `car.arms` says. The three DISPOSITIONS are profile fields (driving.js's
+// "Chasing the player"): `pursueHold`, `pursueGain`, `chaseSpeed`.
+
+// The gap inside which chasing is worth doing at all, and NOT a disposition —
+// which is why it sits here rather than on a profile with the other three. It is
+// sized against `pursueHold` (200 at the baseline, 150 at the tightest) with
+// room to spend a couple of seconds genuinely closing before the car must be in
+// range: a figure about the SHAPE of the manoeuvre, the same kind of thing as
+// TRAIL_ENGAGE below and RAID_LEAD above. Every profile ran the one number and
+// none of them had a reason to differ.
+export const PURSUE_RANGE = 500;
 
 function pursue(car, dt, world) {
   const target = world.playerBody;
   if (!target) return cruise(car, dt, world);
 
   const gap = target.worldY - car.worldY; // positive while it trails them
-  if (gap > car.drive.pursueRange) {
+  if (gap > PURSUE_RANGE) {
     // Not close enough to be worth actively chasing right now. No clock runs here
     // either way — this car waits for the gap to close again, however long that
     // takes. `trail` is what adds one.
@@ -883,7 +903,7 @@ function strafe(car, dt, world) {
   // Out of range `pursue` is simply cruising, and a car cruising up the road
   // has nothing to weave around yet.
   const gap = target.worldY - car.worldY;
-  if (gap > car.drive.pursueRange) return;
+  if (gap > PURSUE_RANGE) return;
 
   car.weavePhase ??= Math.random() * Math.PI * 2;
   car.weavePhase += (dt / car.drive.weaveTime) * Math.PI * 2;

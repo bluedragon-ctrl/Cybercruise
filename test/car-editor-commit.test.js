@@ -114,7 +114,7 @@ test("the patched values are the values that were asked for", () => {
 
   assert.match(text("src/game/cartypes.js"), /health: 420,/);
   assert.match(text("src/game/cartypes.js"), /bounty: 40,/);
-  assert.match(text("src/game/driving.js"), /duelist: profile\(\{ nerve: 11 \}\)/);
+  assert.match(text("src/game/driving.js"), /duelist: profile\(\{ nerve: 11, contact: 0 \}\)/);
   assert.match(text("src/game/obstacletypes.js"), /contactDamage: 9,/);
   assert.match(text("src/game/pickuptypes.js"), /amount: 70,/);
   assert.match(text("src/game/weapons.js"), /damage: 110,/);

@@ -15,6 +15,9 @@ import { patchConstant, patchArrayConstantElement } from "../tools/car-editor/pa
 import { MAX_SPEED, BASE_MAX_HEALTH, PLAYER_MASS } from "../src/game/player.js";
 import { TIER_PRICES, STATS } from "../src/game/upgrades.js";
 import { SHOP_INTERVAL } from "../src/game/hauler.js";
+import { PURSUE_RANGE, RAM_FLOOR, TRAIL_ENGAGE } from "../src/game/behaviours.js";
+import { SIDE_DAMAGE } from "../src/game/collisions.js";
+import { BEHAVIOR_FIELDS } from "../tools/car-editor/state.js";
 
 function sourceOf(rel) {
   return readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
@@ -153,5 +156,52 @@ test("every group's constants all name that group in their id", () => {
       assert.ok(entry.id.startsWith(`${group.id}.`), `${entry.id} is not in group ${group.id}`);
       assert.equal(CONSTANT_BY_ID.get(entry.id).name, entry.name);
     }
+  }
+});
+test("the figures that left the driving profiles are editable as constants", () => {
+  // PURSUE_RANGE and RAM_FLOOR used to be profile fields, editable per profile
+  // on the behavior screen. They moved to behaviours.js because no profile
+  // differed from the baseline and each is arithmetic against another file —
+  // RAM_FLOOR against player.js's MIN_SPEED in particular, which a profile
+  // cannot see. That move would have quietly REMOVED them from the editor, so
+  // this pins the destination the way the shop-ladder test above does.
+  const ids = new Set(CONSTANT_IDS);
+  for (const id of ["driving.PURSUE_RANGE", "driving.RAM_FLOOR"]) {
+    assert.ok(ids.has(id), `${id} left the profile table and must be tunable here`);
+  }
+  const byId = new Map(
+    buildAllConstantState().flatMap((g) => g.constants.map((c) => [c.id, c.value]))
+  );
+  assert.equal(byId.get("driving.PURSUE_RANGE"), PURSUE_RANGE);
+  assert.equal(byId.get("driving.RAM_FLOOR"), RAM_FLOOR);
+  assert.equal(byId.get("driving.TRAIL_ENGAGE"), TRAIL_ENGAGE);
+  assert.equal(byId.get("impact.SIDE_DAMAGE"), SIDE_DAMAGE);
+});
+
+test("no shared constant is also editable as a driving-profile field", () => {
+  // The failure this catches is a figure being tunable in TWO places at once:
+  // the editor would show a profile row and a constant row for the same number,
+  // and whichever screen was saved last would silently win. A constant's `name`
+  // is SHOUTY and a profile field is camelCase, so the check is on the
+  // lowercased pair rather than on the literal spelling.
+  const fields = new Set(BEHAVIOR_FIELDS.map((f) => f.toLowerCase()));
+  for (const constant of CONSTANTS) {
+    const collapsed = constant.name.toLowerCase().replace(/_/g, "");
+    assert.ok(
+      !fields.has(collapsed),
+      `${constant.id} is also editable as the driving-profile field "${collapsed}"`
+    );
+  }
+});
+
+test("every constant carries a description the editor can show", () => {
+  // The form renders `description` as the row's help text; a constant without
+  // one is a bare SHOUTY_NAME and a number, which is exactly the thing this
+  // catalogue exists to avoid.
+  for (const constant of CONSTANTS) {
+    assert.ok(
+      typeof constant.description === "string" && constant.description.length > 20,
+      `${constant.id} needs a description saying what moving it does`
+    );
   }
 });

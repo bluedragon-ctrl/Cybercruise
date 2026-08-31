@@ -10,6 +10,8 @@
 // and the shape is what tells types apart on the road: EVERY FACTION SHARES ONE
 // BASE CHASSIS COLOUR — civilians in NEUTRAL, hostiles in ENEMY_DEEP — so each
 // faction reads as one fleet and only the silhouette distinguishes within it.
+// FACTION_LIVERY below enforces that rather than trusting each entry to repeat
+// it; a type states a colour only where it means to break the rule.
 //
 // `accent` is the one exception, and it is a SIGNAL rather than decoration: the
 // roadster names one because it is the one civilian whose profile gambles
@@ -27,14 +29,17 @@
 //   cruiseMin..speedMax   THE CRUISE BAND. What this type rolls at spawn and
 //                         wanders within — how fast it drives when nothing is
 //                         happening to it.
-//   speedMin..speedMax    THE HARD BAND. What this type is physically capable
-//                         of. NOTHING may ask a car below `speedMin` — not a
+//   hardFloor..speedMax   THE HARD BAND. What this type is physically capable
+//                         of. NOTHING may ask a car below `hardFloor` — not a
 //                         tactic, not braking for the car in front, not slowing
 //                         to fit a swerve past a roadblock (traffic.js applies
 //                         it once, after every behaviour has had its say).
 //
-// The ceiling is shared because a car's top speed IS the top of its cruise. The
-// floor is not, and the gap between the two is a design surface: it is what the
+// THE NAMES CARRY THE DISTINCTION, and that is why the floor is not called
+// `speedMin`: `cruiseMin` pairs with `speedMax`, `hardFloor` pairs with
+// nothing, so the two lower figures no longer look like one range read twice.
+// The ceiling IS shared — a car's top speed is the top of its cruise — and the
+// gap between `hardFloor` and `cruiseMin` is a design surface: it is what the
 // player buys by slowing down.
 //
 // WHAT THE FLOOR BUYS, and it is ONE design decision with one number behind it.
@@ -50,9 +55,8 @@
 //   floor 0     EVERYTHING ELSE, hostile and civilian alike. Braking is not an
 //               answer to the interceptor, the stocker, the rival, the bruiser,
 //               the boss or the gunship, which is what stops "slow down" being
-//               the answer to everything — and every civilian still stops dead
-//               for a roadblock and still brakes behind a rig, exactly as before
-//               this field existed.
+//               the answer to everything. A civilian at 0 stops dead for a
+//               roadblock and brakes behind a rig.
 //
 // WHY THE SECOND GROUP IS 0 RATHER THAN THE PLAYER'S OWN 100, which looks like
 // it would do and does not: a hostile that attacks from IN FRONT must be able to
@@ -78,9 +82,6 @@
 //   `npm run sim`, and it is why these four are not simply floored at cruiseMin.
 //
 // Both bounds are asserted in test/hazards.test.js.
-//   floor 0           every civilian. They still stop dead for a roadblock and
-//                     still brake behind a rig, exactly as before this field
-//                     existed.
 //
 // THE FLOOR ALSO DECIDES WHAT A CAR CAN DODGE, and this is the second thing the
 // player can exploit. behaviours.js answers a hazard two ways, and the floor
@@ -130,7 +131,7 @@
 // the gunship's is built the first time its encounter rolls.
 // Keeping the catalogue a small FIXED list is what bounds this: vary cars by
 // ADDING A TYPE, never by rolling continuous per-instance sizes or colours.
-// speedMin..speedMax is free variety, since speed doesn't affect the artwork.
+// The speed band is free variety, since speed doesn't affect the artwork.
 
 import { carShapeIndex } from "./carshapes.js";
 import { DIST_UNITS } from "./road.js";
@@ -156,10 +157,11 @@ export const ENEMY_FACTION = "enemy";
 // a shared constant — precisely so it is already the field to edit when a type
 // needs to diverge (a rig worth more than a sedan, a rival worth more than an
 // interceptor, a boss worth a windfall) without touching score.js or any other
-// entry. Every entry happens to read 100 or -100 today: deliberately UNIFORM
-// FOR NOW, one flat figure for the enemy and its mirror image for the city's
-// own traffic, but that's a starting VALUE, not a starting STRUCTURE — the
-// scaffolding for telling types apart is already in place.
+// entry. That scaffolding is now LOAD-BEARING rather than speculative: the
+// figures run -300 (the bus, full of passengers) to 1500 (the boss), and the
+// two currencies below are deliberately not proportional to each other — the
+// rival pays 300 points to 100 credits, the hypercar 150 to 15. What a kill is
+// WORTH and what it PAYS are two judgements, and they are two fields.
 
 // THE OPENING ROAD IS CIVILIAN. Every hostile type is held back until the
 // player has covered this much road (DIST readout units, road.js), so a run
@@ -206,8 +208,13 @@ export const FOCUS = [];
 //   label       gallery/HUD caption
 //   shape       index into CAR_SHAPES — the car's silhouette, looked up BY NAME
 //               so reordering that catalogue can't repaint the road
-//   faction     NEUTRAL_FACTION | ENEMY_FACTION
-//   color       body wireframe colour; thrust = exhaust glow
+//   faction     NEUTRAL_FACTION | ENEMY_FACTION — and, through FACTION_LIVERY,
+//               the source of `color` and `thrust` for any entry not naming them
+//   color       body wireframe colour, `thrust` the exhaust glow. BOTH DERIVED
+//               from faction; written on an entry only to override, which two
+//               entries do (rig, bus) and fifteen do not
+//   accent      a second colour the shape may draw with, and a SIGNAL rather
+//               than decoration — see the header note above
 //   w, h        collision box AND drawn size (px). Kept at (or near) the shape's
 //               own default size, since the artwork is authored for that ratio
 //   health      hull points; spent by ramming (collisions.js), by blasts, and
@@ -218,7 +225,7 @@ export const FOCUS = [];
 //               the difference between bouncing off a rig and swatting a roadster
 //               aside. Roughly tracks size, but it's a gameplay dial: nudge it to
 //               make a type feel heavier without redrawing it
-//   speedMin    the HARD FLOOR, world units/sec: nothing may drive this car
+//   hardFloor   the HARD FLOOR, world units/sec: nothing may drive this car
 //               slower. 0 for every civilian. See THE TWO SPEED BANDS
 //   cruiseMin/speedMax  the cruising range rolled at spawn. speedMax is also the
 //               hard ceiling; cruiseMin is NOT the hard floor
@@ -240,9 +247,10 @@ export const FOCUS = [];
 //               points, separate from `value` so the two can diverge. OMITTING
 //               IT means the car pays nothing, which is how "not every enemy
 //               pays" is expressed: a boss gets a windfall, a swarm minion gets
-//               no line at all, neither needs code in wallet.js. Flat today
-//               (25 enemy, -15 civilian) — a starting VALUE, not a STRUCTURE.
-//               The negative is gentler than `value`'s -100 on purpose: a
+//               no line at all, neither needs code in wallet.js. The two are
+//               tuned independently — see the note above `value`'s own entry —
+//               and the ratio between them varies from 3:1 to 10:1 across the
+//               catalogue. The negatives are gentler than `value`'s on purpose: a
 //               civilian kill can empty the run's earnings but never touches
 //               credits banked earlier, so the score punishes carelessness hard
 //               and the wallet punishes it honestly
@@ -289,6 +297,31 @@ export const FOCUS = [];
 //               the draw; once open it is picked on `weight` as usual. See
 //               ENEMY_MIN_DISTANCE for why the enemy starts late, and
 //               pickCarType for what happens while everything is still gated
+
+// THE FACTION SUPPLIES THE LIVERY. "Every faction shares one base chassis
+// colour" is a rule in the header above, and a rule restated seventeen times in
+// the data is a rule that drifts the first time somebody adds a type by copying
+// a neighbour. So the faction owns `color` and the default `thrust`, and an
+// entry names either one only to BREAK the rule — which is what makes a stated
+// colour worth reading. Two entries do: the rig and the bus, whose deep exhaust
+// glow is the one mark left for "heaviest thing on the road" once the chassis
+// cannot carry it.
+//
+// Resolved at load, not at draw: `color` and `thrust` are real fields on every
+// entry by the time anything reads one, so sprites.js's cache key, traffic.js's
+// draw call and the gallery all work exactly as they did when the colour was
+// written out by hand.
+const FACTION_LIVERY = {
+  [NEUTRAL_FACTION]: { color: NEUTRAL, thrust: NEUTRAL_THRUST },
+  [ENEMY_FACTION]: { color: ENEMY_DEEP, thrust: ENEMY_THRUST },
+};
+
+// Spread the livery FIRST so the entry's own fields win — that ordering is what
+// makes an override an override.
+function liveried(type) {
+  return { ...FACTION_LIVERY[type.faction], ...type };
+}
+
 export const CAR_TYPES = [
   // --- Neutral: the city's own traffic --------------------------------------
   {
@@ -296,8 +329,6 @@ export const CAR_TYPES = [
     label: "SEDAN",
     shape: carShapeIndex("SEDAN"),
     faction: NEUTRAL_FACTION,
-    color: NEUTRAL,
-    thrust: NEUTRAL_THRUST,
     w: 34,
     h: 60,
     health: 60,
@@ -305,7 +336,7 @@ export const CAR_TYPES = [
     // The widest range in the catalogue. A civilian type is a spread of ordinary
     // drivers, so a lane of sedans should visibly sort itself out; the speed
     // machines below are DEFINED by their ceiling and stay narrow.
-    speedMin: 0,   // the civilian floor, and every one of them states it: a
+    hardFloor: 0,  // the civilian floor, and every one of them states it: a
                    // civilian may be brought to a full stop. See THE TWO BANDS
     cruiseMin: 215,
     speedMax: 290,
@@ -323,8 +354,6 @@ export const CAR_TYPES = [
     label: "VAN",
     shape: carShapeIndex("VAN"),
     faction: NEUTRAL_FACTION,
-    color: NEUTRAL,
-    thrust: NEUTRAL_THRUST,
     w: 38,
     h: 68,
     health: 95,
@@ -335,7 +364,7 @@ export const CAR_TYPES = [
     // overtake, so that queue is for life. 205 leaves a 10-unit overlap instead
     // of a 20-unit one and keeps the van clearly under the sedan's 215 floor, so
     // the speed gradient across the road still reads.
-    speedMin: 0,
+    hardFloor: 0,
     cruiseMin: 205,
     speedMax: 265,
     // LOAD-BEARING, and not only for how it corners. behaviours.js prices a lane
@@ -358,8 +387,6 @@ export const CAR_TYPES = [
     label: "ROADSTER",
     shape: carShapeIndex("ROADSTER"),
     faction: NEUTRAL_FACTION,
-    color: NEUTRAL, // base chassis matches every other civilian's — see the header
-    thrust: NEUTRAL_THRUST,
     // The pale stripe/canopy tell — see the header note on `accent`, and
     // carshapes.js's ROADSTER, where it's actually drawn.
     accent: NEUTRAL_PALE,
@@ -375,7 +402,7 @@ export const CAR_TYPES = [
     // wide rather than 160: still the widest spread in the catalogue, which is
     // right for a civilian, but not so wide that two roadsters differ by more
     // than a sedan's entire range.
-    speedMin: 0,
+    hardFloor: 0,
     cruiseMin: 430,
     speedMax: 560,
     steerSpeed: 140,
@@ -383,7 +410,8 @@ export const CAR_TYPES = [
     blastDamage: 9,
     value: -100,
     bounty: -15,
-    minDistance: 200, // the city's own traffic: on the road from the first metre
+    minDistance: 200, // not in the opening minute: the impatient civilian is a
+                      // change of pace, and the sedan sets the pace first
     behaviour: "overtake",
     // The road's impatient civilian, and the reason driving.js exists: the same
     // tactic as the sedan, so every difference between the two of them on the
@@ -396,9 +424,9 @@ export const CAR_TYPES = [
     label: "RIG",
     shape: carShapeIndex("RIG"),
     faction: NEUTRAL_FACTION,
-    // Base chassis matches every other civilian's — the deep exhaust glow below
-    // is the one detail that still marks this out as the heaviest of them.
-    color: NEUTRAL,
+    // The one civilian detail colour still worth stating: a deep exhaust glow
+    // instead of the fleet's, which is what marks the heaviest thing on the road
+    // when the chassis colour cannot.
     thrust: NEUTRAL_DEEP,
     w: 42,
     h: 124, // twice any other car: it is a rolling wall, and a lane-and-a-half of
@@ -408,7 +436,7 @@ export const CAR_TYPES = [
     // so even a rig is pulling away from a player who has given up on the
     // throttle. The floor is the ONE number here that must not drift downward —
     // it is the reason a slow player still sees a moving road.
-    speedMin: 0,
+    hardFloor: 0,
     cruiseMin: 180,
     speedMax: 215,
     // UNDER collisions.js's DAMAGE_FLOOR of 40, and left there on purpose. It
@@ -431,7 +459,8 @@ export const CAR_TYPES = [
     blastDamage: 60,
     value: -200,
     bounty: -20,
-    minDistance: 500, // the city's own traffic: on the road from the first metre
+    minDistance: 500, // the road's biggest civilian, held back so meeting one is
+                      // an event rather than the first thing on the road
     // Even the rolling wall dodges — `juggernaut` keeps nerve at 0. A rig
     // ploughing a trestle is tempting flavour, but it is also the one civilian
     // heavy enough to be somewhere near a hazard the player wanted left standing,
@@ -457,7 +486,6 @@ export const CAR_TYPES = [
     // glazing rather than an opaque roof, precisely so that reads before the
     // stat does), and killing one costs three times what killing anything
     // else on the civilian side costs.
-    color: NEUTRAL,
     thrust: NEUTRAL_DEEP, // the deep exhaust glow the rig also carries — the
                           // other heavy hauler on the road
     w: 46,
@@ -471,7 +499,7 @@ export const CAR_TYPES = [
     // with — a city bus keeps to stops, it does not race. Kept clearly under
     // the van's 265 ceiling so the civilian speed gradient (see driving.js)
     // still puts it on the barrier side of the road.
-    speedMin: 0,
+    hardFloor: 0,
     cruiseMin: 190,
     speedMax: 230,
     // Matches the van's exactly, and not by accident: it drives the SAME
@@ -495,7 +523,8 @@ export const CAR_TYPES = [
     // and a catalogue entry with no `bounty` pays nothing at all — which would
     // have made the worst car on the road the one kill money never noticed.
     bounty: -45,
-    minDistance: 800, // the city's own traffic: on the road from the first metre
+    minDistance: 800, // the costliest civilian to hit (see `value`), so the
+                      // player learns the traffic before it can fine them -300
     behaviour: "cruise", // holds its lane exactly like the van and the rig —
                          // it does not overtake, it makes you go round
     driving: "hauler",   // the van's own profile: cautious, out of the way,
@@ -511,17 +540,13 @@ export const CAR_TYPES = [
     label: "HYPERCAR",
     shape: carShapeIndex("HYPERCAR"),
     faction: NEUTRAL_FACTION,
-    // Base chassis matches every other civilian's — the shape alone carries
-    // this one's showpiece identity.
-    color: NEUTRAL,
-    thrust: NEUTRAL_THRUST,
     w: 36,
     h: 64,
     health: 45,
     mass: 0.9,
     // Faster than the player is ALLOWED to go: a rare showpiece that comes past
     // at full throttle and is gone, which is exactly why it is worth spotting.
-    speedMin: 0,
+    hardFloor: 0,
     cruiseMin: 630,
     speedMax: 700,
     steerSpeed: 160,
@@ -529,7 +554,8 @@ export const CAR_TYPES = [
     blastDamage: 20,
     value: -150,
     bounty: -15,
-    minDistance: 1600, // the city's own traffic: on the road from the first metre
+    minDistance: 1600, // the latest civilian gate in the catalogue: 700 units/sec
+                       // of showpiece belongs to a road the player already reads
     behaviour: "overtake",
     // The other pale civilian, and the deliberate opposite of the roadster: same
     // shade, same tactic, similar pace, and it holds a perfect line and sweeps
@@ -550,10 +576,6 @@ export const CAR_TYPES = [
     // WITHOUT being out to get you is a different thing from an enemy: it is
     // traffic that will not yield.
     faction: NEUTRAL_FACTION,
-    // Base chassis matches every other civilian's — identity comes from the
-    // silhouette, and colour carries faction rather than weight class.
-    color: NEUTRAL,
-    thrust: NEUTRAL_THRUST,
     w: 38,
     h: 68,
     health: 110,
@@ -561,7 +583,7 @@ export const CAR_TYPES = [
     // its hostile days and now the whole point of the type — this is the civilian
     // the player cannot simply move out of the way.
     mass: 1.7,
-    speedMin: 0,
+    hardFloor: 0,
     cruiseMin: 310,
     speedMax: 360,
     // AND THE FIGURE THAT MAKES IT RECKLESS RATHER THAN JUST BIG. At 85 against
@@ -574,7 +596,8 @@ export const CAR_TYPES = [
     blastDamage: 24,
     value: -100, // killing one is a fine, like any other civilian
     bounty: -15,
-    minDistance: 1200,        // the city's own traffic: on the road from the first metre
+    minDistance: 1200,        // late, like the hypercar it counterweights — the
+                              // two aggressive civilians both arrive well in
     behaviour: "overtake", // it does not block for anyone; it just goes past
     driving: "brawler",    // heavy, impatient, and it will lean on you
     // Kept at exactly what it was as a hostile, which MOVES THE FACTION MIX and
@@ -592,8 +615,6 @@ export const CAR_TYPES = [
     label: "INTERCEPTOR",
     shape: carShapeIndex("INTERCEPTOR"),
     faction: ENEMY_FACTION,
-    color: ENEMY_DEEP, // base chassis matches every other hostile's — see the header
-    thrust: ENEMY_THRUST,
     w: 34,
     h: 62,
     health: 70,
@@ -610,7 +631,7 @@ export const CAR_TYPES = [
     // NO FLOOR. Four wheels and a heavy body: it can crawl, and it is the reason
     // the road keeps a standing pressure braking does not switch off — a player
     // who slows to shed the bikes finds this still in their mirror.
-    speedMin: 0,
+    hardFloor: 0,
     cruiseMin: 400,
     speedMax: 620,
     steerSpeed: 130,
@@ -648,10 +669,6 @@ export const CAR_TYPES = [
     // that pairing.
     shape: carShapeIndex("STOCKER"),
     faction: ENEMY_FACTION,
-    // The hostile fleet's base chassis colour — see the header. Every other
-    // enemy type matches this exactly; the silhouette is what tells them apart.
-    color: ENEMY_DEEP,
-    thrust: ENEMY_THRUST,
     w: 40,
     h: 70,
     health: 130, // a caged car: more than the departed muscle's 110, less than
@@ -663,7 +680,7 @@ export const CAR_TYPES = [
     // A circuit car: it crawls like the interceptor. Slowing does not shake this
     // one either — its counter is already written, and it is time rather than
     // speed (driving.js's giveUpTime, the only one on the road).
-    speedMin: 0,
+    hardFloor: 0,
     cruiseMin: 355,
     speedMax: 415,
     steerSpeed: 100, // quicker across the road than any other heavy
@@ -698,8 +715,6 @@ export const CAR_TYPES = [
     label: "CYCLE",
     shape: carShapeIndex("CYCLE"),
     faction: ENEMY_FACTION,
-    color: ENEMY_DEEP, // base chassis matches every other hostile's — see the header
-    thrust: ENEMY_THRUST,
     w: 26,
     h: 58,
     health: 25, // one solid contact and it is gone
@@ -715,7 +730,7 @@ export const CAR_TYPES = [
     // THE BIKE FLOOR — see THE TWO SPEED BANDS. It cannot hold RAID_LEAD over a
     // crawling player, so a player who drops under it is forced past with the
     // mine undropped, and it cannot slow enough to go round a blocked road.
-    speedMin: 200,
+    hardFloor: 200,
     cruiseMin: 620,
     speedMax: 730,
     steerSpeed: 180, // the nimblest thing on the road, by a wide margin
@@ -742,8 +757,6 @@ export const CAR_TYPES = [
     label: "BRUISER",
     shape: carShapeIndex("BRUISER"),
     faction: ENEMY_FACTION,
-    color: ENEMY_DEEP,
-    thrust: ENEMY_THRUST,
     w: 40,
     h: 74,
     // ALSO the one enemy type that survives a single mine (150 hull,
@@ -753,11 +766,11 @@ export const CAR_TYPES = [
     // are the two built to take a second and third respectively.
     health: 160,
     mass: 2.2, // built to ram; Phase 4 gives it the behaviour to go with the mass
-    // No floor, so driving.js's ramFloor is the only thing setting the block's
-    // pace: the whole point of that field is that the block still bites at
-    // walking pace, and a floor over it would be a second, quieter answer to the
-    // same question.
-    speedMin: 0,
+    // No floor, so behaviours.js's RAM_FLOOR is the only thing setting the
+    // block's pace: the whole point of that figure is that the block still bites
+    // at walking pace, and a floor over it would be a second, quieter answer to
+    // the same question.
+    hardFloor: 0,
     cruiseMin: 280,
     speedMax: 330,
     steerSpeed: 70,
@@ -789,8 +802,6 @@ export const CAR_TYPES = [
     // hostile that lives with the player flat out as a straight speed contest.
     shape: carShapeIndex("SUPERCAR"),
     faction: ENEMY_FACTION,
-    color: ENEMY_DEEP, // base chassis matches every other hostile's — see the header
-    thrust: ENEMY_THRUST,
     w: 34,
     h: 62,
     // RAISED FROM 90 so a mine takes exactly THREE to finish it — the
@@ -806,7 +817,7 @@ export const CAR_TYPES = [
     // interceptor above, whose reach into this range is a chase leash rather
     // than a cruise (see the header comment on this entry).
     // It wears the player's own body, so it can do anything the player can.
-    speedMin: 0,
+    hardFloor: 0,
     cruiseMin: 580,
     speedMax: 650,
     steerSpeed: 150,
@@ -867,8 +878,6 @@ export const CAR_TYPES = [
     label: "OUTRIDER",
     shape: carShapeIndex("RACER"),
     faction: ENEMY_FACTION,
-    color: ENEMY_DEEP, // base chassis matches every other hostile's — see the header
-    thrust: ENEMY_THRUST,
     // The hull's own authored size, kept: the two- and three-wheeler artwork
     // sets its wheel metrics in PIXELS (cycleshapes.js), so a type that
     // overrode `size` here would have to redraw the tyres to match.
@@ -889,7 +898,7 @@ export const CAR_TYPES = [
     // The bike floor, and the reason "slow down" is a real answer to this type:
     // under it the weave cannot hold station and sweeps past, taking the SMG's
     // firing line with it. See THE TWO SPEED BANDS.
-    speedMin: 200,
+    hardFloor: 200,
     cruiseMin: 400,
     speedMax: 660,
     steerSpeed: 200, // the widest sweep on the road needs the quickest hands;
@@ -918,8 +927,6 @@ export const CAR_TYPES = [
     label: "OUTRUNNER",
     shape: carShapeIndex("CRUISER"),
     faction: ENEMY_FACTION,
-    color: ENEMY_DEEP,
-    thrust: ENEMY_THRUST,
     w: 32,
     h: 66,
     health: 45, // the toughest of the three, and still under a single mine
@@ -929,7 +936,7 @@ export const CAR_TYPES = [
     // The bike floor, from in front: a player who drops under it watches this one
     // pull away up the road and out of the fight. The counter to the one hostile
     // that attacks from ahead is to stop chasing it.
-    speedMin: 200,
+    hardFloor: 200,
     cruiseMin: 600,
     speedMax: 670,
     steerSpeed: 160,
@@ -958,8 +965,6 @@ export const CAR_TYPES = [
     // carrying. The one hull in the fleet with somewhere to put a spike strip.
     shape: carShapeIndex("GLIDE"),
     faction: ENEMY_FACTION,
-    color: ENEMY_DEEP,
-    thrust: ENEMY_THRUST,
     w: 38,
     h: 66,
     health: 55,
@@ -970,7 +975,7 @@ export const CAR_TYPES = [
     // The bike floor. The run-out above is unaffected — that is the CEILING's
     // job — and what this buys is the run-IN: under it the trike cannot hold
     // station long enough to line the strip up.
-    speedMin: 200,
+    hardFloor: 200,
     cruiseMin: 640,
     speedMax: 700,
     steerSpeed: 140,
@@ -1011,8 +1016,6 @@ export const CAR_TYPES = [
     // record was written — see that file's note where the TANK group used to be.
     shape: carShapeIndex("SIEGE MORTAR"),
     faction: ENEMY_FACTION,
-    color: ENEMY_DEEP,
-    thrust: ENEMY_THRUST,
     // The shape's own authored size, unchanged. It is the widest thing on the
     // road by some way — a lane is 65px — which is half of why it reads as a
     // wall the moment it comes over the top of the screen.
@@ -1053,7 +1056,7 @@ export const CAR_TYPES = [
     // the boss off the top of the screen for good. Measured — it is the reason
     // this row reads 0 rather than 100. The one escape stays the documented one:
     // twelve seconds of overdrive (pickuptypes.js), which lifts the whole band.
-    speedMin: 0,
+    hardFloor: 0,
     cruiseMin: 640,
     speedMax: 730,
     // SLOW HANDS, and the split from the speed above is what keeps it fair: it
@@ -1131,8 +1134,6 @@ export const CAR_TYPES = [
     // the SIEGE MORTAR above.
     shape: carShapeIndex("ARMORED QUAD"),
     faction: ENEMY_FACTION,
-    color: ENEMY_DEEP,
-    thrust: ENEMY_THRUST,
     // The shape's own authored size, unchanged. Square, which nothing else on
     // the road is, and the four rotors reach past it — see the hull's
     // `overhang`, which is what the sprite bounds are actually sized from.
@@ -1161,7 +1162,7 @@ export const CAR_TYPES = [
     // IT HOVERS, so nothing about being airborne makes a minimum speed physical
     // — and `patrol` holds station ahead, so the mortar's rule applies unchanged:
     // an attacker in front must be able to FALL BACK onto a player who brakes.
-    speedMin: 0,
+    hardFloor: 0,
     cruiseMin: 580,
     speedMax: 660,
     // THE FASTEST THING ACROSS THE ROAD IN THE GAME, past the outrider's 200,
@@ -1220,7 +1221,7 @@ export const CAR_TYPES = [
                          // has nothing to lay a mine on (armament.js)
     driving: "gunship",
   },
-];
+].map(liveried);
 
 // Whether `type` is allowed on the road yet. `distance` is the RAW world
 // odometer (main.js), and `minDistance` is in readout units, so the conversion
