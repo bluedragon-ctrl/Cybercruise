@@ -451,6 +451,28 @@ export const SPECIALS = [
     special: "autolock",
     color: PLAYER_THRUST,
   },
+  {
+    id: "siphon_medic",
+    label: "SIPHON MEDIC",
+    detail: "HULL = CREDITS",
+    note: "A SIPHONED NODE HEALS AS MUCH HULL AS IT PAYS OUT",
+    // ONE FOR ONE WITH THE CREDIT, not a number of its own — game/wallet.js's
+    // collect() hands this the SAME `value` that lands in the wallet, so the
+    // effect scales with everything that already scales that figure: a richer
+    // node heals more, and a SIPHON RIG tier bought off the STATS shelf above
+    // (SIPHON_YIELDS) makes every node pay AND heal more at once. This is the
+    // reason it carries no `amount` field here the way buy_repair does — there
+    // is nothing to restate, because it is never a figure of its own.
+    //
+    // SIZED SMALL ON PURPOSE. A node pays 4-17 CR at stock (links.js's
+    // NODE_VALUE_MIN/MAX), a sliver of the CHASSIS tier's 50 HULL — this is a
+    // trickle earned by doing what a run was already doing (steering at nodes
+    // for money), not a repair kit. What it buys is a FLOOR under a run that
+    // keeps siphoning, which nothing else in the game turns credits into.
+    price: 350,
+    special: "siphonMedic",
+    color: GREEN_BRIGHT,
+  },
 ];
 
 // One named stat. Mirrors pickupTypeById/obstacleTypeById.

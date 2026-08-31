@@ -504,12 +504,20 @@ export class Wallet {
   // The SIPHON RIG is not an exception to that — `nodeValue` is what the CITY
   // says a node is worth, `siphonTier(player).yield` is what the CAR can pull
   // out of it, and hints() quotes the same product.
+  //
+  // SIPHON MEDIC (upgrades.js's SPECIALS shelf) reads this same `value` and
+  // turns it straight into hull — see that entry's own comment for why the
+  // heal carries no balance number of its own. `player.heal` is guarded by
+  // `?.` for the same reason `player.specials` is read with it: econsim.js and
+  // this file's own test suite drive collect() with plain {x,y,speed}
+  // stand-ins that carry neither.
   collect(clockValue, node, player, push = gameConsole.push, busy = gameConsole.isBusy) {
     this.harvested.add(nodeId(node.bx, node.by));
     const value = Math.round(nodeValue(node.bx, node.by) * siphonTier(player).yield);
     this.award(value);
     this.siphoned += value;
     this.nodes++;
+    if (player?.specials?.siphonMedic) player.heal?.(value);
     // Where it happened, for the floating marker — see mark().
     this.mark({ kind: "floor", x: node.cx, y: node.sy, value });
     announceCityLine(clockValue, `${callsign(node.bx, node.by)} // SIPHON +${value}CR`, gameConsole.HINT, push, busy);

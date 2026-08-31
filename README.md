@@ -624,6 +624,7 @@ rounds".
 | SHIELD STORM | the shield arcs into anything that drives close, civilians included | `game/shieldstorm.js` |
 | AUTOLOCK | pulling the tracer's trigger designates one hostile ahead at random; every round for the next 3.5s steers to follow it | `game/targeting.js` |
 | SPIKE MINES | the mine you already lay sprays spikes: whatever lives through the blast crawls at 150 for three seconds | `game/obstacles.js` |
+| SIPHON MEDIC | siphoning a node heals hull 1-for-1 with the credits it just paid, so a SIPHON RIG tier heals more too | `wallet.js` |
 
 They are ownership **flags** and nothing more — `upgrades.js` knows what each one
 costs and nothing about what it does; each system reads the flag off

@@ -119,6 +119,9 @@ test("every flag on the shelf is claimed by a system, and every claim names a fl
   // through a catalogue field, so it is named here — the one claim that cannot
   // be discovered by walking a list.
   claimed.add("shieldStorm");
+  // game/wallet.js's collect() reads siphonMedic the same way — straight off
+  // the player, not through a catalogue field.
+  claimed.add("siphonMedic");
 
   for (const flag of sold) {
     assert.ok(claimed.has(flag), `${flag} is sold but nothing reads it`);
@@ -607,4 +610,52 @@ test("the storm is worth less than shooting, which is what stops it farming the 
   assert.ok(CONSUMABLES.some((c) => c.id === "buy_shield"),
     "nothing on the shelf sells the shield SHIELD STORM depends on");
   assert.ok(specialById("shield_storm").price > 0);
+});
+
+// --- SIPHON MEDIC --------------------------------------------------------------
+
+// A synthetic node — only bx/by/cx/sy matter to collect(), the fields
+// nodeId/nodeValue/callsign and the floor marker read.
+const medicNode = (bx, by) => ({ bx, by, cx: 0, sy: 0 });
+
+test("SIPHON MEDIC heals nothing unbought, and exactly what the node just paid once bought", () => {
+  const wallet = new Wallet(null);
+  const player = new Player(0, 0);
+  player.damage(150);
+  const before = player.health;
+
+  wallet.collect(0, medicNode(3, 40), player, () => {}, () => false);
+  assert.equal(player.health, before, "an unbought medic healed anyway");
+
+  player.specials = { siphonMedic: true };
+  const paid = wallet.collect(0, medicNode(4, 41), player, () => {}, () => false);
+  assert.ok(paid > 0, "the fixture picked a worthless node");
+  assert.equal(player.health, before + paid,
+    "the medic did not heal exactly what the node paid");
+});
+
+test("SIPHON MEDIC heals more off a maxed rig, because the same node pays more", () => {
+  // The special carries no balance number of its own (see upgrades.js's own
+  // comment) — it reads collect()'s `value`, the SAME figure the SIPHON RIG's
+  // yield tiers already move (wallet.js's SIPHON_YIELDS). Buying the rig makes
+  // this richer for free.
+  const stock = new Player(0, 0);
+  stock.specials = { siphonMedic: true };
+  const rigged = new Player(0, 0);
+  rigged.specials = { siphonMedic: true };
+  rigged.siphonLevel = 3;
+
+  const node = () => medicNode(5, 60);
+  const stockHeal = new Wallet(null).collect(0, node(), stock, () => {}, () => false);
+  const riggedHeal = new Wallet(null).collect(0, node(), rigged, () => {}, () => false);
+  assert.ok(riggedHeal > stockHeal, "a maxed rig did not heal more off the same node");
+});
+
+test("SIPHON MEDIC caps at max hull, the same as any other heal", () => {
+  const wallet = new Wallet(null);
+  const player = new Player(0, 0);
+  player.specials = { siphonMedic: true };
+  player.health = player.maxHealth - 2;
+  wallet.collect(0, medicNode(6, 70), player, () => {}, () => false);
+  assert.equal(player.health, player.maxHealth);
 });
