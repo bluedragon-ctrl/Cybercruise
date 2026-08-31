@@ -198,6 +198,9 @@ test("the cursor wraps in both directions and reaches every row", () => {
   }
   // A full lap is back at the start: the first row is the first consumable, and
   // buying it is what proves the cursor came home rather than stopping short.
+  // Damaged first, or the repair would be refused as a full-hull no-op
+  // (upgrades.js's consumableWasted) rather than bought.
+  s.player.damage(50);
   s.wallet.award(CONSUMABLES[0].price);
   clearInput();
   press("Space");
@@ -213,6 +216,10 @@ test("reset puts the cursor back for a fresh run", () => {
   press("ArrowUp"); // onto UNDOCK
   tick(s);
   s.screen.reset();
+  // Damaged first — a full-hull repair is refused as a no-op purchase
+  // (upgrades.js's consumableWasted), and this test only cares about the
+  // cursor, not that particular rule.
+  s.player.damage(50);
   s.wallet.award(CONSUMABLES[0].price);
   clearInput();
   press("Space");
@@ -227,6 +234,10 @@ test("the shelf quotes the catalogue's own prices, and nothing else's", () => {
   // catalogue retunes the screen with nothing here to update.
   clearInput();
   const s = shop();
+  // A stock car is at full hull, and a full-hull repair is refused rather than
+  // priced (upgrades.js's consumableWasted) — so the repair row would draw
+  // "MAX" instead of a price unless something has actually hurt the car first.
+  s.player.damage(50);
   const drawn = draw(s).texts.map((t) => t.text);
   for (const entry of CONSUMABLES) {
     assert.ok(drawn.includes(entry.label), `${entry.id} is missing from the shelf`);
@@ -310,6 +321,10 @@ test("buying one tier does not make the next look bought — the price stays liv
   clearInput();
   const s = shop();
   const engine = statById("engine");
+  // A stock car is at full hull, so the untouched repair row would draw "MAX"
+  // too (upgrades.js's consumableWasted) — irrelevant to this test, but it
+  // would false-positive the "no MAX anywhere" check below if left in.
+  s.player.damage(50);
   s.wallet.award(tierPrice(engine, 0)); // exactly one tier's worth
   for (let i = 0; i < CONSUMABLES.length; i++) { press("ArrowDown"); tick(s); }
   clearInput();
@@ -360,6 +375,11 @@ test("a purchase leaves a receipt on the row until the player undocks", () => {
   // summary of what this stop was spent on. Cleared by undocking, not by time.
   clearInput();
   const s = shop();
+  // Damaged well short of the repair's own +100, so the row still quotes a
+  // price after one purchase instead of reading as a wasted, refused one
+  // (upgrades.js's consumableWasted) — the point below is that the price
+  // survives the BOUGHT mark, not that a second purchase would succeed.
+  s.player.damage(150);
   s.wallet.award(CONSUMABLES[0].price * 2);
   press("Space");
   tick(s);
