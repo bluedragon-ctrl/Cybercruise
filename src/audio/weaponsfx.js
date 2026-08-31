@@ -7,13 +7,14 @@
 //
 // TWO TABLES, because the two catalogues are answering different questions.
 //
-// PLAYER_FIRE_SOUND covers every entry in WEAPON_TYPES, including the two
-// deployables (mine, spikes) even though laying one isn't "firing" in any
-// sense main.js's own fire branch means — both route through main.js's
-// dropMine call site instead, and both get the same mine_placed
-// acknowledgement tone: the difference between a mine and a spike strip is
-// what the road does after, not how the console confirms the drop. The
-// three guns (cannon, tracker, rocket) each get their OWN id, echoing the
+// PLAYER_FIRE_SOUND covers every entry in WEAPON_TYPES, including the mine
+// even though laying one isn't "firing" in any sense main.js's own fire
+// branch means — it routes through main.js's dropMine call site instead and
+// gets the mine_placed acknowledgement tone. That tone is keyed to the
+// WEAPON, so the SPIKE MINES upgrade (upgrades.js) changing what the mine
+// lays does not change how the console confirms the drop: what the road does
+// afterwards is the tell, not the keypress. The three guns (cannon, tracker,
+// rocket) each get their OWN id, echoing the
 // design brief's point that a capacitor discharge is not one sound — the
 // player's own arsenal is told apart by TIMBRE, weapon by weapon.
 //
@@ -30,7 +31,6 @@ export const PLAYER_FIRE_SOUND = {
   tracker: "fire_tracker",
   rocket: "fire_rocket",
   mine: "mine_placed",
-  spikes: "mine_placed",
 };
 
 export const ENEMY_FIRE_SOUND = {

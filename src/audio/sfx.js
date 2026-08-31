@@ -267,8 +267,9 @@ function generateFireTracker(ctx, dest, t) {
 
 registerGenerator("fire_tracker", generateFireTracker);
 
-// A mine or spike strip being laid (weapons.js's "mine"/"spikes", both
-// dropped through main.js's dropMine) — ONE triangle note gliding
+// A mine being laid (weapons.js's "mine", dropped through main.js's
+// dropMine — the spike-mine upgrade lays through the same call and sounds
+// the same) — ONE triangle note gliding
 // 200→150Hz over 100ms, a console acknowledging a command rather than a
 // weapon discharging at all. A single continuous glide reads as one
 // unbroken acknowledgement tone rather than two stepped notes — simpler
@@ -293,7 +294,7 @@ function generateMinePlaced(ctx, dest, t) {
 
 registerGenerator("mine_placed", generateMinePlaced);
 
-// TAB/E cycling the loadout (main.js's consumePress("swap")/("deploy")) —
+// TAB cycling the loadout (main.js's consumePress("swap")) —
 // two DESCENDING triangle blips (240→180Hz), a relay throwing. Triangle
 // rather than a first pass's square, and descending rather than
 // ascending: a softer waveform and a falling contour read as a settle

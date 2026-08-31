@@ -200,6 +200,155 @@ test("the strip is feared out of proportion to what it costs", () => {
   );
 });
 
+// --- The spike mine ----------------------------------------------------------
+//
+// upgrades.js's SPIKE MINES special: the mine the player already lays, with the
+// strip's puncture riding out on its blast. Two rules hold it together and both
+// are asserted below — it must add NO damage to the mine (a special buys a verb,
+// see the SPECIALS header) and it must reach only what the blast failed to kill,
+// which is what keeps a 350 CR purchase from being a second, better mine.
+
+test("the spike mine is the mine's blast, field for field", () => {
+  // obstacletypes.js pins its damage figures to `caltrop`'s rather than
+  // restating them, precisely so car-editor retuning the mine moves both — an
+  // upgraded mine that quietly stopped tracking the plain one is the failure
+  // this catches.
+  const mine = obstacleTypeById("caltrop");
+  const spikemine = obstacleTypeById("spikemine");
+  for (const field of ["health", "mass", "blastRadius", "blastDamage", "shape"]) {
+    assert.equal(spikemine[field], mine[field],
+      `the spike mine's ${field} (${spikemine[field]}) has drifted off the mine's ${mine[field]}`);
+  }
+  // Feared identically, which follows from neither naming a `threat` of its own
+  // — the AI cannot see a difference between them, so it must not weigh one.
+  assert.equal(spikemine.threat ?? spikemine.blastDamage, mine.threat ?? mine.blastDamage);
+  // And nothing on top of the blast: Traffic.puncture spends contactDamage, and
+  // a car inside the radius has already taken up to the full blast.
+  assert.equal(spikemine.contactDamage ?? 0, 0,
+    "a spike mine that scratches as well is the mine plus a bigger number");
+});
+
+test("the spike mine borrows the strip's crawl and spends it faster", () => {
+  // obstacletypes.js: a punctured car is a punctured car whatever punched the
+  // holes, so `slowTo` MUST match — two crawl speeds would be two mechanics.
+  // The window is shorter because the strip stays in the road and bites again,
+  // where the mine is gone in the flash that laid the teeth.
+  const strip = obstacleTypeById("spikes");
+  const spikemine = obstacleTypeById("spikemine");
+  assert.equal(spikemine.slowTo, strip.slowTo, "two crawl speeds is two mechanics");
+  assert.ok(spikemine.slowTime > 0, "a puncture with no window is not a puncture");
+  assert.ok(spikemine.slowTime < strip.slowTime,
+    `the mine's ${spikemine.slowTime}s must be shorter than the strip's ${strip.slowTime}s`);
+});
+
+// Two cars, both real TrafficCars (the puncture under test is theirs), set down
+// on a hazard the caller names. blast() is called directly rather than driven
+// into: what is asserted is the FALLOFF's reach, and steering a car to a chosen
+// distance from a blast would be a test of the driving instead.
+function blastScenario(typeId, { survivor = "rival", victim = "cycle", gap = 0 } = {}) {
+  const type = obstacleTypeById(typeId);
+  const obstacles = new Obstacles(new Explosions());
+  const traffic = new Traffic();
+  // Separate lanes, or place() refuses the second as a car parked on the first;
+  // both are then moved onto the hazard by hand, which is the whole point.
+  const at = (id, lane, offset) => {
+    traffic.place(CAR_TYPES.find((t) => t.id === id), 0, lane, 300);
+    const car = traffic.cars[traffic.cars.length - 1];
+    assert.equal(car.type.id, id, `place() did not put a ${id} on the road`);
+    car.worldY = 0;
+    car.offset = offset;
+    return car;
+  };
+  const tough = at(survivor, 0, gap);
+  const light = at(victim, 1, 0);
+  assert.ok(tough.health > type.blastDamage,
+    `${survivor} (${tough.health} hull) cannot survive a ${type.blastDamage} blast`);
+  assert.ok(light.health <= type.blastDamage,
+    `${victim} (${light.health} hull) survives the blast — pick a lighter car`);
+
+  obstacles.drop(type, { worldY: 60, offset: 0, h: 60 });
+  const o = obstacles.list[0];
+  o.worldY = 0;
+  // A player far enough up the road to be outside every radius: this is about
+  // the cars, and main.js's playerBox carries no puncture() anyway.
+  obstacles.blast(o, { worldY: 5000, offset: 0, w: 34, h: 60, damage() {} }, traffic.cars);
+  return { tough, light, type };
+}
+
+test("a spike mine punctures what lives through its blast, and kills what does not", () => {
+  // obstacles.js's blast(): the puncture is applied AFTER the damage and only
+  // to survivors. This is the whole upgrade — the heavy that used to drive out
+  // of its own wreckage now limps out of it.
+  const { tough, light, type } = blastScenario("spikemine");
+  assert.ok(!light.alive, "the blast must still kill what it always killed");
+  assert.ok(tough.alive, "the survivor was meant to live through this");
+  assert.equal(tough.spikeTime, type.slowTime, "the survivor drove away unpunctured");
+  assert.equal(tough.spikeSpeed, type.slowTo);
+});
+
+test("a plain mine punctures nobody, upgrade or no upgrade", () => {
+  // The other half of the same rule, and the reason the spike mine is a second
+  // catalogue entry rather than a flag: `caltrop` is shared hardware — the
+  // cycle and the rival lay it too (armament.js) — so a puncture on the type
+  // itself would arm the enemy with what the player paid 350 CR for.
+  const { tough } = blastScenario("caltrop");
+  assert.equal(tough.spikeTime, 0, "the plain mine punctured a car");
+});
+
+test("the spike mine's puncture is flat across the blast, not scaled toward the rim", () => {
+  // obstacles.js: the damage falls off with distance, the puncture does not. A
+  // car grazed at the rim is exactly the car this upgrade is FOR — the one the
+  // falloff barely hurt — so scaling the puncture with the damage would delete
+  // its one job.
+  const spikemine = obstacleTypeById("spikemine");
+  const rival = CAR_TYPES.find((t) => t.id === "rival");
+  // Far enough out that the falloff has almost nothing left, still inside the
+  // radius. Measured off the two boxes exactly as blast() measures it.
+  const edge = (rival.w + OBSTACLE_SHAPES[spikemine.shape].size[0]) / 2;
+  const { tough } = blastScenario("spikemine", { gap: edge + spikemine.blastRadius * 0.95 });
+  assert.ok(tough.health > rival.health - spikemine.blastDamage * 0.1,
+    "the test is meaningless unless the falloff has nearly nothing left out here");
+  assert.equal(tough.spikeTime, spikemine.slowTime,
+    "a car grazed at the rim limped less than one at the centre");
+});
+
+test("the spike mine is laid by one thing only, and never spawns", () => {
+  // obstacletypes.js's laidOnly, and the join upgrades.js/weapons.js make: the
+  // hazard is reachable ONLY through the shelf flag that buys it. A payload
+  // named by nothing is 350 CR of nothing, the same failure
+  // test/specials.test.js catches from the other end.
+  const spikemine = obstacleTypeById("spikemine");
+  assert.ok(spikemine.laidOnly, "an upgraded mine that spawns by itself is not an upgrade");
+  assert.equal(spikemine.weight, 0);
+
+  const carriers = WEAPON_TYPES.filter((t) => t.upgradePayload === "spikemine");
+  assert.equal(carriers.length, 1, "exactly one weapon may lay the spike mine");
+  assert.equal(carriers[0].id, "mine", "the spike mine must be an upgrade to the MINE");
+  assert.ok(carriers[0].upgrade, "an upgraded payload with no flag can never be reached");
+  // No hostile carries it: armament.js's profiles name their payload by id, and
+  // the enemy's is the plain mine or the strip.
+  for (const type of CAR_TYPES) {
+    const arms = armamentFor(type);
+    assert.notEqual(arms?.payload, spikemine, `${type.id} lays the player's upgraded mine`);
+  }
+});
+
+test("the spike strip is the enemy's alone — nothing the player carries, finds or buys is one", () => {
+  // The removal this upgrade replaced. A strip in the player's hands was a
+  // second deployable with its own magazine, crate, shop row and cycle key, and
+  // the point of SPIKE MINES is that none of those came back. The strip itself
+  // stays exactly where it was: in the sower's hands.
+  const strip = obstacleTypeById("spikes");
+  assert.ok(strip, "the enemy's strip must still exist");
+  assert.ok(
+    !WEAPON_TYPES.some((t) => t.payload === "spikes" || t.upgradePayload === "spikes"),
+    "the player carries a spike strip again",
+  );
+  assert.ok(!PICKUP_TYPES.some((t) => t.weaponId === "spikes"), "the road drops strip ammo again");
+  assert.equal(armFor(CAR_TYPES.find((t) => t.id === "sower")).payload, strip,
+    "the sower must still be the thing that lays strips");
+});
+
 test("a laid hazard is never left hanging over a barrier", () => {
   // obstacles.js's drop(): "wherever that car was" says which LANE, not that a
   // hazard may be drawn through the wall. Only bites on the wide ones — a mine
@@ -1791,6 +1940,136 @@ function holdBrake(down) {
   keyboard.dispatchEvent(
     Object.assign(new Event(down ? "keydown" : "keyup"), { code: "KeyS", repeat: false }));
 }
+
+// --- The player's own puncture ------------------------------------------------
+//
+// player.js's puncture(), which is the other end of the sower's errand: it lays
+// a strip while the player TRAILS it (armament.js's layMine only fires on a
+// target behind the layer), so the strip goes down in the player's path. Until
+// this existed, obstacles.js's contact pass had no player case and the one car
+// every strip on the road is laid for drove over them for free.
+
+test("a crawl the player is held to must still be a speed, not a stop", () => {
+  // obstacletypes.js's slowTo against player.js's MIN_SPEED. A crawl at or
+  // below the player's own floor is not a puncture the player can tell from
+  // lifting off the throttle — and at that point the strip has no effect on
+  // them that a brake does not.
+  const strip = obstacleTypeById("spikes");
+  assert.ok(strip.slowTo > MIN_SPEED,
+    `a strip's ${strip.slowTo} is not above the player's own ${MIN_SPEED} floor`);
+});
+
+test("the player crossing a strip is punctured once, not once per tick", () => {
+  // player.js's guard, and traffic.js's before it: a car sits on a strip for
+  // many ticks, and the scratch taken sixty times a second would make the
+  // gentlest hazard in the game the deadliest thing on the road.
+  const strip = obstacleTypeById("spikes");
+  const player = new Player(0, 0);
+  const before = player.health;
+
+  for (let i = 0; i < 60; i++) player.puncture(strip);
+
+  assert.equal(before - player.health, strip.contactDamage, "the strip bit the player more than once");
+  assert.equal(player.spikeTime, strip.slowTime);
+  assert.equal(player.spikeSpeed, strip.slowTo);
+});
+
+test("a punctured player is eased down to the crawl and held there, then recovers", () => {
+  // player.js: applied AFTER the band clamp, or the floor would drive the car
+  // straight back up next tick. Eased at BAND_RECOVER rather than snapped —
+  // dropping the whole difference in a frame is what hitting a wall reads
+  // like, which is the mine's job.
+  const strip = obstacleTypeById("spikes");
+  const player = new Player(0, 0);
+  const bounds = { left: -10000, right: 10000 };
+  player.speed = player.topSpeed;
+  player.puncture(strip);
+
+  player.update(1 / 60, bounds);
+  assert.ok(player.speed > strip.slowTo, "a one-frame drop to the crawl reads as a collision");
+  assert.equal(player.speed, player.topSpeed - BAND_RECOVER / 60, "easing at exactly BAND_RECOVER");
+
+  for (let i = 0; i < 60 * 3; i++) player.update(1 / 60, bounds);
+  assert.equal(player.speed, strip.slowTo, "the crawl must be a floor the car settles on");
+
+  // ...and once the window is up the band takes the car back.
+  for (let i = 0; i < 60 * Math.ceil(strip.slowTime + 2); i++) player.update(1 / 60, bounds);
+  assert.equal(player.spikeTime, 0, "the puncture never wore off");
+  assert.ok(player.speed >= player.minSpeed,
+    `the car is still at ${player.speed}, below its own floor`);
+});
+
+test("a shield stops the puncture, not just the scratch", () => {
+  // player.js: the shield is total invulnerability while it runs, and the crawl
+  // is by far the larger half of what a strip costs — a shielded car that lost
+  // its top end anyway would make a mockery of the promise.
+  const strip = obstacleTypeById("spikes");
+  const player = new Player(0, 0);
+  player.activateShield(10);
+  const before = player.health;
+
+  player.puncture(strip);
+  assert.equal(player.health, before, "the shield let the scratch through");
+  assert.equal(player.spikeTime, 0, "the shield let the puncture through");
+
+  // A BANKED shield fires on this hit like any other — that is what banking is
+  // for, and it must cover the puncture it opened the window against.
+  const banked = new Player(0, 0);
+  banked.chargeShield(10);
+  banked.puncture(strip);
+  assert.ok(banked.shieldTime > 0, "the banked shield did not fire on the strip");
+  assert.equal(banked.spikeTime, 0, "the shield it opened did not cover the puncture");
+});
+
+test("an invulnerable player is not punctured either", () => {
+  // testoptions.js's cheat has to mean what it says: player.js funnels every
+  // damage source through one guard, and the crawl now sits behind the same one.
+  const strip = obstacleTypeById("spikes");
+  const player = new Player(0, 0);
+  player.invulnerable = true;
+  player.puncture(strip);
+  assert.equal(player.spikeTime, 0);
+  assert.equal(player.health, player.maxHealth);
+});
+
+test("a running overdrive does not out-rank a puncture", () => {
+  // player.js: a boost lifts minSpeed ABOVE the crawl, and when the two
+  // disagree the puncture wins — one rule for the player and the traffic, and a
+  // strip that could be no-sold by having drunk a crate first would stop being
+  // the thing the sower's errand is built around.
+  const strip = obstacleTypeById("spikes");
+  const player = new Player(0, 0);
+  const bounds = { left: -10000, right: 10000 };
+  player.activateBoost(200, 10);
+  assert.ok(player.minSpeed > strip.slowTo,
+    "the test is meaningless unless the boosted floor sits above the crawl");
+
+  player.puncture(strip);
+  for (let i = 0; i < 60 * 4; i++) player.update(1 / 60, bounds);
+  assert.equal(player.speed, strip.slowTo, "the boosted floor overruled the puncture");
+});
+
+test("a strip laid in the player's path actually bites them", () => {
+  // The end-to-end join, through obstacles.js's contact pass rather than by
+  // calling puncture() by hand: the pass had no player case at all, so every
+  // assertion above could pass while the strip on the road did nothing.
+  const strip = obstacleTypeById("spikes");
+  const obstacles = new Obstacles(new Explosions());
+  const world = obstacleWorld();
+  obstacles.drop(strip, { worldY: world.distance + 200, offset: 0, h: 60 });
+  const o = obstacles.list[0];
+  assert.ok(o, "expected the strip to go down");
+
+  // Drive the player exactly onto it.
+  world.distance = o.worldY;
+  world.player.x = centerXAt(o.worldY, world.W) + o.offset;
+  obstacles.update(1 / 60, world);
+
+  assert.equal(world.player.spikeTime, strip.slowTime, "the player drove over the strip untouched");
+  // ...and the strip is still lying there, because a belt is not consumed by
+  // the first car that finds it.
+  assert.ok(obstacles.list.includes(o), "the strip was eaten by the car that crossed it");
+});
 
 test("a boost lifts BOTH ends of the player's speed band by its amount", () => {
   const player = new Player(0, 0);

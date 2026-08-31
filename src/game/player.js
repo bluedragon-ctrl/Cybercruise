@@ -202,6 +202,13 @@ export class Player {
     // that would actually land. See chargeShield below.
     this.shieldCharge = 0;
 
+    // Punctured tyres — traffic.js carries exactly this pair on every car, and
+    // for the same reason: the strip that bit is usually long gone by the time
+    // the crawl matters, so the speed is carried on the CAR rather than looked
+    // up from a hazard that may no longer exist. See puncture() below.
+    this.spikeTime = 0;  // seconds of crawl left
+    this.spikeSpeed = 0; // ...and the speed it is held down to while it runs
+
     this.boostTime = 0; // seconds of overdrive left (game/pickuptypes.js's BOOST)
     this.boostAmount = 0; // world units/sec the whole band is lifted by while it runs
     this.boostPhase = 0; // accumulated only while boosted — drives the HUD's expiry flicker
@@ -257,6 +264,47 @@ export class Player {
     });
 
     if (this.onDamage) this.onDamage(hp, false); // a real hull loss — the player_hit branch
+  }
+
+  // Cross a spike strip (obstacletypes.js's "spikes" effect, applied by
+  // obstacles.js's contact pass): a scratch of hull, and tyres that will not
+  // hold a cruising speed for `slowTime`.
+  //
+  // THE PLAYER'S HALF OF TRAFFIC.PUNCTURE, and written against it deliberately
+  // — the sower drives past and lays a strip in the player's path
+  // (cartypes.js), which is the whole errand that catalogue entry describes,
+  // and until this existed the strip it left was inert to the one car it was
+  // laid for. The obstacle side has said so in a comment since the strip
+  // shipped ("this is the one line that has to grow a Player.puncture").
+  //
+  // NOT BITTEN TWICE, exactly as traffic.js's guard: a car sits on a strip for
+  // many ticks, and without this the scratch would be taken sixty times a
+  // second and the gentlest hazard in the game would be the deadliest. A
+  // SECOND strip still bites once the first one's window is up.
+  //
+  // A SHIELD STOPS THE PUNCTURE, NOT JUST THE SCRATCH. The shield is total
+  // invulnerability while it runs (see damage()'s own header), and a shielded
+  // car that still lost thirty seconds of speed would make a mockery of that —
+  // the crawl is by far the larger half of what a strip costs. damage() is
+  // called FIRST so a BANKED shield fires on this hit like any other (that is
+  // what banking is for), and the guard below then reads the window it opened.
+  // A hazard with no contactDamage at all cannot spend a bank, since damage()
+  // returns early on zero — nothing that reaches the player is such a hazard
+  // today, and one that was would want that decided here on purpose.
+  puncture(type) {
+    if (this.spikeTime > 0) return;
+    this.damage(type.contactDamage);
+    if (this.invulnerable || this.shieldTime > 0) return;
+    this.spikeTime = type.slowTime;
+    this.spikeSpeed = type.slowTo;
+    // THE TELL, and the reason this is not just a number quietly changing. A
+    // hostile car that limps is legible from outside — the player watches it
+    // fall behind. The player's OWN car losing its top end has nothing to show
+    // for itself but a speed readout that will not climb, which reads as a bug
+    // in the throttle. One line in the sys log is what turns it back into a
+    // thing that happened, and it is the same channel the hull warnings above
+    // already use.
+    gameConsole.push("TYRES // PUNCTURED", gameConsole.WARN);
   }
 
   // Restore `hp` of hull, capped at maxHealth (game/pickuptypes.js's FIX).
@@ -438,6 +486,27 @@ export class Player {
       this.speed = Math.min(this.minSpeed, Math.max(this.speed, before + BAND_RECOVER * dt));
     } else if (this.speed > this.topSpeed) {
       this.speed = Math.max(this.topSpeed, Math.min(this.speed, before - BAND_RECOVER * dt));
+    }
+
+    // PUNCTURED TYRES OVERRULE THE WHOLE BAND, and are therefore applied after
+    // it — the same position, and the same argument, traffic.js's own update
+    // gives: the crawl is the ONE deliberate exception to the floor, and inside
+    // the clamp it would be clamped straight back up next tick and do nothing.
+    //
+    // INCLUDING AN OVERDRIVE'S RAISED FLOOR. A boost lifts `minSpeed` above the
+    // 150 crawl (player.js's BOOST band, obstacletypes.js's slowTo), and when
+    // the two disagree the puncture wins. One rule for the player and the
+    // traffic beats an exception nobody could see the shape of, and a strip
+    // that could be no-sold by having drunk a crate first would stop being the
+    // thing the sower's whole errand is built around.
+    //
+    // EASED DOWN AT BAND_RECOVER, not snapped — the ceiling branch above,
+    // measured from `before` for the same reason. A car that dropped 200 units
+    // the instant it touched the strip would read as hitting a wall, which is
+    // the mine's job, not this one.
+    if (this.spikeTime > 0) {
+      this.spikeTime = Math.max(0, this.spikeTime - dt);
+      this.speed = Math.max(this.spikeSpeed, Math.min(this.speed, before - BAND_RECOVER * dt));
     }
 
     // Constrain to the road; scraping a barrier costs health and scrubs speed.

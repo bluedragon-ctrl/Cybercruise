@@ -15,7 +15,7 @@ import { PLAYER_MASS, Player } from "../src/game/player.js";
 import { DIST_UNITS } from "../src/game/road.js";
 import { resolveCollisions, ramSpeed } from "../src/game/collisions.js";
 import { Score, DISTANCE_POINTS } from "../src/game/score.js";
-import { Loadout, Weapon, WEAPON_TYPES } from "../src/game/weapons.js";
+import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES, laidPayload } from "../src/game/weapons.js";
 import { OBSTACLE_TYPES, obstacleTypeById, obstacleAvailable } from "../src/game/obstacletypes.js";
 import { driver } from "../test-support/fixtures.js";
 
@@ -442,27 +442,26 @@ test("the round that empties a magazine hands over the next loaded gun", () => {
   assert.equal(loadout.current, held);
 });
 
-test("the deploy cycle skips spent layers, and laying the last one moves on", () => {
-  // The mine/spikes half of the same rule: CTRL must keep working rather than
-  // going quiet on an empty layer while another is still loaded.
-  const layers = WEAPON_TYPES.filter((t) => t.payload);
-  if (layers.length < 2) return; // nothing to switch TO — see weapons.js
+test("laying the last mine leaves the deploy cursor where it is", () => {
+  // settle() walks the layer cursor to the next LOADED layer, and with one
+  // layer carried there is never another — so the spent mine stays selected
+  // and the HUD keeps reading "MINE 0" rather than the readout vanishing.
+  // This is the half of settle() that has no cycle key behind it any more; it
+  // is also the assertion that comes back to life the day a second layer is
+  // added, which is why it is written against the catalogue rather than
+  // against "the mine".
   const loadout = new Loadout();
-  for (const w of loadout.weapons) if (w.type.payload) w.refill(w.type.ammo);
+  const layer = loadout.deployable;
+  layer.ammo = 1;
+  assert.ok(layer.tryFire(), "the last round should still fire");
+  assert.ok(layer.empty, "that round should have emptied the magazine");
+  assert.ok(!loadout.settle(), "settle moved a cursor with nowhere to go");
+  assert.equal(loadout.deployable, layer, "the spent layer must stay selected");
 
-  const first = loadout.deployable;
-  first.ammo = 1;
-  assert.ok(first.tryFire(), "the last round should still fire");
-  assert.ok(loadout.settle(), "emptying the selected layer must move the deploy cursor");
-  assert.notEqual(loadout.deployable, first, "the spent layer is still selected");
-  assert.ok(loadout.deployable.type.payload, "the deploy cycle selected a gun");
-  assert.ok(!loadout.deployable.empty, "swapped onto another empty layer");
-
-  // And with everything spent, the cursor stays put rather than jumping about.
-  for (const w of loadout.weapons) if (w.type.payload) w.ammo = 0;
-  const stuck = loadout.deployable;
-  assert.equal(loadout.nextDeployable(), stuck, "a cycle with nothing loaded must be a no-op");
-  assert.ok(!loadout.settle(), "settle must not move a cursor with nowhere to go");
+  // Refill it and the cursor is still on it — settle only ever moves OFF empty.
+  layer.refill(layer.type.ammo);
+  assert.ok(!loadout.settle());
+  assert.equal(loadout.deployable, layer);
 });
 
 test("the player's mine layer is a Weapon like any other, and its payload resolves", () => {
@@ -486,37 +485,74 @@ test("the player's mine is the same hazard the enemy's own mine layer lays", () 
   assert.equal(mineType.payload, "caltrop");
 });
 
-test("the deployable cycle only ever selects a layer, never a gun", () => {
-  // weapons.js: the deploy key must not be able to reach a gun, or CTRL would
-  // fire it out of the wrong slot. Walked a full lap and then some, so a
-  // catalogue with the layers at either end is covered too.
-  const loadout = new Loadout();
-  for (let i = 0; i < WEAPON_TYPES.length * 2 + 1; i++) {
-    assert.ok(loadout.deployable, "a catalogue with a layer in it must always have one selected");
-    assert.ok(
-      loadout.deployable.type.payload,
-      `the deploy cycle selected ${loadout.deployable.type.id}, which is a gun`,
-    );
-    loadout.nextDeployable();
+test("an unupgraded car lays the plain mine, and the special swaps what it lays", () => {
+  // weapons.js's laidPayload, which is main.js's whole deploy decision. Lives
+  // in weapons.js precisely so it can be asserted: main.js touches the DOM at
+  // module scope, so nothing here can import it, and a payload resolved at the
+  // call site would be the one line in this feature no test ever ran.
+  const mine = WEAPON_TYPES.find((t) => t.id === "mine");
+  assert.equal(laidPayload(mine, {}), mine.payload, "a stock car must lay the plain mine");
+  assert.equal(laidPayload(mine, undefined), mine.payload,
+    "a car with no specials block at all must still lay something");
+  assert.equal(laidPayload(mine, { [mine.upgrade]: false }), mine.payload,
+    "an unbought flag must read exactly like no flag");
+  assert.equal(laidPayload(mine, { [mine.upgrade]: true }), mine.upgradePayload,
+    "the bought special did not change what the mine lays");
+
+  // A gun lays nothing, whatever the car has bought — the deploy branch guards
+  // on `deployable`, but the rule has to be true on its own terms too.
+  const gun = WEAPON_TYPES.find((t) => !t.payload);
+  assert.equal(laidPayload(gun, { [mine.upgrade]: true }), null);
+  assert.equal(laidPayload(null, {}), null, "no weapon at all must be null, not a throw");
+});
+
+test("every payload a weapon can lay names a real hazard", () => {
+  // The join main.js's obstacleTypeById makes at the drop: a payload naming
+  // nothing resolves to null and the drop silently does nothing, which is the
+  // quietest possible failure. Both catalogues walked, since ENEMY hardware
+  // lays through armament.js's own copy of the same idea.
+  for (const type of [...WEAPON_TYPES, ...ENEMY_WEAPON_TYPES]) {
+    if (type.payload) {
+      assert.ok(obstacleTypeById(type.payload), `${type.id}'s payload "${type.payload}" is not a hazard`);
+    }
+    if (type.upgradePayload) {
+      assert.ok(obstacleTypeById(type.upgradePayload),
+        `${type.id}'s upgradePayload "${type.upgradePayload}" is not a hazard`);
+      assert.ok(type.payload, `${type.id} has an upgraded payload but nothing to upgrade FROM`);
+    }
   }
 });
 
-test("the two cycles never disturb each other", () => {
-  // The whole reason the mine got its own key: laying one must not change
-  // which gun is in hand, and picking a gun must not change what CTRL drops.
+test("the deploy cursor only ever selects a layer, never a gun", () => {
+  // weapons.js: the deploy key must not be able to reach a gun, or CTRL would
+  // fire it out of the wrong slot. There is no deployable CYCLE any more (the
+  // player carries one layer — see the Loadout header), so what is under test
+  // is where the cursor STARTS and everything that may move it: the gun cycle
+  // below, and settle().
+  const loadout = new Loadout();
+  assert.ok(loadout.deployable, "a catalogue with a layer in it must always have one selected");
+  assert.ok(
+    loadout.deployable.type.payload,
+    `the deploy cursor selected ${loadout.deployable.type.id}, which is a gun`,
+  );
+});
+
+test("cycling guns never disturbs what is under the deploy key", () => {
+  // The whole reason the mine got its own key: picking a gun must not change
+  // what CTRL drops, and laying one must not change which gun is in hand.
   const loadout = new Loadout();
   const gun = loadout.current;
-
-  // Five steps over however many layers are carried, so this lands somewhere
-  // other than where it started whenever there is more than one — the cursor
-  // is read AFTER, not before, since where it ends up is the cycle's own
-  // business and not what this test is about.
-  for (let i = 0; i < 5; i++) loadout.nextDeployable();
-  assert.equal(loadout.current, gun, "cycling deployables moved the gun in hand");
   const layer = loadout.deployable;
 
-  for (let i = 0; i < 5; i++) loadout.next();
+  // A full lap and then some, so a catalogue with the layer at either end is
+  // covered too.
+  for (let i = 0; i < WEAPON_TYPES.length * 2 + 1; i++) loadout.next();
   assert.equal(loadout.deployable, layer, "cycling guns moved the selected deployable");
+
+  // And the traffic the other way: emptying the layer leaves the gun alone.
+  loadout.deployable.ammo = 0;
+  loadout.settle();
+  assert.equal(loadout.current, gun, "emptying the layer moved the gun in hand");
 });
 
 test("a loadout carrying no layer has nothing to deploy, and says so", () => {
@@ -526,6 +562,6 @@ test("a loadout carrying no layer has nothing to deploy, and says so", () => {
   const guns = WEAPON_TYPES.filter((t) => !t.payload);
   const loadout = new Loadout(guns);
   assert.equal(loadout.deployable, null);
-  assert.equal(loadout.nextDeployable(), null, "cycling nothing must be a no-op, not a crash");
+  assert.ok(!loadout.settle(), "settling a loadout with no layer must be a no-op, not a crash");
   assert.equal(loadout.current.type.id, guns[0].id, "and must not have moved the gun in hand");
 });

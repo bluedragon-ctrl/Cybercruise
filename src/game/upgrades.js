@@ -46,14 +46,14 @@ import { ROCKET, PLAYER_THRUST, ENEMY, GREEN_BRIGHT, PLAYER } from "../engine/pa
 // anything: an enemy pays 25 CR (cartypes.js's `bounty`), so the numbers below
 // read as "three to five enemies" rather than as abstract figures.
 //
-// GUNS ARE TOPPED UP, LAYERS ARE REARMED, and that split is by what the weapon
+// GUNS ARE TOPPED UP, THE LAYER IS REARMED, and that split is by what the weapon
 // IS rather than by taste. A gun's magazine runs to dozens of rounds, so the
 // dock sells the matching crate's own quantity (pickuptypes.js) — the road drops
 // it, this sells it, and a player who knows what a ROCKET+ crate is worth
-// already knows what the row is worth. A LAYER's magazine is three or five
-// (weapons.js), and at that size "+1" is not a purchase, it is a rounding error
-// on a decision the player has to walk down a menu to make. So the mine and the
-// spike strip are sold as a WHOLE SET: one press leaves the dock rearmed.
+// already knows what the row is worth. The MINE crate hands over two against a
+// magazine of sixteen (weapons.js), and at that size a menu walk per pair is not
+// a purchase, it is a rounding error. So the mine is sold as a WHOLE SET: one
+// press leaves the dock rearmed.
 //
 // Weapon.refill caps at the weapon's own starting magazine, so selling the whole
 // magazine is exactly "top it right up" whatever was left in it — there is no
@@ -161,25 +161,6 @@ export const CONSUMABLES = [
     kind: AMMO,
     weaponId: "mine",
     amount: 16,
-    color: ENEMY,
-  },
-  {
-    id: "buy_spikes_ammo",
-    label: "SPIKE STRIPS",
-    detail: "SET OF 5",
-    // THE DEAREST ROUNDS ON THE SHELF, and they have to stay that way. The strip
-    // is the one weapon the player owns NOTHING of at the start (weapons.js's
-    // `startAmmo: 0`) and whose whole balance is how few there are — a road the
-    // player can keep permanently belted is a road nothing can chase them down.
-    // The dock is therefore the main way anyone gets one at all, which makes the
-    // price the thing standing between "a weapon you go and buy" and "a weapon
-    // you simply have". Fewer rounds than the mine row for a lower total but a
-    // HIGHER price each, which is the relation that matters and the one
-    // test/shop.test.js pins.
-    price: 75,
-    kind: AMMO,
-    weaponId: "spikes",
-    amount: 5,
     color: ENEMY,
   },
 ];
@@ -337,8 +318,9 @@ export const STATS = [
 // bought it is on the car for the rest of the run and the row goes SOLD.
 //
 // WHY NOT TIERS. Every one of these changes a VERB — the cannon fires two
-// rounds, the shield bites back, a tracer hit paints a target. There is no
-// half of "fires two rounds", and a tier ladder would have to invent one
+// rounds, the shield bites back, a tracer hit paints a target, a mine leaves
+// teeth. There is no half of "fires two rounds", and a tier ladder would have
+// to invent one
 // (fires 1.5 rounds? paints for two seconds?) purely to fit the shelf it was
 // sold on. Where a special does carry a number (the storm's damage, the mark's
 // multiplier) that number lives with the system that owns it — game/
@@ -347,8 +329,8 @@ export const STATS = [
 //
 // THEY ARE FLAGS AND ONLY FLAGS HERE. `special` is the key that shows up in
 // Garage.stats's `specials` block and, through Player.applyUpgrades, on the
-// car itself. Nothing in this file knows what any of them DO; the four systems
-// that read the flags do, and each says so in its own header.
+// car itself. Nothing in this file knows what any of them DO; the systems that
+// read the flags do, and each says so in its own header.
 //
 // PRICED BETWEEN A FIRST RUNG AND A FULL LADDER. A whole stat is 700 CR
 // (100+200+400) and its rungs are 100, 200 and 400. These sit at 300-400 — so
@@ -412,6 +394,39 @@ export const SPECIALS = [
     price: 350,
     special: "shieldStorm",
     color: PLAYER,
+  },
+  {
+    id: "spike_mines",
+    label: "SPIKE MINES",
+    detail: "MINES BITE",
+    note: "WHATEVER LIVES THROUGH YOUR MINE LIMPS AWAY FROM IT",
+    // THE ONE SPECIAL THAT ANSWERS WHAT THE PLAYER CANNOT OUT-SHOOT. Every
+    // other row on this shelf is more damage or better-aimed damage; this is
+    // the only piece of hardware that takes an enemy's SPEED, and a car crawling
+    // at 150 for three seconds (obstacletypes.js's SPIKE MINE) has dropped out
+    // of the fight whether or not it is dead.
+    //
+    // It changes a verb like the rest of the shelf: the deploy key lays the
+    // same mine, from the same magazine, on the same press — see weapons.js's
+    // `upgradePayload`, which main.js resolves at the drop. Nothing about the
+    // controls or the ammunition moves, which is the entire reason this is an
+    // upgrade to the mine rather than the second deployable it used to be.
+    //
+    // PRICED AT THE STORM'S 350, and against it deliberately: both are worth
+    // exactly what the run around them is worth. The storm is dead money in a
+    // run with no shield; this is dead money in a run that never lays a mine,
+    // and repays a run laying them into a pack of heavies. Not the rack's 400,
+    // because unlike the rack it adds no damage at all — the blast is the
+    // mine's, unchanged, and the puncture only ever lands on what the 150
+    // failed to kill.
+    price: 350,
+    special: "spikeMines",
+    // ENEMY red, alone on this shelf among four player-coloured rows, and it
+    // earns it: every other special dresses something the player FIRES, this
+    // one dresses a hazard left in the road. It is the colour the mine crate
+    // and the strip already carry (pickuptypes.js, obstacleshapes.js) — a
+    // hazard is red here whoever laid it.
+    color: ENEMY,
   },
   {
     id: "autolock",

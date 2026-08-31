@@ -324,6 +324,12 @@ export class Obstacles {
       w: player.w,
       h: player.h,
       damage: (hp) => player.damage(hp),
+      puncture: (type) => player.puncture(type),
+      // Player carries no `alive` of its own — main.js watches `health` and
+      // switches to the death sequence itself (see player.js's damage()). The
+      // blast below asks, so it is answered here rather than by teaching the
+      // whole codebase a second way to spell it.
+      get alive() { return player.health > 0; },
     };
 
     // Contact: the player or any live car driving into a hazard breaks it —
@@ -347,11 +353,14 @@ export class Obstacles {
       // reaches detonate() below.
       if (o.type.effect === "spikes") {
         for (const c of hitCars) c.puncture(o.type);
-        // NO PLAYER CASE, and it is unreachable rather than unwritten: a strip
-        // is `laidOnly` (obstacletypes.js), the player is the only thing that
-        // lays one, drop() puts it BEHIND the layer, and the player cannot
-        // reverse. If a hostile layer ever carries these, this is the one line
-        // that has to grow a Player.puncture to match.
+        // AND THE PLAYER, which is who the strips on the road are FOR now. The
+        // sower (cartypes.js) lays its strip while the player trails it —
+        // armament.js's layMine only fires on a target BEHIND the layer — so
+        // what goes down behind the sower goes down in front of the player.
+        // This line was missing for as long as the strip was something the
+        // player laid rather than met, and its absence made the sower's whole
+        // errand cost nothing.
+        if (hitPlayer) player.puncture(o.type);
         continue;
       }
 
@@ -482,6 +491,27 @@ export class Obstacles {
   // Traffic.blast() — peak damage at the box edge, nothing at `blastRadius` —
   // so a roadblock's tight radius and a mine's wide one are the same formula
   // at two different settings, not two mechanics to keep in sync.
+  //
+  // A BLAST THAT CARRIES TEETH punctures what it does not kill. A type naming
+  // `slowTo` alongside a radius (obstacletypes.js's SPIKE MINE, and only that)
+  // sprays its spikes over the same falloff area, so the heavy that drove out
+  // of its own wreckage limps out of it instead. AFTER the damage and only on
+  // survivors: puncturing a body that this same call just killed would be an
+  // effect nobody could ever see, and Traffic.puncture would take its
+  // contactDamage against a car already at zero hull.
+  //
+  // FLAT ACROSS THE RADIUS, not scaled by the falloff like the damage above. A
+  // puncture is not a quantity — traffic.js's puncture takes the type's whole
+  // slowTime or nothing at all, and a car grazed at the rim is exactly the car
+  // this is FOR (the one the falloff barely hurt), so scaling it toward nothing
+  // there would delete the upgrade's one job.
+  //
+  // WHOEVER CAN BE PUNCTURED, which is every live car AND the player: both
+  // carry puncture() (traffic.js, player.js) and the playerBox above forwards
+  // to it. That reaches the player's OWN spike mine in one case — a chaser
+  // setting one off inside 66px of the car that laid it — and that is correct
+  // rather than tolerated: the blast already costs the player hull at that
+  // range, and a mine dropped under one's own back bumper should.
   blast(o, playerBox, cars) {
     const radius = o.type.blastRadius;
     const peak = o.type.blastDamage;
@@ -495,6 +525,7 @@ export class Obstacles {
       const dist = Math.hypot(dx, dy);
       if (dist >= radius) return;
       body.damage(peak * (1 - dist / radius));
+      if (o.type.slowTo && body.alive && body.puncture) body.puncture(o.type);
     };
 
     hurt(playerBox);

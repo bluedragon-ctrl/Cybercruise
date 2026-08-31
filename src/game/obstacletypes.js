@@ -38,10 +38,11 @@
 //               ZERO for a laidOnly type, which the spawner never draws from
 //   laidOnly    OPTIONAL. This hazard is only ever put on the road by a car
 //               laying it (obstacles.js's drop()), never by the spawner — see
-//               obstacleAvailable below. The player's SPIKES (weapons.js) is
-//               the first of these: a strip is somebody's deliberate act, and
-//               one appearing on the road ahead by itself would read as the
-//               city having laid a trap for its own traffic
+//               obstacleAvailable below. The SPIKES strip and the SPIKE MINE
+//               are both of these, for the same reason: a belt of teeth is
+//               somebody's deliberate act, and one appearing on the road ahead
+//               by itself would read as the city having laid a trap for its own
+//               traffic
 //   threat      OPTIONAL, defaults to blastDamage. What driving into this COSTS
 //               as the AI weighs it (behaviours.js compares it against a
 //               driver's nerve). Separate from blastDamage for the strip, which
@@ -51,9 +52,13 @@
 //               exactly that shared behaviour. "spikes" instead punctures
 //               whoever crossed it and LEAVES THE HAZARD ON THE ROAD — see
 //               obstacles.js's contact pass
-//   slowTo      seconds/units: read only by effect "spikes". The speed a
-//               punctured car is held down to...
-//   slowTime    ...and for how long
+//   slowTo      seconds/units: the speed a punctured car is held down to...
+//   slowTime    ...and for how long. TWO PATHS READ THIS PAIR, and a type names
+//               it for whichever one it has: effect "spikes" punctures on
+//               CONTACT (the strip), and a type with a BLAST punctures
+//               everything the blast reaches that lives through it (the spike
+//               mine) — see obstacles.js's blast(). A type with neither an
+//               effect nor a radius names them for nothing
 //   minDistance how far the player must have driven before this type may spawn,
 //               in DIST-READOUT units — the same gate cartypes.js documents at
 //               length. Every hazard is currently 0: a roadblock is the CITY's,
@@ -224,8 +229,9 @@ export const OBSTACLE_TYPES = [
     // if it read the 6 above then every car on the road would drive straight
     // over a strip without slowing — which would make it a guaranteed hit and,
     // oddly, a WORSE weapon: the interesting thing a strip does is make
-    // traffic swerve. Set just under the mine's 30 so most drivers avoid it
-    // and only the boldest eat it.
+    // traffic swerve. Well under the mine's own 150 (which is what `threat`
+    // defaults to), so a driver with the nerve to gamble on a strip still has
+    // nothing like the nerve to drive over a mine.
     threat: 28,
     // NO BLAST AT ALL — the first hazard here with none. A strip that went off
     // would contradict the one thing it is for: it stays on the road after the
@@ -245,6 +251,69 @@ export const OBSTACLE_TYPES = [
     placement: PLACE_ANY,
     laidOnly: true,
     weight: 0, // never spawned — see laidOnly and obstacleAvailable below
+    minDistance: 0,
+  },
+  {
+    // THE SPIKE MINE — what the dock's SPIKE MINES special (upgrades.js) turns
+    // the player's mine into, and the ONLY thing that lays one. It is a second
+    // catalogue entry rather than a flag on the mine above because `caltrop` is
+    // shared hardware: the cycle and the rival lay it too (armament.js), and a
+    // puncture added to the type itself would arm the enemy with the upgrade
+    // the player paid for.
+    //
+    // A MINE THAT SPRAYS ITS TEETH. Everything about the blast is the mine's,
+    // unchanged and deliberately so — the special buys a VERB, not damage (see
+    // the SPECIALS shelf's own header), so this must never be the mine plus a
+    // bigger number. What it adds is that whoever LIVES THROUGH the blast is
+    // punctured by it: obstacles.js's blast() punctures every body inside the
+    // radius that carries a puncture(), after the damage falloff has been
+    // applied.
+    //
+    // WHICH IS WHY THIS IS A LATE PURCHASE AND NOT AN OPPRESSIVE ONE. A direct
+    // hit already kills everything but the bruiser (160 hull) and the rival
+    // (400) outright, so the puncture only ever lands on those two and on
+    // whatever the falloff merely grazed at the rim. The upgrade's whole value
+    // is the case the plain mine handles WORST — the heavy that drives through
+    // its own wreckage — which is exactly the case a run that has 350 CR spare
+    // has started running into.
+    id: "spikemine",
+    label: "SPIKE MINE",
+    // The mine's own silhouette. A shape of its own was considered and dropped:
+    // obstacleshapes.js fixes an obstacle's read by its ROLE, this thing's role
+    // IS a mine, and the player who bought the upgrade is the only one who lays
+    // it — the tell they need is the punctured car limping out of the blast,
+    // not a different sprite on a hazard behind them they never look at.
+    shape: obstacleShapeIndex("CALTROP"),
+    // THE MINE'S FIGURES, FIELD FOR FIELD. test/hazards.test.js pins the four
+    // to `caltrop`'s rather than restating them, so retuning the mine in
+    // car-editor moves both and cannot silently make the upgraded one the
+    // weaker buy.
+    health: 1,
+    mass: 0.15,
+    blastRadius: 66,
+    blastDamage: 150,
+    // NOTHING ON TOP OF THE BLAST. Traffic.puncture applies contactDamage, and
+    // a car inside the radius has already taken up to 150 from it — a scratch
+    // added to that is the "mine plus a bigger number" this entry exists not to
+    // be.
+    contactDamage: 0,
+    // THE CRAWL IS THE STRIP'S, THE DURATION IS NOT. `slowTo` matching the
+    // strip is the point: a punctured car is a punctured car, whatever punched
+    // the holes, and two crawl speeds would be two mechanics. The time is
+    // SHORTER because the two are spent differently — a strip lies in the road
+    // and bites again once its five seconds are up (traffic.js's puncture),
+    // where the mine is gone in the flash that laid the teeth. One event, one
+    // window, long enough to drop a survivor out of the fight it was winning.
+    slowTo: 150,
+    slowTime: 3,
+    // NO `threat` OF ITS OWN, which is the mine's arrangement too: the field
+    // defaults to blastDamage, so both are feared at 150. A driver that weighed
+    // this differently from a mine would be reading a difference it cannot see
+    // (see `shape` above).
+    // Laid where the layer was, so never consulted — same as the strip's.
+    placement: PLACE_ANY,
+    laidOnly: true,
+    weight: 0,
     minDistance: 0,
   },
 ];

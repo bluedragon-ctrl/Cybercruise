@@ -113,6 +113,7 @@ test("every flag on the shelf is claimed by a system, and every claim names a fl
   for (const type of WEAPON_TYPES) {
     if (type.twin) claimed.add(type.twin);
     if (type.lock) claimed.add(type.lock);
+    if (type.upgrade) claimed.add(type.upgrade);
   }
   // game/shieldstorm.js reads its own flag straight off the player rather than
   // through a catalogue field, so it is named here — the one claim that cannot

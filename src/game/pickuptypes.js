@@ -87,24 +87,6 @@ export const PICKUP_TYPES = [
     minDistance: 0,
   },
   {
-    id: "spikes_ammo",
-    label: "SPIKES+",
-    shape: pickupShapeIndex("SPIKES_AMMO"),
-    kind: AMMO,
-    weaponId: "spikes",
-    // ONE STRIP, against the mine crate's two, and the stingiest thing in this
-    // catalogue by some way: 20% of the strip's five-round magazine (weapons.js)
-    // against the gun crates' 36-40% of theirs. Two reasons, and they compound.
-    // A road the player can keep permanently belted is a road nothing can chase
-    // them down, so the refill must never be proportional to the magazine. And
-    // the player starts a run with NO strips at all (weapons.js's `startAmmo`),
-    // which makes finding one on the road a real event rather than a top-up —
-    // exactly what a single strip should be.
-    amount: 1,
-    weight: 1,
-    minDistance: 0,
-  },
-  {
     id: "fix",
     label: "FIX",
     shape: pickupShapeIndex("FIX"),
