@@ -214,6 +214,9 @@ export class Projectiles {
       impact: "spark",  // "spark" | "fireball" — see detonate() below
       blastRadius: 0,   // splash — see detonate() below. 0 = direct hit only
       blastDamage: 0,
+      lead: 0,          // CEILING on lateral units/sec for a locked round, and
+                        // the whole of the lead steer below. 0 = steer at the
+                        // flat `turnRate` instead, which is what a rocket does
       locked: false,    // this round is chasing a car the PLAYER designated,
                         // not one it found for itself. It steers exactly as a
                         // seeker does and differs in one way only: it never
@@ -245,7 +248,7 @@ export class Projectiles {
   //
   //   target   a car the player designated at the trigger, for this round to
   //            chase (game/targeting.js)
-  //   turnRate how fast it may steer to do so
+  //   lead     the CEILING on how fast it may cross the road to do so
   //
   // It defaults to null, so every existing caller — and every hostile round,
   // forever — reads exactly as it did before the parameter existed. The object
@@ -291,11 +294,16 @@ export class Projectiles {
     // so `tracking` is untouched) and nothing else about being a rocket. Its
     // own much slower turnRate overrides the type's, and `locked` is what tells
     // update() never to go looking for a replacement.
+    s.lead = 0;
     s.locked = !!opts?.target;
     if (s.locked) {
       s.target = opts.target;
       s.seeking = true;
-      s.turnRate = opts.turnRate ?? 0;
+      // The lead REPLACES the flight mode's own rate rather than adding to it —
+      // the two are different quantities and a round steers by exactly one of
+      // them (see the steer in update()).
+      s.turnRate = 0;
+      s.lead = opts.lead ?? 0;
     }
     return s;
   }
@@ -347,8 +355,32 @@ export class Projectiles {
           }
         }
         if (s.target) {
-          const step = s.turnRate * dt;
           const want = s.target.offset - s.offset;
+          // TWO STEERS, and which one a round uses is set at the muzzle.
+          //
+          // A SEEKER turns at a FLAT rate: it acquired this car in flight and
+          // is chasing it, so how hard it may turn is a property of the round
+          // and of nothing else. That is the rocket.
+          //
+          // A LOCKED ROUND FLIES A LEAD: it was aimed at a car the player had
+          // already designated, so it takes the lateral speed that actually
+          // ARRIVES — the gap left to cross divided by the time left to cross
+          // it — capped at what the weapon allows. This is the difference
+          // between the two, and the reason a flat rate was wrong here: time to
+          // impact shrinks as the round closes, so a flat rate is weakest at
+          // point-blank range, which is the shot that should never miss. See
+          // weapons.js's `lockLead` for the measured table.
+          //
+          // ETA falls out of the two speeds along the road. A round that is not
+          // gaining on its target has no arrival to lead (`closing <= 0`), and
+          // one arriving THIS TICK has no time left to spend: both mean "take
+          // the cap", which the Infinity does without a second branch.
+          let step = s.turnRate * dt;
+          if (s.lead > 0) {
+            const closing = s.dir * (s.speed - (s.target.speed ?? 0));
+            const eta = closing > 0 ? ((s.target.worldY - s.worldY) * s.dir) / closing : 0;
+            step = Math.min(s.lead, eta > 0 ? Math.abs(want) / eta : Infinity) * dt;
+          }
           s.offset += Math.max(-step, Math.min(step, want));
         }
       }

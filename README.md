@@ -552,9 +552,15 @@ costs and nothing about what it does; each system reads the flag off
 `player.specials` and says for itself what to do with it. The join is a bare
 string, so `test/specials.test.js` pins both directions: every flag sold is read
 by something, and every claim names a flag on sale. `targeting.js` is worth
-reading for how an upgrade like this was kept from becoming "cannot miss" — it
-steers slower than the rocket seeks, and rounds do not re-lock when their target
-dies mid-burst. The pick is made at the TRIGGER rather than by the first round
+reading for how an upgrade like this was kept from becoming "cannot miss" — a
+round takes the lateral speed that actually *arrives* (the gap left to cross
+over the time left to cross it) up to a **cap**, so what the cap decides is the
+range at which a given crossing is possible: the whole road from about 350 units
+out, one lane down to about 120, and nothing at all when a car commits to a hard
+change late and wide. Rounds also never re-lock when their target dies
+mid-burst. The rocket keeps a flat 260/sec because it is doing a different job —
+it *hunts*, finding its own targets, reaching the air and carrying splash, where
+a tracer round is *aimed* and chases only what the player designated. The pick is made at the TRIGGER rather than by the first round
 that connects (`traffic.js`'s `randomHostileAhead`, which skips civilians and
 the air), because in a fast fight the car a burst has already hit is usually
 dead before the rest of the burst can benefit — designating something the

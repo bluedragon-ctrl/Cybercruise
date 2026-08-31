@@ -35,7 +35,7 @@ import { createShop } from "./game/shop.js";
 // file's header for why the tier ladder is scoped to one run, exactly as the
 // credits paying for it are (CREDIT_STORE below).
 import { Garage } from "./game/upgrades.js";
-import { Loadout, muzzleOffsets, lockSeconds, lockRange, lockTurnRate } from "./game/weapons.js";
+import { Loadout, muzzleOffsets, lockSeconds, lockRange, lockLead } from "./game/weapons.js";
 import { ShieldStorm } from "./game/shieldstorm.js";
 import { Lock } from "./game/targeting.js";
 import { createMenu } from "./game/menu.js";
@@ -426,11 +426,12 @@ const shotTargets = [];
 const shellTargets = [];
 
 // Scratch for the per-shot options projectiles.js's spawn() takes — what this
-// round chases, and how fast it may steer to. REUSED rather than built per shot, for
+// round chases, and how fast it may cross the road to. REUSED rather than built
+// per shot, for
 // the same reason the array above is: the trigger is pulled several times a
 // second forever, and spawn() reads and copies every field immediately without
 // keeping the object (see its own note saying so).
-const SHOT_OPTS = { target: null, turnRate: 0 };
+const SHOT_OPTS = { target: null, lead: 0 };
 
 // Reused every tick rather than rebuilt, same as shotTargets — but its ONE
 // entry (Traffic's PlayerBody, already the player expressed as something with
@@ -1170,7 +1171,7 @@ function updatePlaying(dt) {
     // was designated when it was FIRED — rounds re-checking in the air would
     // swing the whole burst the moment the player designated something else.
     SHOT_OPTS.target = seconds > 0 ? lock.car : null;
-    SHOT_OPTS.turnRate = lockTurnRate(weapon.type, player.specials);
+    SHOT_OPTS.lead = lockLead(weapon.type, player.specials);
     for (const dx of muzzles) {
       shots.spawn(distance + player.h / 2, player.x - centerX + dx, player.speed, weapon.type, W, 1, SHOT_OPTS);
     }

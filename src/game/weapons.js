@@ -243,18 +243,48 @@ export const WEAPON_TYPES = [
     // a car crossing the top edge. A longer reach would designate hostiles
     // offscreen — the reticle is the upgrade's only explanation (effects.js),
     // and brackets the player cannot see read as the burst bending for no
-    // reason. Anything at all in view is fair game laterally; steering across
-    // the road is what `lockTurnRate` rations.
+    // reason. Anything at all in view is fair game laterally; crossing the road
+    // to reach it is what `lockLead` rations.
     lockRange: 520,
-    // LATERAL UNITS/SEC A LOCKED ROUND MAY STEER — the whole balance of the
-    // upgrade. WELL UNDER THE ROCKET'S 260: the seeking weapon has to stay the
-    // best seeker in the game or the rocket loses its reason to exist.
+    // THE CEILING ON A LOCKED ROUND'S LATERAL SPEED — the whole balance of the
+    // upgrade, and a CAP rather than a rate. projectiles.js works out what the
+    // shot actually needs (the lateral gap divided by the time left to reach
+    // the car) and spends only that, up to this.
     //
-    // At 150 a round crosses a lane in about two thirds of a second, holding a
-    // car that is drifting or committed and losing one that commits to a hard
-    // change the moment it sees the burst. That is the difference between "the
-    // rounds follow" and "the rounds cannot miss".
-    lockTurnRate: 150,
+    // A FLAT RATE WAS THE FIRST VERSION AND IT WAS BACKWARDS. 150 units/sec is
+    // whatever the flight time can pay for, and flight time COLLAPSES as the
+    // target nears — a round closes at its own 820 relative to a car pacing the
+    // player, so:
+    //
+    //   gap 520 (top of the screen)  0.63s of flight   95 units   1.3 lanes
+    //   gap 350                      0.43s             64 units   0.9 lanes
+    //   gap 143 (two car lengths)    0.17s             26 units   0.4 lanes
+    //
+    // The gun was weakest at point blank, which is the shot it should never
+    // miss, and it could not reach past the next lane over from anywhere. What
+    // a round needs is gap/time, and that is what it now takes.
+    //
+    // 500 IS AN ANGLE, not a distance: against ~1220 absolute it is a 22°
+    // diagonal off the barrel, the steepest a round may leave at and still read
+    // as a bullet rather than a homing drone. What it buys, at the 71.5-unit
+    // lane width road.js sets:
+    //
+    //   ALL FOUR LANES from a gap of ~350 out — the top half of the screen
+    //   ONE lane down to a gap of ~117 — close-range shots snap on
+    //   and it still runs out. MEASURED against a car swerving a full lane away
+    //   mid-flight: an outrider (steerSpeed 200) two lanes over escapes inside
+    //   a gap of 450, a stocker (100) only inside 350, and NOTHING is hit
+    //   across a lane from a gap of 70. That is the whole difference between
+    //   "the rounds follow" and "the rounds cannot miss"
+    //
+    // IT EXCEEDS THE ROCKET'S OWN 260 AND THAT IS FINE. The rocket's claim was
+    // never the turn rate: it HUNTS — it finds its own targets anywhere inside
+    // 1100 units, re-acquires when one dies, reaches the air, and carries 98
+    // damage and a splash. A tracer round is AIMED: it chases only what the
+    // player designated, never re-acquires, and cannot touch anything flying.
+    // Aimed fire arriving where it was pointed is not the seeker's job taken
+    // away.
+    lockLead: 500,
   },
   {
     id: "rocket",
@@ -627,17 +657,19 @@ export function lockRange(type, specials = null) {
   return type.lockRange ?? 0;
 }
 
-// How fast a round from this weapon may steer toward a car the player has
-// already designated. 0 means "this round does not chase" — either the weapon
+// The fastest a round from this weapon may travel sideways to reach the car the
+// player designated. 0 means "this round does not chase" — either the weapon
 // has no lock upgrade or it has not been bought, and in both cases the round
 // flies exactly as it always did.
 //
-// SEPARATE FROM `turnRate`, which is the rocket's own seeking rate and belongs
-// to the flight mode. A locked tracer round is NOT a rocket: it borrows the
-// seeking steer and nothing else, at its own much slower rate.
-export function lockTurnRate(type, specials = null) {
+// SEPARATE FROM `turnRate`, which is the rocket's own constant seeking rate and
+// belongs to the flight mode. The two are not the same quantity: a rocket
+// steers at its rate the whole way in, while this is only a CEILING on what a
+// locked round spends on the lead it was fired with — see the TRACKER entry
+// and projectiles.js's steer.
+export function lockLead(type, specials = null) {
   if (!type.lock || !specials || !specials[type.lock]) return 0;
-  return type.lockTurnRate ?? 0;
+  return type.lockLead ?? 0;
 }
 
 // One weapon, as carried by one car.
