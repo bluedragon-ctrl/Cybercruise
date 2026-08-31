@@ -33,51 +33,76 @@ test("validateChanges rejects a negative health value", () => {
   );
 });
 
-test("validateChanges rejects a zero speedMin value", () => {
+// A zero `speedMin` is the HARD FLOOR saying "this car can be brought to a full
+// stop" (cartypes.js's THE TWO SPEED BANDS), and it is what every civilian ships
+// with — so it must pass, where the old cruise-band meaning of the field made it
+// a rejection.
+test("validateChanges accepts a zero speedMin value", () => {
+  assert.doesNotThrow(() => validateChanges({ rival: { speedMin: 0 } }));
+});
+
+test("validateChanges rejects a negative speedMin value", () => {
   assert.throws(
-    () => validateChanges({ rival: { speedMin: 0 } }),
-    /field "speedMin" for "rival" must be a positive number, got 0/
+    () => validateChanges({ rival: { speedMin: -10 } }),
+    /field "speedMin" for "rival" must not be negative, got -10/
   );
 });
 
-test("validateChanges accepts a valid speedMin/speedMax pair", () => {
+test("validateChanges rejects a zero cruiseMin value", () => {
+  assert.throws(
+    () => validateChanges({ rival: { cruiseMin: 0 } }),
+    /field "cruiseMin" for "rival" must be a positive number, got 0/
+  );
+});
+
+test("validateChanges accepts a valid speedMin/cruiseMin/speedMax ordering", () => {
   assert.doesNotThrow(() =>
-    validateChanges({ rival: { speedMin: 420, speedMax: 470 } })
+    validateChanges({ rival: { speedMin: 100, cruiseMin: 420, speedMax: 470 } })
   );
 });
 
-test("validateChanges rejects speedMax < speedMin when both are given", () => {
+test("validateChanges rejects speedMax < cruiseMin when both are given", () => {
   assert.throws(
-    () => validateChanges({ rival: { speedMin: 470, speedMax: 400 } }),
-    /speedMax \(400\) must be >= speedMin \(470\) for "rival"/
+    () => validateChanges({ rival: { cruiseMin: 470, speedMax: 400 } }),
+    /speedMax \(400\) must be >= cruiseMin \(470\) for "rival"/
   );
 });
 
-// The speed range has to hold AFTER the edit, so a lone speedMax is checked
-// against the speedMin already in the source rather than waved through — the
-// pair-only check this replaces let an edit invert a car's range in one field.
-test("validateChanges accepts speedMax alone when it clears the car's current speedMin", () => {
-  const { speedMin } = buildCarState("rival").values;
-  assert.doesNotThrow(() => validateChanges({ rival: { speedMax: speedMin + 10 } }));
+// The relation the second band bought: a car may not be rolled below the speed
+// it is physically capable of, or it would spawn in a state traffic.js clamps it
+// straight back out of on its first tick.
+test("validateChanges rejects a speedMin above the car's cruiseMin", () => {
+  assert.throws(
+    () => validateChanges({ rival: { speedMin: 400, cruiseMin: 300 } }),
+    /cruiseMin \(300\) must be >= speedMin \(400\) for "rival"/
+  );
 });
 
-test("validateChanges rejects speedMax alone when it falls under the car's current speedMin", () => {
-  const { speedMin } = buildCarState("rival").values;
+// The ordering has to hold AFTER the edit, so a lone field is checked against
+// what is already in the source rather than waved through — the check this
+// replaces let an edit invert a car's range in one field.
+test("validateChanges accepts speedMax alone when it clears the car's current cruiseMin", () => {
+  const { cruiseMin } = buildCarState("rival").values;
+  assert.doesNotThrow(() => validateChanges({ rival: { speedMax: cruiseMin + 10 } }));
+});
+
+test("validateChanges rejects speedMax alone when it falls under the car's current cruiseMin", () => {
+  const { cruiseMin } = buildCarState("rival").values;
   assert.throws(
-    () => validateChanges({ rival: { speedMax: speedMin - 10 } }),
-    // The "unchanged" tag is the point of the message: it says the speedMin
+    () => validateChanges({ rival: { speedMax: cruiseMin - 10 } }),
+    // The "unchanged" tag is the point of the message: it says the cruiseMin
     // it compared against came from the source, not from the request.
     (err) =>
       err.message ===
-      `speedMax (${speedMin - 10}) must be >= speedMin (${speedMin}, unchanged) for "rival"`
+      `speedMax (${cruiseMin - 10}) must be >= cruiseMin (${cruiseMin}, unchanged) for "rival"`
   );
 });
 
-test("validateChanges rejects speedMin alone when it rises above the car's current speedMax", () => {
+test("validateChanges rejects cruiseMin alone when it rises above the car's current speedMax", () => {
   const { speedMax } = buildCarState("rival").values;
   assert.throws(
-    () => validateChanges({ rival: { speedMin: speedMax + 10 } }),
-    /must be >= speedMin/
+    () => validateChanges({ rival: { cruiseMin: speedMax + 10 } }),
+    /must be >= cruiseMin/
   );
 });
 

@@ -116,8 +116,11 @@ const COMMUTER = {
   ramBrake: 0.5,        // a FRACTION of the player's current speed, so the block
                         // still bites at walking pace
   ramFloor: 80,         // ...but a stalled wall reads as broken. Under the
-                        // player's own minimum of 120, so lifting off never
-                        // escapes the block
+                        // player's own minimum of 100 (player.js), so lifting
+                        // off never escapes the block. The bruiser's own hard
+                        // floor is 0 (cartypes.js), leaving this the only thing
+                        // setting the block's pace — a type floor above it would
+                        // be a second, quieter answer to the same question
 
   // --- Nerve: what this driver will accept hitting --------------------------
   //

@@ -282,13 +282,14 @@ class TrafficCar {
 
   update(dt, world) {
     // Wander first, so the behaviour decides against the speed this car actually
-    // wants right now. CLAMPED to the type's own range: the catalogue documents
-    // the speed band as a hard floor and ceiling (cartypes.js), and the drift is
-    // texture, not licence to leave it.
+    // wants right now. CLAMPED to the type's CRUISE band (cartypes.js's THE TWO
+    // SPEED BANDS): the drift is texture, not licence to leave the range this
+    // type was rolled in. The HARD floor is a different number and applies
+    // further down, after the behaviour has spoken.
     this.driftTime += dt;
     const wander = 1 + DRIFT * Math.sin(this.driftPhase + this.driftTime * this.driftRate);
     this.cruiseSpeed = Math.max(
-      this.type.speedMin,
+      this.type.cruiseMin,
       Math.min(this.type.speedMax, this.baseSpeed * wander),
     );
 
@@ -301,13 +302,25 @@ class TrafficCar {
     // in one call, so the order can't drift per tactic. See behaviours.js.
     driveCar(this, dt, world);
 
-    // PUNCTURED TYRES OVERRULE THE BEHAVIOUR, and they are applied HERE — after
-    // driveCar has asked for whatever its tactic wants, and after the speed
-    // band was clamped at the top of this method — precisely because the band
-    // is documented as "a hard floor and ceiling" (cartypes.js) that the drift
-    // above is not allowed to leave. A crawl below `speedMin` is the one
-    // deliberate exception to that, and it has to sit outside the clamp or it
-    // would simply be clamped back up on the next tick and do nothing visible.
+    // THE HARD FLOOR, applied ONCE and applied HERE: after driveCar, so it
+    // outranks every one of the three things that can ask for less speed — the
+    // tactic itself, followSpeed braking behind a car, and avoidHazards slowing
+    // to fit a swerve. A car cannot be driven below what it is physically
+    // capable of, whatever the reason, and putting the clamp anywhere earlier
+    // would leave one of those three able to reach under it.
+    //
+    // What this buys, and why the floors are split across the fleet the way they
+    // are, is cartypes.js's THE TWO SPEED BANDS. In short: the motorcycles
+    // cannot crawl, so braking sheds them; the cars and the boss can, so it
+    // doesn't. Every civilian's floor is 0, which makes this line a no-op for
+    // them and leaves the civilian road exactly as it was.
+    this.targetSpeed = Math.max(this.type.speedMin, this.targetSpeed);
+
+    // PUNCTURED TYRES OVERRULE EVEN THAT, and are therefore applied after it:
+    // the strip is the ONE deliberate exception to the floor, and it has to sit
+    // outside the clamp or it would be clamped straight back up on the next tick
+    // and do nothing visible. A punctured car is a car that has lost the ability
+    // the floor describes, which is the whole effect.
     //
     // It caps the REQUEST rather than the speed itself, so the car eases down
     // to its crawl through the same ACCEL ramp as any other speed change — a
@@ -667,7 +680,7 @@ export class Traffic {
     // `minDistance`. Treated exactly like a full road: skip, try next interval.
     if (!type) return;
 
-    const speed = type.speedMin + Math.random() * (type.speedMax - type.speedMin);
+    const speed = type.cruiseMin + Math.random() * (type.speedMax - type.cruiseMin);
 
     const ahead = speed < player.speed;
     const worldY = ahead

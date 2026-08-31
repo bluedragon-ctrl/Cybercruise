@@ -681,7 +681,7 @@ function stagedCars(world) {
 // from there because it is one line and the alternative is a second export that
 // exists only for this caller.
 function rollSpeed(type) {
-  return type.speedMin + Math.random() * (type.speedMax - type.speedMin);
+  return type.cruiseMin + Math.random() * (type.speedMax - type.cruiseMin);
 }
 
 // What a staged car is DRIVING at when it appears.
@@ -717,6 +717,13 @@ function rollSpeed(type) {
 // and that stays visible instead of being papered over here.
 function arrivalSpeed(type, back, player) {
   const rolled = rollSpeed(type);
+  // DELIBERATELY ALLOWED UNDER THE TYPE'S OWN FLOOR (cartypes.js's THE TWO
+  // SPEED BANDS). This is a starting `speed`, not a `targetSpeed`, and the floor
+  // governs the latter — so a type whose floor is over the player's speed
+  // arrives matched to them and climbs back to its floor through traffic.js's
+  // ACCEL, which IS the settling second this function exists to buy. Clamping to
+  // the floor here would give exactly the instant gap-opening the rule below
+  // prevents.
   if (!back) return Math.min(rolled, player.speed);
 
   // ONLY IF THE TYPE CAN ACTUALLY CLOSE, and this guard matters more than the

@@ -92,9 +92,19 @@ test("the catalogue is pinned to both ends of the player's speed band", () => {
 });
 
 test("every car type has a coherent speed range", () => {
+  // THREE numbers, one ordering: cartypes.js's THE TWO SPEED BANDS. The hard
+  // floor sits at or under the cruise bottom (a car may not be rolled below what
+  // it is capable of), and the cruise bottom at or under the shared ceiling.
+  // A floor of 0 is valid and is what every civilian ships — "can be brought to
+  // a full stop" — so only the cruise bottom has to be positive.
   for (const t of CAR_TYPES) {
-    assert.ok(t.speedMin <= t.speedMax, `${t.id}: speedMin > speedMax`);
-    assert.ok(t.speedMin > 0, `${t.id}: speedMin must be positive`);
+    assert.ok(t.speedMin >= 0, `${t.id}: speedMin must not be negative`);
+    assert.ok(
+      t.speedMin <= t.cruiseMin,
+      `${t.id}: speedMin ${t.speedMin} > cruiseMin ${t.cruiseMin} — it would spawn ` +
+        `below its own hard floor`,
+    );
+    assert.ok(t.cruiseMin <= t.speedMax, `${t.id}: cruiseMin > speedMax`);
   }
 });
 
