@@ -337,19 +337,10 @@ function onPlayerDamage(hp, deflected) {
   }
   // Intensity relative to the WHOLE hull, not to this one hit's own size
   // against itself — a wall-scrape tick and a full rocket impact both funnel
-  // through here, and the stutter (and the music's own disturb() below) should
-  // read louder for whichever one actually cost more of it.
+  // through here, and the stutter should read louder for whichever one
+  // actually cost more of it.
   const intensity = Math.min(1, hp / player.maxHealth);
   music.play("player_hit", { intensity });
-  // The MUSIC's own transient seam (synth.js's disturb(), forwarded to
-  // whichever backend is currently playing) — a SEPARATE call, deliberately
-  // not folded into player_hit's own envelope: hull_hiss
-  // (audio/sustainedfx.js, driven from the update loop below) is the
-  // PERSISTENT degradation layer; this is the momentary shudder on the hit
-  // itself. Running both at full strength on the same event would say the
-  // same thing twice — see proceduralmusic.js's own disturb() header (and
-  // trackmusic.js's, for the same effect applied to a recorded track).
-  music.disturb(intensity);
 }
 
 // Phase 8 step 3's audio hook onto pickups.js's ONE place a crate is ever
@@ -570,7 +561,7 @@ function newGame() {
   // milestones this run has already spent. See game/events.js.
   events.reset();
   // Every per-run audio concern that must not leak into a fresh run: the
-  // sustained voices (hull_hiss/shield_drone/wall_scrape), a sector-transition
+  // sustained voices (shield_drone/wall_scrape/dread_pulse), a sector-transition
   // filter collapse still mid-flight, and the music bus's own disconnect
   // fade — see synth.js's own resetForNewRun() header for why all three are
   // bundled into this one call. A silent no-op before music.startContext()
@@ -1103,12 +1094,9 @@ function updatePlaying(dt) {
   }
 
   // Phase 8 step 3's sustained voices, polled every "playing" tick — see
-  // sustainedfx.js's own header on why this is POLLED (not pushed from a
-  // damage/pickup event): the hiss has to fall when healing too, and the
-  // shield/wall voices just mirror whatever player state already says right
-  // now. After sectors.update() above, so sectors.glitching() reflects THIS
-  // tick's own crossing rather than last tick's leftover decay.
-  music.updateHullHiss(dt, player.health / player.maxHealth, sectors.glitching());
+  // sustainedfx.js's own header on why these are POLLED (not pushed from a
+  // damage/pickup event): they just mirror whatever player state already
+  // says right now.
   music.updateWallScrape(player.hitWall);
   music.updateShieldDrone(player.shieldTime);
   // Speed-linked music filter (audio/context.js's musicFilter) — polled the

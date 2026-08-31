@@ -21,13 +21,8 @@
 
 export const SUSTAINED_TYPES = [
   {
-    id: "hull_hiss",
-    generator: null, // filled in by sustainedfx.js's registerGenerator("hull_hiss", ...)
-    label: "HULL HISS",
-  },
-  {
     id: "shield_drone",
-    generator: null,
+    generator: null, // filled in by sustainedfx.js's registerGenerator("shield_drone", ...)
     label: "SHIELD DRONE",
   },
   {

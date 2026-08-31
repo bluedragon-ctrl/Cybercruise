@@ -1,7 +1,7 @@
 // The recorded-track music backend — plays Ogg Vorbis files dropped into
 // assets/music/ instead of synthesizing anything. The OTHER implementation
 // of the same tiny interface proceduralmusic.js implements (see synth.js's
-// own header): start(delaySeconds) and disturb(amount). Nothing here is
+// own header): start(delaySeconds). Nothing here is
 // called by any other module directly — synth.js's resolveBackend() is the
 // only thing that ever touches this file's exports.
 //
@@ -254,9 +254,8 @@ const decoding = new Map(); // name -> in-flight decode Promise, so a background
 const prefetching = new Map(); // name -> in-flight byte fetch Promise; decodeAndCache() joins one of these rather than starting a second download of a track already on its way in
 const failedTracks = new Set(); // names that have failed to decode at least once this run — nextPlayableIndex() routes around these so a permanently corrupt file isn't re-fetched every time the playlist wraps back to it
 
-let trackFilter = null; // this backend's OWN lowpass — disturb() bends THIS, never context.js's musicFilter (see the project's own critical-constraint note: everything downstream of musicGain is off-limits)
 let trackGainNode = null; // this backend's OWN trim (musictypes.js's TRACK_GAIN/overrides) — feeds context.js's getMusicBus(), same as proceduralmusic.js's voices do directly
-let currentSource = null; // the currently-playing AudioBufferSourceNode — disturb() bends THIS node's .detune
+let currentSource = null; // the currently-playing AudioBufferSourceNode — playIndex()'s own 'ended' handler compares against this to spot a stale event from a superseded source
 let started = false; // start() is one-shot, same contract as proceduralmusic.js's own `started`
 
 // The SYS LOG announcement's SUBSCRIBER SEAM — same shape as
@@ -296,10 +295,6 @@ export function onExhausted(fn) {
   };
 }
 
-const TRACK_FILTER_REST = 9000; // Hz — near-transparent at rest. Unlike proceduralmusic.js's pad (deliberately dulled to 900Hz as PART of its tone), a mastered recording is expected to already carry its own frequency balance; this filter's only job is to host disturb()'s dip below.
-const TRACK_DISTURB_DETUNE_CENTS = 20; // cents at amount=1 — noticeably SUBTLER than proceduralmusic.js's 45: that bend souring one pad voice among six oscillators; this one bends the WHOLE mastered mix at once, so the same cent value would read as a much bigger wobble. Tune by ear against a real track.
-const TRACK_DISTURB_FILTER_DROP = 250; // Hz shaved off TRACK_FILTER_REST at amount=1 — a small, "optional" dip per the design brief, scaled down for the same reason as the detune above
-const TRACK_DISTURB_RECOVER = 1.0; // seconds — matches proceduralmusic.js's own ~1s recovery, per the design brief
 const GAIN_SPLICE_RAMP = 0.05; // seconds — a brief ramp on trackGainNode at every track change, so a per-track gain override (musictypes.js's TRACK_OVERRIDES) can't click at the splice; mirrors context.js's own ramp-not-snap convention throughout this file's sibling modules
 
 function trackUrl(name) {
@@ -463,15 +458,12 @@ function decodeAndCache(name) {
   return attempt;
 }
 
+// A mastered recording is expected to already carry its own frequency
+// balance, so this backend adds no tone shaping of its own — just the trim
+// (musictypes.js's TRACK_GAIN/overrides) every source plays through.
 function buildTrackChain(ctx, musicBus) {
-  trackFilter = ctx.createBiquadFilter();
-  trackFilter.type = "lowpass";
-  trackFilter.frequency.value = TRACK_FILTER_REST;
-
   trackGainNode = ctx.createGain();
   trackGainNode.gain.value = 0; // set for real by playIndex()'s own ramp, immediately after this runs
-
-  trackFilter.connect(trackGainNode);
   trackGainNode.connect(musicBus);
 }
 
@@ -482,7 +474,7 @@ function playIndex(i, delaySeconds) {
 
   const ctx = getCtx();
   const musicBus = getMusicBus();
-  if (!trackFilter) buildTrackChain(ctx, musicBus);
+  if (!trackGainNode) buildTrackChain(ctx, musicBus);
 
   const t = ctx.currentTime;
   const targetGain = trackGainFor(name);
@@ -494,11 +486,11 @@ function playIndex(i, delaySeconds) {
   source.buffer = buffer;
   const loopSingle = shouldLoopSingleTrack(order);
   source.loop = loopSingle;
-  source.connect(trackFilter);
+  source.connect(trackGainNode);
 
   if (!loopSingle) {
     source.onended = () => {
-      if (source !== currentSource) return; // a stale 'ended' from a source already superseded — same defensive pattern disturb() below uses
+      if (source !== currentSource) return; // a stale 'ended' from a source already superseded
       handleTrackEnded();
     };
   }
@@ -702,27 +694,6 @@ export function start(delaySeconds = 0.1) {
   if (started) return;
   started = true;
   attemptStart(getCtx().currentTime + delaySeconds);
-}
-
-// Part of the two-backend interface. See the module header on why the
-// bend/dip here are noticeably smaller than proceduralmusic.js's own
-// disturb() — this one warps the entire mastered mix, not one voice among
-// several.
-export function disturb(amount) {
-  if (!currentSource || !trackFilter) return; // nothing sounding yet — mirrors proceduralmusic.js's own "no pad currently sounding" no-op
-  const ctx = getCtx();
-  const t = ctx.currentTime;
-  const clamped = Math.max(0, Math.min(1, amount));
-
-  currentSource.detune.cancelScheduledValues(t);
-  currentSource.detune.setValueAtTime(currentSource.detune.value, t);
-  currentSource.detune.linearRampToValueAtTime(-clamped * TRACK_DISTURB_DETUNE_CENTS, t + 0.05);
-  currentSource.detune.linearRampToValueAtTime(0, t + 0.05 + TRACK_DISTURB_RECOVER);
-
-  trackFilter.frequency.cancelScheduledValues(t);
-  trackFilter.frequency.setValueAtTime(trackFilter.frequency.value, t);
-  trackFilter.frequency.linearRampToValueAtTime(Math.max(400, TRACK_FILTER_REST - clamped * TRACK_DISTURB_FILTER_DROP), t + 0.05);
-  trackFilter.frequency.linearRampToValueAtTime(TRACK_FILTER_REST, t + 0.05 + TRACK_DISTURB_RECOVER);
 }
 
 // Dev-only introspection for the SFX gallery's A/B panel (src/demo/
