@@ -22,6 +22,10 @@
 //                    whatever they land on. Undefined defaults to DAMAGE_FLOOR.
 //   shovePower       multiplies the lateral velocity THIS body hands to
 //                    whatever it hits in a side-swipe. Undefined defaults to 1.
+//   speedFloor       speed that LEANING on this body from behind may not push it
+//                    under — see rearEnd. Read off the body being SLOWED, unlike
+//                    the two above, because it describes what that body's own
+//                    engine is holding rather than how hard it hits.
 //
 // TrafficCar implements it directly; the player gets the adapter at the bottom.
 // Adding a body type later (a barrel, a boss) means implementing those fields,
@@ -64,6 +68,24 @@ const PASSES = 4;
 // Lateral speed per body, measured once at the top of the tick. Reused between
 // ticks so the solver allocates nothing. See resolveCollisions.
 const lateralV = [];
+
+// WHICH PAIRS WERE TOUCHING LAST TICK — the solver's one piece of memory, and
+// the thing that lets rearEnd tell an IMPACT from a LEAN (see its header).
+// Flat [a, b, a, b, ...] rather than a Set of pair objects because a 4-lane road
+// carries eight bodies at most: a linear scan over the handful of live contacts
+// is cheaper than the allocation a keyed structure would need every tick, and
+// the two arrays are swapped rather than rebuilt, so this allocates nothing
+// either. Body IDENTITY is what is compared, which holds because Traffic keeps
+// one TrafficCar per car and one PlayerBody for the whole run (traffic.js).
+let prevContacts = [];
+let contacts = [];
+
+function wasTouching(list, a, b) {
+  for (let i = 0; i < list.length; i += 2) {
+    if ((list[i] === a && list[i + 1] === b) || (list[i] === b && list[i + 1] === a)) return true;
+  }
+  return false;
+}
 
 // AABB overlap between two boxes exposing {worldY, offset, w, h}.
 //
@@ -119,6 +141,13 @@ export function resolveCollisions(bodies, dt) {
     lateralV[i] = (b.offset - b.prevOffset) / dt;
   }
 
+  // This tick's contacts are recorded into the array last tick's were read from,
+  // so the two swap places and neither is ever rebuilt.
+  const spent = prevContacts;
+  prevContacts = contacts;
+  contacts = spent;
+  contacts.length = 0;
+
   for (let pass = 0; pass < PASSES; pass++) {
     let touched = false;
     for (let i = 0; i < bodies.length; i++) {
@@ -151,16 +180,45 @@ function collide(a, b, latA, latB, first) {
   const shareA = invA / (invA + invB);
   const shareB = 1 - shareA;
 
+  // Whether this pair arrived at each other THIS tick, decided before the pair
+  // is recorded — a pair still touching from last tick is a lean, not a hit.
+  // Recorded once per tick however many passes reach it, so `contacts` cannot
+  // grow with PASSES.
+  const fresh = !wasTouching(prevContacts, a, b);
+  if (!wasTouching(contacts, a, b)) contacts.push(a, b);
+
   if (overlapY < overlapX) {
-    rearEnd(a, b, dy >= 0 ? 1 : -1, overlapY, shareA, shareB);
+    rearEnd(a, b, dy >= 0 ? 1 : -1, overlapY, shareA, shareB, fresh, first);
   } else {
     sideSwipe(a, b, dx >= 0 ? 1 : -1, overlapX, shareA, shareB, latA - latB, first);
   }
   return true;
 }
 
-// Along the road. `sign` is +1 when b is the car in front.
-function rearEnd(a, b, sign, overlap, shareA, shareB) {
+// Along the road. `sign` is +1 when b is the car in front. `fresh` is false once
+// the pair has been touching since last tick, `first` marks the tick's opening
+// pass — together they separate the two things contact along the road can be.
+//
+// AN IMPACT IS AN ARRIVAL; PRESSURE IS NOT AN IMPACT. This is the distinction
+// sideSwipe has always drawn across the road ("standing pressure becomes a
+// slide"), applied along it. Without it, a body held against the one in front
+// is billed a fresh partly-elastic impact sixty times a second, and the bill is
+// proportional to closing speed: the harder its engine pushes back, the harder
+// the next tick takes it away. That is a speed SINK, and it is strong enough to
+// beat anything the pushing body can do about it — an overdriven player pinned
+// behind a mass-2-or-heavier car settled on the CAR'S speed and stayed there,
+// 140 units under a floor the pickup had promised (player.js, BAND_RECOVER),
+// because a heavy car's own ACCEL ramp (traffic.js) undoes the share of the
+// shove it receives faster than the shove arrives. Contact was an anchor.
+//
+// So a lean exchanges momentum WITHOUT the bounce, and without being able to
+// push the rear body under its own `speedFloor`: what the floor refuses is
+// handed to the car in front instead, which is what turns a boosted player
+// leaning on a rig into a car that shoves the rig along rather than one the rig
+// silently switches the boost off for. The ARRIVAL is untouched — full impulse,
+// full damage — so a hit still costs the speed it always did and the band
+// ramps it back at BAND_RECOVER, visibly, over about half a second.
+function rearEnd(a, b, sign, overlap, shareA, shareB, fresh, first) {
   a.worldY -= sign * overlap * shareA;
   b.worldY += sign * overlap * shareB;
 
@@ -174,11 +232,24 @@ function rearEnd(a, b, sign, overlap, shareA, shareB) {
   const closing = rear.speed - front.speed;
   if (closing <= 0) return;
 
-  const impulse = closing * (1 + RESTITUTION);
-  rear.speed = Math.max(0, rear.speed - impulse * rearShare);
-  front.speed += impulse * frontShare;
+  if (fresh) {
+    const impulse = closing * (1 + RESTITUTION);
+    rear.speed = Math.max(0, rear.speed - impulse * rearShare);
+    front.speed += impulse * frontShare;
+    applyDamage(a, b, closing, 1);
+    return;
+  }
 
-  applyDamage(a, b, closing, 1);
+  // A lean, and only on the opening pass: unlike the impact above it does not
+  // always leave the pair separating (a floored body keeps its speed), so a
+  // later pass finding them still in contact would charge for the same push
+  // twice. Damage is not re-billed for the same reason — the arrival was
+  // charged for, and DAMAGE_FLOOR would swallow a lean's closing speed anyway.
+  if (!first) return;
+  const want = closing * rearShare;
+  const take = Math.max(0, Math.min(want, rear.speed - (rear.speedFloor ?? 0)));
+  rear.speed -= take;
+  front.speed += closing * frontShare + (want - take);
 }
 
 // Across the road. `sign` is +1 when b sits to a's right; `relative` is a's
@@ -342,6 +413,10 @@ export class PlayerBody {
 
   get speed() { return this.player.speed; }
   set speed(v) { this.player.speed = v; }
+
+  // The band's own floor, boost and puncture included — see Player.speedFloor,
+  // which owns that argument, and rearEnd for what leaning on it does.
+  get speedFloor() { return this.player.speedFloor; }
   get vLateral() { return this.player.vLateral; }
   set vLateral(v) { this.player.vLateral = v; }
 

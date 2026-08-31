@@ -315,7 +315,16 @@ notice it, switch weapons and wait for a shot, or to simply survive it.
 player, so the same rules cover the player shunting a sedan, a rig rear-ending a
 roadster, and the pile-up after. Both bodies move and take damage split by
 INVERSE mass; chains fall out of running the pair sweep several times per tick;
-blasts chain the same way and terminate because each car detonates once. The body
+blasts chain the same way and terminate because each car detonates once.
+
+An IMPACT is an arrival, and the solver remembers which pairs were touching last
+tick in order to say so. Contact that merely persists is pressure: it pushes,
+without the bounce, without a second hull bill, and without being able to force a
+body under the `speedFloor` its own engine is holding — what the floor refuses is
+handed to the car in front. That rule is what stops one heavy car parked in front
+of you from quietly cancelling an OVERDRIVE's raised floor. See `rearEnd`.
+
+The body
 interface at the top of that file is what anything rammable later — a barrel, a
 boss — implements instead of editing the solver. The one thing that opts OUT is
 an `airborne` body, which is never handed to the solver at all: mass makes a

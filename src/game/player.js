@@ -22,6 +22,14 @@ export const ACCEL = 380; // speed change per second at full throttle
 // to meet it rather than like a number being reassigned; at the overdrive's
 // 200 that is a little over half a second at each end. See update()'s own
 // comment for why this is a ramp and not the clamp it used to be.
+//
+// A RAMP CAN BE OUTRUN, which is the one thing this rate cannot defend against
+// on its own: anything taking speed away per TICK, faster than this puts it
+// back, holds the car wherever it likes for as long as it keeps doing so. The
+// case that did is a car sat in front of you — see `speedFloor` below and
+// collisions.js's rearEnd, which is where that is answered rather than here.
+// Raising this rate was tried first and is not the fix: the bill contact sent
+// grew with closing speed, so a faster ramp only bought a bigger bill.
 export const BAND_RECOVER = ACCEL;
 const STEER_SPEED = 300; // horizontal px/sec at full lock
 
@@ -375,6 +383,19 @@ export class Player {
 
   get topSpeed() {
     return this.maxSpeed + this.boost;
+  }
+
+  // The floor as the COLLISION SOLVER sees it: the lowest speed another car is
+  // allowed to hold this one at by leaning on it (collisions.js's rearEnd, via
+  // PlayerBody). Not the same question as `minSpeed`, which is where update()
+  // is driving the car back TO, and the difference is the puncture: a strip
+  // overrules the band's floor (see update()), so while one is running the car
+  // has genuinely lost the ability the floor describes and traffic gets to
+  // hold it down there. Math.min rather than the puncture speed outright,
+  // because an UNBOOSTED car's crawl (150) sits above its floor (100) and must
+  // not be read as traffic having lifted it.
+  get speedFloor() {
+    return this.spikeTime > 0 ? Math.min(this.spikeSpeed, this.minSpeed) : this.minSpeed;
   }
 
   // Bank `seconds` of shield WITHOUT starting the clock. This is what a SHIELD

@@ -2202,6 +2202,94 @@ test("a boost rides on top of whatever the shop's ENGINE tiers already bought", 
   assert.equal(player.topSpeed, 1000, "the buff is added to the UPGRADED ceiling, not to the stock one");
 });
 
+// Drive `player` nose-to-tail behind one car for `seconds`, the way main.js's
+// tick does it: the player's own update, then the car's speed ramp toward the
+// speed its driver is asking for (traffic.js's ACCEL), then the solver. The
+// blocker is a plain body rather than a TrafficCar so the test states its
+// stubbornness as a number instead of inheriting a catalogue entry's.
+function leanOnBlocker(player, { mass, holds, seconds }) {
+  const dt = 1 / 60;
+  const TRAFFIC_ACCEL = 340; // traffic.js
+  const blocker = {
+    worldY: (player.h + 60) / 2, offset: 0, prevOffset: 0, w: 34, h: 60,
+    speed: holds, vLateral: 0, mass, alive: true, damage() {},
+  };
+  const body = {
+    worldY: 0, offset: 0, prevOffset: 0, w: player.w, h: player.h,
+    mass: PLAYER_MASS, alive: true, damage() {},
+    get speed() { return player.speed; }, set speed(v) { player.speed = v; },
+    get speedFloor() { return player.speedFloor; },
+    get vLateral() { return player.vLateral; }, set vLateral(v) { player.vLateral = v; },
+  };
+  let lowest = player.speed;
+  for (let i = 0; i < seconds * 60; i++) {
+    player.update(dt, { left: -1e4, right: 1e4 });
+    const dv = holds - blocker.speed;
+    const step = TRAFFIC_ACCEL * dt;
+    blocker.speed += Math.abs(dv) <= step ? dv : Math.sign(dv) * step;
+    body.worldY += player.speed * dt;
+    blocker.worldY += blocker.speed * dt;
+    resolveCollisions([body, blocker], dt);
+    lowest = Math.min(lowest, player.speed);
+  }
+  return { lowest, blocker };
+}
+
+test("an overdrive's floor survives being leaned on by a car heavy enough to hold it", () => {
+  // THE ONE THE WHOLE speedFloor RULE EXISTS FOR. A crate promises a floor
+  // (player.js's BOOST band); a rig promises to sit in front of you. Before
+  // rearEnd told an arrival from a lean, the rig won outright and silently:
+  // the per-tick impact bill grew with closing speed, so the harder the band
+  // drove the player forward the harder the next tick took it back, and a
+  // boosted player pinned behind anything of mass 2 or more settled on the
+  // CAR'S speed — 140 units under the floor — and stayed there for as long as
+  // contact lasted. The catalogue's mass 2.2 rammer, 2.8, rig 4 and 6 are all
+  // in that bracket (cartypes.js), which is to say most of what rams you.
+  for (const mass of [1, 2.2, 4, 6]) {
+    const player = new Player(0, 0);
+    player.speed = MIN_SPEED + 200;
+    player.activateBoost(200, 30);
+
+    const { lowest } = leanOnBlocker(player, { mass, holds: 160, seconds: 5 });
+    assert.equal(player.speed, player.minSpeed,
+      `a mass-${mass} blocker must not be able to hold a boosted car under its floor`);
+    assert.ok(lowest < player.minSpeed,
+      "and the arrival must still have COST speed — a hit that costs nothing is not a hit");
+  }
+});
+
+test("the ramp back to the floor is the band's, not the solver's — about half a second", () => {
+  // The recovery a player actually sees after being rammed while boosted:
+  // BAND_RECOVER from wherever the impact left them, which is the same ramp a
+  // fresh crate spools up through. Asserted as a DURATION because that is the
+  // thing being promised — the 200 lift over BAND_RECOVER is 0.53s.
+  const player = new Player(0, 0);
+  player.speed = MIN_SPEED + 200;
+  player.activateBoost(200, 30);
+
+  const ticks = Math.ceil((200 / BAND_RECOVER) * 60) + 1;
+  const { lowest } = leanOnBlocker(player, { mass: 4, holds: 160, seconds: ticks / 60 });
+  assert.ok(lowest < player.minSpeed, "the ram has to have taken speed for this to measure anything");
+  assert.equal(player.speed, player.minSpeed,
+    "the worst case is a full lift's worth of ramp, and one tick more than that must clear it");
+});
+
+test("a puncture still overrules the floor a lean is measured against", () => {
+  // player.js's speedFloor: a strip is the ONE deliberate exception to the
+  // band's floor, so while one runs the car really has lost the ability the
+  // floor describes and traffic gets to hold it down at the crawl. Without
+  // this the solver would have been quietly re-arming a floor the whole rest
+  // of the code had just agreed to give up.
+  const player = new Player(0, 0);
+  player.activateBoost(200, 30);
+  assert.equal(player.speedFloor, player.minSpeed, "unpunctured, the floor is simply the band's");
+
+  const strip = OBSTACLE_TYPES.find((t) => t.slowTime > 0);
+  player.puncture(strip);
+  assert.equal(player.speedFloor, strip.slowTo,
+    "a punctured car's floor is the crawl, even with an overdrive running");
+});
+
 test("driving onto a pickup applies its effect, removes the crate and bursts once", () => {
   const explosions = new Explosions();
   const pickups = new Pickups(explosions);
