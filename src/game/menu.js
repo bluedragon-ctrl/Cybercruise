@@ -15,8 +15,9 @@
 //
 // SOUND and MUSIC both drive playback now, via soundVolume()/musicVolume()
 // below — main.js reads them to scale src/audio/synth.js's one-shot SFX and
-// its music volume respectively. Both are 0..1 sliders, persisted the same
-// way, regardless of which is read where.
+// its music volume respectively. Both are 0..1 sliders that start from a
+// coded default and live only for the session — see SOUND_DEFAULT/
+// MUSIC_DEFAULT below for why neither is read back from local storage.
 //
 // "gameover" is a THIRD context for this same screen, alongside "start" and
 // "pause" — main.js opens it once game/disconnect.js's sequence finishes, and
@@ -29,52 +30,31 @@ import { consumePress } from "../engine/input.js";
 import { mousePos, isMouseDown, consumeMouseClick } from "../engine/mouse.js";
 import { glowText, glowLine } from "../engine/neon.js";
 import { GREEN, GREEN_DIM, GREEN_PALE, GREEN_BRIGHT, PLAYER } from "../engine/palette.js";
+import { LOGICAL_H } from "../engine/viewport.js";
 import {
   SHOW_TEST_OPTIONS,
   SHOW_INVULNERABILITY_OPTION,
   SHOW_EXTRA_CASH_OPTION,
 } from "../testoptions.js";
 
-const SOUND_KEY = "cybercruise.sound";
-const MUSIC_KEY = "cybercruise.music";
-const INVULNERABLE_KEY = "cybercruise.test.invulnerable";
-const EXTRA_CASH_KEY = "cybercruise.test.extracash";
+// NOT PERSISTED — neither these two nor the test rows below. The game runs
+// served from a shared server rather than as a per-user desktop install, so
+// there is no local file that is reliably this player's — reading one back
+// would as easily hand a stranger's leftover setting to the next visitor as
+// it would remember this one's. Every load starts from these two coded
+// defaults instead; the slider still moves them for the rest of the session,
+// in memory, the same as before.
+const SOUND_DEFAULT = 0.5;
+const MUSIC_DEFAULT = 0.2;
 
 function clamp01(v) {
   return Math.max(0, Math.min(1, v));
 }
 
-// Volume is stored as a "0".."1" string under the same keys the old SOUND
-// on/off flag and MUSIC level used — both previously saved "1"/"0", which
-// parse back as 1/0 here, so a value saved before either was a slider just
-// loads as 100%/0% with no migration needed.
-function loadVolume(key) {
-  const v = localStorage.getItem(key);
-  if (v === null) return 1;
-  const n = parseFloat(v);
-  return Number.isFinite(n) ? clamp01(n) : 1;
-}
-
-function saveVolume(key, value) {
-  localStorage.setItem(key, String(value));
-}
-
-// The test rows' on/off state, persisted under their own keys so a testing
-// session survives a reload. Stored as "1"/"0" rather than the volume rows'
-// "0".."1" string, because these are flags and reading one back as a level
-// would be a category error waiting to happen.
-function loadFlag(key) {
-  return localStorage.getItem(key) === "1";
-}
-
-function saveFlag(key, value) {
-  localStorage.setItem(key, value ? "1" : "0");
-}
-
-// Row geometry, shared by everything that draws a row or hit-tests a click
-// against one — the volume bars (barRect) and the test rows (testRowRect)
-// below both hang off it, so what's drawn can never drift from what's
-// clickable.
+// Row geometry for the three real rows and their volume bars (barRect below)
+// — shared between render() and update()'s hit-testing so what's drawn can
+// never drift from what's clickable. The test checkboxes live at the foot of
+// the screen instead (CHECK_Y below) and don't use this.
 const MENU_START_Y = 420;
 const MENU_ROW_SPACING = 52;
 
@@ -100,21 +80,38 @@ const VOLUME_STEP = 0.1;
 const TEST_ROWS = !SHOW_TEST_OPTIONS
   ? []
   : [
-      SHOW_INVULNERABILITY_OPTION && { key: "invulnerable", label: "INVULNERABILITY", storeKey: INVULNERABLE_KEY },
-      SHOW_EXTRA_CASH_OPTION && { key: "extraCash", label: "EXTRA CASH", storeKey: EXTRA_CASH_KEY },
+      SHOW_INVULNERABILITY_OPTION && { key: "invulnerable", label: "INVULNERABILITY" },
+      SHOW_EXTRA_CASH_OPTION && { key: "extraCash", label: "EXTRA CASH" },
     ].filter(Boolean);
 
-// row 0 (see above), SOUND, MUSIC, then whichever test rows are compiled in.
+// row 0 (see above), SOUND, MUSIC, then whichever test rows are compiled in —
+// the cursor still steps through them in this order (see update()'s up/down),
+// even though they no longer LOOK like the three rows above them (see below).
 const FIRST_TEST_ROW = 3;
 const ROW_COUNT = FIRST_TEST_ROW + TEST_ROWS.length;
 
-// The clickable box around a test row's label — deliberately generous, since
-// unlike the volume bars there is nothing drawn to aim at but the text itself.
-const TEST_ROW_W = 320;
-const TEST_ROW_H = 34;
-function testRowRect(W, row) {
-  const rowY = MENU_START_Y + row * MENU_ROW_SPACING;
-  return { x: W / 2 - TEST_ROW_W / 2, y: rowY - TEST_ROW_H + 8, w: TEST_ROW_W, h: TEST_ROW_H };
+// DRAWN SMALL, AT THE FOOT OF THE SCREEN, deliberately unlike the three real
+// rows above — a dev cheat sitting in the same size and place as START GAME
+// reads as part of the game's own option set instead of what it is. A row of
+// tiny checkboxes beside the "TEST BUILD" footer they already share a reason
+// for existing with does the opposite: unmissable if you're looking for it,
+// easy to never notice if you're not.
+const CHECK_Y = LOGICAL_H - 68; // a clear gap above the footer text (H - 40)
+const CHECK_FONT = 12;
+const CHECK_BOX = 10; // the little square glyph itself
+const CHECK_GAP = 6; // between the square and its label
+const CHECK_ITEM_W = 170; // reserved per checkbox, box+label+padding, for centering and the click target
+
+// The clickable box around one checkbox + its label — generous past the glyph
+// itself for the same reason the old full-width test row was: a dev flag
+// should be easy to hit, not a precision target. `CHECK_Y` is the text's own
+// TOP (glowText draws from a "top" baseline — engine/neon.js), so the rect
+// pads a few px above it for the box glyph and enough below for the label's
+// full height.
+function testRowRect(W, i) {
+  const totalW = TEST_ROWS.length * CHECK_ITEM_W;
+  const x = W / 2 - totalW / 2 + i * CHECK_ITEM_W;
+  return { x, y: CHECK_Y - 6, w: CHECK_ITEM_W, h: CHECK_FONT + 12 };
 }
 
 // SOUND/MUSIC rows' volume bar geometry, shared between render() (drawing)
@@ -130,14 +127,13 @@ function barRect(W, row) {
 export function createMenu() {
   let selected = 0;
   let mode = "start"; // "start" | "pause" | "gameover"
-  let soundLevel = loadVolume(SOUND_KEY);
-  let volume = loadVolume(MUSIC_KEY);
-  // One entry per COMPILED-IN test row, keyed by its `key`. A row that is not
-  // compiled in has no entry, and its accessor below reports false — see the
-  // TEST_ROWS comment on why a stale localStorage value must not leak into a
-  // build that dropped the row.
+  let soundLevel = SOUND_DEFAULT;
+  let volume = MUSIC_DEFAULT;
+  // One entry per COMPILED-IN test row, keyed by its `key`, always starting
+  // OFF — see the NOT PERSISTED note near SOUND_DEFAULT above. A row that is
+  // not compiled in has no entry at all, and its accessor below reports false.
   const flags = {};
-  for (const row of TEST_ROWS) flags[row.key] = loadFlag(row.storeKey);
+  for (const row of TEST_ROWS) flags[row.key] = false;
   // Which row's bar (if any) a drag that STARTED on it is currently
   // controlling — a click that lands elsewhere and drags onto a bar must not
   // suddenly grab it, same reasoning a native slider only tracks drags it
@@ -146,17 +142,14 @@ export function createMenu() {
 
   function setSoundVolume(v) {
     soundLevel = clamp01(v);
-    saveVolume(SOUND_KEY, soundLevel);
   }
 
   function setMusicVolume(v) {
     volume = clamp01(v);
-    saveVolume(MUSIC_KEY, volume);
   }
 
   function toggleTestRow(row) {
     flags[row.key] = !flags[row.key];
-    saveFlag(row.storeKey, flags[row.key]);
   }
 
   // Called every time main.js switches the screen TO this menu. Resets the
@@ -264,14 +257,13 @@ export function createMenu() {
     }
 
     // Test rows are CLICKED, not dragged — there is no continuous value to
-    // track, so one click on the label flips it (and moves the cursor there,
-    // the same way clicking a volume bar does).
+    // track, so one click on the checkbox flips it (and moves the cursor
+    // there, the same way clicking a volume bar does).
     if (clicked) {
       for (let i = 0; i < TEST_ROWS.length; i++) {
-        const row = FIRST_TEST_ROW + i;
-        const box = testRowRect(W, row);
+        const box = testRowRect(W, i);
         if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
-          selected = row;
+          selected = FIRST_TEST_ROW + i;
           toggleTestRow(TEST_ROWS[i]);
           toggled = true;
         }
@@ -289,23 +281,21 @@ export function createMenu() {
     glowText(ctx, subtitle, W / 2, 268, GREEN_PALE, 14, "center", 8);
     glowLine(ctx, W / 2 - 120, 302, W / 2 + 120, 302, GREEN_DIM, 1, 6);
 
-    const rows = [ROW0_LABEL[mode], "SOUND", "MUSIC", ...TEST_ROWS.map((r) => r.label)];
+    // The three REAL rows only — the test checkboxes are a different size, in
+    // a different place, on purpose (see CHECK_Y above), so they are drawn in
+    // their own pass below rather than folded into this one.
+    const rows = [ROW0_LABEL[mode], "SOUND", "MUSIC"];
     for (let i = 0; i < rows.length; i++) {
       const isSelected = i === selected;
       let label = rows[i];
       if (i === SOUND_ROW) label += `: ${Math.round(soundLevel * 100)}%`;
       if (i === MUSIC_ROW) label += `: ${Math.round(volume * 100)}%`;
-      const testRow = TEST_ROWS[i - FIRST_TEST_ROW];
-      if (testRow) label += flags[testRow.key] ? ": ON" : ": OFF";
       glowText(
         ctx,
         (isSelected ? "> " : "  ") + label,
         W / 2,
         MENU_START_Y + i * MENU_ROW_SPACING,
-        // An ARMED test row draws in the same pale green the subtitle uses
-        // rather than the row colour, so a screen with a cheat switched on
-        // never reads as an ordinary one at a glance.
-        isSelected ? PLAYER : testRow && flags[testRow.key] ? GREEN_PALE : GREEN,
+        isSelected ? PLAYER : GREEN,
         22,
         "center",
         isSelected ? 16 : 8,
@@ -333,6 +323,35 @@ export function createMenu() {
       }
     }
 
+    // The test checkboxes — small on purpose (see CHECK_Y above). Off draws
+    // as an empty outline in the dimmest green the menu uses; armed fills the
+    // square and lifts the whole item to the subtitle's pale green, so a
+    // screen with a cheat switched on reads as unusual at a glance even this
+    // small. The keyboard cursor still reaches these (FIRST_TEST_ROW.. in
+    // `selected`), and gets the same PLAYER highlight the real rows above get.
+    for (let i = 0; i < TEST_ROWS.length; i++) {
+      const row = TEST_ROWS[i];
+      const isSelected = FIRST_TEST_ROW + i === selected;
+      const armed = flags[row.key];
+      const box = testRowRect(W, i);
+      const color = isSelected ? PLAYER : armed ? GREEN_PALE : GREEN_DIM;
+
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(box.x, CHECK_Y, CHECK_BOX, CHECK_BOX);
+      if (armed) {
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 4;
+        ctx.fillRect(box.x + 2, CHECK_Y + 2, CHECK_BOX - 4, CHECK_BOX - 4);
+      }
+      ctx.restore();
+
+      const label = `${row.label}: ${armed ? "ON" : "OFF"}`;
+      glowText(ctx, label, box.x + CHECK_BOX + CHECK_GAP, CHECK_Y - 1, color, CHECK_FONT, "left", isSelected ? 6 : 0);
+    }
+
     // The footer doubles as the warning that this build has cheats in it —
     // switching them off in testoptions.js takes the line with them.
     const footer = TEST_ROWS.length
@@ -358,8 +377,7 @@ export function createMenu() {
   // volume levels above are — this module applies nothing itself, it only
   // reports which rows are armed. FALSE whenever the row is not compiled in
   // (testoptions.js), since `flags` only ever holds entries for rows that
-  // exist; a build that dropped a row cannot be cheated by a leftover
-  // localStorage value.
+  // exist.
   function invulnerable() {
     return flags.invulnerable === true;
   }

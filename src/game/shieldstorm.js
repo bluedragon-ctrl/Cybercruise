@@ -17,9 +17,13 @@
 //
 // WHAT IT IS NOT: a way to farm the road. Every arc is real damage into
 // traffic.js's own damage(), so a kill scores exactly as a kill always has
-// (score.js pays out however a car died) — but STORM_DAMAGE is deliberately
-// under a single cannon round, so a full 30s shop shield spent parked in
-// traffic still earns less than the same 30s spent shooting.
+// (score.js pays out however a car died) — but the RATE is what keeps it from
+// out-earning the gun: STORM_INTERVAL and MAX_ARCS cap it at three cars twice
+// a second, against the cannon's six rounds a second onto whichever one car
+// the player is actually tracking. Sit beside a single car and the cannon
+// still puts more damage into it per second than the storm does; the storm's
+// edge is only ever width, never depth, and a rig still shrugs off a full 30s
+// shield (see STORM_DAMAGE below).
 //
 // IT DOES NOT CHECK WHOSE SIDE A CAR IS ON, and that is a decision rather than
 // an omission. Every other area effect in the game is indiscriminate — a mine
@@ -60,10 +64,12 @@ import { PLAYER, SHIELD_FLICKER } from "../engine/palette.js";
 // has to actually go and be near something.
 export const STORM_RADIUS = 96;
 
-// Per discharge, at contact. UNDER A CANNON ROUND (41, weapons.js) on purpose —
-// see the header. Two arcs kill a cycle, five kill an interceptor, and a rig
-// (220) simply cannot be stormed down inside one crate's shield.
-export const STORM_DAMAGE = 34;
+// Per discharge, at contact. DOUBLED from the original 34 so a single arc
+// reads as a real hit rather than a tickle — the rate cap (STORM_INTERVAL,
+// MAX_ARCS), not the per-hit number, is what keeps the storm from out-earning
+// the gun; see the header. A cycle (25 health) dies to one solid arc, and a
+// rig (220) still cannot be stormed down inside one crate's shield.
+export const STORM_DAMAGE = 68;
 
 // Seconds between discharges. Slow enough to read as a series of separate
 // snaps and to keep the effect pool breathing (effects.js's ARC_DURATION is

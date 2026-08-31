@@ -54,13 +54,23 @@ containment check.
 ### Test options
 
 Two cheat rows on the start/pause menu — `INVULNERABILITY` and `EXTRA CASH` —
-for reaching by hand what a normal run makes expensive to reach. Both persist
-across a reload and take effect on the next tick.
+for reaching by hand what a normal run makes expensive to reach. Neither is
+persisted (the game is served, not installed — see `game/menu.js`'s own note);
+both reset to OFF on every load and take effect on the next tick.
 
 **`src/testoptions.js` is the switch**: clearing `SHOW_TEST_OPTIONS` (or either
-per-row flag) removes them from the menu entirely, and a removed row reads as off
-whatever `localStorage` holds. `test/test-options.test.js` pins that the removal
-is complete rather than half-wired.
+per-row flag) removes them from the menu entirely, and a removed row always
+reads as off. `test/test-options.test.js` pins that the removal is complete
+rather than half-wired.
+
+**Useful when verifying a change in a live browser session, AI-driven or not**:
+`INVULNERABILITY` survives anything so a change can be watched for as long as it
+takes rather than for as long as one life lasts, `EXTRA CASH` opens the whole
+shop instantly instead of grinding credits for it, and the same file's
+`EVENT_AT_OVERRIDES`/`EVENT_GATE_OVERRIDES` pull a specific encounter forward to
+DIST 0 so it can be reached in seconds instead of driven to. All three are code
+edits, not menu state, and all three ship back at their defaults (`{}` for the
+override maps) once the thing they were checking is confirmed.
 
 ### Asset gallery
 
