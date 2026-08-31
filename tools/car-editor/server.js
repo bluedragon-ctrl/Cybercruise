@@ -156,17 +156,18 @@ async function readBody(req) {
 }
 
 // Fields that must be strictly positive numbers, beyond just finite. Applied
-// after the generic finite-number check below, and also cross-checked as a
-// pair (speedMax >= speedMin) when a single request touches both — catching
-// nonsensical values like `health: -50` or an inverted speed range at the
-// boundary, rather than relying on downstream game-invariant tests to notice.
+// after the generic finite-number check below, and also cross-checked as an
+// ORDERING (speedMin <= cruiseMin <= speedMax) whatever subset of the three a
+// request touches — catching nonsensical values like `health: -50` or an
+// inverted speed range at the boundary, rather than relying on downstream
+// game-invariant tests to notice.
 //
 // `price` and `step` join the set for the shop's own catalogue: a free or
 // negatively-priced row is a bug, not a sale, and a step of 0 or less is a
 // tier that buys nothing (or moves a stat backwards), neither of which
 // upgrades.js's own ladder logic accounts for.
 export const POSITIVE_FIELDS = new Set([
-  "health", "speedMin", "speedMax", "amount", "duration", "price", "step",
+  "health", "cruiseMin", "speedMax", "amount", "duration", "price", "step",
   // Weapons and the rest of a car's own figures. A weapon with `interval: 0`
   // fires every frame forever and a `mass: 0` car cannot be pushed by
   // anything, so neither is a value, both are a wedged simulation. `slowTo`
@@ -184,8 +185,12 @@ export const POSITIVE_FIELDS = new Set([
 // The rest are fields where zero genuinely means "none of this": a weapon
 // that deals no direct damage (the mine layer's payload does the work), a
 // wreck with no blast, a burst of one shot, a magazine you start empty.
+// `speedMin` is the car's HARD FLOOR, and 0 — "this car can be brought to a
+// full stop" — is the setting every civilian ships with (cartypes.js's THE TWO
+// SPEED BANDS), so it belongs here rather than with the positive-only fields
+// where its old cruise-band meaning put it.
 const NON_NEGATIVE_FIELDS = new Set([
-  "minDistance", "weight", "damage", "blastRadius", "blastDamage",
+  "speedMin", "minDistance", "weight", "damage", "blastRadius", "blastDamage",
   "contactDamage", "threat", "slowTime", "pierce", "burstCount",
   "burstInterval", "accel", "turnRate", "aimSlack", "ammo", "startAmmo",
 ]);
@@ -256,25 +261,32 @@ export function validateChanges(changes) {
     ids: CAR_IDS,
     fields: [...CAR_TYPE_FIELDS, ...BEHAVIOR_FIELDS],
     enums: { laneHome: ["any", "inner", "outer"] },
-    // The speed range has to be valid AFTER the edit lands, which is not the
-    // same as "the submitted pair is valid": editing speedMax alone, down
-    // past the speedMin already in the source, used to sail through because
-    // this check only fired when one request carried both fields. Whichever
-    // side the request does not name is read from the current source instead,
-    // and tagged in the message so the number's origin is obvious.
+    // The speed ordering has to hold AFTER the edit lands, which is not the
+    // same as "the submitted fields are valid among themselves": editing
+    // speedMax alone, down past the cruiseMin already in the source, used to
+    // sail through because this check only fired when one request carried both.
+    // Whichever of the three the request does not name is read from the current
+    // source instead, and tagged in the message so the number's origin is
+    // obvious.
+    //
+    // THREE FIELDS, TWO RELATIONS, because the floor and the cruise bottom are
+    // different numbers (cartypes.js): speedMin <= cruiseMin says a car may not
+    // be rolled below what it is capable of, and cruiseMin <= speedMax is the
+    // old range check. Checked in that order so the message names the pair that
+    // actually broke.
     crossCheck(fields, carId) {
-      const givenMin = has(fields, "speedMin");
-      const givenMax = has(fields, "speedMax");
-      if (!givenMin && !givenMax) return;
+      const SPEEDS = ["speedMin", "cruiseMin", "speedMax"];
+      if (!SPEEDS.some((f) => has(fields, f))) return;
       const current = buildCarState(carId).values;
-      const speedMin = givenMin ? fields.speedMin : current.speedMin;
-      const speedMax = givenMax ? fields.speedMax : current.speedMax;
-      if (speedMax < speedMin) {
-        const tag = (given) => (given ? "" : ", unchanged");
-        throw new Error(
-          `speedMax (${speedMax}${tag(givenMax)}) must be >= ` +
-            `speedMin (${speedMin}${tag(givenMin)}) for "${carId}"`
-        );
+      const tag = (f) => (has(fields, f) ? "" : ", unchanged");
+      const value = (f) => (has(fields, f) ? fields[f] : current[f]);
+      for (const [lo, hi] of [["speedMin", "cruiseMin"], ["cruiseMin", "speedMax"]]) {
+        if (value(hi) < value(lo)) {
+          throw new Error(
+            `${hi} (${value(hi)}${tag(hi)}) must be >= ` +
+              `${lo} (${value(lo)}${tag(lo)}) for "${carId}"`
+          );
+        }
       }
     },
   });

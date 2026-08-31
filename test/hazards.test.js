@@ -90,11 +90,22 @@ test("the spike strip takes speed, not hull — and the mine is still the killer
   assert.ok(spikes.contactDamage < mine.blastDamage, "a strip must not out-hit the mine");
   assert.equal(spikes.blastRadius, 0, "a strip must not explode — it stays on the road");
 
-  // The crawl has to be a real one for EVERY type, not just the heavy ones.
-  const slowest = Math.min(...CAR_TYPES.map((t) => t.speedMin));
+  // The crawl has to be a real one for EVERY type, not just the heavy ones —
+  // and against the CRUISE bottom, which is the speed the strip is taking away.
+  const slowestCruise = Math.min(...CAR_TYPES.map((t) => t.cruiseMin));
   assert.ok(
-    spikes.slowTo < slowest,
-    `a strip's ${spikes.slowTo} is not below the slowest cruise on the road (${slowest})`,
+    spikes.slowTo < slowestCruise,
+    `a strip's ${spikes.slowTo} is not below the slowest cruise on the road (${slowestCruise})`,
+  );
+  // ...and below every HARD FLOOR too, which is the stronger claim now that one
+  // exists: cartypes.js and traffic.js both call the puncture the one deliberate
+  // exception to the floor, so a strip that could not reach under the highest
+  // floor on the road would do nothing at all to the type carrying it.
+  const highestFloor = Math.max(...CAR_TYPES.map((t) => t.speedMin));
+  assert.ok(
+    spikes.slowTo < highestFloor,
+    `a strip's ${spikes.slowTo} is not below the highest floor on the road ` +
+      `(${highestFloor}) — the exception it is documented as would be inert there`,
   );
 });
 
@@ -153,8 +164,8 @@ test("a punctured car is held below its own speed band, then recovers", () => {
   const spikes = OBSTACLE_TYPES.find((t) => t.id === "spikes");
   const { car, world } = lonePuncturedCar();
   assert.ok(
-    car.type.speedMin > spikes.slowTo,
-    "the test is meaningless unless the crawl is below this car's own floor",
+    car.type.cruiseMin > spikes.slowTo,
+    "the test is meaningless unless the crawl is below this car's own cruise",
   );
 
   car.puncture(spikes);
@@ -167,8 +178,8 @@ test("a punctured car is held below its own speed band, then recovers", () => {
   // ...and once the puncture has run out it climbs back into its own band.
   for (let i = 0; i < 60 * 8; i++) car.update(1 / 60, world);
   assert.ok(
-    car.speed >= car.type.speedMin,
-    `the puncture never wore off — the car is still at ${car.speed}, below its own floor`,
+    car.speed >= car.type.cruiseMin,
+    `the puncture never wore off — the car is still at ${car.speed}, below its own band`,
   );
 });
 
@@ -498,6 +509,115 @@ test("a chase range is wider than the gap it chases down to", () => {
         `${p.pursueRange}: it would never close on the player at all`,
     );
   }
+});
+
+// --- The hard floor ----------------------------------------------------------
+
+test("a hostile's floor is either unshakeable or a speed the player can drop to", () => {
+  // cartypes.js's THE TWO SPEED BANDS, "WHERE 200 COMES FROM". A hostile holds
+  // station only on a player it can MATCH, so its floor is the speed at which
+  // the player stops being holdable — which makes this number the answer to
+  // "does braking work against this type", and it is bounded at both ends.
+  //
+  // The upper bound is the one that is easy to get wrong, and it was got wrong
+  // once: the floor breaks the tactic at EVERY player speed under it, not only
+  // at the crawl. A bike floored at its own 600 cruise cannot hold station on a
+  // player doing 380 either — it blows past, and the type stops working at
+  // ordinary speeds rather than becoming escapable at slow ones. `npm run sim`
+  // showed it as the outrunner's and sower's pass rate going through the roof.
+  const START_SPEED = new Player(300, 496).speed;
+  for (const t of CAR_TYPES.filter((t) => t.value >= 0)) {
+    // UNSHAKEABLE MEANS 0, NOT MIN_SPEED, and this is the half that looks like it
+    // would do and does not. A hostile attacking from IN FRONT (`outrun`,
+    // `siege`, `patrol`, and `ram` once it is past) has to drive SLOWER than the
+    // player to close a gap, not merely as slow: those tactics OVERSHOOT their
+    // hold on the way in, and floored at the player's own minimum the boss could
+    // match a crawl but never recover the overshoot — braking parked it off the
+    // top of the screen for good. Measured; see cartypes.js.
+    if (t.speedMin === 0) continue;
+    assert.ok(
+      t.speedMin > MIN_SPEED,
+      `${t.id} floors at ${t.speedMin}, under the player's ${MIN_SPEED} but not at ` +
+        `0. A floor that low is meant to be unshakeable, and unshakeable is 0`,
+    );
+    assert.ok(
+      t.speedMin < START_SPEED,
+      `${t.id} floors at ${t.speedMin}, at or above the speed a run STARTS at ` +
+        `(${START_SPEED}). It cannot hold station on an ordinary player, so it is ` +
+        `broken rather than escapable`,
+    );
+  }
+});
+
+test("the shakeable hostiles all share one floor", () => {
+  // Four bikes, one number, because it is one physical fact about bikes — they
+  // cannot be ridden at walking pace — rather than four dispositions. Asserted
+  // so a retune of one of them silently splits the rule into four.
+  const shakeable = CAR_TYPES.filter((t) => t.value >= 0 && t.speedMin > MIN_SPEED);
+  const floors = new Set(shakeable.map((t) => t.speedMin));
+  assert.equal(
+    floors.size,
+    1,
+    `the escapable hostiles floor at ${[...floors].join(", ")}. One fact, one ` +
+      `number: ${shakeable.map((t) => `${t.id} ${t.speedMin}`).join(", ")}`,
+  );
+});
+
+test("every civilian can be brought to a full stop", () => {
+  // The civilian half of the same rule, and what keeps the new floor invisible
+  // on the civilian road: `hazardStop` (behaviours.js) is MEASURED behaviour — a
+  // car with no free lane brakes to a standstill short of a roadblock rather
+  // than being shunted into it — and `followSpeed` has to be able to match a rig
+  // that has done exactly that. A civilian floor above zero reaches under both.
+  for (const t of CAR_TYPES.filter((t) => t.value < 0)) {
+    assert.equal(
+      t.speedMin,
+      0,
+      `${t.id} floors at ${t.speedMin}: it can no longer stop for a roadblock, ` +
+        `nor brake behind a civilian that has`,
+    );
+  }
+});
+
+test("the floor outranks the tactic, and only the strip escapes it", () => {
+  // traffic.js applies the floor once, AFTER driveCar, so it outranks every
+  // request for less speed. Driven rather than read off the source: an outrider
+  // pinned behind a player crawling at their own minimum is the exact case the
+  // whole design is about, and `pursue` asks for well under 400 throughout it.
+  const type = CAR_TYPES.find((t) => t.id === "outrider");
+  const traffic = new Traffic();
+  const car = traffic.place(type, 400, 0, type.cruiseMin);
+  assert.ok(car, "expected place() to put the car on an empty road");
+
+  // 200 units back — inside `pursueRange`, so the chase is live — and crawling.
+  const world = {
+    cars: traffic.cars,
+    obstacles: [],
+    playerBody: { worldY: 600, offset: 0, speed: MIN_SPEED, w: 34, h: 60, alive: true },
+  };
+  for (let i = 0; i < 60 * 4; i++) car.update(1 / 60, world);
+
+  assert.ok(
+    car.targetSpeed >= type.speedMin,
+    `the outrider ASKED for ${car.targetSpeed.toFixed(0)} against a floor of ` +
+      `${type.speedMin} — the clamp is not outranking the tactic`,
+  );
+  assert.ok(
+    car.speed >= type.speedMin - 1,
+    `the outrider settled at ${car.speed.toFixed(0)}, under its own floor of ` +
+      `${type.speedMin}`,
+  );
+
+  // ...and the one exception still reaches under it, which is what makes the
+  // strip the strip. Same relation the spike tests above assert on the numbers.
+  const spikes = OBSTACLE_TYPES.find((t) => t.id === "spikes");
+  car.puncture(spikes);
+  for (let i = 0; i < 60 * 3; i++) car.update(1 / 60, world);
+  assert.ok(
+    car.speed <= spikes.slowTo + 1,
+    `a punctured outrider settled at ${car.speed.toFixed(0)}, held up by a floor ` +
+      `the strip is documented as the exception to`,
+  );
 });
 
 test("the ram's block is slower than the player's own minimum", () => {

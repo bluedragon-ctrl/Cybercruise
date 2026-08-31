@@ -23,7 +23,8 @@
 const CAR_FIELD_DESCRIPTIONS = {
   health: "Hull points. Spent by ramming, explosions, and weapons; the car is destroyed at zero.",
   mass: "How heavy this is in a collision, weighed against the player's own PLAYER_MASS (World → Player car). The heavier car wins the shove — a rig barely notices being hit.",
-  speedMin: "Slowest cruising speed this car will roll at when it spawns, in world units/sec.",
+  speedMin: "HARD FLOOR, world units/sec: nothing may drive this car slower — not its tactic, not braking behind another car, not slowing to fit a swerve past a roadblock. 0 means it can be brought to a full stop. Raise it and the car cannot hold station behind a player who slows down; lower it and slowing down does not shake it.",
+  cruiseMin: "Slowest cruising speed this car will roll at when it spawns, in world units/sec. NOT the floor above — this is only where the spawn roll starts.",
   speedMax: "Fastest cruising speed this car will roll at when it spawns, in world units/sec.",
   steerSpeed: "Sideways travel in px/sec at full lock — how fast this car changes lanes. Read it against the player's STEER_SPEED (World → Player car) to see who can cut whom off.",
   blastRadius: "How far the explosion reaches when this car is destroyed, in world units. It catches anything nearby, the player included.",

@@ -380,25 +380,72 @@ choosing a lane becomes a choice about what you will meet in it. That relation i
 asserted in the test suite, because a retune that puts a rig in the fast lane
 breaks nothing — it just quietly stops making sense.
 
-**The speed band** is pinned to both ends of the player's own 120–620:
+**Two speed bands, not one.** `cruiseMin`–`speedMax` is what a type rolls at
+spawn and wanders within — how it drives when nothing is happening to it.
+`speedMin`–`speedMax` is what it is physically capable of, and `traffic.js`
+applies that floor once per tick after every behaviour has spoken, so nothing can
+reach under it: not the tactic, not braking behind another car, not slowing to fit
+a swerve past a roadblock. The ceiling is shared because a car's top speed is the
+top of its cruise. The floor is not, and the gap between them is what the player
+buys by slowing down.
 
-| | | |
-|---|---|---|
-| rig | 180–215 | the floor — half again the player's minimum |
-| bus | 190–230 | |
-| van | 205–265 | |
-| sedan | 215–290 | the widest range: civilians are a spread of ordinary drivers |
-| bruiser | 280–330 | no gun, no mines: closes to ram, or blocks ahead and brakes |
-| muscle | 310–360 | the heavy civilian that leans on people |
-| stocker | 355–415 | the quick heavy: being ahead of one is not an escape |
-| interceptor | 400–470 | |
-| roadster | 430–560 | sits just under the player's ceiling |
-| outrider | 540–600 | |
-| rival | 580–650 | straddles the player's ceiling — draws level, neither escapes |
-| outrunner | 600–670 | gets past, then fights from in front |
-| hypercar | 630–700 | |
-| sower | 640–700 | lays its strip and leaves, and the band is why it can |
-| cycle | 660–730 | catches a player at full throttle |
+The cruise band is pinned to both ends of the player's own 100–620:
+
+| | cruise | floor | |
+|---|---|---|---|
+| rig | 180–215 | 0 | the slowest cruise — well above the player's minimum |
+| bus | 190–230 | 0 | |
+| van | 205–265 | 0 | |
+| sedan | 215–290 | 0 | the widest range: civilians are a spread of ordinary drivers |
+| bruiser | 280–330 | 0 | no gun, no mines: closes to ram, or blocks ahead and brakes |
+| muscle | 310–360 | 0 | the heavy civilian that leans on people |
+| stocker | 355–415 | 0 | the quick heavy: being ahead of one is not an escape |
+| interceptor | 400–620 | 0 | |
+| outrider | 400–660 | 200 | |
+| roadster | 430–560 | 0 | sits just under the player's ceiling |
+| gunship | 580–660 | 0 | airborne, so only the rocket reaches it |
+| rival | 580–650 | 0 | straddles the player's ceiling — draws level, neither escapes |
+| outrunner | 600–670 | 200 | gets past, then fights from in front |
+| cycle | 620–730 | 200 | catches a player at full throttle |
+| hypercar | 630–700 | 0 | |
+| sower | 640–700 | 200 | lays its strip and leaves, and the band is why it can |
+| mortar | 640–730 | 0 | the boss |
+
+**Only four types have a floor at all**, and they share one number. A hostile
+holds station only on a player it can *match*, so its floor is the speed at which
+you stop being holdable — which makes this field the answer to "does braking work
+against this type".
+
+- **200** — cycle, outrider, outrunner, sower. One number for the whole
+  motorcycle fleet, because it is one physical fact about bikes rather than four
+  dispositions: **a bike cannot be ridden at walking pace.** Drop under 200 and
+  none of them can hold station on you — the outrider's weave sweeps past and
+  loses its firing line, the cycle is forced by with its mine undropped, the
+  outrunner and the sower pull away up the road.
+- **0** — everything else, hostile and civilian alike. Braking is not an answer
+  to the interceptor, stocker, rival, bruiser, boss or gunship, which is what
+  stops "slow down" being the answer to everything. And every civilian still
+  stops dead for a roadblock and still brakes behind a rig, exactly as before the
+  field existed.
+
+Two things about those numbers were measured rather than chosen, and both look
+reasonable when wrong. **The second group is 0 rather than the player's own 100**
+because a hostile attacking from in front has to drive *slower* than the player,
+not merely as slow: `outrun` and `siege` overshoot their hold on the way in, and
+recovering that means falling back onto the player. Floored at 100 against a
+player at 100 the boss could match a crawl and never close on one, so braking
+parked it off the top of the screen for good. And **200 is bounded above as well
+as below** — a floor breaks a tactic at *every* player speed under it, not only at
+the crawl, so a bike floored at its own 600 cruise cannot hold station on a player
+doing 380 either. It blows past, and the type stops working at ordinary speeds
+instead of becoming escapable at slow ones; `npm run sim` shows it as the
+outrunner's and sower's pass rate going through the roof. Both bounds are
+asserted.
+
+The floor also decides what a car can dodge. `avoidHazards` slows a car so its
+swerve fits in the road left before a hazard, and `hazardStop` stops it dead when
+no lane is free at all — a bike can do neither, so a fully blocked road is a
+weapon against the bike fleet specifically.
 
 Two consequences worth having on purpose. Dawdling never makes the road go quiet
 — it makes the whole city stream past you. And **flat out is not fast enough to be

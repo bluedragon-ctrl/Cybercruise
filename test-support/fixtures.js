@@ -21,5 +21,7 @@ export function driver(over = {}) {
   };
 }
 
-export const slowest = Math.min(...CAR_TYPES.map((t) => t.speedMin));
+// The slowest CRUISE on the road, not the lowest floor — cartypes.js's two
+// speed bands are different numbers and every caller here means the cruise one.
+export const slowest = Math.min(...CAR_TYPES.map((t) => t.cruiseMin));
 export const fastest = Math.max(...CAR_TYPES.map((t) => t.speedMax));
