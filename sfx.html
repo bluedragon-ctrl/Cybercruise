@@ -118,18 +118,6 @@
     .backend-panel .row1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .backend-panel label { display: flex; align-items: center; gap: 4px; font-size: 11px; letter-spacing: 1px; cursor: pointer; }
     .backend-panel input[type="radio"] { accent-color: #39ff88; }
-    .backend-panel #disturbTest {
-      margin-left: auto;
-      background: transparent;
-      border: 1px solid rgba(57, 255, 136, 0.4);
-      color: #7dffb0;
-      font-family: inherit;
-      font-size: 10px;
-      letter-spacing: 1px;
-      padding: 4px 10px;
-      cursor: pointer;
-    }
-    .backend-panel #disturbTest:hover { border-color: #39ff88; }
     .backend-panel #trackList { margin-top: 10px; font-size: 10px; color: rgba(125, 255, 176, 0.6); }
     .backend-panel #trackList .track { padding: 1px 0; }
     .backend-panel #trackList .track.current { color: #39ff88; }
@@ -161,14 +149,13 @@
         <label><input type="radio" name="backend" value="auto" checked /> AUTO</label>
         <label><input type="radio" name="backend" value="procedural" /> PROCEDURAL</label>
         <label><input type="radio" name="backend" value="track" /> TRACK</label>
-        <button id="disturbTest" type="button">DISTURB (test hit)</button>
       </div>
       <div id="trackList">tracks: loading…</div>
       <div id="status">backend: not started</div>
     </div>
   </header>
   <div class="grid" id="gallery"></div>
-  <h2 class="section">SUSTAINED VOICES <span>— toggle on, drag the slider, wait a few seconds for dropouts/crackle at low values</span></h2>
+  <h2 class="section">SUSTAINED VOICES <span>— toggle on, drag the slider</span></h2>
   <div class="grid" id="sustainedGallery"></div>
   <h2 class="section">TRANSITIONS <span>— sequences that combine a one-shot with a bus effect, not just a catalogue entry</span></h2>
   <div class="grid" id="transitionGallery"></div>

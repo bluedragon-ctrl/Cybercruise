@@ -1,268 +1,36 @@
-// Phase 8 step 3's three SUSTAINED voices: hull_hiss (the headline of this
-// step), shield_drone, wall_scrape. See sustained.js's own header for the
-// LIFECYCLE these ride (acquire/setLevel/release — built once, silenced by
-// gain, never by stopping); this file owns what each one is MADE of and
-// WHEN it should be audible, mirroring sfx.js's own split from
-// soundtypes.js: the catalogue (sustainedtypes.js) says what exists,
-// sustained.js says how a voice lives, this file says what it sounds like
-// and what game state drives it.
+// The SUSTAINED voices: shield_drone, wall_scrape, dread_pulse. See
+// sustained.js's own header for the LIFECYCLE these ride
+// (acquire/setLevel/release — built once, silenced by gain, never by
+// stopping); this file owns what each one is MADE of and WHEN it should be
+// audible, mirroring sfx.js's own split from soundtypes.js: the catalogue
+// (sustainedtypes.js) says what exists, sustained.js says how a voice lives,
+// this file says what it sounds like and what game state drives it.
 //
-// EVERY PURE FUNCTION BELOW — the hull curve, its hysteresis, the
-// dropout/crackle schedulers, the shield fade — is exported and unit-tested
-// without an AudioContext at all (test/audio.test.js's own "Phase 8
-// step 3" section), the same pure/stateful split context.js's
-// planDuck()/duck() already established. The update*() functions at the
-// bottom are the only things here that touch a real AudioContext (via
+// EVERY PURE FUNCTION BELOW — the shield fade, the dread threat curve and
+// its hysteresis — is exported and unit-tested without an AudioContext at
+// all (test/audio.test.js), the same pure/stateful split context.js's
+// planDuck()/duck() already established. The update*() functions are the
+// only things here that touch a real AudioContext (via
 // sustained.js/context.js), and they're what main.js actually calls, once
 // per "playing" tick, through synth.js's facade.
 //
 // THE SHARED FICTION, UNCHANGED FROM EARLIER STEPS: the player is jacked
 // into a VR deck: "you never hear the world, you hear the deck reporting on
-// the world." Damage here is signal degradation, not physical damage — see
-// hull_hiss's own comment for how that shapes every choice below.
+// the world."
+//
+// HULL DAMAGE IS DELIBERATELY NOT IN HERE. A hull_hiss voice (a noise bed
+// whose level tracked hull damage, with bus dropouts and crackle spikes
+// below 25%/10% hull) shipped and was cut: playtesting found nobody read
+// the escalating hiss as "you are hurt" — it registered as the mix
+// degrading, if it registered at all, and the same run's music-disturb
+// bend (proceduralmusic/trackmusic's own disturb(), cut with it) said the
+// same unread thing again. Hull state is a VISUAL problem; do not
+// re-propose an audio layer for it without new evidence.
 
-import { getCtx, getSfxBus, getNoiseBuffer, dropSfxBus } from "./context.js";
+import { getCtx } from "./context.js";
 import { registerGenerator } from "./sustainedtypes.js";
 import * as sustained from "./sustained.js";
 import { SHIELD_EXPIRING } from "../game/player.js";
-
-// ===========================================================================
-// hull_hiss — a looping noise bed whose level tracks hull damage, plus two
-// escalating "tells" (dropouts, crackle) at deeper damage. Routed to the sfx
-// bus (sustained.js's acquire() already does this), not the music bus — this
-// is feedback about the PLAYER'S state, not part of the score, so it follows
-// the SOUND slider, not MUSIC.
-// ===========================================================================
-
-// --- The graph --------------------------------------------------------
-//
-// A single looping source over the SHARED noise buffer (context.js's
-// getNoiseBuffer(), the same buffer every one-shot noise burst in sfx.js
-// already slices) rather than a fresh buffer of its own — this graph is
-// built exactly once, ever, so there's no per-hit allocation to save the way
-// sharing the buffer saves one for a one-shot, but there's no reason to
-// duplicate it either. Bandpassed around 1.4kHz, Q 0.7 — the design brief is
-// explicit that noise is allowed some AIR here ("noise is allowed some air
-// here — it is textural, not pitched, and hiss without top end reads as
-// rumble rather than a failing signal"), while staying well clear of the
-// catalogue's ~5kHz noise rolloff and nowhere near the ~1.5kHz TONAL ceiling
-// (this is noise, not a pitched tone, so that ceiling doesn't even apply,
-// but 1.4kHz keeps it from reading as bright regardless).
-//
-// FLUTTER, layered on top of the bandpassed noise — a perfectly steady hiss
-// reads as ambient TEXTURE (room tone, wind), which is exactly wrong for
-// "the deck reporting a struggling signal". A SECOND looping source over the
-// same shared buffer, heavily lowpassed down to a few Hz, drives the hiss's
-// own gain — because the modulator is filtered NOISE rather than a clean
-// sine LFO, the resulting wobble has no fixed period and never settles into
-// a predictable pulse (a sine tremolo would just read as vibrato on a
-// texture, still smooth). This is deliberately separate from — and much
-// milder/more local than — DROPOUT_GAIN's own hard, bus-wide cuts below: the
-// flutter is the hiss's own constant, low-level irregularity; a dropout is a
-// rare, deep, whole-feed event layered on top of it once hull is critical.
-function buildHullHiss(ctx, dest) {
-  const src = ctx.createBufferSource();
-  src.buffer = getNoiseBuffer();
-  src.loop = true;
-  const band = ctx.createBiquadFilter();
-  band.type = "bandpass";
-  band.frequency.value = 1400;
-  band.Q.value = 0.7;
-
-  const flutterGain = ctx.createGain();
-  flutterGain.gain.value = 0.7; // base level the flutter swings around
-
-  const flutterSrc = ctx.createBufferSource();
-  flutterSrc.buffer = getNoiseBuffer();
-  flutterSrc.loop = true;
-  const flutterLp = ctx.createBiquadFilter();
-  flutterLp.type = "lowpass";
-  flutterLp.frequency.value = 4; // a handful of irregular wobbles a second — static, not a pulse
-  const flutterDepth = ctx.createGain();
-  flutterDepth.gain.value = 0.35; // flutterGain.gain swings roughly 0.35 .. 1.05 — deep enough to read as the signal genuinely faltering, not just breathing
-  flutterSrc.connect(flutterLp).connect(flutterDepth).connect(flutterGain.gain);
-  flutterSrc.start();
-
-  src.connect(band).connect(flutterGain).connect(dest);
-  src.start();
-}
-registerGenerator("hull_hiss", buildHullHiss);
-
-// --- The level curve (PURE) --------------------------------------------
-
-export const HULL_HISS_ON = 0.6; // hull fraction the hiss switches ON at or below
-// ...and switches back OFF strictly above this — the 3%-point gap between
-// the two is the HYSTERESIS band. Without it, hull sitting exactly on the
-// edge (wall-scrape ticks in whole-HP steps, so it can land precisely there)
-// flutters the hiss on and off every tick it crosses — see the design
-// brief's own warning: "a car scraping you across the threshold will
-// flutter it on and off." A single shared threshold can't have a gap, so
-// this needs two.
-export const HULL_HISS_OFF = 0.63;
-export const HULL_HISS_PEAK = 0.08; // gain at 0% hull — "something the player
-// notices they have been hearing", per the design brief, not an alarm
-
-// Whether the hiss should be considered ON this tick, given whether it WAS on
-// last tick — a small hysteresis state machine, the same edge-detection
-// shape sectors.js's own lastSector tracking uses for a related reason (an
-// edge needs to remember which side of it you were just on). Pure and
-// stateless itself: the CALLER (updateHullHiss below) is what remembers
-// `wasActive` between ticks.
-export function hullHissActive(hullFrac, wasActive) {
-  return wasActive ? hullFrac < HULL_HISS_OFF : hullFrac <= HULL_HISS_ON;
-}
-
-// The target gain once ACTIVE — silent at/above HULL_HISS_ON, rising on a
-// SQUARED curve toward HULL_HISS_PEAK as hull falls to 0%, so (per the
-// design brief) most of the audible change happens in the last 20% of hull,
-// not spread evenly across the whole 0-60% range. This function alone knows
-// nothing about hysteresis — callers gate it behind hullHissActive() first
-// (see updateHullHiss), so it stays a plain, monotonic curve to test.
-export function hullHissLevel(hullFrac) {
-  const x = Math.max(0, Math.min(1, (HULL_HISS_ON - hullFrac) / HULL_HISS_ON));
-  return HULL_HISS_PEAK * x * x;
-}
-
-// --- Dropouts + crackle scheduling (PURE) -------------------------------
-//
-// Both are modelled as a countdown timer that only runs while its OWN hull
-// threshold is crossed — frozen, not reset, while inactive (see
-// stepDropoutTimer/stepCrackleTimer below), so a hull that flickers around
-// 25%/10% doesn't get a free event on every re-entry, and doesn't lose
-// progress toward the next one while briefly healed past the line either.
-
-export const DROPOUT_HULL_THRESHOLD = 0.25;
-export const DROPOUT_MIN_INTERVAL = 3; // seconds — "averaging every 3-6s" per the brief
-export const DROPOUT_MAX_INTERVAL = 6;
-export const DROPOUT_MIN_HOLD = 0.03; // seconds — "30-60ms" per the brief
-export const DROPOUT_MAX_HOLD = 0.06;
-const DROPOUT_GAIN = 0.03; // near-zero, not a hard 0 — true silence can click on the ramp back up
-
-export const CRACKLE_HULL_THRESHOLD = 0.1;
-export const CRACKLE_MIN_INTERVAL = 0.15; // seconds — "a few per second" baseline
-export const CRACKLE_MAX_INTERVAL = 0.45;
-const CRACKLE_CLUSTER_MIN = 0.04; // an occasional much-shorter gap — see the header below
-const CRACKLE_CLUSTER_MAX = 0.12;
-const CRACKLE_CLUSTER_CHANCE = 0.3;
-
-// One scheduling tick for the dropout timer: counts `timer` down by `dt`
-// while `active`; once it crosses zero, fires and re-rolls a fresh interval
-// from the injectable `rng` (defaults to Math.random — overridable so tests
-// can drive this deterministically without needing to fake time itself).
-// Frozen (not decremented, never fires) while inactive.
-export function stepDropoutTimer(timer, dt, active, rng = Math.random) {
-  if (!active) return { timer, fired: false };
-  const next = timer - dt;
-  if (next > 0) return { timer: next, fired: false };
-  return { timer: DROPOUT_MIN_INTERVAL + rng() * (DROPOUT_MAX_INTERVAL - DROPOUT_MIN_INTERVAL), fired: true };
-}
-
-// How long a single dropout should hold the sfx bus down for — "30-60ms".
-export function dropoutHoldSeconds(rng = Math.random) {
-  return DROPOUT_MIN_HOLD + rng() * (DROPOUT_MAX_HOLD - DROPOUT_MIN_HOLD);
-}
-
-// Same shape as stepDropoutTimer, but with a SLIGHT CLUSTERING bias: most
-// gaps come from the base CRACKLE_MIN/MAX_INTERVAL spread, but roughly a
-// third of the time (CRACKLE_CLUSTER_CHANCE) the next spike is drawn from a
-// much shorter range instead. Per the design brief's own words: "cluster
-// them slightly; uniform random sounds like a metronome" — a couple of
-// spikes landing close together reads as debris still settling, which
-// perfectly even spacing never does.
-export function stepCrackleTimer(timer, dt, active, rng = Math.random) {
-  if (!active) return { timer, fired: false };
-  const next = timer - dt;
-  if (next > 0) return { timer: next, fired: false };
-  const clustered = rng() < CRACKLE_CLUSTER_CHANCE;
-  const interval = clustered
-    ? CRACKLE_CLUSTER_MIN + rng() * (CRACKLE_CLUSTER_MAX - CRACKLE_CLUSTER_MIN)
-    : CRACKLE_MIN_INTERVAL + rng() * (CRACKLE_MAX_INTERVAL - CRACKLE_MIN_INTERVAL);
-  return { timer: interval, fired: true };
-}
-
-// One 20ms noise spike, bandpassed LOWER than the hiss's own 1.4kHz (700Hz —
-// still inside the catalogue's 600Hz-2kHz noise-texture band, just the
-// duller end of it, so a crackle reads as debris rather than more hiss).
-// Built straight onto the sfx bus and deliberately NOT through sfx.js's
-// play()/voice limiter: crackle is part of the sustained hull-damage STATE,
-// not a discrete player action, and — exactly like hull_hiss itself — it
-// must never be the thing that gets stolen mid-firefight (see sustained.js's
-// header on why sustained voices sit outside the one-shot cap entirely).
-// This is technically a one-shot burst under the hood, but it rides that
-// same exemption rather than requestVoice()'s.
-function spawnCrackle(ctx, dest, t) {
-  const src = ctx.createBufferSource();
-  src.buffer = getNoiseBuffer();
-  const band = ctx.createBiquadFilter();
-  band.type = "bandpass";
-  band.frequency.value = 700;
-  band.Q.value = 2.5;
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0.001, t);
-  gain.gain.exponentialRampToValueAtTime(0.35, t + 0.004);
-  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.02);
-  src.connect(band).connect(gain).connect(dest);
-  src.start(t);
-  src.stop(t + 0.025);
-}
-
-// --- The per-frame driver main.js calls (via synth.js's facade) ---------
-
-let hissWasActive = false;
-let dropoutTimer = DROPOUT_MIN_INTERVAL;
-let crackleTimer = CRACKLE_MIN_INTERVAL;
-
-const CRACKLE_SYNC_WINDOW = 0.12; // seconds — see the "glitching" nudge below
-
-// Called every "playing" tick with the CURRENT hull fraction — per the
-// design brief, "polled from main.js's update loop, not pushed from
-// damage()... it must also fall when healing and on newGame()." Polling
-// (rather than main.js pushing a value only on a damage EVENT) is what makes
-// healing "just work" here: the curve is a pure function of the current
-// fraction, so a heal that raises it is indistinguishable from any other
-// tick where the fraction happened to change.
-//
-// `glitching` is sectors.js's own glitching() — read-only, this file never
-// touches sectors.js's timer, only asks it a yes/no question — see the
-// crackle-sync comment below for the one thing it's used for.
-export function updateHullHiss(dt, hullFrac, glitching = false) {
-  const active = hullHissActive(hullFrac, hissWasActive);
-  hissWasActive = active;
-
-  // A fixed 0.5s ramp regardless of how far the target moved — per the
-  // brief, "ramp level changes over ~0.5s, never set them" — and
-  // sustained.setLevel() itself already no-ops when the target hasn't
-  // actually changed since last tick, so this costs nothing on the vast
-  // majority of frames where hull is holding steady.
-  sustained.setLevel("hull_hiss", active ? hullHissLevel(hullFrac) : 0, 0.5);
-
-  const dropoutActive = active && hullFrac < DROPOUT_HULL_THRESHOLD;
-  const dropoutStep = stepDropoutTimer(dropoutTimer, dt, dropoutActive);
-  dropoutTimer = dropoutStep.timer;
-  if (dropoutStep.fired) {
-    const ctx = getCtx();
-    if (ctx) dropSfxBus(DROPOUT_GAIN, dropoutHoldSeconds());
-  }
-
-  const crackleActive = active && hullFrac < CRACKLE_HULL_THRESHOLD;
-  // SYNCING CRACKLE TO THE VISUAL GLITCH, "where you can" (the design
-  // brief's own phrase): a crackle that's already within CRACKLE_SYNC_WINDOW
-  // of firing on its own schedule snaps FORWARD onto a glitch frame instead
-  // of landing a fraction of a second later on its own. This never invents
-  // an extra crackle (a spike that wasn't due soon anyway is left alone) and
-  // never touches sectors.js's own timer — glitching() is read, nothing
-  // else. Reuses stepCrackleTimer itself (timer=0, dt=0) for the actual
-  // re-roll, rather than duplicating its random-interval formula here.
-  const dueSoon = crackleActive && crackleTimer - dt <= CRACKLE_SYNC_WINDOW;
-  const crackleStep = dueSoon && glitching
-    ? stepCrackleTimer(0, 0, true)
-    : stepCrackleTimer(crackleTimer, dt, crackleActive);
-  crackleTimer = crackleStep.timer;
-  if (crackleStep.fired) {
-    const ctx = getCtx();
-    if (ctx) spawnCrackle(ctx, getSfxBus(), ctx.currentTime);
-  }
-}
 
 // ===========================================================================
 // shield_drone — a held fifth, fading in on activation and audibly counting
@@ -377,8 +145,8 @@ export function updateShieldDrone(shieldTime) {
 // --- The graph --------------------------------------------------------
 //
 // A single low square oscillator (70Hz — impacts/sub-adjacent) through a
-// NARROW bandpass (Q5, tighter than the hiss's own Q0.7 — "narrower
-// filtering than the hit stutter" per the design brief) and a hard square-
+// NARROW bandpass (Q5 — "narrower filtering than the hit stutter" per the
+// design brief) and a hard square-
 // wave gate at 20Hz. Square, not sine, for the gate LFO: a scrape stutters,
 // it doesn't breathe the way the shield's smooth sine tremolo does — the two
 // sustained voices that both use amplitude modulation are deliberately
@@ -434,19 +202,15 @@ export function updateWallScrape(contact) {
 // its PULSE RATE — not just its level — scaling with proximity, so the
 // closer a hostile gets, the faster the player's own pulse seems to race.
 //
-// DELIBERATELY DUPLICATES NO EXISTING SIGNAL. hull_hiss (above) says "you
-// are hurt"; dread_pulse says "you are hunted" — two different facts about
-// the run that happen to both be true at once fairly often (a hostile on
-// your tail is exactly when you're also likely to be taking damage), so the
-// two have to read as clearly separate sounds when both are running: hiss is
-// BANDPASSED NOISE up around 1.4kHz, texture with no pitch of its own;
-// dread_pulse is a single low tone an octave-plus below wall_scrape's own
-// 70Hz, pulsing far slower than either of this file's other two voices'
-// modulation (hull_hiss's flutter is a few Hz of irregular wobble,
-// shield_drone's tremolo is a steady 9Hz, wall_scrape's gate is 20Hz) —
-// dread_pulse tops out at 4Hz even right on the player's tail. Different
-// register, different waveform, different rate: the three ways two
-// amplitude-modulated low tones can still be told apart at a glance.
+// DELIBERATELY DUPLICATES NO EXISTING SIGNAL. dread_pulse says "you are
+// hunted", and has to stay clearly separate from the other two sustained
+// voices when all three are running: it is a single low tone an octave-plus
+// below wall_scrape's own 70Hz, pulsing far slower than either of their
+// modulation rates (shield_drone's tremolo is a steady 9Hz, wall_scrape's
+// gate is 20Hz) — dread_pulse tops out at 4Hz even right on the player's
+// tail. Different register, different waveform, different rate: the three
+// ways two amplitude-modulated low tones can still be told apart at a
+// glance.
 // ===========================================================================
 
 // --- The graph --------------------------------------------------------
@@ -521,9 +285,9 @@ registerGenerator("dread_pulse", buildDreadPulse);
 // edge of the road — you can feel it coming before you can see it, which is
 // exactly the point of an unease layer rather than a combat cue.
 export const DREAD_RANGE_ON = 480;
-// ...and switches back OFF only once the gap opens past this — the same
-// hysteresis-gap reasoning HULL_HISS_ON/OFF's own comment gives: a hostile
-// sitting almost exactly at the threshold would otherwise flicker the layer
+// ...and switches back OFF only once the gap opens past this — the gap
+// between the two thresholds is the HYSTERESIS band: a hostile sitting
+// almost exactly at one shared threshold would otherwise flicker the layer
 // on and off as ordinary speed wander (traffic.js's own DRIFT) nudges the
 // gap a few units either side of one shared number.
 export const DREAD_RANGE_OFF = 520;
@@ -531,8 +295,8 @@ export const DREAD_RANGE_OFF = 520;
 // RAISED FROM AN INITIAL 0.05 alongside the sine->triangle swap above: this
 // is the leanest source in the whole sustained catalogue (one oscillator,
 // no noise, no second tone the way shield_drone sums two), so it needs more
-// headroom than HULL_HISS_PEAK (0.08) or WALL_SCRAPE_LEVEL (0.09) to land
-// at a comparable perceived loudness, not less — a thin source and a low
+// headroom than WALL_SCRAPE_LEVEL (0.09) to land at a comparable perceived
+// loudness, not less — a thin source and a low
 // peak were compounding the same problem rather than pulling in opposite
 // directions.
 const DREAD_PEAK = 0.11;
@@ -541,9 +305,8 @@ const DREAD_PEAK = 0.11;
 // Doubles as both the level curve and the rate curve's own input — see
 // dreadPulseLevel/dreadPulseRate below, which are just this scaled into two
 // different units. Pure and stateless: knows nothing about hysteresis or
-// closing, exactly the split hullHissLevel/hullHissActive already
-// establishes (that split is what lets each half be tested — and retuned —
-// independently).
+// closing — dreadPulseActive below owns that half, and the split is what
+// lets each be tested (and retuned) independently.
 export function dreadProximity(gap) {
   return Math.max(0, Math.min(1, (DREAD_RANGE_ON - gap) / DREAD_RANGE_ON));
 }
@@ -559,8 +322,9 @@ export function dreadPulseRate(gap) {
 }
 
 // Whether the pulse should be considered ON this tick, given whether it WAS
-// on last tick — the same hysteresis state machine shape as hullHissActive
-// (see that function's own comment). `closing` gates this outright and has
+// on last tick — a small hysteresis state machine, pure and stateless
+// itself: the CALLER (updateDreadPulse) is what remembers `wasActive`
+// between ticks. `closing` gates this outright and has
 // no hysteresis of its own: a hostile that stops gaining is not a reason to
 // keep the pulse alive, whatever the gap was a moment ago — the ~1s fade
 // updateDreadPulse applies underneath this is what keeps a single flickering
@@ -580,7 +344,7 @@ const DREAD_RATE_RAMP = 0.15; // seconds — short, so a rate change reads promp
 // Called every "playing" tick with traffic.js's own tailThreat() result — a
 // plain {gap, closing} pair, or null when nothing hostile is behind the
 // player at all. Never touches a car or the player directly, mirroring every
-// other update*() here (hull fraction, shieldTime, hitWall): the game layer
+// other update*() here (shieldTime, hitWall): the game layer
 // hands over a scalar (or, here, a small plain object), and the audio layer
 // never reaches back into game state to get it.
 export function updateDreadPulse(dt, tailThreat) {
@@ -611,17 +375,11 @@ export function updateDreadPulse(dt, tailThreat) {
 // ===========================================================================
 //
 // Releases every sustained voice AND resets this file's own edge-detection
-// and scheduling state, so a fresh run never inherits an "already active"
-// hiss, a live dropout/crackle countdown mid-flight, a half-open shield/wall
-// gate, or a dread pulse still racing, from the run that just ended. Per the
-// design brief's own warning: "a hiss surviving into a fresh run at full
-// health is the most likely bug in this change" — and, for this step, "a
-// dread pulse surviving into a fresh run" is the same bug with a new name.
+// state, so a fresh run never inherits a half-open shield/wall gate or a
+// dread pulse still racing from the run that just ended — a voice surviving
+// into a fresh run is the most likely bug in anything added here.
 export function reset() {
   sustained.releaseAll();
-  hissWasActive = false;
-  dropoutTimer = DROPOUT_MIN_INTERVAL;
-  crackleTimer = CRACKLE_MIN_INTERVAL;
   shieldWasActive = false;
   wallWasActive = false;
   dreadWasActive = false;

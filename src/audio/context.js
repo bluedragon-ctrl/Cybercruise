@@ -18,23 +18,16 @@
 // --- Bus graph -----------------------------------------------------------
 //
 //   music voices ──> musicGain ──> musicFilter ──> duckGain ──> musicDropGain ──> compressor ──> destination
-//   sfx voices   ──> sfxGain   ──────────────────────────────> sfxDropGain ──────────────────────────^
+//   sfx voices   ──> sfxGain   ─────────────────────────────────────────────────────────────────────^
 //
 // musicFilter (Phase 8 step 4) is a lowpass whose cutoff main.js's update
 // loop tracks against player speed — see setMusicCutoff()/speedToMusicCutoff()
 // below. It sits BETWEEN musicGain and duckGain deliberately, its own node,
-// touching only `.frequency` — never `.gain` — so it can never fight the two
-// existing users of this same bus for control of one AudioParam:
-//   - proceduralmusic.js's disturb() touches the CURRENTLY-SOUNDING PAD'S OWN filter
-//     (schedulePad's per-bar `currentPadFilter`, a completely different node
-//     from this one) plus that pad's own oscillator detune. A speed-driven
-//     cutoff here and a transient hit-driven dip on the pad's own filter
-//     compose by simple arithmetic — the pad's content passes through BOTH
-//     filters in series, each free to move on its own schedule, neither
-//     ever calling cancelScheduledValues() on the other's AudioParam.
+// touching only `.frequency` — never `.gain` — so it can never fight the
+// other user of this same bus for control of one AudioParam:
 //   - Phase 8 step 5's sector-transition re-sync DOES reuse musicFilter's own
 //     `.frequency` — a deliberate departure from the "give every effect its
-//     own node" precedent sfxDropGain sets, because the task brief is
+//     own node" precedent musicDropGain sets, because the task brief is
 //     explicit that this one has to COMPOSE with the speed mapping rather
 //     than sit in series with it: "collapse the cutoff" only means something
 //     relative to wherever the speed mapping currently has it, not a fixed
@@ -44,10 +37,9 @@
 //     base+multiplicative-offset split, with a single pair of functions
 //     that ever calls cancelScheduledValues()/rampToValueAtTime() on it.
 //
-// musicDropGain is the music path's analogue of sfxDropGain, and exists for one
-// reason: the disconnect fade (fadeMusicForDisconnect() /
-// restoreMusicAfterDisconnect()) must ramp the whole music path to silence and
-// back WITHOUT fighting setMusicVolume() for musicGain's own AudioParam. Riding
+// musicDropGain exists for one reason: the disconnect fade
+// (fadeMusicForDisconnect() / restoreMusicAfterDisconnect()) must ramp the
+// whole music path to silence and back WITHOUT fighting setMusicVolume() for musicGain's own AudioParam. Riding
 // musicGain directly means the MUSIC slider and the fade both call
 // cancelScheduledValues() on the same param and whichever ran last wins — so
 // nudging the MUSIC bar on the gameover screen audibly pulls the music back out
@@ -55,12 +47,8 @@
 //
 // duckGain sits ONLY on the music path. Ducking sfx against itself would be
 // nonsense — the sound causing the duck would dip its own volume out from under
-// itself — so sfxGain never feeds duckGain. It gets its own analogous stage,
-// sfxDropGain, for one purpose (see dropSfxBus()): the hull_hiss dropout, a
-// brief near-total cut of the WHOLE sfx path standing in for the deck's feed
-// hiccuping at critically low hull. Every sfx voice, one-shot and sustained
-// alike, connects to sfxGain first, so both ride the dip together — a dropout
-// has to read as the FEED cutting out, not one texture stuttering.
+// itself — so sfxGain never feeds duckGain, and the sfx path runs straight
+// from sfxGain into the compressor.
 //
 // The shared feedback delay (an echo unit, not a bus) taps off and feeds back
 // into musicGain, so echoes ride the MUSIC slider and get ducked with everything
@@ -83,7 +71,6 @@ let ctx = null;
 let musicGain = null;
 let musicFilter = null;
 let sfxGain = null;
-let sfxDropGain = null;
 let duckGain = null;
 let musicDropGain = null;
 let delay = null;
@@ -139,18 +126,12 @@ function buildGraph() {
   sfxGain = ctx.createGain();
   sfxGain.gain.value = MASTER_VOLUME * sfxVolume;
 
-  // See the header: sfxDropGain is sfxGain's own analogue of duckGain, used
-  // for exactly one thing today (dropSfxBus() below) — undipped (1) until
-  // that first fires.
-  sfxDropGain = ctx.createGain();
-  sfxDropGain.gain.value = 1;
-
   duckGain = ctx.createGain();
   duckGain.gain.value = 1; // undipped until the first duck() call
 
-  // See the header: musicDropGain is musicGain's own analogue of sfxDropGain,
-  // used for exactly one thing (the disconnect fade below) — open (1) until
-  // fadeMusicForDisconnect() first pulls it down.
+  // See the header: musicDropGain is the music path's own analogue of
+  // duckGain, used for exactly one thing (the disconnect fade below) — open
+  // (1) until fadeMusicForDisconnect() first pulls it down.
   musicDropGain = ctx.createGain();
   musicDropGain.gain.value = 1;
 
@@ -170,8 +151,7 @@ function buildGraph() {
   musicFilter.connect(duckGain);
   duckGain.connect(musicDropGain);
   musicDropGain.connect(compressor);
-  sfxGain.connect(sfxDropGain);
-  sfxDropGain.connect(compressor);
+  sfxGain.connect(compressor);
   compressor.connect(ctx.destination);
 
   // Feedback delay tuned to a dotted-8th-ish tap (3 sixteenth-note steps at
@@ -257,8 +237,7 @@ export const MUSIC_CUTOFF_MAX = 2600; // Hz, at MAX_SPEED
 // extrapolating past it. Exported for the invariant tests, which check the
 // mapping stays inside its stated range for every input, 0 and MAX_SPEED
 // included — the same "pure function first" split every other driver in
-// this audio layer (planDuck, hullHissLevel, dreadPulseRate, ...) already
-// follows.
+// this audio layer (planDuck, dreadPulseRate, ...) already follows.
 export function speedToMusicCutoff(speed) {
   const t = Math.max(0, Math.min(1, (speed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED)));
   return MUSIC_CUTOFF_MIN + t * (MUSIC_CUTOFF_MAX - MUSIC_CUTOFF_MIN);
@@ -296,8 +275,7 @@ const MUSIC_CUTOFF_RAMP = 0.25; // seconds — never snaps; see setMusicVolume's
 // its own comment above), and the whole point of a sector transition is to
 // read as darker than the music ever gets in ordinary play, which requires
 // going below MUSIC_CUTOFF_MIN on purpose. composeMusicCutoff instead floors
-// at MUSIC_CUTOFF_FLOOR, a much lower, purely defensive bound (matching
-// proceduralmusic.js's own disturb() floor on the pad's unrelated filter) that exists
+// at MUSIC_CUTOFF_FLOOR, a much lower, purely defensive bound that exists
 // only to stop a BiquadFilter's frequency from ever being driven to
 // something degenerate, not to preserve the speed band's own headroom.
 export const MUSIC_CUTOFF_FLOOR = 150; // Hz — an absolute safety floor, well under any speed-linked base or transition target either system produces
@@ -429,7 +407,7 @@ export function resetMusicCutoffTransition() {
 // these two ramps used to share it: a MUSIC-row adjust on the gameover screen
 // then cancelled the disconnect fade and pulled the music back up out of the
 // silence it was supposed to be lying in. Two effects, two nodes, no shared
-// AudioParam — the same rule sfxDropGain follows against setSfxVolume().
+// AudioParam.
 //
 // A RAMP, never a stop of anything — proceduralmusic.js's scheduler keeps
 // scheduling notes into the silence the whole time (see the module header's
@@ -530,34 +508,6 @@ export function duck(amount) {
   duckGain.gain.setValueAtTime(duckGain.gain.value, t);
   duckGain.gain.linearRampToValueAtTime(targetGain, t + DUCK_ATTACK);
   duckGain.gain.linearRampToValueAtTime(1, t + DUCK_ATTACK + DUCK_RELEASE);
-}
-
-// --- SFX bus dropout -----------------------------------------------------
-//
-// A brief, near-total dip of the WHOLE sfx path — see the header's bus
-// diagram for why this rides its own gain stage rather than sfxGain
-// directly: sfxGain's level is also being ramped by setSfxVolume() whenever
-// the SOUND slider moves, and fighting that ramp for the same AudioParam
-// (via the cancelScheduledValues() every ramp here already needs) risks a
-// dropout and a slider drag stepping on each other. A dedicated node means
-// this never has to know or care what the SOUND slider is doing.
-//
-// LINEAR, HARD-EDGED ramps rather than the exponential curves the rest of
-// this file uses for hits and ducks — those want to read as a NATURAL decay;
-// this wants to read as a CUT, the feed dropping out and snapping back, so a
-// fast, straight-line edge on both sides is the right shape, not a softened
-// one.
-const DROPOUT_EDGE = 0.008; // seconds — fast enough to read as a cut, not a fade
-
-export function dropSfxBus(depthGain, holdSeconds) {
-  if (!ctx) return;
-  const t = ctx.currentTime;
-  const edge = Math.min(DROPOUT_EDGE, holdSeconds / 2); // never let the edges overlap on a very short hold
-  sfxDropGain.gain.cancelScheduledValues(t);
-  sfxDropGain.gain.setValueAtTime(sfxDropGain.gain.value, t);
-  sfxDropGain.gain.linearRampToValueAtTime(depthGain, t + edge);
-  sfxDropGain.gain.setValueAtTime(depthGain, t + holdSeconds - edge);
-  sfxDropGain.gain.linearRampToValueAtTime(1, t + holdSeconds);
 }
 
 // --- Voice limiter -----------------------------------------------------
