@@ -546,6 +546,45 @@ export class Traffic {
     return { gap: bestGap, closing: best.speed > player.speed };
   }
 
+  // What the tracer's trigger designates (game/targeting.js, weapons.js's
+  // AUTOLOCK) — ONE hostile ahead of the player, drawn at random, or null when
+  // there is nothing up the road worth locking. Lives here for the reason
+  // tailThreat above does: traffic owns the cars and their factions, and the
+  // caller only ever gets back the one car it asked for.
+  //
+  // HOSTILES ONLY. A lock the player did not aim must never land on a civilian
+  // — it would bend a burst away from the thing shooting at them and toward
+  // somebody merely in the way, which is the exact opposite of what the upgrade
+  // is for. `seekable` is checked on top of the faction for the same reason
+  // projectiles.js's seek() checks it: anything added to the road later says
+  // for itself whether it can be locked on.
+  //
+  // AND NOT THE AIR. An `airborne` car is unreachable by everything except a
+  // seeking round (projectiles.js's firstHit) — designating the gunship would
+  // hand the tracer the one target the rocket is supposed to be the answer to,
+  // by way of the seeking steer a locked round borrows.
+  //
+  // RANDOM, BY RESERVOIR — one pass, no array, each candidate equally likely.
+  // Nearest-first was the obvious alternative and is worse: the nearest hostile
+  // is usually the one already in the player's lane, which is the shot they did
+  // not need help taking. Random is what makes the trigger reach across the
+  // road.
+  randomHostileAhead(range) {
+    const player = this.playerBody;
+    if (!player || !(range > 0)) return null;
+    let chosen = null;
+    let seen = 0;
+    for (const car of this.cars) {
+      if (!car.alive || !car.seekable) continue;
+      if (car.type.faction !== ENEMY_FACTION || car.type.airborne) continue;
+      const ahead = car.worldY - player.worldY;
+      if (ahead <= 0 || ahead > range) continue;
+      seen += 1;
+      if (Math.random() * seen < 1) chosen = car;
+    }
+    return chosen;
+  }
+
   // --- Destruction ----------------------------------------------------------
   //
   // A destroyed car EXPLODES: the wreck (effects.js) is drawn where it died, and

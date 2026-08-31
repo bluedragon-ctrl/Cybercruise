@@ -35,13 +35,15 @@ import {
   FLIGHT_SEEKING,
   Loadout,
   muzzleOffsets,
-  shotLock,
+  lockSeconds,
+  lockRange,
   lockTurnRate,
 } from "../src/game/weapons.js";
 import { Player } from "../src/game/player.js";
 import { Lock } from "../src/game/targeting.js";
 import { Wallet } from "../src/game/wallet.js";
 import { Projectiles } from "../src/game/projectiles.js";
+import { Traffic } from "../src/game/traffic.js";
 import { CAR_TYPES, ENEMY_FACTION } from "../src/game/cartypes.js";
 import {
   ShieldStorm,
@@ -266,16 +268,33 @@ test("a lone car is still hunted by both — the split is a preference, not a ru
 
 test("only the tracker designates, and only once the upgrade is bought", () => {
   const tracker = weaponById("tracker");
-  assert.equal(shotLock(tracker, {}), 0, "a stock tracker designates");
-  assert.equal(shotLock(tracker, null), 0);
-  assert.equal(shotLock(tracker, { autolock: true }), tracker.lockTime);
+  assert.equal(lockSeconds(tracker, {}), 0, "a stock tracker designates");
+  assert.equal(lockSeconds(tracker, null), 0);
+  assert.equal(lockSeconds(tracker, { autolock: true }), tracker.lockTime);
+  assert.equal(lockRange(tracker, {}), 0, "a stock tracker goes looking for a target");
+  assert.equal(lockRange(tracker, { autolock: true }), tracker.lockRange);
   assert.equal(lockTurnRate(tracker, { autolock: true }), tracker.lockTurnRate);
   assert.equal(lockTurnRate(tracker, {}), 0, "a stock tracker steers");
   for (const type of WEAPON_TYPES) {
     if (type.id === "tracker") continue;
-    assert.equal(shotLock(type, { autolock: true }), 0,
+    assert.equal(lockSeconds(type, { autolock: true }), 0,
       `${type.id} designates, and AUTOLOCK is the tracker's upgrade`);
+    assert.equal(lockRange(type, { autolock: true }), 0,
+      `${type.id} reaches for a target it can never designate`);
   }
+});
+
+test("the trigger only reaches as far up the road as the player can see", () => {
+  // weapons.js derives lockRange from the player's own screen row: the reticle
+  // is the upgrade's only explanation (effects.js), so a designation the player
+  // cannot see would read as the burst bending for no reason. PLAYFIELD_H *
+  // 0.62 is where main.js puts the car, and that is the road above them.
+  const tracker = weaponById("tracker");
+  const visibleAhead = 800 * 0.62;
+  assert.ok(tracker.lockRange >= visibleAhead,
+    "the trigger cannot reach the top of the screen");
+  assert.ok(tracker.lockRange < visibleAhead * 1.5,
+    "the trigger designates cars the player cannot see");
 });
 
 test("a locked round steers slower than the weapon built to seek", () => {
@@ -295,38 +314,58 @@ test("a locked round steers slower than the weapon built to seek", () => {
     "a lock expires inside its own burst-and-rest cycle");
 });
 
-test("a hit designates the car it hit, for the weapon's own duration", () => {
-  // The lock is EARNED BY A HIT rather than by aiming — you cannot designate
-  // something you have not touched, which is what gives round one of a burst
-  // its job.
-  const shots = new Projectiles();
-  const tracker = weaponById("tracker");
-  const car = target(120, 0);
-  const seen = [];
-  shots.onLock = (c, seconds) => seen.push([c, seconds]);
+// A road with the player synced onto it and nothing else, ready for cars to be
+// placed by hand. update(0, ...) is what syncs the PlayerBody every query below
+// measures against; a zero step spawns nothing of its own.
+function roadWithPlayer() {
+  const traffic = new Traffic();
+  const player = new Player(300, 496);
+  traffic.update(0, { player, distance: 0, W: 600, H: 800 });
+  return traffic;
+}
 
-  const s = shots.spawn(0, 0, 0, tracker, 600, 1, { lockOn: tracker.lockTime });
-  assert.equal(s.lockOn, tracker.lockTime);
-  assert.equal(s.locked, false, "a round fired with nothing designated should not chase");
-  shots.update(0.3, [car], { distance: 0, playerY: 400, W: 600, H: 800 });
+const typeById = (id) => CAR_TYPES.find((t) => t.id === id);
 
-  assert.deepEqual(seen, [[car, tracker.lockTime]], "the hit did not designate the car");
-  assert.equal(car.health, 1000 - tracker.damage, "designating changed the round's own damage");
+test("the trigger designates a hostile ahead, and never anything else", () => {
+  // THE UPGRADE'S PICK, and every exclusion in it is load-bearing:
+  //  - a CIVILIAN would bend the burst away from what is shooting at the player
+  //  - the AIR is the rocket's answer alone (projectiles.js's firstHit lets a
+  //    seeking round — which a locked round becomes — reach an airborne car)
+  //  - BEHIND, and beyond the reach, are rounds that could never arrive
+  const traffic = roadWithPlayer();
+  const hostile = traffic.place(typeById("interceptor"), 300, 0, 400);
+  traffic.place(typeById("sedan"), 320, 1, 215);          // a civilian alongside
+  traffic.place(typeById("gunship"), 340, 2, 580);        // and one overhead
+  traffic.place(typeById("stocker"), -300, 3, 355);       // a hostile behind
+  assert.ok(hostile, "the fixture failed to put the hostile on the road");
+
+  for (let i = 0; i < 50; i++) {
+    assert.equal(traffic.randomHostileAhead(520), hostile,
+      "the trigger designated something that is not a live hostile ahead");
+  }
+  assert.equal(traffic.randomHostileAhead(200), null,
+    "the trigger reached past its own range");
+  hostile.alive = false;
+  assert.equal(traffic.randomHostileAhead(520), null,
+    "a wreck was designated");
 });
 
-test("a round designates only cars, never road furniture", () => {
-  // `seekable` is the same opt-in flag a rocket's own lock respects, so a
-  // trestle can never become the thing eight rounds chase.
-  const shots = new Projectiles();
-  const tracker = weaponById("tracker");
-  const trestle = target(120, 0, 1000, { seekable: false });
-  let fired = false;
-  shots.onLock = () => { fired = true; };
+test("the trigger spreads its pick across every hostile in reach", () => {
+  // RANDOM, not nearest. The nearest hostile is usually the one already in the
+  // player's lane — the shot they did not need help taking — so a nearest-first
+  // pick would leave the upgrade doing nothing in exactly the fight it is for.
+  const traffic = roadWithPlayer();
+  const cars = [
+    traffic.place(typeById("interceptor"), 150, 0, 400),
+    traffic.place(typeById("stocker"), 300, 1, 355),
+    traffic.place(typeById("bruiser"), 450, 2, 280),
+  ];
+  assert.ok(cars.every(Boolean), "the fixture failed to put three hostiles on the road");
 
-  shots.spawn(0, 0, 0, tracker, 600, 1, { lockOn: tracker.lockTime });
-  shots.update(0.3, [trestle], { distance: 0, playerY: 400, W: 600, H: 800 });
-  assert.ok(trestle.health < 1000, "the round did not hit the obstacle at all");
-  assert.equal(fired, false, "a roadblock was designated");
+  const seen = new Set();
+  for (let i = 0; i < 200; i++) seen.add(traffic.randomHostileAhead(520));
+  assert.equal(seen.size, cars.length,
+    "some hostile in reach can never be designated");
 });
 
 test("a round fired at a designated car chases it out of its lane", () => {

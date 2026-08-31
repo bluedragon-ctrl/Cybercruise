@@ -1,9 +1,16 @@
 // THE TARGET LOCK — which car the player's tracer rounds are currently chasing.
 //
-// One car at a time, designated by a hit and held for a few seconds
-// (game/upgrades.js's AUTOLOCK, weapons.js's `lock` on the tracker). Rounds
-// fired while a lock is live are handed it at the muzzle and steer to follow it
-// instead of holding the lane they were fired up — see projectiles.js.
+// One car at a time, designated by PULLING THE TRIGGER and held for a few
+// seconds (game/upgrades.js's AUTOLOCK, weapons.js's `lock` on the tracker).
+// Rounds fired while a lock is live are handed it at the muzzle and steer to
+// follow it instead of holding the lane they were fired up — see
+// projectiles.js.
+//
+// WHO PICKS THE CAR IS NOT THIS FILE'S BUSINESS. main.js's fire branch asks
+// traffic.js for a hostile ahead when nothing is designated and hands the
+// answer to acquire(); this only holds it and runs its clock down. That split
+// is why the pick could be changed from "the car round one hit" to "a random
+// hostile ahead" without this class moving at all.
 //
 // WHY IT IS ITS OWN THING RATHER THAN A FIELD ON THE PLAYER. A lock is a
 // reference to a TRAFFIC CAR, and player.js does not know traffic exists — it

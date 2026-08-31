@@ -204,27 +204,48 @@ export const WEAPON_TYPES = [
     glow: PLAYER,
     length: 16,
     width: 4.5,
-    // THE SHOP CAN TEACH THE TRACKER TO TRACK — upgrades.js's AUTOLOCK. The
-    // first round of a burst that connects DESIGNATES the car it hit; every
-    // round after steers to follow it instead of holding the lane.
+    // THE SHOP CAN TEACH THE TRACKER TO TRACK — upgrades.js's AUTOLOCK. THE
+    // TRIGGER DESIGNATES: a pull with nothing designated picks one hostile
+    // ahead at random (traffic.js's randomHostileAhead) and every round of that
+    // burst steers to follow it instead of holding the lane. Holding the
+    // trigger renews the same car; letting go drops it after `lockTime`.
+    //
+    // IT WAS THE HIT THAT DESIGNATED, and that is what this replaces. Earning
+    // the lock by connecting sounded right and played dead: a car you have
+    // already hit with round one of a burst is usually dead by round four, so
+    // the designation kept arriving for a target that no longer needed it, and
+    // the gun was still a lane hose in exactly the fights that were too fast
+    // for it. Designating at the trigger is what makes the upgrade WORTH the
+    // 350: it lets the player shoot a hostile that was never in their lane,
+    // which is the one thing the cannon's infinite ammunition cannot buy.
     //
     // THE RIGHT UPGRADE FOR THIS GUN AND NO OTHER: the burst is already the
-    // shape it needs (round one designates, two through eight chase, no new
-    // timing concept), and it answers the tracker's real weakness — a lane hose
-    // is helpless against anything that changes lanes — without touching its
-    // damage, which is what stops it becoming a better cannon.
+    // shape it needs (eight rounds already leave one muzzle together, so one
+    // designation covers all of them and no new timing concept appears), and it
+    // answers the tracker's real weakness — a lane hose is helpless against
+    // anything not in its lane — without touching its damage, which is what
+    // stops it becoming a better cannon.
     //
     // THE LANE RAKE SURVIVES IT with no special case: a locked car dead ahead
     // leaves `target.offset - s.offset` near zero, so the rounds fly the same
     // tracking line and `pierce` still punches down the row. The lock bends a
-    // round only when the target actually leaves the lane.
+    // round only when the target is not in the lane already.
     lock: "autolock",
-    // HOW LONG A DESIGNATION LASTS. It must outlive the burst that made it (the
-    // rest between bursts is 0.6s) or the player re-designates every time and
-    // the upgrade is invisible. 3.5s carries a lock across four or five bursts
-    // of held trigger, and still expires soon enough that a car left alone
-    // stops being yours.
+    // HOW LONG A DESIGNATION LASTS ONCE THE TRIGGER IS RELEASED. It must
+    // outlive the rest between bursts (0.6s) or a held trigger would re-roll a
+    // new car every burst, which is the one thing a random pick must not do.
+    // 3.5s also holds the lock across a short pause to swerve, and still
+    // expires soon enough that a car left alone stops being yours.
     lockTime: 3.5,
+    // HOW FAR UP THE ROAD THE TRIGGER WILL REACH FOR A CAR. DERIVED, not
+    // picked: the player sits at H * 0.62 (main.js), so 800 * 0.62 = 496 world
+    // units of road are visible above them and 520 is that plus a little for
+    // a car crossing the top edge. A longer reach would designate hostiles
+    // offscreen — the reticle is the upgrade's only explanation (effects.js),
+    // and brackets the player cannot see read as the burst bending for no
+    // reason. Anything at all in view is fair game laterally; steering across
+    // the road is what `lockTurnRate` rations.
+    lockRange: 520,
     // LATERAL UNITS/SEC A LOCKED ROUND MAY STEER — the whole balance of the
     // upgrade. WELL UNDER THE ROCKET'S 260: the seeking weapon has to stay the
     // best seeker in the game or the rocket loses its reason to exist.
@@ -589,12 +610,21 @@ export function muzzleOffsets(type, specials = null) {
   return pair;
 }
 
-// Does this weapon designate what it hits, and for how long? Seconds, or 0 for
-// every weapon and every unowned upgrade — which is the case that costs
-// projectiles.js nothing at all (see its `lockOn` field).
-export function shotLock(type, specials = null) {
+// Does pulling this trigger designate a car, and for how long does the
+// designation hold? Seconds, or 0 for every weapon and every unowned upgrade —
+// and 0 is also the "do not go looking for a target at all" answer main.js
+// tests, so an unowned upgrade costs the trigger one comparison and nothing
+// else.
+export function lockSeconds(type, specials = null) {
   if (!type.lock || !specials || !specials[type.lock]) return 0;
   return type.lockTime ?? 0;
+}
+
+// How far ahead of the player that trigger will look for one (see `lockRange`
+// on the TRACKER). Same 0-when-unowned rule, so the two are read as a pair.
+export function lockRange(type, specials = null) {
+  if (!type.lock || !specials || !specials[type.lock]) return 0;
+  return type.lockRange ?? 0;
 }
 
 // How fast a round from this weapon may steer toward a car the player has
