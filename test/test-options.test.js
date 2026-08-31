@@ -16,10 +16,11 @@
 //   3. The accessors report a plain boolean, since main.js assigns
 //      menu.invulnerable() straight onto the player.
 //
-// It runs headless. menu.js reaches the browser through `localStorage` (inside
-// createMenu and its setters, never at module scope) and through the 2D context
-// it is handed, so a stub store and a recording context are enough — the same
-// arrangement shop-screen.test.js uses for the shop.
+// It runs headless. menu.js reaches the browser only through the 2D context it
+// is handed, so a recording context is enough — the same arrangement
+// shop-screen.test.js uses for the shop. Neither the volume sliders nor the
+// test rows touch localStorage any more (menu.js's own NOT PERSISTED note),
+// so no stub store is needed here.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -32,16 +33,6 @@ import {
   SHOW_EXTRA_CASH_OPTION,
   EXTRA_CASH_AMOUNT,
 } from "../src/testoptions.js";
-
-// A localStorage that lives in memory. Installed BEFORE menu.js is imported
-// even though the module only reads it from inside createMenu — a future read
-// moved to module scope should fail loudly on a real browser API being absent,
-// not silently on a stub that arrived too late.
-globalThis.localStorage = {
-  map: new Map(),
-  getItem(k) { return this.map.has(k) ? this.map.get(k) : null; },
-  setItem(k, v) { this.map.set(k, String(v)); },
-};
 
 const { createMenu } = await import("../src/game/menu.js");
 
@@ -135,9 +126,8 @@ test("a compiled-in row reads back as an off/on boolean, which is what main.js a
   for (const key of ["invulnerable", "extraCash"]) {
     const value = menu[key]();
     assert.equal(typeof value, "boolean", `menu.${key}() must be a boolean, got ${typeof value}`);
-    // A row that is NOT compiled in can never report armed, whatever a
-    // previous session left in localStorage — testoptions.js's header makes
-    // exactly this promise about a shipping build.
+    // A row that is NOT compiled in can never report armed — testoptions.js's
+    // header makes exactly this promise about a shipping build.
     if (!compiledIn.includes(key)) assert.equal(value, false);
   }
 });

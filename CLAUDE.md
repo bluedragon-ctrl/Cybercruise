@@ -21,6 +21,7 @@ are not known up front, each with the section that explains it.
 | economy | `npm run econ` |
 | balance numbers | `tools/car-editor/` — a browser UI over essentially every tuned constant |
 | assets | `demo.html` |
+| verifying a change live (Claude included) | `src/testoptions.js` — `INVULNERABILITY`/`EXTRA CASH` menu flags to survive and afford anything, `EVENT_AT_OVERRIDES`/`EVENT_GATE_OVERRIDES` to pull one encounter to DIST 0 — code edits, reverted once confirmed. → README, *Test options*. |
 
 ## Rules that break things quietly
 

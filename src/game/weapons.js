@@ -420,7 +420,9 @@ export const WEAPON_TYPES = [
     // trigger there is an AI's rare tactical choice, but here it is a deliberate
     // press every time, so the tighter enemy rationing would read as broken
     // rather than scarce. The magazine, not the reload, is what rations this.
-    interval: 1,
+    // TWO A SECOND: a held trigger should read as laying a trail, not waiting
+    // out a cooldown between taps. The magazine still rations this.
+    interval: 0.5,
     // SIXTEEN IN THE MAGAZINE, EIGHT IN HAND. THE PLAYER'S ONLY DEPLOYABLE, and
     // the right one to be it: its whole behaviour — one hazard, dropped behind,
     // dodgeable — is legible the first time you use it. Issued at HALF the

@@ -10,8 +10,8 @@
 // rows from game/menu.js — the menu builds its row list from these flags, so
 // nothing else has to be edited and nothing is left half-wired. main.js still
 // asks the menu whether each cheat is armed, and with the rows gone the answer
-// is always false, whatever a previous session happened to leave in
-// localStorage.
+// is always false. Neither flag is persisted anyway (game/menu.js's own NOT
+// PERSISTED note) — every load starts both OFF regardless of this file.
 //
 // Everything here is a knob, exactly like game/tuning.js: no behaviour of its
 // own lives in this file, only the numbers and the flags the two consumers

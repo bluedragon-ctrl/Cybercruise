@@ -596,11 +596,16 @@ test("the storm bites civilians too, and civilians cost points", () => {
 });
 
 test("the storm is worth less than shooting, which is what stops it farming the road", () => {
-  // shieldstorm.js's own claim. A discharge has to be under one cannon round,
-  // or parking in traffic under a bought shield out-earns driving and gunning.
+  // shieldstorm.js's own claim, but pinned to RATE rather than per-hit damage
+  // now that a single arc (STORM_DAMAGE) is allowed to hit harder than one
+  // cannon round: it's the interval between discharges that has to lose to
+  // the gun's rate of fire, or parking under a bought shield out-earns
+  // driving and gunning against any one car.
   const cannon = weaponById("cannon");
-  assert.ok(STORM_DAMAGE < cannon.damage,
-    "a shield discharge hits harder than the default gun");
+  const stormDps = STORM_DAMAGE / STORM_INTERVAL;
+  const cannonDps = cannon.damage / cannon.interval;
+  assert.ok(stormDps < cannonDps,
+    "a shield discharge out-damages the default gun over time");
   // And the shelf has to be telling the truth about needing a shield at all:
   // the storm's own row does not grant one, so a run buying it and nothing else
   // gets nothing. Left as an assertion because it is the row's whole risk.
