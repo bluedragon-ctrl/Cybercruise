@@ -245,10 +245,12 @@ function cruise(car, _dt, world) {
 // at cruise speed runs at whatever margin the two cruise speeds happen to differ
 // by, which is why passes used to expire on timeout rather than finish.
 //
-// CAPPED AT THE TYPE'S OWN speedMax, which is what keeps this free: the top of
-// the catalogue's speed band doesn't move, so the largest closing speed the road
-// can produce is unchanged. A car already cruising at its maximum simply passes
-// at cruise — worth checking against the catalogue before tuning `passEffort`.
+// CAPPED AT THE TYPE'S OWN speedMax — the top of its HARD band (cartypes.js) —
+// which is what keeps this free: the largest closing speed the road can produce
+// is a catalogue figure and does not move. A type whose `speedMax` equals its
+// `cruiseMax`, which is every type as shipped, therefore passes at cruise and
+// gets nothing from `passEffort`; opening that gap on a type is what buys it a
+// pass with something behind it, and it buys it for that type alone.
 function passSpeed(car) {
   return Math.min(car.type.speedMax, car.cruiseSpeed * car.drive.passEffort);
 }
@@ -764,7 +766,7 @@ function trail(car, dt, world) {
 // never escape a block, and above zero, because a stalled wall reads as broken
 // rather than as a tactic. A profile could not state this correctly without
 // knowing that 100, which is the test for whether a number belongs on a profile
-// at all. The bruiser's own `hardFloor` is 0 (cartypes.js), so this is the only
+// at all. The bruiser's own `speedMin` is 0 (cartypes.js), so this is the only
 // thing setting the block's pace — a type floor above it would be a second,
 // quieter answer to the same question.
 export const RAM_FLOOR = 80;

@@ -435,14 +435,22 @@ choosing a lane becomes a choice about what you will meet in it. That relation i
 asserted in the test suite, because a retune that puts a rig in the fast lane
 breaks nothing — it just quietly stops making sense.
 
-**Two speed bands, not one.** `cruiseMin`–`speedMax` is what a type rolls at
+**Two speed bands, not one.** `cruiseMin`–`cruiseMax` is what a type rolls at
 spawn and wanders within — how it drives when nothing is happening to it.
-`hardFloor`–`speedMax` is what it is physically capable of, and `traffic.js`
-applies that floor once per tick after every behaviour has spoken, so nothing can
-reach under it: not the tactic, not braking behind another car, not slowing to fit
-a swerve past a roadblock. The ceiling is shared because a car's top speed is the
-top of its cruise. The floor is not, and the gap between them is what the player
-buys by slowing down.
+`speedMin`–`speedMax` is what it is physically capable of, and it contains the
+cruise band at both ends. `traffic.js` applies the floor once per tick after every
+behaviour has spoken, so nothing can reach under it: not the tactic, not braking
+behind another car, not slowing to fit a swerve past a roadblock. Which band a
+caller reads follows from what it is doing — spawning and wandering are cruise;
+passing, holding station and fleeing are capability.
+
+Each gap is a design surface. Below, `speedMin`–`cruiseMin` is what the player
+buys by slowing down: it decides whether braking sheds a type. Above,
+`cruiseMax`–`speedMax` is what a car has left when it is trying — and every type
+ships with it CLOSED, so the road is the one the catalogue has always had. Open
+it on a type and `passEffort` starts meaning something for that type alone, where
+the chase's own ceiling (`chaseSpeed`) sits on the shared driving profile and
+moves every type on it.
 
 The cruise band is pinned to both ends of the player's own 100–620:
 

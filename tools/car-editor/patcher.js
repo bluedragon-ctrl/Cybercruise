@@ -84,7 +84,7 @@ function patchTypeEntry(sourceText, id, changes, fnName, postPatch) {
   return sourceText.slice(0, objStart) + block + sourceText.slice(objEnd + 1);
 }
 
-// Patches health/hardFloor/cruiseMin/speedMax/minDistance on the CAR_TYPES entry whose
+// Patches health/speed-band/minDistance and the rest on the CAR_TYPES entry whose
 // `id` matches carId.
 export function patchCarType(sourceText, carId, changes) {
   return patchTypeEntry(sourceText, carId, changes, "patchCarType");

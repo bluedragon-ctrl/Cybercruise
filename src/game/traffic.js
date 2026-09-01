@@ -290,7 +290,7 @@ class TrafficCar {
     const wander = 1 + DRIFT * Math.sin(this.driftPhase + this.driftTime * this.driftRate);
     this.cruiseSpeed = Math.max(
       this.type.cruiseMin,
-      Math.min(this.type.speedMax, this.baseSpeed * wander),
+      Math.min(this.type.cruiseMax, this.baseSpeed * wander),
     );
 
     // Weapons recover BEFORE the behaviour decides, so a car that has just come
@@ -314,7 +314,7 @@ class TrafficCar {
     // cannot crawl, so braking sheds them; the cars and the boss can, so it
     // doesn't. Every civilian's floor is 0, which makes this line a no-op for
     // them and leaves the civilian road exactly as it was.
-    this.targetSpeed = Math.max(this.type.hardFloor, this.targetSpeed);
+    this.targetSpeed = Math.max(this.type.speedMin, this.targetSpeed);
 
     // PUNCTURED TYRES OVERRULE EVEN THAT, and are therefore applied after it:
     // the strip is the ONE deliberate exception to the floor, and it has to sit
@@ -680,7 +680,7 @@ export class Traffic {
     // `minDistance`. Treated exactly like a full road: skip, try next interval.
     if (!type) return;
 
-    const speed = type.cruiseMin + Math.random() * (type.speedMax - type.cruiseMin);
+    const speed = type.cruiseMin + Math.random() * (type.cruiseMax - type.cruiseMin);
 
     const ahead = speed < player.speed;
     const worldY = ahead

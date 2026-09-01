@@ -681,7 +681,7 @@ function stagedCars(world) {
 // from there because it is one line and the alternative is a second export that
 // exists only for this caller.
 function rollSpeed(type) {
-  return type.cruiseMin + Math.random() * (type.speedMax - type.cruiseMin);
+  return type.cruiseMin + Math.random() * (type.cruiseMax - type.cruiseMin);
 }
 
 // What a staged car is DRIVING at when it appears.
@@ -711,8 +711,10 @@ function rollSpeed(type) {
 // told a rival was inbound and then met nothing at all.
 //
 // So a car staged behind arrives fast enough to close, CAPPED BY ITS OWN
-// CEILING. The cap is what keeps this honest: staging may pick where in a type's
-// band a car starts, never widen the band. A type whose ceiling is under the
+// CEILING — `speedMax`, the top of the HARD band rather than of the cruise roll
+// (cartypes.js), because arriving already trying is exactly what this is. The
+// cap is what keeps it honest: staging may pick where in a type's band a car
+// starts, never widen the band. A type whose ceiling is under the
 // player's is simply the wrong car to stage behind a player at full throttle,
 // and that stays visible instead of being papered over here.
 function arrivalSpeed(type, back, player) {
