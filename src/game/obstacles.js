@@ -177,7 +177,7 @@ const MIN_PASSAGE = WIDEST_CAR + PASSAGE_CLEARANCE * 2;
 // above is protecting.
 const ANY_TRIES = 6;
 
-// Matches the mine pulse formula demo/gallery.js uses for the same shape
+// Matches the mine pulse formula tools/gallery/gallery.js uses for the same shape
 // (`0.5 + 0.5 * Math.sin(seconds * 7)`), so the asset gallery and the live
 // game blink at the same rate.
 const PULSE_RATE = 7;

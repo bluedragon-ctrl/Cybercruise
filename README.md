@@ -74,10 +74,13 @@ override maps) once the thing they were checking is confirmed.
 
 ### Asset gallery
 
-A static showcase of the neon assets for iterating on visuals without running the
-game: <http://localhost:5173/demo.html>. Add a sprite in `src/game/sprites.js`,
-then register a cell in `src/demo/gallery.js` — car types are the exception,
-since the gallery walks the catalogue.
+A static showcase of the neon assets for iterating on visuals without running
+the game. Run `tools/gallery/gallery.bat`, or `npm run serve` and open
+<http://localhost:5173/tools/gallery/gallery.html>. Add a sprite in
+`src/game/sprites.js`, then register a cell in `tools/gallery/gallery.js` — car
+types are the exception, since the gallery walks the catalogue. It lives in
+`tools/` rather than `src/`, alongside the tuning editor, since it is a dev
+tool over the game's source rather than part of the game itself.
 
 The silhouette catalogue at the bottom draws each car at **2x** as a detail
 study; the traffic cells above it are the size-accurate ones. See the detail

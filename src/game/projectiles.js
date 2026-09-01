@@ -142,7 +142,7 @@ function dartPoint([ux, uy], cx, cy, a, sxScale, syScale) {
   return [cx + x * cos - y * sin, cy + x * sin + y * cos];
 }
 
-// Draw one dart in isolation — the asset gallery's entry point (demo.html);
+// Draw one dart in isolation — the asset gallery's entry point (tools/gallery/gallery.html);
 // the live game never calls this, since Projectiles.render() batches every
 // rocket on screen into three shared passes instead of one call per rocket.
 // `angle` is in radians, 0 = nose up. `flicker` (0..1) shortens the burner
