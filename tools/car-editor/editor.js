@@ -140,6 +140,50 @@ const UPGRADE_STAT_DESCRIPTIONS = {
   step: "What ONE tier adds to the stat, in the car's own units. Every tier adds the same amount; the price is what escalates.",
 };
 
+// A car's chaseSpeed is a REQUEST, not an override — traffic.js clamps it to
+// the car's own speedMax same as everything else (cartypes.js's "THE TWO
+// SPEED BANDS"), so a car whose speedMax sits under its profile's chaseSpeed
+// simply cannot reach it. Nothing in the form said so before this: chaseSpeed
+// showed as a plain number, identical whether it was live or dead for the car
+// on screen. This builds the derived, read-only row that answers it.
+//
+// Placed directly beneath chaseSpeed, in "Chasing the player", rather than
+// under speedMax in the Speed group: "does raising chaseSpeed do anything for
+// THIS car" is a question asked right where chaseSpeed is being read, and the
+// Speed group has no reason to know a driving profile even exists.
+//
+// Hostile-only, same fact BEHAVIOR_FIELD_GROUPS' own comment in state.js
+// already leans on for the "(inherited)" tag: pursue/trail/ram/raid/strafe/
+// outrun/strew are the only tactics that ever read chaseSpeed, and none of
+// them is a civilian's. Not re-explained here — pointed at the tag instead.
+function chaseCeilingFieldSpec(car) {
+  const hostile = car.faction === "enemy";
+  return {
+    field: "chaseCeiling",
+    label: "Effective chase ceiling",
+    derived: true,
+    description: hostile
+      ? "The speed this car actually reaches while chasing: min(this car's own speedMax, chaseSpeed above). Whichever is lower is the one that governs — see the tag."
+      : "This type's chase tactics are hostile-only — see the (inherited) tag above. The figure below is moot for it.",
+    compute: () => {
+      if (!hostile) return { value: "—", tag: "(never chases)", tagClass: "inherit-tag" };
+      const speedMax = currentValue("car", car.id, "speedMax");
+      const chaseSpeed = currentValue("car", car.id, "chaseSpeed");
+      // Equal counts as capped: the ceiling cannot be pushed any higher by
+      // raising chaseSpeed further, which is exactly the stocker/bruiser case
+      // (cartypes.js — their speedMax was opened to exactly this figure).
+      const cappedBySpeedMax = speedMax <= chaseSpeed;
+      return {
+        value: String(Math.min(speedMax, chaseSpeed)),
+        tag: cappedBySpeedMax
+          ? "(capped by speedMax — raising chaseSpeed does nothing here)"
+          : "(reaches chaseSpeed in full)",
+        tagClass: cappedBySpeedMax ? "override-tag" : "inherit-tag",
+      };
+    },
+  };
+}
+
 // --- Server state and pending edits ----------------------------------------
 
 // Everything /api/state returns, keyed the way the server sends it.
@@ -156,6 +200,14 @@ const pending = {};
 
 let activeTab = null;
 let selection = null; // { kind, id }
+
+// Refresh functions for the form's derived (read-only) fields, rebuilt by
+// renderForm on every render and run after every edit. A derived field reads
+// values off OTHER fields (see chaseCeilingFieldSpec), which may live in a
+// different section of the same form, so it cannot rely on its own "change"
+// listener the way a plain field's live preview does — nothing fires one on
+// it, since nothing ever writes to it.
+let derivedFieldUpdaters = [];
 
 // --- Kind descriptors ------------------------------------------------------
 
@@ -204,12 +256,16 @@ const KINDS = {
         // that hides the whole chase-and-ram half of the profile, which it
         // never reads.
         open: fields.some((field) => !car.behavior[field].inherited),
-        fields: fields.map((field) => ({
-          field,
-          description: CAR_FIELD_DESCRIPTIONS[field],
-          tag: car.behavior[field].inherited ? "(inherited)" : "(overridden)",
-          input: field === "laneHome" ? { type: "select", options: ["any", "inner", "outer"] } : null,
-        })),
+        fields: fields.flatMap((field) => {
+          const spec = {
+            field,
+            description: CAR_FIELD_DESCRIPTIONS[field],
+            tag: car.behavior[field].inherited ? "(inherited)" : "(overridden)",
+            input: field === "laneHome" ? { type: "select", options: ["any", "inner", "outer"] } : null,
+          };
+          // See chaseCeilingFieldSpec for why this rides right after chaseSpeed.
+          return field === "chaseSpeed" ? [spec, chaseCeilingFieldSpec(car)] : [spec];
+        }),
       }));
       behavior[0] = { ...behavior[0], scopeNote: behaviorScopeNote(car.profile) };
       return [...catalogue, ...behavior];
@@ -436,6 +492,7 @@ function setChange(kindId, id, field, value) {
   renderNav();
   renderActions();
   if (!document.getElementById("review").hidden) renderReview();
+  for (const update of derivedFieldUpdaters) update();
 }
 
 // Drops one field's pending edit, and the whole entry once it holds nothing —
@@ -449,6 +506,7 @@ function clearChange(kindId, id, field) {
   renderNav();
   renderActions();
   if (!document.getElementById("review").hidden) renderReview();
+  for (const update of derivedFieldUpdaters) update();
 }
 
 function hasChange(kindId, id) {
@@ -641,6 +699,39 @@ function makeField(kindId, entryId, spec) {
   }
   wrapper.appendChild(label);
 
+  if (spec.derived) {
+    // Read-only: this row shows a value computed from OTHER fields rather
+    // than one of its own, so it gets a disabled <input> instead of a live
+    // one — reusing the same field layout and CSS rather than a second
+    // visual language for "you cannot type here" — and no "change" listener,
+    // so it can never enter `pending` or reach the server. Its label's tag
+    // is set by `render` below rather than from `spec.tag` up above, because
+    // which side binds can change on every edit; the plain per-field tags
+    // above are fixed for the life of one render.
+    const tag = document.createElement("span");
+    label.appendChild(tag);
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.disabled = true;
+    wrapper.appendChild(input);
+
+    const description = document.createElement("div");
+    description.className = "description";
+    description.textContent = spec.description ?? "";
+    wrapper.appendChild(description);
+
+    const render = () => {
+      const info = spec.compute();
+      input.value = info.value;
+      tag.className = info.tagClass;
+      tag.textContent = info.tag;
+    };
+    render();
+    derivedFieldUpdaters.push(render);
+    return wrapper;
+  }
+
   const readCurrent = () => currentValue(kindId, entryId, spec.field);
 
   let input;
@@ -719,6 +810,10 @@ function renderForm() {
   form.hidden = false;
   empty.hidden = true;
   document.getElementById("form-title").textContent = entry.label;
+
+  // Fresh for this render: the old list's closures point at DOM nodes this
+  // render is about to throw away.
+  derivedFieldUpdaters = [];
 
   const subtitleEl = document.getElementById("form-subtitle");
   const subtitle = kind.subtitle?.(entry);
