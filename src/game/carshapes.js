@@ -35,7 +35,7 @@
 // is why the number is a ceiling rather than a target.
 //
 // CHECK IT IN THE GALLERY, whose silhouette catalogue draws these at 2x for
-// exactly this reason (src/demo/gallery.js). At 1x every hull looks equally
+// exactly this reason (tools/gallery/gallery.js). At 1x every hull looks equally
 // finished no matter how much was drawn into it, which is how a budget nobody
 // could see stayed unspent.
 //

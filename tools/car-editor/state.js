@@ -73,7 +73,7 @@ export async function refreshCatalogues() {
 
 // Derived from the catalogue itself, civilian and hostile alike, so a type
 // added to cartypes.js shows up here without a second list to remember to
-// update — the same reasoning the gallery in src/demo/gallery.js already
+// update — the same reasoning the gallery in tools/gallery/gallery.js already
 // applies to the same catalogue.
 export const CAR_IDS = live.cartypes.CAR_TYPES.map((t) => t.id);
 

@@ -1,16 +1,20 @@
-// Asset gallery — a static showcase page (demo.html) for eyeballing neon assets
-// in isolation, without running the game. Each asset is drawn on its own small
-// canvas over an optional roadside-style grid backdrop.
+// Asset gallery — a static showcase page (tools/gallery/gallery.html) for
+// eyeballing neon assets in isolation, without running the game. Each asset is
+// drawn on its own small canvas over an optional roadside-style grid backdrop.
+//
+// Lives in tools/ rather than src/, alongside the tuning editor, since like it
+// this is a dev tool over the game's source rather than part of the game
+// itself — nothing under src/ imports this file.
 //
 // To add an asset: draw it in src/game/sprites.js, then register a cell below.
 
-import { clear, glowLine } from "../engine/neon.js";
-import { drawCar, drawObstacle } from "../game/sprites.js";
-import { drawShape, SHAPE_NAMES } from "../game/buildingshapes.js";
-import { CAR_SHAPES, drawShapeObject } from "../game/carshapes.js";
-import { bossGroups } from "../game/bossshapes.js";
-import { cycleFamilies } from "../game/cycleshapes.js";
-import { OBSTACLE_SHAPES, obstacleShapeIndex, BLOCK } from "../game/obstacleshapes.js";
+import { clear, glowLine } from "../../src/engine/neon.js";
+import { drawCar, drawObstacle } from "../../src/game/sprites.js";
+import { drawShape, SHAPE_NAMES } from "../../src/game/buildingshapes.js";
+import { CAR_SHAPES, drawShapeObject } from "../../src/game/carshapes.js";
+import { bossGroups } from "../../src/game/bossshapes.js";
+import { cycleFamilies } from "../../src/game/cycleshapes.js";
+import { OBSTACLE_SHAPES, obstacleShapeIndex, BLOCK } from "../../src/game/obstacleshapes.js";
 import {
   drawWreck,
   WRECK_DURATION,
@@ -20,20 +24,20 @@ import {
   OBSTACLE_WRECK_DURATION,
   drawFireballBurst,
   FIREBALL_DURATION,
-} from "../game/effects.js";
-import { drawDart } from "../game/projectiles.js";
-import { CAR_TYPES, ENEMY_FACTION } from "../game/cartypes.js";
-import { WEAPON_TYPES } from "../game/weapons.js";
-import { PICKUP_SHAPES, drawPickupShape } from "../game/pickupshapes.js";
-import { PICKUP_TYPES } from "../game/pickuptypes.js";
+} from "../../src/game/effects.js";
+import { drawDart } from "../../src/game/projectiles.js";
+import { CAR_TYPES, ENEMY_FACTION } from "../../src/game/cartypes.js";
+import { WEAPON_TYPES } from "../../src/game/weapons.js";
+import { PICKUP_SHAPES, drawPickupShape } from "../../src/game/pickupshapes.js";
+import { PICKUP_TYPES } from "../../src/game/pickuptypes.js";
 import {
   drawCollectBurst,
   COLLECT_DURATION,
   drawTargetMark,
   drawShieldArc,
   ARC_DURATION,
-} from "../game/effects.js";
-import * as pal from "../engine/palette.js";
+} from "../../src/game/effects.js";
+import * as pal from "../../src/engine/palette.js";
 
 const gallery = document.getElementById("gallery");
 const SIZE = 160; // per-cell canvas size in px

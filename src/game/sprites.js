@@ -1,5 +1,5 @@
 // Shared, pure asset-drawing functions (no game state). Both the live game
-// entities and the asset gallery (demo.html) call these, so a visual tweak here
+// entities and the asset gallery (tools/gallery/gallery.html) call these, so a visual tweak here
 // updates the game and the gallery at once. Everything is drawn centred at a
 // given (cx, cy) so callers control placement.
 
@@ -51,7 +51,7 @@ export function drawObstacle(ctx, cx, cy, opts = {}) {
 // which is far too slow to run per entity per frame (see spritecache.js). The
 // game therefore goes through the wrappers below, which pre-render each distinct
 // look once and blit it thereafter. The raw drawers stay exported because the
-// asset gallery (demo.html) wants arbitrary one-off parameters, and because
+// asset gallery (tools/gallery/gallery.html) wants arbitrary one-off parameters, and because
 // these wrappers are built on top of them — so a visual tweak above still flows
 // through to the game and the gallery alike.
 // ---------------------------------------------------------------------------
