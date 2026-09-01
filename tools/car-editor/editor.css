@@ -212,6 +212,14 @@ details:not([open]) { padding-bottom: 0.75rem; }
   border-color: var(--accent);
 }
 
+/* A derived (read-only) row's value, e.g. the chase ceiling under chaseSpeed —
+   disabled rather than removed from the input styling so it still reads as a
+   field, just not one you can type into. */
+.field input:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
 .field .description {
   color: var(--muted);
   font-size: 0.85rem;
