@@ -441,20 +441,30 @@ spawn and wanders within — how it drives when nothing is happening to it.
 cruise band at both ends. `traffic.js` applies both bounds once per tick after
 every behaviour has spoken, so nothing can reach outside it: not the tactic, not
 braking behind another car, not slowing to fit a swerve past a roadblock, and not
-a chase's own `chaseSpeed`. Which band a caller reads follows from what it is
-doing — spawning and wandering are cruise; passing, holding station, fleeing and
-chasing are capability.
+a chase. Which band a caller reads follows from what it is doing — spawning and
+wandering are cruise; passing, holding station, fleeing and chasing are
+capability.
+
+`speedMax` is therefore the SINGLE answer to how fast a car can be driven, for
+any reason, **including how fast it chases**. Driving profiles used to carry a
+second, lower chase ceiling of their own (`chaseSpeed`); it was removed, because
+how fast a car can chase is a fact about the car, and a shared profile stating it
+put the figure where nobody tuning that car would look. `driving.js` keeps the
+reasoning.
 
 Each gap is a design surface. Below, `speedMin`–`cruiseMin` is what the player
 buys by slowing down: it decides whether braking sheds a type. Above,
 `cruiseMax`–`speedMax` is what a car has left when it is trying, and most types
-ship with it CLOSED. The chase's own ceiling (`chaseSpeed`) sits on the shared
-driving profile and asks the same figure of every type naming it, but is a
-REQUEST rather than an override — the type's own `speedMax` still bounds what it
-can actually reach, so the stocker and the bruiser open their gap to exactly
-their profile's `chaseSpeed`, admitting in the catalogue what their tactic has
-always spent. Opening it also lets `passEffort` start meaning something for that
-type alone.
+ship with it CLOSED. The stocker and the bruiser open theirs, so that a car whose
+job is closing on the player has something to close with that its cruise band
+would not give. Opening it also lets `passEffort` start meaning something for
+that type alone.
+
+Read against the player's own 620, that one number is also the answer to "can I
+drive away from this?" — the stocker at 600 slips back, the interceptor at 620
+holds its gap without shedding, and the rival at 650 and the outrider at 660 gain
+on a player flat out in clean air. Those last three are chased down by the
+traffic and the corners, or shot.
 
 The cruise band is pinned to both ends of the player's own 100–620:
 

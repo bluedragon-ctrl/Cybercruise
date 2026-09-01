@@ -439,10 +439,12 @@ test("a narrowing puts its rows hard against both barriers, wholly on the tarmac
   for (const n of byRow.values()) assert.equal(n, 2);
 });
 
-// How far under the player's ceiling a chase ceiling may sit and still count as
-// holding station. 20 units/sec is the slip the boss's escort runs on and the
-// number its entry works through — half a minute of pursuit, longer than the
-// fight — so it is the documented floor rather than a new one invented here.
+// How far under the player's own ceiling a type's speedMax may sit and still
+// count as holding station behind them. 20 units/sec is the widest slip
+// anything in the catalogue runs on — the stocker's 600 against the player's
+// 620, which its entry works through as the one chasing type a stock player
+// can still drive away from — so it is the documented figure rather than a new
+// one invented here.
 const CLOSING_SLIP = 20;
 
 test("the swarm stages ranks the road can hold and gets the rest there itself", () => {
@@ -481,19 +483,12 @@ test("the swarm stages ranks the road can hold and gets the rest there itself", 
   }
 
   // THE LOAD-BEARING HALF OF THE SPLIT: everything staged behind has to stay in
-  // the encounter against a player at full throttle. Two ways to do that, and
-  // the entry names both — a band above the player's ceiling (the cycle, which
-  // is how half the pack ends up in front despite being staged behind), or a
-  // chase ceiling that holds station astern (the outrider's 660, opened to
-  // clear its profile's own chaseSpeed of 600). A type retuned under BOTH would
-  // sit off the bottom of the screen for the whole encounter, which is the
-  // exact failure the rival's entry documents.
-  //
-  // `reach` IS JUST speedMax, not a max against chaseSpeed: traffic.js now
-  // clamps every chase to the type's own ceiling, so a profile's chaseSpeed no
-  // longer reaches any further than the catalogue admits to (see cartypes.js's
-  // cruiseMax..speedMax gap and driving.js's own header) — the true top speed
-  // this type can chase at is what speedMax says, whatever its profile asks for.
+  // the encounter against a player at full throttle. The type's own `speedMax`
+  // is the whole answer — a chase spends the entire hard band and traffic.js
+  // clamps it to nothing else, so `reach` is just that field. A type staged
+  // behind and retuned under the player's own ceiling would sit off the bottom
+  // of the screen for the whole encounter, which is the exact failure the
+  // rival's entry documents.
   for (const spec of behind) {
     const type = carTypeById(spec.type);
     const reach = type.speedMax;

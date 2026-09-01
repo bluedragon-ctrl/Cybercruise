@@ -25,16 +25,20 @@
 // `commuter` is both the reference and the documentation: every field appears
 // once, here. Every other profile is a DELTA from it.
 //
-// FOUR FIELDS ARE MARKED "baseline only" — no profile in the catalogue below
+// THREE FIELDS ARE MARKED "baseline only" — no profile in the catalogue below
 // turns them. That is not the same as a constant, and the distinction is what
 // decides where a number lives: a knob stays here when a future type could
 // plausibly want its own, and moves next to the tactic when the figure is
-// ARITHMETIC AGAINST ANOTHER FILE that no profile could state correctly on its
-// own. behaviours.js's PURSUE_RANGE and RAM_FLOOR left on those grounds — the
-// second is sized against player.js's minimum speed. These four did not.
+// ARITHMETIC AGAINST ANOTHER FILE, one HALF OF A PAIR that only means anything
+// alongside the other, or DERIVABLE FROM THE CATALOGUE and so never a choice at
+// all. behaviours.js's PURSUE_RANGE, RAM_FLOOR, RAM_BRAKE and LOOK_BEHIND_SLACK
+// left on those grounds — RAM_FLOOR is sized against player.js's minimum speed,
+// RAM_BRAKE is the same block's other end and useless read apart from it, and
+// the look-behind turned out to be the two cars' own lengths plus a margin no
+// profile had a reason to differ on. These three did not.
 //
 // The marker exists so a reader tuning the road knows which knobs the catalogue
-// is actually using (twenty-one of them) without diffing every profile against
+// is actually using (nineteen of them) without diffing every profile against
 // this one.
 const COMMUTER = {
   // --- Following ------------------------------------------------------------
@@ -69,8 +73,13 @@ const COMMUTER = {
   passTimeout: 6,       // seconds before an unfinished pass is abandoned
   passSpeedMargin: 15,  // how much faster we must want to be to bother
   passClearance: 12,    // px of daylight between the boxes as it goes by
-  passLookBehind: 90,   // world units of the pass line checked behind us...
-  passLookAhead: 140,   // ...and beyond the car we mean to pass
+  passLookAhead: 140,   // world units of the pass line checked beyond the NOSE of
+                        // the car we mean to pass — a planning distance, and the
+                        // one look figure that is genuinely chosen rather than
+                        // measured. There is no matching figure for BEHIND: what
+                        // counts as beside this car is the two bodies' own
+                        // lengths, so behaviours.js derives that instead — see
+                        // its LOOK_BEHIND_SLACK
   passEffort: 1.15,     // how much harder it drives while committed to a pass.
                         // CAPPED at the type's own speedMax (behaviours.js), so
                         // it does nothing for a type whose cruise band already
@@ -91,23 +100,21 @@ const COMMUTER = {
   pursueGain: 1.2,      // proportional term on the gap error, not a limit —
                         // traffic.js's ACCEL still gets `speed` there.
                         // BASELINE ONLY
-  // The chase ceiling: what a car asks to spend once the player is worth
-  // chasing, rather than the cruise band that governs ordinary driving — sized
-  // to keep pace with a player near their own 620 (player.js). ABSOLUTE rather
-  // than a multiple of speedMax, so the relation is not guaranteed — the rival
-  // cruises to 650 and therefore never chases at full pace.
+  // NO CHASE CEILING LIVES HERE, and the absence is the design. A `chaseSpeed`
+  // did — an absolute figure a chasing car asked for, deliberately under what
+  // its chassis could give — and it was removed: HOW FAST A CAR CAN CHASE IS A
+  // FACT ABOUT THE CAR, so the one ceiling is the type's own `speedMax`
+  // (cartypes.js), which traffic.js already clamps every request to. A second,
+  // profile-wide ceiling beneath it only ever said "this car may not spend what
+  // it has", which is not a disposition any driver had a reason to hold.
   //
-  // A REQUEST, NOT AN OVERRIDE: traffic.js clamps the result to the type's own
-  // speedMax same as every other ask, so a type whose speedMax sits under this
-  // simply cannot reach it — see cartypes.js's THE TWO SPEED BANDS and its
-  // cruiseMax..speedMax gap, which the stocker and the bruiser open to exactly
-  // this figure for that reason.
-  //
-  // IT LIVES ON THE PROFILE, WHICH IS THE PART TO WATCH: editing it moves every
-  // type sharing this table, where the catalogue's own `speedMax` moves one car.
-  // A type that wants headroom for ITSELF wants that field, not this one — and
-  // now has to state it there for the chase to actually reach that far.
-  chaseSpeed: 600,
+  // What keeping it cost: the field sat on a SHARED table, so the interceptor
+  // and the rival were leashed to 600 by a figure neither catalogue entry
+  // mentioned, while the stocker and the bruiser had to open their
+  // cruiseMax..speedMax gap to exactly that figure to reach a pace they were
+  // already rated for — two types tuned where nobody would look, and two
+  // stating the same number twice. Chase pace is `speedMax` and only
+  // `speedMax`; see cartypes.js's THE TWO SPEED BANDS.
   // Seconds of LOST CONTACT before this driver gives the player up for good, or
   // 0 for never — the baseline, and what makes `pursue` the road's standing
   // pressure rather than a timed encounter. Only behaviours.js's `trail` reads
@@ -134,16 +141,6 @@ const COMMUTER = {
   // type's own steerSpeed in test/hazards.test.js.
   weaveSpan: 40,
   weaveTime: 1.6,
-
-  // --- Ramming --------------------------------------------------------------
-  // Read only by behaviours.js's `ram`, once it is ahead of the player and the
-  // job has turned from hitting them into blocking them. How hard the block
-  // bites is a disposition and lives here; the SPEED IT MAY NOT DROP UNDER is
-  // arithmetic against player.js's own minimum, so it is RAM_FLOOR next to the
-  // tactic instead.
-  ramBrake: 0.5,        // a FRACTION of the player's current speed, so the block
-                        // still bites at walking pace. BASELINE ONLY: one type
-                        // rams today, and how hard it leans is its own to set
 
   // --- Nerve: what this driver will accept hitting --------------------------
   //
@@ -243,9 +240,9 @@ export const DRIVING_PROFILES = {
   // steers at 140, its contacts cost 4-9, and its dial is coarse.
   //
   // Most of the table is inert here — the van's tactic is `cruise`, which never
-  // passes. `passLookAhead`/`passLookBehind` ARE read (`blocked` uses them for
-  // the lane preference and the hazard dodge), which is why those two stay at
-  // the commuter's figures rather than being tuned.
+  // passes. `passLookAhead` IS read (`blocked` uses it for the lane preference
+  // and the hazard dodge), which is why it stays at the commuter's figure rather
+  // than being tuned.
   hauler: profile({
     laneDiscipline: 0.85, // a big box that never quite settles on the centre-line
     laneHome: "outer",    // keeps out of the way: the slow side of the gradient
@@ -297,7 +294,6 @@ export const DRIVING_PROFILES = {
     // whose whole character is that it does not slow down.
     passTrigger: 560,
     passLookAhead: 260,  // it needs to see further, because it eats road faster
-    passLookBehind: 140,
     passSpeedMargin: 60, // only bothers for a gain it can realise — this is what
                          // stops it committing to a pass on a cycle
     passClearance: 20,   // it does not scrape. The widest pass on the road
@@ -371,10 +367,6 @@ export const DRIVING_PROFILES = {
   batterer: profile({
     nerve: 20,
     contact: 0,
-    // The one hostile that chases slower than the rest. It closes to HIT rather
-    // than to hold a firing gap, so it need not match a fleeing player — only
-    // catch one who is busy with the road. Still well above its own 330.
-    chaseSpeed: 560,
   }),
   duelist: profile({ nerve: 10, contact: 0 }), // rival: a driver, not a battering
                                      // ram — it would rather keep the line clean

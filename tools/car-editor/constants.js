@@ -122,6 +122,14 @@ export const CONSTANT_GROUPS = [
         description: "Slowest speed the bruiser's roadblock runs at once it is ahead of the player. Must stay UNDER the player's own MIN_SPEED (World -> Player car), or simply lifting off the throttle would out-slow the block and the second half of the ram goes slack.",
       },
       {
+        id: "driving.LOOK_BEHIND_SLACK", name: "LOOK_BEHIND_SLACK", file: "src/game/behaviours.js", min: 0,
+        description: "Daylight (world units) a driver wants BEHIND the point where two cars stop overlapping, before it will move sideways into that lane. Not a mirror check — nothing on this road reacts to a car behind it — but the tail of 'is the space I am moving into empty', since a body whose centre trails this one's by less than their combined half-length is alongside it. The overlap itself is derived from the two cars' own lengths; this is only the margin on top, sized so a body just past the line cannot be alongside by the time a ~0.4s lane change finishes.",
+      },
+      {
+        id: "driving.RAM_BRAKE", name: "RAM_BRAKE", file: "src/game/behaviours.js", min: 0.01,
+        description: "The fraction of the PLAYER'S own speed the bruiser's roadblock runs at once it is ahead of them, which is what makes the block bite at any speed rather than only at the one it was tuned against. RAM_FLOOR above is the floor under it, and the two cross at player speed 160 — below that this does nothing. Raising it toward 1 makes the block a gentler nudge; lowering it toward the floor makes each hit roughly twice as expensive FOR BOTH CARS, since impact damage is symmetric in closing speed.",
+      },
+      {
         id: "driving.TRAIL_ENGAGE", name: "TRAIL_ENGAGE", file: "src/game/behaviours.js", min: 1,
         description: "Gap within which the stocker counts as still in contact with the player. Its give-up clock only runs OUTSIDE this, so it has to stay above that profile's pursueHold — otherwise a stocker holding its station perfectly would still time out and ride off.",
       },

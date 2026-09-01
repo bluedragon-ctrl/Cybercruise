@@ -121,7 +121,6 @@ export const BEHAVIOR_FIELDS = [
   "passTimeout",
   "passSpeedMargin",
   "passClearance",
-  "passLookBehind",
   "passLookAhead",
   "passEffort",
   "hazardClearance",
@@ -131,13 +130,14 @@ export const BEHAVIOR_FIELDS = [
   // object as everything above, so they surface here on the same terms and the
   // "(inherited)" tag does the explaining.
   //
-  // The chase's own SHAPE is not here: PURSUE_RANGE and RAM_FLOOR are shared
-  // figures in behaviours.js, on the World screen's "Driving tactics" group,
-  // because no profile differed from the baseline and each is arithmetic
-  // against another file. What is left here is genuinely per-driver.
+  // The chase's own SHAPE is not here, nor the ram's, nor the look-behind:
+  // PURSUE_RANGE, RAM_FLOOR, RAM_BRAKE and LOOK_BEHIND_SLACK are shared figures
+  // in behaviours.js, on the World screen's "Driving tactics" group, because no
+  // profile differed from the baseline and each is arithmetic against another
+  // file, against its own pair, or against the two cars' own lengths. What is
+  // left here is genuinely per-driver.
   "pursueHold",
   "pursueGain",
-  "chaseSpeed",
   "giveUpTime",
   "raidGain",
   // The motorcycle fleet's three. `leadHold` is the gap the outrunner keeps
@@ -146,7 +146,6 @@ export const BEHAVIOR_FIELDS = [
   "leadHold",
   "weaveSpan",
   "weaveTime",
-  "ramBrake",
   "nerve",
   "contact",
 ];
@@ -169,18 +168,17 @@ export const BEHAVIOR_FIELD_GROUPS = [
     label: "Passing",
     fields: [
       "patience", "passTrigger", "passMargin", "passTimeout", "passSpeedMargin",
-      "passClearance", "passLookBehind", "passLookAhead", "passEffort",
+      "passClearance", "passLookAhead", "passEffort",
     ],
   },
   { label: "Hazards", fields: ["hazardClearance"] },
   {
     label: "Chasing the player",
     fields: [
-      "pursueHold", "pursueGain", "chaseSpeed", "giveUpTime", "raidGain",
+      "pursueHold", "pursueGain", "giveUpTime", "raidGain",
       "leadHold", "weaveSpan", "weaveTime",
     ],
   },
-  { label: "Ramming", fields: ["ramBrake"] },
   { label: "Nerve", fields: ["nerve", "contact"] },
 ];
 

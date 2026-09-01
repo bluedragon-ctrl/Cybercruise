@@ -33,10 +33,12 @@
 //                         of, and it contains the cruise band at both ends.
 //                         NOTHING may ask a car outside it — not a tactic, not
 //                         braking for the car in front, not slowing to fit a
-//                         swerve past a roadblock, not a chase's own
-//                         `chaseSpeed` (driving.js) — traffic.js clamps both
-//                         ends to this band once, after every behaviour has
-//                         had its say.
+//                         swerve past a roadblock, not a chase — traffic.js
+//                         clamps both ends to this band once, after every
+//                         behaviour has had its say. `speedMax` is therefore
+//                         THE SINGLE ANSWER to "how fast can this car be
+//                         driven, for any reason"; driving profiles carry no
+//                         second ceiling under it (driving.js says why not).
 //
 // `speedMin <= cruiseMin <= cruiseMax <= speedMax` therefore holds for every
 // entry, and the car editor refuses an edit that breaks it (car-editor/server.js).
@@ -53,18 +55,16 @@
 //                         below, which decides whether braking sheds a type.
 //   cruiseMax..speedMax   what a car has left when it is TRYING. Ordinary
 //                         cruise never reaches into it; `passEffort`, the
-//                         station-holding tactics, and a chase's own
-//                         `chaseSpeed` (driving.js) do. MOST TYPES SHIP WITH
-//                         THIS GAP CLOSED (speedMax = cruiseMax), which is the
-//                         road the catalogue has always had. THE STOCKER AND
-//                         THE BRUISER open it instead, to exactly their
-//                         profile's `chaseSpeed` — chaseSpeed sits on the
-//                         SHARED driving profile and asks the same figure of
-//                         every type naming it, but traffic.js now holds every
-//                         type to its own speedMax regardless of what its
-//                         profile asks for, so a type actually chasing at that
-//                         figure has to admit to it here. Opening the gap
-//                         also un-clips `passEffort` for that type alone.
+//                         station-holding tactics and every chase do. MOST
+//                         TYPES SHIP WITH THIS GAP CLOSED (speedMax =
+//                         cruiseMax), which is the road the catalogue has
+//                         always had. THE STOCKER AND THE BRUISER open it, so
+//                         that a car whose whole job is closing on the player
+//                         has something to close with that its cruise band
+//                         would not give. HOW FAST A TYPE CHASES IS THIS
+//                         NUMBER — there is nowhere else to look, which is the
+//                         point of it living here. Opening the gap also
+//                         un-clips `passEffort` for that type alone.
 //
 // WHAT THE FLOOR BUYS, and it is ONE design decision with one number behind it.
 // A hostile holds station only on a player it can MATCH, so its floor is the
@@ -657,9 +657,15 @@ export const CAR_TYPES = [
     // chase with (see events.js's arrivalSpeed and its `needed` guard: a type
     // whose speedMax cannot clear player.speed + CLOSING_MARGIN keeps its
     // ordinary roll instead of closing, so a boosted player used to outrun this
-    // type outright). It still cannot beat a BOOSTED player on its own legs —
-    // that gap is `pursue`'s job, via chaseSpeed (driving.js) — but it can now
-    // stay in a stock player's mirror instead of falling out of it.
+    // type outright). It still cannot beat a BOOSTED player on its own legs,
+    // but it can now stay in a stock player's mirror instead of falling out of
+    // it — and it chases at the whole 620, LEVEL WITH A STOCK PLAYER FLAT OUT.
+    // Throttle alone therefore does not open the gap on this type; it only
+    // stops it closing. What sheds an interceptor is the traffic and the
+    // corners, or killing it. (It used to chase at 600 — a leash on the driving
+    // profile, since removed — and slipped 20 a second against a flat-out
+    // player. driving.js has the reasoning; the encounters built on that slip
+    // are the battery escort and the swarm, in eventtypes.js.)
     // NO FLOOR. Four wheels and a heavy body: it can crawl, and it is the reason
     // the road keeps a standing pressure braking does not switch off — a player
     // who slows to shed the bikes finds this still in their mirror.
@@ -716,12 +722,12 @@ export const CAR_TYPES = [
     speedMin: 0,
     cruiseMin: 355,
     cruiseMax: 415,
-    // OPENED TO 600 — not headroom for its own sake, but the speed `trail`
-    // already spent while chasing: `roadracer`'s `chaseSpeed` is the enemy
-    // baseline of 600 (driving.js), and traffic.js now holds every tactic to
-    // this figure regardless, so a stocker asked to chase at 600 needs its own
-    // ceiling raised to actually reach it rather than being quietly capped at
-    // its old 415 cruise top.
+    // OPENED TO 600 — not headroom for its own sake, but what `trail` spends
+    // while chasing, which its 415 cruise top would otherwise cap. UNDER THE
+    // PLAYER'S OWN 620 and deliberately so: this is the chasing type a stock
+    // player can still drive away from, at 20 units a second, which is what
+    // keeps it the pressure you outlast rather than a second interceptor. Its
+    // other counter is time (`giveUpTime`, above).
     speedMax: 600,
     steerSpeed: 100, // quicker across the road than any other heavy
     blastRadius: 45,
@@ -814,13 +820,12 @@ export const CAR_TYPES = [
     speedMin: 0,
     cruiseMin: 280,
     cruiseMax: 330,
-    // OPENED TO 560 — the speed `ram` already spent closing from behind or
-    // alongside: `batterer`'s `chaseSpeed` sits at 560 (driving.js, the one
-    // profile below the enemy baseline), and traffic.js now holds every
-    // tactic to this figure regardless of what its profile asks for, so the
-    // bruiser needs its own ceiling raised to 560 to actually reach the speed
-    // its tactic has always driven at, rather than being quietly capped at
-    // its old 330 cruise top.
+    // OPENED TO 560 — the speed `ram` closes at from behind or alongside,
+    // which its 330 cruise top would otherwise cap. WELL UNDER THE PLAYER'S
+    // 620, and that is the type: it closes to HIT rather than to hold a firing
+    // gap, so it needs to catch a player busy with the road, not match one
+    // running away. A bruiser in clean air behind a flat-out player is a
+    // bruiser you have already beaten.
     speedMax: 560,
     // RAISED FROM 70 ALONGSIDE speedMax, and load-bearing rather than a free
     // tune: behaviours.js's dodgeDistance is speed / steerSpeed once fed the
@@ -853,12 +858,12 @@ export const CAR_TYPES = [
     id: "rival",
     label: "RIVAL",
     // The player's own silhouette, in the hostile shade — see the header. The
-    // cycle is quicker outright, and the outrider's and interceptor's bands now
+    // cycle is quicker outright, and the outrider's and interceptor's bands
     // reach into the player's own ceiling too (both widened so a BOOSTED player
-    // still has something behind them) — but neither is DRIVING at that pace by
-    // choice the way the rival is; they get there through `pursue`/`strafe`'s
-    // chaseSpeed override, a leash rather than a cruise. The rival is the only
-    // hostile that lives with the player flat out as a straight speed contest.
+    // still has something behind them) — but the rival is the only hostile with
+    // a band ABOVE a stock player's 620 that also chases with all of it. Flat
+    // out in clean air it gains on you at 30 a second, so it is the one type
+    // the throttle is no answer to at all.
     shape: carShapeIndex("SUPERCAR"),
     faction: ENEMY_FACTION,
     w: 34,
@@ -871,11 +876,12 @@ export const CAR_TYPES = [
     // way the rest of the enemy roster now does.
     health: 400,
     mass: 1.2,
-    // Straddles the player's top speed: flat out, you draw level with a rival
-    // and neither of you gets away — on its OWN legs, unlike the outrider and
-    // interceptor above, whose reach into this range is a chase leash rather
-    // than a cruise (see the header comment on this entry).
-    // It wears the player's own body, so it can do anything the player can.
+    // Straddles the player's top speed: flat out you do not draw away from a
+    // rival, you lose ground to it — it wears the player's own body and is
+    // rated 30 over a stock one, and since a chase spends the whole hard band
+    // (traffic.js) that 30 is real pressure rather than a cruising figure. The
+    // mini-boss the road cannot be driven away from, which is the shape the
+    // `rival` encounter is built around.
     speedMin: 0,
     cruiseMin: 580,
     cruiseMax: 650,
@@ -951,10 +957,10 @@ export const CAR_TYPES = [
     // a band that could not go below 540 meant an outrider following a slowed
     // player was always fighting to shed speed it wasn't allowed to roll under.
     // The ceiling rises to 660, past the cycle's new 620 floor, for the same
-    // reason the interceptor's did: a boosted player leaves 600 behind for
-    // good, and `chaseSpeed` (driving.js, 600) needs a band that can still
-    // catch one. It stays under the cycle's own 730, so the cycle remains the
-    // one thing that reliably passes.
+    // reason the interceptor's did: a boosted player leaves a stock 620 behind
+    // for good, and `strafe` needs a band that can still catch one. It stays
+    // under the cycle's own 730, so the cycle remains the one thing that
+    // reliably passes.
     // The bike floor, and the reason "slow down" is a real answer to this type:
     // under it the weave cannot hold station and sweeps past, taking the SMG's
     // firing line with it. See THE TWO SPEED BANDS.
