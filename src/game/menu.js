@@ -85,10 +85,12 @@ const TEST_ROWS = !SHOW_TEST_OPTIONS
     ].filter(Boolean);
 
 // row 0 (see above), SOUND, MUSIC, then whichever test rows are compiled in —
-// the cursor still steps through them in this order (see update()'s up/down),
-// even though they no longer LOOK like the three rows above them (see below).
+// but the keyboard's up/down wrap (update() below) never steps onto the test
+// rows at all, in either direction, F1 or no F1. They are reached ONLY by a
+// mouse click landing on the checkbox directly (testRowRect below) — a stray
+// Down at the wrong moment must not be able to arm a cheat, which a shared
+// wrap with SOUND/MUSIC would allow.
 const FIRST_TEST_ROW = 3;
-const ROW_COUNT = FIRST_TEST_ROW + TEST_ROWS.length;
 
 // DRAWN SMALL, AT THE FOOT OF THE SCREEN, deliberately unlike the three real
 // rows above — a dev cheat sitting in the same size and place as START GAME
@@ -96,6 +98,12 @@ const ROW_COUNT = FIRST_TEST_ROW + TEST_ROWS.length;
 // tiny checkboxes beside the "TEST BUILD" footer they already share a reason
 // for existing with does the opposite: unmissable if you're looking for it,
 // easy to never notice if you're not.
+//
+// HIDDEN UNTIL F1, and toggled by MOUSE ONLY once revealed — see
+// `testOptionsVisible` and the click handling in update() below. Small and at
+// the foot was "easy to never notice"; this is "invisible unless you already
+// know the key", for the same footer that still names the file where F1 and
+// the flags themselves are documented.
 const CHECK_Y = LOGICAL_H - 68; // a clear gap above the footer text (H - 40)
 const CHECK_FONT = 12;
 const CHECK_BOX = 10; // the little square glyph itself
@@ -108,7 +116,10 @@ const CHECK_ITEM_W = 170; // reserved per checkbox, box+label+padding, for cente
 // TOP (glowText draws from a "top" baseline — engine/neon.js), so the rect
 // pads a few px above it for the box glyph and enough below for the label's
 // full height.
-function testRowRect(W, i) {
+// Exported so test-options.test.js can click a checkbox at its actual
+// geometry instead of duplicating CHECK_Y/CHECK_ITEM_W as a second copy that
+// could silently drift from this one.
+export function testRowRect(W, i) {
   const totalW = TEST_ROWS.length * CHECK_ITEM_W;
   const x = W / 2 - totalW / 2 + i * CHECK_ITEM_W;
   return { x, y: CHECK_Y - 6, w: CHECK_ITEM_W, h: CHECK_FONT + 12 };
@@ -139,6 +150,10 @@ export function createMenu() {
   // suddenly grab it, same reasoning a native slider only tracks drags it
   // originated. Null when no drag is in progress.
   let draggingRow = null;
+  // Starts hidden every load, same as `flags` above — F1 (input.js's
+  // "testOptions" action) flips it. Session-only like the rest of this file;
+  // nothing here is a reason to remember it past a reload.
+  let testOptionsVisible = false;
 
   function setSoundVolume(v) {
     soundLevel = clamp01(v);
@@ -173,10 +188,11 @@ export function createMenu() {
   // mouse drag) — MUSIC-row changes are deliberately NOT reported here, since
   // the music itself is that slider's own preview (see the design brief) and
   // menu_adjust doubling it would be redundant. `toggled` is true the tick a
-  // TEST ROW (testoptions.js) flipped, by key or by click — main.js plays the
-  // same menu_adjust for it, since a toggle IS an adjustment as far as the
-  // menu's own vocabulary of sounds goes, and it is reported separately only
-  // so a build with the rows switched off cannot be told apart by its audio.
+  // TEST ROW (testoptions.js) flipped — by a mouse click ONLY, once F1 has
+  // revealed the rows (testOptionsVisible below); main.js plays the same
+  // menu_adjust for it, since a toggle IS an adjustment as far as the menu's
+  // own vocabulary of sounds goes, and it is reported separately only so a
+  // build with the rows switched off cannot be told apart by its audio.
   // consumePress, not isDown, for
   // both nav and confirm — a held key must move the cursor (or confirm) once,
   // not every frame it's down.
@@ -189,8 +205,30 @@ export function createMenu() {
     let soundAdjusted = false;
     let toggled = false;
 
-    if (consumePress("up")) { selected = (selected + ROW_COUNT - 1) % ROW_COUNT; moved = true; }
-    if (consumePress("down")) { selected = (selected + 1) % ROW_COUNT; moved = true; }
+    // F1 is a plain toggle, not tied to `selected` — it can flip the rows'
+    // visibility from anywhere on the menu, the same way Escape can pause
+    // from anywhere in play. Hiding them again snaps the cursor off a row
+    // that just stopped existing, the same clamp `open()` already does for a
+    // fresh visit.
+    if (consumePress("testOptions")) {
+      testOptionsVisible = !testOptionsVisible;
+      if (!testOptionsVisible && selected >= FIRST_TEST_ROW) selected = 0;
+    }
+
+    // The test rows NEVER join the keyboard wrap, visible or not — mouse only,
+    // so an accidental Down at the wrong moment can't arm a cheat the way it
+    // could if the rows sat in the same up/down cycle as SOUND/MUSIC. A click
+    // can still park `selected` on one for the highlight (below); Up/Down from
+    // there snap to the nearest real row rather than doing modulo arithmetic
+    // against an index the wrap doesn't otherwise know about.
+    if (consumePress("up")) {
+      selected = selected < FIRST_TEST_ROW ? (selected + FIRST_TEST_ROW - 1) % FIRST_TEST_ROW : FIRST_TEST_ROW - 1;
+      moved = true;
+    }
+    if (consumePress("down")) {
+      selected = selected < FIRST_TEST_ROW ? (selected + 1) % FIRST_TEST_ROW : 0;
+      moved = true;
+    }
 
     // Taken ONCE, into a local, rather than consumed inside each branch that
     // wants it: consumePress is one-shot, so a `consumePress("fire") &&
@@ -212,21 +250,16 @@ export function createMenu() {
       if (consumePress("right")) setMusicVolume(volume + VOLUME_STEP);
     }
 
-    // Test rows: an on/off row, so all three keys that mean "act on this row"
-    // do the same single thing. Fire is included because row 0 is the only
-    // place it means "confirm and leave" (handled above and already returned
-    // from), which leaves it free to mean "flip this" everywhere else.
-    const selectedTestRow = TEST_ROWS[selected - FIRST_TEST_ROW];
-    if (selectedTestRow) {
-      // Left and right consumed unconditionally rather than short-circuited: a
-      // press left sitting in the buffer would fire again on whatever row the
-      // cursor moved to next. `fire` was already taken at the top of update().
-      const left = consumePress("left");
-      const right = consumePress("right");
-      if (left || right || fire) {
-        toggleTestRow(selectedTestRow);
-        toggled = true;
-      }
+    // Test rows are MOUSE-ONLY (see the click handling below) — the keyboard
+    // cursor can still land here for the highlight, but Left/Right do nothing
+    // once it has. Still consumed rather than left alone: a press sitting in
+    // the buffer would otherwise fire again on whatever row the cursor moves
+    // to next (SOUND/MUSIC), same reasoning as the old toggle-by-key code
+    // this replaced. `fire` needs no such guard — it was already taken,
+    // unconditionally, at the top of update().
+    if (TEST_ROWS[selected - FIRST_TEST_ROW]) {
+      consumePress("left");
+      consumePress("right");
     }
 
     // Mouse: either bar can be clicked or dragged directly regardless of
@@ -258,8 +291,11 @@ export function createMenu() {
 
     // Test rows are CLICKED, not dragged — there is no continuous value to
     // track, so one click on the checkbox flips it (and moves the cursor
-    // there, the same way clicking a volume bar does).
-    if (clicked) {
+    // there, the same way clicking a volume bar does). Gated on visibility:
+    // hidden rows still occupy testRowRect's geometry (it doesn't know about
+    // F1), so without this a click in that dead patch of screen would flip a
+    // flag nothing on screen claims exists.
+    if (clicked && testOptionsVisible) {
       for (let i = 0; i < TEST_ROWS.length; i++) {
         const box = testRowRect(W, i);
         if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
@@ -323,33 +359,38 @@ export function createMenu() {
       }
     }
 
-    // The test checkboxes — small on purpose (see CHECK_Y above). Off draws
-    // as an empty outline in the dimmest green the menu uses; armed fills the
-    // square and lifts the whole item to the subtitle's pale green, so a
-    // screen with a cheat switched on reads as unusual at a glance even this
-    // small. The keyboard cursor still reaches these (FIRST_TEST_ROW.. in
-    // `selected`), and gets the same PLAYER highlight the real rows above get.
-    for (let i = 0; i < TEST_ROWS.length; i++) {
-      const row = TEST_ROWS[i];
-      const isSelected = FIRST_TEST_ROW + i === selected;
-      const armed = flags[row.key];
-      const box = testRowRect(W, i);
-      const color = isSelected ? PLAYER : armed ? GREEN_PALE : GREEN_DIM;
+    // The test checkboxes — small on purpose (see CHECK_Y above), and drawn
+    // at all only once F1 has set `testOptionsVisible` (see update()). Off
+    // draws as an empty outline in the dimmest green the menu uses; armed
+    // fills the square and lifts the whole item to the subtitle's pale
+    // green, so a screen with a cheat switched on reads as unusual at a
+    // glance even this small. `selected` can land here ONLY via a click
+    // (FIRST_TEST_ROW.. — see update()'s wrap, which deliberately never
+    // steps here), so the PLAYER highlight below is confirmation of the
+    // click that just landed, not a keyboard cursor passing through.
+    if (testOptionsVisible) {
+      for (let i = 0; i < TEST_ROWS.length; i++) {
+        const row = TEST_ROWS[i];
+        const isSelected = FIRST_TEST_ROW + i === selected;
+        const armed = flags[row.key];
+        const box = testRowRect(W, i);
+        const color = isSelected ? PLAYER : armed ? GREEN_PALE : GREEN_DIM;
 
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(box.x, CHECK_Y, CHECK_BOX, CHECK_BOX);
-      if (armed) {
-        ctx.fillStyle = color;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 4;
-        ctx.fillRect(box.x + 2, CHECK_Y + 2, CHECK_BOX - 4, CHECK_BOX - 4);
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(box.x, CHECK_Y, CHECK_BOX, CHECK_BOX);
+        if (armed) {
+          ctx.fillStyle = color;
+          ctx.shadowColor = color;
+          ctx.shadowBlur = 4;
+          ctx.fillRect(box.x + 2, CHECK_Y + 2, CHECK_BOX - 4, CHECK_BOX - 4);
+        }
+        ctx.restore();
+
+        const label = `${row.label}: ${armed ? "ON" : "OFF"}`;
+        glowText(ctx, label, box.x + CHECK_BOX + CHECK_GAP, CHECK_Y - 1, color, CHECK_FONT, "left", isSelected ? 6 : 0);
       }
-      ctx.restore();
-
-      const label = `${row.label}: ${armed ? "ON" : "OFF"}`;
-      glowText(ctx, label, box.x + CHECK_BOX + CHECK_GAP, CHECK_Y - 1, color, CHECK_FONT, "left", isSelected ? 6 : 0);
     }
 
     // The footer doubles as the warning that this build has cheats in it —

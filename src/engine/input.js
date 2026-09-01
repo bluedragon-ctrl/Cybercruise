@@ -42,6 +42,11 @@ const CODE_ALIASES = {
   // over from when there were two. See weapons.js's Loadout — the second
   // cursor is still there, nothing cycles it.
   Escape: "pause",
+  // Reveals the test checkboxes on game/menu.js's start/pause screen — see
+  // testoptions.js. A function key rather than anything on the letter keys
+  // because it means nothing during play, so there is no steering/weapon
+  // action to collide with.
+  F1: "testOptions",
 };
 
 export function initInput(target = window) {

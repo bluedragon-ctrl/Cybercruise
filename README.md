@@ -58,6 +58,12 @@ for reaching by hand what a normal run makes expensive to reach. Neither is
 persisted (the game is served, not installed — see `game/menu.js`'s own note);
 both reset to OFF on every load and take effect on the next tick.
 
+**Hidden until F1, armed only by a mouse click.** The rows don't draw at all
+until F1 is pressed, and even then the keyboard's up/down wrap never steps
+onto them — a click directly on the checkbox is the only way to select or
+flip one, so a stray key can never arm a cheat by accident. See
+`game/menu.js`'s and `testoptions.js`'s own comments for why.
+
 **`src/testoptions.js` is the switch**: clearing `SHOW_TEST_OPTIONS` (or either
 per-row flag) removes them from the menu entirely, and a removed row always
 reads as off. `test/test-options.test.js` pins that the removal is complete
