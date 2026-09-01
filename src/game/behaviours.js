@@ -245,14 +245,15 @@ function cruise(car, _dt, world) {
 // at cruise speed runs at whatever margin the two cruise speeds happen to differ
 // by, which is why passes used to expire on timeout rather than finish.
 //
-// CAPPED AT THE TYPE'S OWN speedMax — the top of its HARD band (cartypes.js) —
-// which is what keeps this free: the largest closing speed the road can produce
-// is a catalogue figure and does not move. A type whose `speedMax` equals its
-// `cruiseMax`, which is every type as shipped, therefore passes at cruise and
-// gets nothing from `passEffort`; opening that gap on a type is what buys it a
-// pass with something behind it, and it buys it for that type alone.
+// UNCAPPED HERE: traffic.js clamps every targetSpeed to the type's own
+// speedMax after driveCar returns, so the largest closing speed the road can
+// produce is still a catalogue figure that does not move — this just doesn't
+// have to say so itself. A type whose `speedMax` equals its `cruiseMax`,
+// which is most of the catalogue, therefore passes at cruise and gets nothing
+// from `passEffort`; opening that gap on a type is what buys it a pass with
+// something behind it, and it buys it for that type alone.
 function passSpeed(car) {
-  return Math.min(car.type.speedMax, car.cruiseSpeed * car.drive.passEffort);
+  return car.cruiseSpeed * car.drive.passEffort;
 }
 
 // Drive on, but go around whatever is in the way rather than sitting behind it.
@@ -677,10 +678,7 @@ function raid(car, dt, world) {
   trackTarget(car, target, world);
 
   const error = lead - RAID_LEAD;
-  car.targetSpeed = Math.max(
-    0,
-    Math.min(car.type.speedMax, target.speed - error * car.drive.raidGain),
-  );
+  car.targetSpeed = Math.max(0, target.speed - error * car.drive.raidGain);
 }
 
 // --- Trailing --------------------------------------------------------------
@@ -833,8 +831,10 @@ function pursue(car, dt, world) {
 
   // Hold the gap at `pursueHold`, but still brake for real traffic in the way
   // (the player itself is excluded from the lead search — the proportional term
-  // is what governs distance to THEM). Capped at `chaseSpeed`, not the type's own
-  // speedMax — see driving.js on why those differ.
+  // is what governs distance to THEM). Capped at `chaseSpeed` here, and at the
+  // type's own speedMax a moment later regardless (traffic.js) — a REQUEST, not
+  // an override, so a type whose speedMax sits under its profile's chaseSpeed
+  // simply cannot reach it. See driving.js.
   const lead = leadCar(car, world, car.offset, target);
   const held = target.speed + (gap - car.drive.pursueHold) * car.drive.pursueGain;
   car.targetSpeed = followSpeed(
@@ -958,10 +958,7 @@ function outrun(car, dt, world) {
 
   trackTarget(car, target, world);
   const error = lead - car.drive.leadHold;
-  car.targetSpeed = Math.max(
-    0,
-    Math.min(car.type.speedMax, target.speed - error * car.drive.raidGain),
-  );
+  car.targetSpeed = Math.max(0, target.speed - error * car.drive.raidGain);
 }
 
 // --- Sieging -------------------------------------------------------------------
@@ -1043,10 +1040,7 @@ function patrol(car, dt, world) {
   // on screen is a rule about the player's eyes rather than about a weapon.
   const lead = car.worldY - target.worldY;
   const error = lead - car.drive.leadHold;
-  car.targetSpeed = Math.max(
-    0,
-    Math.min(car.type.speedMax, target.speed - error * car.drive.raidGain),
-  );
+  car.targetSpeed = Math.max(0, target.speed - error * car.drive.raidGain);
 
   // The sweep — `strafe`'s sine, against the frame instead of the barriers. The
   // phase is per car and random at its first tick, for the reason `strafe` gives.

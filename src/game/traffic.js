@@ -302,19 +302,31 @@ class TrafficCar {
     // in one call, so the order can't drift per tactic. See behaviours.js.
     driveCar(this, dt, world);
 
-    // THE HARD FLOOR, applied ONCE and applied HERE: after driveCar, so it
-    // outranks every one of the three things that can ask for less speed — the
-    // tactic itself, followSpeed braking behind a car, and avoidHazards slowing
-    // to fit a swerve. A car cannot be driven below what it is physically
+    // THE HARD BAND, applied ONCE and applied HERE: after driveCar, so it
+    // outranks every request in either direction — the tactic itself,
+    // followSpeed braking behind a car, avoidHazards slowing to fit a swerve,
+    // and (the ceiling's own case) a chase asking for more than this car can
+    // physically give, via `chaseSpeed` on the shared driving profile
+    // (driving.js). A car cannot be driven outside what it is physically
     // capable of, whatever the reason, and putting the clamp anywhere earlier
-    // would leave one of those three able to reach under it.
+    // would leave one of those able to reach past it.
     //
-    // What this buys, and why the floors are split across the fleet the way they
-    // are, is cartypes.js's THE TWO SPEED BANDS. In short: the motorcycles
-    // cannot crawl, so braking sheds them; the cars and the boss can, so it
-    // doesn't. Every civilian's floor is 0, which makes this line a no-op for
-    // them and leaves the civilian road exactly as it was.
-    this.targetSpeed = Math.max(this.type.speedMin, this.targetSpeed);
+    // What the floor buys, and why it is split across the fleet the way it is,
+    // is cartypes.js's THE TWO SPEED BANDS. In short: the motorcycles cannot
+    // crawl, so braking sheds them; the cars and the boss can, so it doesn't.
+    // Every civilian's floor is 0, which makes that half a no-op for them.
+    //
+    // The ceiling is symmetric, and closes a gap the floor never had: without
+    // it, `chaseSpeed` was an UNCLAMPED ask (behaviours.js's `pursue`/`ram`),
+    // real for any type whose speedMax happened to sit under its profile's
+    // figure — a car chasing faster than it was rated to. speedMax is now the
+    // one true ceiling regardless of who is asking, which is what makes it
+    // safe to open the cruiseMax..speedMax gap on a type (cartypes.js) instead
+    // of leaving the profile to grant headroom no catalogue entry admits to.
+    this.targetSpeed = Math.min(
+      this.type.speedMax,
+      Math.max(this.type.speedMin, this.targetSpeed),
+    );
 
     // PUNCTURED TYRES OVERRULE EVEN THAT, and are therefore applied after it:
     // the strip is the ONE deliberate exception to the floor, and it has to sit

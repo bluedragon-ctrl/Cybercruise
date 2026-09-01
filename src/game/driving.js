@@ -91,17 +91,22 @@ const COMMUTER = {
   pursueGain: 1.2,      // proportional term on the gap error, not a limit —
                         // traffic.js's ACCEL still gets `speed` there.
                         // BASELINE ONLY
-  // The chase ceiling, and the one field deliberately allowed ABOVE the type's
-  // own speedMax: the cruise band governs ordinary driving, this is what a car
-  // spends once the player is worth chasing, so it can keep pace with a player
-  // near their own 620 (player.js). ABSOLUTE rather than a multiple of speedMax,
-  // so the relation is not guaranteed — the rival cruises to 650 and therefore
-  // never chases at full pace.
+  // The chase ceiling: what a car asks to spend once the player is worth
+  // chasing, rather than the cruise band that governs ordinary driving — sized
+  // to keep pace with a player near their own 620 (player.js). ABSOLUTE rather
+  // than a multiple of speedMax, so the relation is not guaranteed — the rival
+  // cruises to 650 and therefore never chases at full pace.
+  //
+  // A REQUEST, NOT AN OVERRIDE: traffic.js clamps the result to the type's own
+  // speedMax same as every other ask, so a type whose speedMax sits under this
+  // simply cannot reach it — see cartypes.js's THE TWO SPEED BANDS and its
+  // cruiseMax..speedMax gap, which the stocker and the bruiser open to exactly
+  // this figure for that reason.
   //
   // IT LIVES ON THE PROFILE, WHICH IS THE PART TO WATCH: editing it moves every
-  // type sharing this table, where the catalogue's own `speedMax` moves one car
-  // (cartypes.js's THE TWO SPEED BANDS). A type that wants headroom for ITSELF
-  // wants that field, not this one.
+  // type sharing this table, where the catalogue's own `speedMax` moves one car.
+  // A type that wants headroom for ITSELF wants that field, not this one — and
+  // now has to state it there for the chase to actually reach that far.
   chaseSpeed: 600,
   // Seconds of LOST CONTACT before this driver gives the player up for good, or
   // 0 for never — the baseline, and what makes `pursue` the road's standing

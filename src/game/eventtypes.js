@@ -747,7 +747,9 @@ export const EVENT_TYPES = [
       //
       // They TOP OUT AT the player's own ceiling (400-620 against 620) and stay
       // in the fight regardless, because `pursue` chases at the profile's
-      // `chaseSpeed` of 600 rather than at the type's own ceiling (behaviours.js)
+      // `chaseSpeed` of 600 (behaviours.js) — comfortably under the type's own
+      // 620 ceiling, so traffic.js's clamp never touches this pair; the figure
+      // that actually governs the chase is the profile's, not the catalogue's
       // — 20 units a second of slip against a player holding full throttle,
       // which is half a minute of pursuit and longer than the fight. A player
       // who slows down to shoot straight keeps them indefinitely. The band was
@@ -771,10 +773,11 @@ export const EVENT_TYPES = [
       //
       // Their own speed is no objection to either side. They cruise 400-620, at
       // or under the player's own ceiling — which is what puts a pair of them
-      // ahead by traffic.js's spawn rule — but `pursue` chases at the profile's
-      // `chaseSpeed` of 600 (behaviours.js), not the type's ceiling, so the two
-      // behind slip only 20 units a second against a player at full throttle
-      // and stay in the fight for longer than the fight lasts.
+      // ahead by traffic.js's spawn rule — and `pursue` chases at the profile's
+      // `chaseSpeed` of 600 (behaviours.js), under the type's own 620 ceiling so
+      // traffic.js's clamp never bites, so the two behind slip only 20 units a
+      // second against a player at full throttle and stay in the fight for
+      // longer than the fight lasts.
       { kind: "cars", type: "interceptor", count: 2, side: "ahead", spread: 300 },
       { kind: "cars", type: "interceptor", count: 2, side: "behind", spread: 300 },
     ],

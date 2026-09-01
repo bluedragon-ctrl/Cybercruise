@@ -794,6 +794,87 @@ test("the floor outranks the tactic, and only the strip escapes it", () => {
   );
 });
 
+test("the ceiling outranks chaseSpeed — it is a request, not an override", () => {
+  // traffic.js's central clamp is what makes speedMax the type's true top speed
+  // regardless of who is asking, chaseSpeed included. Nothing in the shipped
+  // catalogue can actually show the clamp catching an overshoot any more —
+  // cartypes.js's cruiseMax..speedMax gap is opened to exactly the stocker's
+  // and the bruiser's own chaseSpeed for that reason — so this is deliberately
+  // synthetic: a stocker whose own ceiling sits under what `trail` asks for.
+  const type = { ...CAR_TYPES.find((t) => t.id === "stocker"), speedMax: 200 };
+  const traffic = new Traffic();
+  const car = traffic.place(type, 0, 0, type.cruiseMin);
+  assert.ok(car, "expected place() to put the car on an empty road");
+
+  // 200 units ahead — inside TRAIL_ENGAGE, so the chase stays live — and fast,
+  // so `trail` asks for the profile's own chaseSpeed (600) throughout.
+  const world = {
+    cars: traffic.cars,
+    obstacles: [],
+    playerBody: { worldY: 200, offset: 0, speed: 600, w: 34, h: 60, alive: true },
+  };
+  for (let i = 0; i < 60 * 4; i++) car.update(1 / 60, world);
+
+  assert.ok(
+    car.targetSpeed <= type.speedMax,
+    `the stocker ASKED for ${car.targetSpeed.toFixed(0)} against a ceiling of ` +
+      `${type.speedMax} — the clamp is not outranking chaseSpeed`,
+  );
+  assert.ok(
+    car.speed <= type.speedMax + 1,
+    `the stocker settled at ${car.speed.toFixed(0)}, over its own ceiling of ` +
+      `${type.speedMax}`,
+  );
+});
+
+test("the stocker and the bruiser actually reach their own chaseSpeed", () => {
+  // The other half of the relation above: cartypes.js opened their
+  // cruiseMax..speedMax gap to exactly their profile's chaseSpeed, so — unlike
+  // the synthetic case — the real catalogue entries are NOT capped short of
+  // the speed their tactic has always asked for.
+  const cases = [
+    { id: "stocker", playerWorldY: 200, playerSpeed: 600 }, // `trail` -> `pursue`
+    { id: "bruiser", playerWorldY: 5000, playerSpeed: 400 }, // `ram`, chasing from behind
+  ];
+  for (const { id, playerWorldY, playerSpeed } of cases) {
+    const type = CAR_TYPES.find((t) => t.id === id);
+    const chaseSpeed = drivingFor(type).chaseSpeed;
+    const traffic = new Traffic();
+    // Starts at cruiseMax rather than cruiseMin — closing the LAST of the gap
+    // to chaseSpeed is the thing under test, not the whole approach, and the
+    // stocker's `trail` carries a giveUpTime: starting further back grows the
+    // gap past TRAIL_ENGAGE for long enough, while it ramps up, to disengage
+    // before ever proving anything.
+    const car = traffic.place(type, 0, 0, type.cruiseMax);
+    const world = {
+      cars: traffic.cars,
+      obstacles: [],
+      playerBody: { worldY: playerWorldY, offset: 0, speed: playerSpeed, w: 34, h: 60, alive: true },
+    };
+    // THE PLAYER HAS TO MOVE TOO, at its own stated speed — a fixed worldY has
+    // the chaser run clean past a standing point within a couple of seconds,
+    // which collapses `pursue`'s gap term to nothing and asks for zero. Real
+    // play never offers that: the player's own worldY is `distance`, which
+    // only ever climbs.
+    //
+    // TWO SECONDS, UNDER giveUpTime (3s, roadracer only): plenty for ACCEL to
+    // close a few hundred units/sec of speed deficit, and short enough that a
+    // stocker minding the gap during the ramp never gets disengaged for
+    // spending too long over TRAIL_ENGAGE before this settles.
+    const dt = 1 / 60;
+    for (let i = 0; i < 60 * 2; i++) {
+      car.update(dt, world);
+      world.playerBody.worldY += playerSpeed * dt;
+    }
+    assert.ok(
+      car.speed >= chaseSpeed - 5,
+      `${id} settled at ${car.speed.toFixed(0)} chasing, short of its profile's own ` +
+        `chaseSpeed of ${chaseSpeed} — its speedMax (${type.speedMax}) must have fallen ` +
+        `behind it again`,
+    );
+  }
+});
+
 test("the ram's block is slower than the player's own minimum", () => {
   // behaviours.js's `ram`, once ahead of the player, asks for a fraction of
   // THEIR speed with RAM_FLOOR underneath it. That floor has to sit below the
