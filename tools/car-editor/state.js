@@ -99,7 +99,10 @@ export const CAR_IDS = live.cartypes.CAR_TYPES.map((t) => t.id);
 // other is credits.
 export const CAR_FIELD_GROUPS = [
   { label: "Hull", fields: ["health", "mass"] },
-  { label: "Speed", fields: ["hardFloor", "cruiseMin", "speedMax", "steerSpeed"] },
+  {
+    label: "Speed",
+    fields: ["speedMin", "cruiseMin", "cruiseMax", "speedMax", "steerSpeed"],
+  },
   { label: "Wreck", fields: ["blastRadius", "blastDamage"] },
   { label: "Reward", fields: ["value", "bounty"] },
   { label: "Spawn", fields: ["minDistance", "weight"] },

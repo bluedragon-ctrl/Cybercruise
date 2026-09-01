@@ -108,7 +108,7 @@ test("the spike strip takes speed, not hull — and the mine is still the killer
   // exists: cartypes.js and traffic.js both call the puncture the one deliberate
   // exception to the floor, so a strip that could not reach under the highest
   // floor on the road would do nothing at all to the type carrying it.
-  const highestFloor = Math.max(...CAR_TYPES.map((t) => t.hardFloor));
+  const highestFloor = Math.max(...CAR_TYPES.map((t) => t.speedMin));
   assert.ok(
     spikes.slowTo < highestFloor,
     `a strip's ${spikes.slowTo} is not below the highest floor on the road ` +
@@ -707,15 +707,15 @@ test("a hostile's floor is either unshakeable or a speed the player can drop to"
     // hold on the way in, and floored at the player's own minimum the boss could
     // match a crawl but never recover the overshoot — braking parked it off the
     // top of the screen for good. Measured; see cartypes.js.
-    if (t.hardFloor === 0) continue;
+    if (t.speedMin === 0) continue;
     assert.ok(
-      t.hardFloor > MIN_SPEED,
-      `${t.id} floors at ${t.hardFloor}, under the player's ${MIN_SPEED} but not at ` +
+      t.speedMin > MIN_SPEED,
+      `${t.id} floors at ${t.speedMin}, under the player's ${MIN_SPEED} but not at ` +
         `0. A floor that low is meant to be unshakeable, and unshakeable is 0`,
     );
     assert.ok(
-      t.hardFloor < START_SPEED,
-      `${t.id} floors at ${t.hardFloor}, at or above the speed a run STARTS at ` +
+      t.speedMin < START_SPEED,
+      `${t.id} floors at ${t.speedMin}, at or above the speed a run STARTS at ` +
         `(${START_SPEED}). It cannot hold station on an ordinary player, so it is ` +
         `broken rather than escapable`,
     );
@@ -726,13 +726,13 @@ test("the shakeable hostiles all share one floor", () => {
   // Four bikes, one number, because it is one physical fact about bikes — they
   // cannot be ridden at walking pace — rather than four dispositions. Asserted
   // so a retune of one of them silently splits the rule into four.
-  const shakeable = CAR_TYPES.filter((t) => t.value >= 0 && t.hardFloor > MIN_SPEED);
-  const floors = new Set(shakeable.map((t) => t.hardFloor));
+  const shakeable = CAR_TYPES.filter((t) => t.value >= 0 && t.speedMin > MIN_SPEED);
+  const floors = new Set(shakeable.map((t) => t.speedMin));
   assert.equal(
     floors.size,
     1,
     `the escapable hostiles floor at ${[...floors].join(", ")}. One fact, one ` +
-      `number: ${shakeable.map((t) => `${t.id} ${t.hardFloor}`).join(", ")}`,
+      `number: ${shakeable.map((t) => `${t.id} ${t.speedMin}`).join(", ")}`,
   );
 });
 
@@ -744,9 +744,9 @@ test("every civilian can be brought to a full stop", () => {
   // that has done exactly that. A civilian floor above zero reaches under both.
   for (const t of CAR_TYPES.filter((t) => t.value < 0)) {
     assert.equal(
-      t.hardFloor,
+      t.speedMin,
       0,
-      `${t.id} floors at ${t.hardFloor}: it can no longer stop for a roadblock, ` +
+      `${t.id} floors at ${t.speedMin}: it can no longer stop for a roadblock, ` +
         `nor brake behind a civilian that has`,
     );
   }
@@ -772,14 +772,14 @@ test("the floor outranks the tactic, and only the strip escapes it", () => {
   for (let i = 0; i < 60 * 4; i++) car.update(1 / 60, world);
 
   assert.ok(
-    car.targetSpeed >= type.hardFloor,
+    car.targetSpeed >= type.speedMin,
     `the outrider ASKED for ${car.targetSpeed.toFixed(0)} against a floor of ` +
-      `${type.hardFloor} — the clamp is not outranking the tactic`,
+      `${type.speedMin} — the clamp is not outranking the tactic`,
   );
   assert.ok(
-    car.speed >= type.hardFloor - 1,
+    car.speed >= type.speedMin - 1,
     `the outrider settled at ${car.speed.toFixed(0)}, under its own floor of ` +
-      `${type.hardFloor}`,
+      `${type.speedMin}`,
   );
 
   // ...and the one exception still reaches under it, which is what makes the
@@ -998,7 +998,7 @@ test("the civilian road is a speed gradient across the lanes", () => {
   // road just quietly stops making sense — so it is asserted rather than written
   // down.
   const civilians = CAR_TYPES.filter((t) => t.value < 0);
-  const pace = (t) => (t.hardFloor + t.speedMax) / 2;
+  const pace = (t) => (t.cruiseMin + t.cruiseMax) / 2;
   const paces = civilians.map(pace).sort((a, b) => a - b);
   const median = paces[Math.floor(paces.length / 2)];
 

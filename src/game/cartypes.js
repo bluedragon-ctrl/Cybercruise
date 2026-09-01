@@ -24,23 +24,42 @@
 // ENEMY: your own silhouette coming at you in the hostile shade reads as a
 // rival, where a civilian copy of the player's car would just look like a bug.
 //
-// THE TWO SPEED BANDS. Three numbers per type, and they are NOT one range:
+// THE TWO SPEED BANDS. Four numbers per type, and they are TWO ranges, nested:
 //
-//   cruiseMin..speedMax   THE CRUISE BAND. What this type rolls at spawn and
+//   cruiseMin..cruiseMax  THE CRUISE BAND. What this type rolls at spawn and
 //                         wanders within — how fast it drives when nothing is
 //                         happening to it.
-//   hardFloor..speedMax   THE HARD BAND. What this type is physically capable
-//                         of. NOTHING may ask a car below `hardFloor` — not a
+//   speedMin..speedMax    THE HARD BAND. What this type is physically CAPABLE
+//                         of, and it contains the cruise band at both ends.
+//                         NOTHING may ask a car below `speedMin` — not a
 //                         tactic, not braking for the car in front, not slowing
 //                         to fit a swerve past a roadblock (traffic.js applies
-//                         it once, after every behaviour has had its say).
+//                         it once, after every behaviour has had its say) — and
+//                         nothing may ask one above `speedMax`.
 //
-// THE NAMES CARRY THE DISTINCTION, and that is why the floor is not called
-// `speedMin`: `cruiseMin` pairs with `speedMax`, `hardFloor` pairs with
-// nothing, so the two lower figures no longer look like one range read twice.
-// The ceiling IS shared — a car's top speed is the top of its cruise — and the
-// gap between `hardFloor` and `cruiseMin` is a design surface: it is what the
-// player buys by slowing down.
+// `speedMin <= cruiseMin <= cruiseMax <= speedMax` therefore holds for every
+// entry, and the car editor refuses an edit that breaks it (car-editor/server.js).
+//
+// WHICH BAND A CALLER READS IS DECIDED BY WHAT IT IS DOING, never by which
+// number is to hand: spawning and wandering are CRUISE (traffic.js, events.js's
+// `rollSpeed`), and every tactic that spends EFFORT — passing, holding station
+// on a mine run, fleeing, or asking whether this type can close on the player
+// at all — reads the hard band.
+//
+// EACH GAP IS A DESIGN SURFACE, and they are different surfaces:
+//
+//   speedMin..cruiseMin   what the player buys by SLOWING DOWN — see the floor
+//                         below, which decides whether braking sheds a type.
+//   cruiseMax..speedMax   what a car has left when it is TRYING. Ordinary
+//                         cruise never reaches into it; `passEffort` and the
+//                         station-holding tactics do. EVERY TYPE SHIPS WITH
+//                         THIS GAP CLOSED (speedMax = cruiseMax), which is the
+//                         road the catalogue has always had — the field exists
+//                         so ONE type can be given headroom, where the chase's
+//                         own ceiling (`chaseSpeed`) sits on the shared driving
+//                         profile and moves every type on it (driving.js).
+//                         Open it on a type and `passEffort` starts meaning
+//                         something for that type alone.
 //
 // WHAT THE FLOOR BUYS, and it is ONE design decision with one number behind it.
 // A hostile holds station only on a player it can MATCH, so its floor is the
@@ -225,10 +244,11 @@ export const FOCUS = [];
 //               the difference between bouncing off a rig and swatting a roadster
 //               aside. Roughly tracks size, but it's a gameplay dial: nudge it to
 //               make a type feel heavier without redrawing it
-//   hardFloor   the HARD FLOOR, world units/sec: nothing may drive this car
-//               slower. 0 for every civilian. See THE TWO SPEED BANDS
-//   cruiseMin/speedMax  the cruising range rolled at spawn. speedMax is also the
-//               hard ceiling; cruiseMin is NOT the hard floor
+//   speedMin/speedMax   the HARD BAND, world units/sec: nothing may drive this
+//               car slower or faster, whatever it is trying to do. The floor is
+//               0 for every civilian. See THE TWO SPEED BANDS
+//   cruiseMin/cruiseMax the CRUISE BAND rolled at spawn and wandered within.
+//               Sits inside the hard band, and is NOT it
 //   steerSpeed  how fast the car can slide sideways, px/sec — a behaviour asks
 //               for a lateral position and this caps how quickly it gets there,
 //               so a rig wallows and a cycle darts
@@ -336,9 +356,10 @@ export const CAR_TYPES = [
     // The widest range in the catalogue. A civilian type is a spread of ordinary
     // drivers, so a lane of sedans should visibly sort itself out; the speed
     // machines below are DEFINED by their ceiling and stay narrow.
-    hardFloor: 0,  // the civilian floor, and every one of them states it: a
+    speedMin: 0,  // the civilian floor, and every one of them states it: a
                    // civilian may be brought to a full stop. See THE TWO BANDS
     cruiseMin: 215,
+    cruiseMax: 290,
     speedMax: 290,
     steerSpeed: 90,
     blastRadius: 30,
@@ -364,8 +385,9 @@ export const CAR_TYPES = [
     // overtake, so that queue is for life. 205 leaves a 10-unit overlap instead
     // of a 20-unit one and keeps the van clearly under the sedan's 215 floor, so
     // the speed gradient across the road still reads.
-    hardFloor: 0,
+    speedMin: 0,
     cruiseMin: 205,
+    cruiseMax: 265,
     speedMax: 265,
     // LOAD-BEARING, and not only for how it corners. behaviours.js prices a lane
     // change from this figure against collisions.js's DAMAGE_FLOOR of 40, so 60
@@ -402,8 +424,9 @@ export const CAR_TYPES = [
     // wide rather than 160: still the widest spread in the catalogue, which is
     // right for a civilian, but not so wide that two roadsters differ by more
     // than a sedan's entire range.
-    hardFloor: 0,
+    speedMin: 0,
     cruiseMin: 430,
+    cruiseMax: 560,
     speedMax: 560,
     steerSpeed: 140,
     blastRadius: 30,
@@ -436,8 +459,9 @@ export const CAR_TYPES = [
     // so even a rig is pulling away from a player who has given up on the
     // throttle. The floor is the ONE number here that must not drift downward —
     // it is the reason a slow player still sees a moving road.
-    hardFloor: 0,
+    speedMin: 0,
     cruiseMin: 180,
+    cruiseMax: 215,
     speedMax: 215,
     // UNDER collisions.js's DAMAGE_FLOOR of 40, and left there on purpose. It
     // means every lane change a rig makes is priced at zero against ordinary
@@ -499,8 +523,9 @@ export const CAR_TYPES = [
     // with — a city bus keeps to stops, it does not race. Kept clearly under
     // the van's 265 ceiling so the civilian speed gradient (see driving.js)
     // still puts it on the barrier side of the road.
-    hardFloor: 0,
+    speedMin: 0,
     cruiseMin: 190,
+    cruiseMax: 230,
     speedMax: 230,
     // Matches the van's exactly, and not by accident: it drives the SAME
     // `hauler` profile below, and that profile's `contact` ceiling is priced
@@ -546,8 +571,9 @@ export const CAR_TYPES = [
     mass: 0.9,
     // Faster than the player is ALLOWED to go: a rare showpiece that comes past
     // at full throttle and is gone, which is exactly why it is worth spotting.
-    hardFloor: 0,
+    speedMin: 0,
     cruiseMin: 630,
+    cruiseMax: 700,
     speedMax: 700,
     steerSpeed: 160,
     blastRadius: 32,
@@ -583,8 +609,9 @@ export const CAR_TYPES = [
     // its hostile days and now the whole point of the type — this is the civilian
     // the player cannot simply move out of the way.
     mass: 1.7,
-    hardFloor: 0,
+    speedMin: 0,
     cruiseMin: 310,
+    cruiseMax: 360,
     speedMax: 360,
     // AND THE FIGURE THAT MAKES IT RECKLESS RATHER THAN JUST BIG. At 85 against
     // the damage floor of 40 its contacts price at 1.1 to 3.3 hull, which off 110
@@ -631,8 +658,9 @@ export const CAR_TYPES = [
     // NO FLOOR. Four wheels and a heavy body: it can crawl, and it is the reason
     // the road keeps a standing pressure braking does not switch off — a player
     // who slows to shed the bikes finds this still in their mirror.
-    hardFloor: 0,
+    speedMin: 0,
     cruiseMin: 400,
+    cruiseMax: 620,
     speedMax: 620,
     steerSpeed: 130,
     blastRadius: 38,
@@ -680,8 +708,9 @@ export const CAR_TYPES = [
     // A circuit car: it crawls like the interceptor. Slowing does not shake this
     // one either — its counter is already written, and it is time rather than
     // speed (driving.js's giveUpTime, the only one on the road).
-    hardFloor: 0,
+    speedMin: 0,
     cruiseMin: 355,
+    cruiseMax: 415,
     speedMax: 415,
     steerSpeed: 100, // quicker across the road than any other heavy
     blastRadius: 45,
@@ -730,8 +759,9 @@ export const CAR_TYPES = [
     // THE BIKE FLOOR — see THE TWO SPEED BANDS. It cannot hold RAID_LEAD over a
     // crawling player, so a player who drops under it is forced past with the
     // mine undropped, and it cannot slow enough to go round a blocked road.
-    hardFloor: 200,
+    speedMin: 200,
     cruiseMin: 620,
+    cruiseMax: 730,
     speedMax: 730,
     steerSpeed: 180, // the nimblest thing on the road, by a wide margin
     blastRadius: 10,
@@ -770,8 +800,9 @@ export const CAR_TYPES = [
     // block's pace: the whole point of that figure is that the block still bites
     // at walking pace, and a floor over it would be a second, quieter answer to
     // the same question.
-    hardFloor: 0,
+    speedMin: 0,
     cruiseMin: 280,
+    cruiseMax: 330,
     speedMax: 330,
     steerSpeed: 70,
     blastRadius: 52,
@@ -817,8 +848,9 @@ export const CAR_TYPES = [
     // interceptor above, whose reach into this range is a chase leash rather
     // than a cruise (see the header comment on this entry).
     // It wears the player's own body, so it can do anything the player can.
-    hardFloor: 0,
+    speedMin: 0,
     cruiseMin: 580,
+    cruiseMax: 650,
     speedMax: 650,
     steerSpeed: 150,
     blastRadius: 40,
@@ -898,8 +930,9 @@ export const CAR_TYPES = [
     // The bike floor, and the reason "slow down" is a real answer to this type:
     // under it the weave cannot hold station and sweeps past, taking the SMG's
     // firing line with it. See THE TWO SPEED BANDS.
-    hardFloor: 200,
+    speedMin: 200,
     cruiseMin: 400,
+    cruiseMax: 660,
     speedMax: 660,
     steerSpeed: 200, // the widest sweep on the road needs the quickest hands;
                      // this is the nimblest thing in the catalogue, past the
@@ -936,8 +969,9 @@ export const CAR_TYPES = [
     // The bike floor, from in front: a player who drops under it watches this one
     // pull away up the road and out of the fight. The counter to the one hostile
     // that attacks from ahead is to stop chasing it.
-    hardFloor: 200,
+    speedMin: 200,
     cruiseMin: 600,
+    cruiseMax: 670,
     speedMax: 670,
     steerSpeed: 160,
     blastRadius: 16,
@@ -975,8 +1009,9 @@ export const CAR_TYPES = [
     // The bike floor. The run-out above is unaffected — that is the CEILING's
     // job — and what this buys is the run-IN: under it the trike cannot hold
     // station long enough to line the strip up.
-    hardFloor: 200,
+    speedMin: 200,
     cruiseMin: 640,
+    cruiseMax: 700,
     speedMax: 700,
     steerSpeed: 140,
     blastRadius: 20,
@@ -1056,8 +1091,9 @@ export const CAR_TYPES = [
     // the boss off the top of the screen for good. Measured — it is the reason
     // this row reads 0 rather than 100. The one escape stays the documented one:
     // twelve seconds of overdrive (pickuptypes.js), which lifts the whole band.
-    hardFloor: 0,
+    speedMin: 0,
     cruiseMin: 640,
+    cruiseMax: 730,
     speedMax: 730,
     // SLOW HANDS, and the split from the speed above is what keeps it fair: it
     // holds the pace but cannot dodge, so it stays a big target the cannon can
@@ -1162,8 +1198,9 @@ export const CAR_TYPES = [
     // IT HOVERS, so nothing about being airborne makes a minimum speed physical
     // — and `patrol` holds station ahead, so the mortar's rule applies unchanged:
     // an attacker in front must be able to FALL BACK onto a player who brakes.
-    hardFloor: 0,
+    speedMin: 0,
     cruiseMin: 580,
+    cruiseMax: 660,
     speedMax: 660,
     // THE FASTEST THING ACROSS THE ROAD IN THE GAME, past the outrider's 200,
     // and it should be: it is the only one not steering on tyres.

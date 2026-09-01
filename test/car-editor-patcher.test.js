@@ -46,14 +46,14 @@ const SAMPLE_CARTYPES = `export const CAR_TYPES = [
   {
     id: "sedan",
     health: 60,
-    hardFloor: 215,
+    speedMin: 215,
     speedMax: 290,
   },
   {
     id: "interceptor",
     health: 70,
     mass: 1.1,
-    hardFloor: 400,
+    speedMin: 400,
     speedMax: 470, // just under the rival
   },
 ];
@@ -68,10 +68,10 @@ test("patchCarType replaces a single field without touching others", () => {
 
 test("patchCarType replaces multiple fields on the same entry", () => {
   const result = patchCarType(SAMPLE_CARTYPES, "interceptor", {
-    hardFloor: 420,
+    speedMin: 420,
     speedMax: 500,
   });
-  assert.match(result, /hardFloor: 420,/);
+  assert.match(result, /speedMin: 420,/);
   assert.match(result, /speedMax: 500, \/\/ just under the rival/);
 });
 
@@ -202,7 +202,7 @@ const SAMPLE_CARTYPES_NEGATIVE = `export const CAR_TYPES = [
   {
     id: "wreck",
     health: -50,
-    hardFloor: 200,
+    speedMin: 200,
     speedMax: 260,
   },
 ];

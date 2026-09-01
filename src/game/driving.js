@@ -73,8 +73,9 @@ const COMMUTER = {
   passLookAhead: 140,   // ...and beyond the car we mean to pass
   passEffort: 1.15,     // how much harder it drives while committed to a pass.
                         // CAPPED at the type's own speedMax (behaviours.js), so
-                        // it does nothing for a type already at its ceiling —
-                        // check the catalogue before tuning this
+                        // it does nothing for a type whose cruise band already
+                        // reaches the top of its hard band — which is every type
+                        // as shipped. Check the catalogue before tuning this
 
   // --- Hazards --------------------------------------------------------------
   hazardClearance: 6,   // px of daylight wanted when steering past one
@@ -91,11 +92,16 @@ const COMMUTER = {
                         // traffic.js's ACCEL still gets `speed` there.
                         // BASELINE ONLY
   // The chase ceiling, and the one field deliberately allowed ABOVE the type's
-  // own speedMax: the speed band governs ordinary cruise, this is what it spends
-  // once the player is worth chasing, so it can keep pace with a player near
-  // their own 620 (player.js). ABSOLUTE rather than a multiple of speedMax, so
-  // the relation is not guaranteed — the rival cruises to 650 and therefore
+  // own speedMax: the cruise band governs ordinary driving, this is what a car
+  // spends once the player is worth chasing, so it can keep pace with a player
+  // near their own 620 (player.js). ABSOLUTE rather than a multiple of speedMax,
+  // so the relation is not guaranteed — the rival cruises to 650 and therefore
   // never chases at full pace.
+  //
+  // IT LIVES ON THE PROFILE, WHICH IS THE PART TO WATCH: editing it moves every
+  // type sharing this table, where the catalogue's own `speedMax` moves one car
+  // (cartypes.js's THE TWO SPEED BANDS). A type that wants headroom for ITSELF
+  // wants that field, not this one.
   chaseSpeed: 600,
   // Seconds of LOST CONTACT before this driver gives the player up for good, or
   // 0 for never — the baseline, and what makes `pursue` the road's standing

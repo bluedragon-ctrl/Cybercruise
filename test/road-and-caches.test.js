@@ -92,19 +92,25 @@ test("the catalogue is pinned to both ends of the player's speed band", () => {
 });
 
 test("every car type has a coherent speed range", () => {
-  // THREE numbers, one ordering: cartypes.js's THE TWO SPEED BANDS. The hard
+  // FOUR numbers, two NESTED bands: cartypes.js's THE TWO SPEED BANDS. The hard
   // floor sits at or under the cruise bottom (a car may not be rolled below what
-  // it is capable of), and the cruise bottom at or under the shared ceiling.
+  // it is capable of), the cruise band is a range, and the cruise top sits at or
+  // under the hard ceiling (nothing may be rolled above what it is capable of).
   // A floor of 0 is valid and is what every civilian ships — "can be brought to
-  // a full stop" — so only the cruise bottom has to be positive.
+  // a full stop" — so only the three above it have to be positive.
   for (const t of CAR_TYPES) {
-    assert.ok(t.hardFloor >= 0, `${t.id}: hardFloor must not be negative`);
+    assert.ok(t.speedMin >= 0, `${t.id}: speedMin must not be negative`);
     assert.ok(
-      t.hardFloor <= t.cruiseMin,
-      `${t.id}: hardFloor ${t.hardFloor} > cruiseMin ${t.cruiseMin} — it would spawn ` +
+      t.speedMin <= t.cruiseMin,
+      `${t.id}: speedMin ${t.speedMin} > cruiseMin ${t.cruiseMin} — it would spawn ` +
         `below its own hard floor`,
     );
-    assert.ok(t.cruiseMin <= t.speedMax, `${t.id}: cruiseMin > speedMax`);
+    assert.ok(t.cruiseMin <= t.cruiseMax, `${t.id}: cruiseMin > cruiseMax`);
+    assert.ok(
+      t.cruiseMax <= t.speedMax,
+      `${t.id}: cruiseMax ${t.cruiseMax} > speedMax ${t.speedMax} — it would cruise ` +
+        `above its own hard ceiling`,
+    );
   }
 });
 
