@@ -13,6 +13,16 @@
 // is always false. Neither flag is persisted anyway (game/menu.js's own NOT
 // PERSISTED note) — every load starts both OFF regardless of this file.
 //
+// F1 REVEALS THE ROWS; MOUSE CLICKS ARM THEM. Compiled in is not the same as
+// on screen: game/menu.js starts the checkboxes hidden and only draws them
+// once F1 has been pressed (input.js's "testOptions" action). Even then the
+// keyboard's up/down wrap never steps onto them — a click directly on the
+// checkbox is the only way to select OR flip one, so a mistimed Down or a
+// Left/Right meant for SOUND/MUSIC can never arm a cheat by accident. Two
+// guards, not one: hidden-until-F1 keeps a cheat menu from looking like part
+// of the game's own options the moment you open it, and click-only keeps the
+// keyboard from ever reaching a row that would arm on a stray press.
+//
 // Everything here is a knob, exactly like game/tuning.js: no behaviour of its
 // own lives in this file, only the numbers and the flags the two consumers
 // (game/menu.js for the rows, main.js for applying them) read.
