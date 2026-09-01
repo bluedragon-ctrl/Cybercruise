@@ -484,12 +484,19 @@ test("the swarm stages ranks the road can hold and gets the rest there itself", 
   // the encounter against a player at full throttle. Two ways to do that, and
   // the entry names both — a band above the player's ceiling (the cycle, which
   // is how half the pack ends up in front despite being staged behind), or a
-  // chase ceiling that holds station astern (the outrider's 600). A type
-  // retuned under BOTH would sit off the bottom of the screen for the whole
-  // encounter, which is the exact failure the rival's entry documents.
+  // chase ceiling that holds station astern (the outrider's 660, opened to
+  // clear its profile's own chaseSpeed of 600). A type retuned under BOTH would
+  // sit off the bottom of the screen for the whole encounter, which is the
+  // exact failure the rival's entry documents.
+  //
+  // `reach` IS JUST speedMax, not a max against chaseSpeed: traffic.js now
+  // clamps every chase to the type's own ceiling, so a profile's chaseSpeed no
+  // longer reaches any further than the catalogue admits to (see cartypes.js's
+  // cruiseMax..speedMax gap and driving.js's own header) — the true top speed
+  // this type can chase at is what speedMax says, whatever its profile asks for.
   for (const spec of behind) {
     const type = carTypeById(spec.type);
-    const reach = Math.max(type.speedMax, drivingFor(type).chaseSpeed);
+    const reach = type.speedMax;
     assert.ok(
       reach >= PLAYER_MAX_SPEED - CLOSING_SLIP,
       `${spec.type} is staged behind but tops out at ${reach} against a player at ${PLAYER_MAX_SPEED}`,

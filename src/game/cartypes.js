@@ -31,11 +31,12 @@
 //                         happening to it.
 //   speedMin..speedMax    THE HARD BAND. What this type is physically CAPABLE
 //                         of, and it contains the cruise band at both ends.
-//                         NOTHING may ask a car below `speedMin` — not a
-//                         tactic, not braking for the car in front, not slowing
-//                         to fit a swerve past a roadblock (traffic.js applies
-//                         it once, after every behaviour has had its say) — and
-//                         nothing may ask one above `speedMax`.
+//                         NOTHING may ask a car outside it — not a tactic, not
+//                         braking for the car in front, not slowing to fit a
+//                         swerve past a roadblock, not a chase's own
+//                         `chaseSpeed` (driving.js) — traffic.js clamps both
+//                         ends to this band once, after every behaviour has
+//                         had its say.
 //
 // `speedMin <= cruiseMin <= cruiseMax <= speedMax` therefore holds for every
 // entry, and the car editor refuses an edit that breaks it (car-editor/server.js).
@@ -51,15 +52,19 @@
 //   speedMin..cruiseMin   what the player buys by SLOWING DOWN — see the floor
 //                         below, which decides whether braking sheds a type.
 //   cruiseMax..speedMax   what a car has left when it is TRYING. Ordinary
-//                         cruise never reaches into it; `passEffort` and the
-//                         station-holding tactics do. EVERY TYPE SHIPS WITH
+//                         cruise never reaches into it; `passEffort`, the
+//                         station-holding tactics, and a chase's own
+//                         `chaseSpeed` (driving.js) do. MOST TYPES SHIP WITH
 //                         THIS GAP CLOSED (speedMax = cruiseMax), which is the
-//                         road the catalogue has always had — the field exists
-//                         so ONE type can be given headroom, where the chase's
-//                         own ceiling (`chaseSpeed`) sits on the shared driving
-//                         profile and moves every type on it (driving.js).
-//                         Open it on a type and `passEffort` starts meaning
-//                         something for that type alone.
+//                         road the catalogue has always had. THE STOCKER AND
+//                         THE BRUISER open it instead, to exactly their
+//                         profile's `chaseSpeed` — chaseSpeed sits on the
+//                         SHARED driving profile and asks the same figure of
+//                         every type naming it, but traffic.js now holds every
+//                         type to its own speedMax regardless of what its
+//                         profile asks for, so a type actually chasing at that
+//                         figure has to admit to it here. Opening the gap
+//                         also un-clips `passEffort` for that type alone.
 //
 // WHAT THE FLOOR BUYS, and it is ONE design decision with one number behind it.
 // A hostile holds station only on a player it can MATCH, so its floor is the
@@ -711,7 +716,13 @@ export const CAR_TYPES = [
     speedMin: 0,
     cruiseMin: 355,
     cruiseMax: 415,
-    speedMax: 415,
+    // OPENED TO 600 — not headroom for its own sake, but the speed `trail`
+    // already spent while chasing: `roadracer`'s `chaseSpeed` is the enemy
+    // baseline of 600 (driving.js), and traffic.js now holds every tactic to
+    // this figure regardless, so a stocker asked to chase at 600 needs its own
+    // ceiling raised to actually reach it rather than being quietly capped at
+    // its old 415 cruise top.
+    speedMax: 600,
     steerSpeed: 100, // quicker across the road than any other heavy
     blastRadius: 45,
     blastDamage: 20,
@@ -803,8 +814,25 @@ export const CAR_TYPES = [
     speedMin: 0,
     cruiseMin: 280,
     cruiseMax: 330,
-    speedMax: 330,
-    steerSpeed: 70,
+    // OPENED TO 560 — the speed `ram` already spent closing from behind or
+    // alongside: `batterer`'s `chaseSpeed` sits at 560 (driving.js, the one
+    // profile below the enemy baseline), and traffic.js now holds every
+    // tactic to this figure regardless of what its profile asks for, so the
+    // bruiser needs its own ceiling raised to 560 to actually reach the speed
+    // its tactic has always driven at, rather than being quietly capped at
+    // its old 330 cruise top.
+    speedMax: 560,
+    // RAISED FROM 70 ALONGSIDE speedMax, and load-bearing rather than a free
+    // tune: behaviours.js's dodgeDistance is speed / steerSpeed once fed the
+    // hard band's own top, so admitting the bruiser's real 560 at the old 70
+    // made IT the worst dodger in the catalogue at ~1487 units — past what
+    // obstacles.js's SPAWN_MARGIN (1500) leaves once traffic.js's RETIRE_MARGIN
+    // is subtracted, and past what the `warband` encounter's own staged depth
+    // affords (test/hazards.test.js, test/events.test.js). 100 brings it back
+    // to ~1041, under the rig's own 1142 and comfortably inside both budgets —
+    // the rig remains the worst dodger in the fleet, same as before this entry
+    // opened its ceiling.
+    steerSpeed: 100,
     blastRadius: 52,
     blastDamage: 32,
     value: 100,

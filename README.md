@@ -438,19 +438,23 @@ breaks nothing — it just quietly stops making sense.
 **Two speed bands, not one.** `cruiseMin`–`cruiseMax` is what a type rolls at
 spawn and wanders within — how it drives when nothing is happening to it.
 `speedMin`–`speedMax` is what it is physically capable of, and it contains the
-cruise band at both ends. `traffic.js` applies the floor once per tick after every
-behaviour has spoken, so nothing can reach under it: not the tactic, not braking
-behind another car, not slowing to fit a swerve past a roadblock. Which band a
-caller reads follows from what it is doing — spawning and wandering are cruise;
-passing, holding station and fleeing are capability.
+cruise band at both ends. `traffic.js` applies both bounds once per tick after
+every behaviour has spoken, so nothing can reach outside it: not the tactic, not
+braking behind another car, not slowing to fit a swerve past a roadblock, and not
+a chase's own `chaseSpeed`. Which band a caller reads follows from what it is
+doing — spawning and wandering are cruise; passing, holding station, fleeing and
+chasing are capability.
 
 Each gap is a design surface. Below, `speedMin`–`cruiseMin` is what the player
 buys by slowing down: it decides whether braking sheds a type. Above,
-`cruiseMax`–`speedMax` is what a car has left when it is trying — and every type
-ships with it CLOSED, so the road is the one the catalogue has always had. Open
-it on a type and `passEffort` starts meaning something for that type alone, where
-the chase's own ceiling (`chaseSpeed`) sits on the shared driving profile and
-moves every type on it.
+`cruiseMax`–`speedMax` is what a car has left when it is trying, and most types
+ship with it CLOSED. The chase's own ceiling (`chaseSpeed`) sits on the shared
+driving profile and asks the same figure of every type naming it, but is a
+REQUEST rather than an override — the type's own `speedMax` still bounds what it
+can actually reach, so the stocker and the bruiser open their gap to exactly
+their profile's `chaseSpeed`, admitting in the catalogue what their tactic has
+always spent. Opening it also lets `passEffort` start meaning something for that
+type alone.
 
 The cruise band is pinned to both ends of the player's own 100–620:
 
