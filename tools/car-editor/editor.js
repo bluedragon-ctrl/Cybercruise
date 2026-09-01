@@ -26,7 +26,7 @@ const CAR_FIELD_DESCRIPTIONS = {
   speedMin: "HARD BAND, bottom. World units/sec below which nothing may drive this car — not its tactic, not braking behind another car, not slowing to fit a swerve past a roadblock. 0 means it can be brought to a full stop. Raise it and the car cannot hold station behind a player who slows down; lower it and slowing down does not shake it.",
   cruiseMin: "CRUISE BAND, bottom. Slowest speed this car will roll at when it spawns, in world units/sec. NOT the floor above — it is only where the spawn roll starts.",
   cruiseMax: "CRUISE BAND, top. Fastest speed this car will roll at when it spawns, in world units/sec. It drives here when nothing is happening to it; passing and holding station reach past it, up to the hard ceiling below.",
-  speedMax: "HARD BAND, top. World units/sec above which nothing may drive this car, whatever it is trying to do — passing, holding station over a mine drop, fleeing, or chasing (traffic.js clamps chaseSpeed to this too). Equal to the cruise top on most cars as shipped, which is why passEffort does nothing until you open a gap here. A type whose chaseSpeed sits above this needs the gap opened to actually reach it — see the stocker and the bruiser.",
+  speedMax: "HARD BAND, top. World units/sec above which nothing may drive this car, whatever it is trying to do — passing, holding station over a mine drop, fleeing, or chasing. THE ONE CEILING: a chase spends the whole band, so this is also the answer to 'how fast does this car chase', and whether it can close on the player is this number against the player's own 620. Equal to the cruise top on most cars as shipped, which is why passEffort does nothing until you open a gap here — the stocker and the bruiser open one so their tactic has something to close with.",
   steerSpeed: "Sideways travel in px/sec at full lock — how fast this car changes lanes. Read it against the player's STEER_SPEED (World → Player car) to see who can cut whom off.",
   blastRadius: "How far the explosion reaches when this car is destroyed, in world units. It catches anything nearby, the player included.",
   blastDamage: "Hull points the explosion deals when this car is destroyed.",
@@ -45,19 +45,16 @@ const CAR_FIELD_DESCRIPTIONS = {
   passTimeout: "Seconds before an unfinished pass is abandoned.",
   passSpeedMargin: "How much faster than the car ahead this driver must be able to go to bother passing at all.",
   passClearance: "How much room this driver wants beside a car it's going past.",
-  passLookBehind: "How far back (world units) this driver checks for traffic before pulling out.",
   passLookAhead: "How far ahead this driver checks the target lane is clear before pulling out.",
   passEffort: "Multiplier on this driver's cruising speed while it is committed to a pass. CAPPED at the car's own speedMax, so it does nothing until that sits above the car's cruiseMax — check the Speed group before tuning it.",
   hazardClearance: "How wide a berth this driver gives obstacles, in world units.",
   pursueHold: "The GAP (world units) this driver holds behind the player while chasing — not a duration. Kept inside the gun's range with slack either side, so pursueGain has room to correct without closing the firing window.",
   pursueGain: "Proportional term on the gap error: how hard this driver corrects its SPEED when it is not sitting at pursueHold. Not a steering figure, and not a limit — traffic.js's own ACCEL still caps how fast the change arrives.",
-  chaseSpeed: "The chase ceiling in world units/sec — an ABSOLUTE speed, not a multiple of anything, spent once the player is worth chasing rather than merely cruised at. A REQUEST, not an override: traffic.js clamps the result to the car's own speedMax same as everything else, so a car whose speedMax sits under this simply cannot reach it. It sits on the shared driving profile, so it moves every car on that profile — to give ONE car the headroom to actually reach it, raise its speedMax in the Speed group instead.",
   giveUpTime: "Seconds of LOST CONTACT — time spent outside TRAIL_ENGAGE (World -> Driving tactics) — before this driver gives the player up for good. 0 means never, which is the enemy baseline. Only the stocker's tactic reads it, and giving up is one-way: the car rides off permanently unarmed.",
   raidGain: "Gain on the hold this driver keeps AHEAD of the player, for the mine run and for the tactics that borrow it (the cycle, the outrunner, the boss, the gunship). Tighter than pursueGain because holding station in front of a target you must not out-pace is the harder half.",
   leadHold: "How far AHEAD of the player (world units) this driver holds station — the tactics that attack from in front. Read by the outrunner, the siege mortar and the gunship. Bounded at both ends: under the gun's minimum it is inside contact range, and past the road the player can see it is a hostile posing off the top of the screen.",
   weaveSpan: "How far either side of the player's line this driver sweeps, in px. Read by the outrider and the gunship. Read TOGETHER with weaveTime — a span the steering cannot cover in the time is a lazy drift, not a faster weave.",
   weaveTime: "Seconds one full there-and-back sweep takes. Read against weaveSpan and this car's own steerSpeed — a sweep the steering cannot cover in the time comes out as a lazy drift instead.",
-  ramBrake: "Once this driver is AHEAD of the player, the fraction of the player's own speed it runs at — which is what makes the block bite at any speed. Floored by RAM_FLOOR (World -> Driving tactics) so the wall never stalls.",
   nerve: "The most hull this driver will accept losing to drive THROUGH a roadblock rather than round it, weighed against the hazard's own threat. A CEILING: each car rolls its own tolerance in 0..this at spawn, so two cars meeting the same barrels do different things. 0 dodges everything. Quantised by the hazard catalogue — under 5 does nothing at all, since the cheapest hazard costs 5.",
   contact: "The most hull this driver will accept losing to put itself where another CAR is. A ceiling rolled per car, exactly like nerve, but weighed against a different quantity: the cost of a side-swipe, which runs about 0.3 to 9.6 across the roster. 0 means never, whatever the price. Contacts are priced against DAMAGE_FLOOR (World -> Ramming & contact), so a car steering slower than that has only never and always available to it.",
 };
@@ -140,50 +137,6 @@ const UPGRADE_STAT_DESCRIPTIONS = {
   step: "What ONE tier adds to the stat, in the car's own units. Every tier adds the same amount; the price is what escalates.",
 };
 
-// A car's chaseSpeed is a REQUEST, not an override — traffic.js clamps it to
-// the car's own speedMax same as everything else (cartypes.js's "THE TWO
-// SPEED BANDS"), so a car whose speedMax sits under its profile's chaseSpeed
-// simply cannot reach it. Nothing in the form said so before this: chaseSpeed
-// showed as a plain number, identical whether it was live or dead for the car
-// on screen. This builds the derived, read-only row that answers it.
-//
-// Placed directly beneath chaseSpeed, in "Chasing the player", rather than
-// under speedMax in the Speed group: "does raising chaseSpeed do anything for
-// THIS car" is a question asked right where chaseSpeed is being read, and the
-// Speed group has no reason to know a driving profile even exists.
-//
-// Hostile-only, same fact BEHAVIOR_FIELD_GROUPS' own comment in state.js
-// already leans on for the "(inherited)" tag: pursue/trail/ram/raid/strafe/
-// outrun/strew are the only tactics that ever read chaseSpeed, and none of
-// them is a civilian's. Not re-explained here — pointed at the tag instead.
-function chaseCeilingFieldSpec(car) {
-  const hostile = car.faction === "enemy";
-  return {
-    field: "chaseCeiling",
-    label: "Effective chase ceiling",
-    derived: true,
-    description: hostile
-      ? "The speed this car actually reaches while chasing: min(this car's own speedMax, chaseSpeed above). Whichever is lower is the one that governs — see the tag."
-      : "This type's chase tactics are hostile-only — see the (inherited) tag above. The figure below is moot for it.",
-    compute: () => {
-      if (!hostile) return { value: "—", tag: "(never chases)", tagClass: "inherit-tag" };
-      const speedMax = currentValue("car", car.id, "speedMax");
-      const chaseSpeed = currentValue("car", car.id, "chaseSpeed");
-      // Equal counts as capped: the ceiling cannot be pushed any higher by
-      // raising chaseSpeed further, which is exactly the stocker/bruiser case
-      // (cartypes.js — their speedMax was opened to exactly this figure).
-      const cappedBySpeedMax = speedMax <= chaseSpeed;
-      return {
-        value: String(Math.min(speedMax, chaseSpeed)),
-        tag: cappedBySpeedMax
-          ? "(capped by speedMax — raising chaseSpeed does nothing here)"
-          : "(reaches chaseSpeed in full)",
-        tagClass: cappedBySpeedMax ? "override-tag" : "inherit-tag",
-      };
-    },
-  };
-}
-
 // --- Server state and pending edits ----------------------------------------
 
 // Everything /api/state returns, keyed the way the server sends it.
@@ -200,14 +153,6 @@ const pending = {};
 
 let activeTab = null;
 let selection = null; // { kind, id }
-
-// Refresh functions for the form's derived (read-only) fields, rebuilt by
-// renderForm on every render and run after every edit. A derived field reads
-// values off OTHER fields (see chaseCeilingFieldSpec), which may live in a
-// different section of the same form, so it cannot rely on its own "change"
-// listener the way a plain field's live preview does — nothing fires one on
-// it, since nothing ever writes to it.
-let derivedFieldUpdaters = [];
 
 // --- Kind descriptors ------------------------------------------------------
 
@@ -256,16 +201,12 @@ const KINDS = {
         // that hides the whole chase-and-ram half of the profile, which it
         // never reads.
         open: fields.some((field) => !car.behavior[field].inherited),
-        fields: fields.flatMap((field) => {
-          const spec = {
-            field,
-            description: CAR_FIELD_DESCRIPTIONS[field],
-            tag: car.behavior[field].inherited ? "(inherited)" : "(overridden)",
-            input: field === "laneHome" ? { type: "select", options: ["any", "inner", "outer"] } : null,
-          };
-          // See chaseCeilingFieldSpec for why this rides right after chaseSpeed.
-          return field === "chaseSpeed" ? [spec, chaseCeilingFieldSpec(car)] : [spec];
-        }),
+        fields: fields.map((field) => ({
+          field,
+          description: CAR_FIELD_DESCRIPTIONS[field],
+          tag: car.behavior[field].inherited ? "(inherited)" : "(overridden)",
+          input: field === "laneHome" ? { type: "select", options: ["any", "inner", "outer"] } : null,
+        })),
       }));
       behavior[0] = { ...behavior[0], scopeNote: behaviorScopeNote(car.profile) };
       return [...catalogue, ...behavior];
@@ -492,7 +433,6 @@ function setChange(kindId, id, field, value) {
   renderNav();
   renderActions();
   if (!document.getElementById("review").hidden) renderReview();
-  for (const update of derivedFieldUpdaters) update();
 }
 
 // Drops one field's pending edit, and the whole entry once it holds nothing —
@@ -506,7 +446,6 @@ function clearChange(kindId, id, field) {
   renderNav();
   renderActions();
   if (!document.getElementById("review").hidden) renderReview();
-  for (const update of derivedFieldUpdaters) update();
 }
 
 function hasChange(kindId, id) {
@@ -699,39 +638,6 @@ function makeField(kindId, entryId, spec) {
   }
   wrapper.appendChild(label);
 
-  if (spec.derived) {
-    // Read-only: this row shows a value computed from OTHER fields rather
-    // than one of its own, so it gets a disabled <input> instead of a live
-    // one — reusing the same field layout and CSS rather than a second
-    // visual language for "you cannot type here" — and no "change" listener,
-    // so it can never enter `pending` or reach the server. Its label's tag
-    // is set by `render` below rather than from `spec.tag` up above, because
-    // which side binds can change on every edit; the plain per-field tags
-    // above are fixed for the life of one render.
-    const tag = document.createElement("span");
-    label.appendChild(tag);
-
-    const input = document.createElement("input");
-    input.type = "text";
-    input.disabled = true;
-    wrapper.appendChild(input);
-
-    const description = document.createElement("div");
-    description.className = "description";
-    description.textContent = spec.description ?? "";
-    wrapper.appendChild(description);
-
-    const render = () => {
-      const info = spec.compute();
-      input.value = info.value;
-      tag.className = info.tagClass;
-      tag.textContent = info.tag;
-    };
-    render();
-    derivedFieldUpdaters.push(render);
-    return wrapper;
-  }
-
   const readCurrent = () => currentValue(kindId, entryId, spec.field);
 
   let input;
@@ -810,10 +716,6 @@ function renderForm() {
   form.hidden = false;
   empty.hidden = true;
   document.getElementById("form-title").textContent = entry.label;
-
-  // Fresh for this render: the old list's closures point at DOM nodes this
-  // render is about to throw away.
-  derivedFieldUpdaters = [];
 
   const subtitleEl = document.getElementById("form-subtitle");
   const subtitle = kind.subtitle?.(entry);

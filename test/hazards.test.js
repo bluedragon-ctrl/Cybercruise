@@ -794,54 +794,58 @@ test("the floor outranks the tactic, and only the strip escapes it", () => {
   );
 });
 
-test("the ceiling outranks chaseSpeed — it is a request, not an override", () => {
-  // traffic.js's central clamp is what makes speedMax the type's true top speed
-  // regardless of who is asking, chaseSpeed included. Nothing in the shipped
-  // catalogue can actually show the clamp catching an overshoot any more —
-  // cartypes.js's cruiseMax..speedMax gap is opened to exactly the stocker's
-  // and the bruiser's own chaseSpeed for that reason — so this is deliberately
-  // synthetic: a stocker whose own ceiling sits under what `trail` asks for.
-  const type = { ...CAR_TYPES.find((t) => t.id === "stocker"), speedMax: 200 };
+test("the hard band's ceiling is what bounds the chase's own ask", () => {
+  // `pursue`'s proportional term is deliberately unbounded above — at the edge
+  // of PURSUE_RANGE it asks for the player's speed plus 360 — and traffic.js's
+  // central clamp is the only thing under it since the driving profile's
+  // `chaseSpeed` was removed (driving.js). So this is the load-bearing half of
+  // that removal: no synthetic type needed, just a real interceptor with a real
+  // gap to close.
+  const type = CAR_TYPES.find((t) => t.id === "interceptor");
   const traffic = new Traffic();
   const car = traffic.place(type, 0, 0, type.cruiseMin);
   assert.ok(car, "expected place() to put the car on an empty road");
 
-  // 200 units ahead — inside TRAIL_ENGAGE, so the chase stays live — and fast,
-  // so `trail` asks for the profile's own chaseSpeed (600) throughout.
+  // 450 units ahead — inside PURSUE_RANGE (500), so the chase is live — and
+  // flat out, so the raw ask is 620 + (450 - 200) * 1.2 = 920 against a 620
+  // ceiling. The clamp has to be the thing that answers.
   const world = {
     cars: traffic.cars,
     obstacles: [],
-    playerBody: { worldY: 200, offset: 0, speed: 600, w: 34, h: 60, alive: true },
+    playerBody: { worldY: 450, offset: 0, speed: MAX_SPEED, w: 34, h: 60, alive: true },
   };
-  for (let i = 0; i < 60 * 4; i++) car.update(1 / 60, world);
+  const dt = 1 / 60;
+  for (let i = 0; i < 60 * 4; i++) {
+    car.update(dt, world);
+    world.playerBody.worldY += MAX_SPEED * dt;
+  }
 
   assert.ok(
     car.targetSpeed <= type.speedMax,
-    `the stocker ASKED for ${car.targetSpeed.toFixed(0)} against a ceiling of ` +
-      `${type.speedMax} — the clamp is not outranking chaseSpeed`,
+    `the interceptor ASKED for ${car.targetSpeed.toFixed(0)} against a ceiling of ` +
+      `${type.speedMax} — the clamp is not bounding the chase`,
   );
   assert.ok(
     car.speed <= type.speedMax + 1,
-    `the stocker settled at ${car.speed.toFixed(0)}, over its own ceiling of ` +
+    `the interceptor settled at ${car.speed.toFixed(0)}, over its own ceiling of ` +
       `${type.speedMax}`,
   );
 });
 
-test("the stocker and the bruiser actually reach their own chaseSpeed", () => {
-  // The other half of the relation above: cartypes.js opened their
-  // cruiseMax..speedMax gap to exactly their profile's chaseSpeed, so — unlike
-  // the synthetic case — the real catalogue entries are NOT capped short of
-  // the speed their tactic has always asked for.
+test("the stocker and the bruiser chase at the whole of their own hard band", () => {
+  // The other half of the relation above: a chase spends everything the type
+  // has, so cartypes.js opening their cruiseMax..speedMax gap is what their
+  // tactic actually closes with. Retune either speedMax back down to its cruise
+  // top and the tactic quietly loses the speed it was written around.
   const cases = [
     { id: "stocker", playerWorldY: 200, playerSpeed: 600 }, // `trail` -> `pursue`
     { id: "bruiser", playerWorldY: 5000, playerSpeed: 400 }, // `ram`, chasing from behind
   ];
   for (const { id, playerWorldY, playerSpeed } of cases) {
     const type = CAR_TYPES.find((t) => t.id === id);
-    const chaseSpeed = drivingFor(type).chaseSpeed;
     const traffic = new Traffic();
     // Starts at cruiseMax rather than cruiseMin — closing the LAST of the gap
-    // to chaseSpeed is the thing under test, not the whole approach, and the
+    // to speedMax is the thing under test, not the whole approach, and the
     // stocker's `trail` carries a giveUpTime: starting further back grows the
     // gap past TRAIL_ENGAGE for long enough, while it ramps up, to disengage
     // before ever proving anything.
@@ -867,10 +871,10 @@ test("the stocker and the bruiser actually reach their own chaseSpeed", () => {
       world.playerBody.worldY += playerSpeed * dt;
     }
     assert.ok(
-      car.speed >= chaseSpeed - 5,
-      `${id} settled at ${car.speed.toFixed(0)} chasing, short of its profile's own ` +
-        `chaseSpeed of ${chaseSpeed} — its speedMax (${type.speedMax}) must have fallen ` +
-        `behind it again`,
+      car.speed >= type.speedMax - 5,
+      `${id} settled at ${car.speed.toFixed(0)} chasing, short of its own speedMax ` +
+        `of ${type.speedMax} — the cruiseMax..speedMax gap its tactic closes with ` +
+        `must have been shut again`,
     );
   }
 });

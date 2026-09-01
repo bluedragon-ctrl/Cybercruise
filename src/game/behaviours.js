@@ -310,7 +310,14 @@ function startPass(car, dt, world) {
   // Try the side away from wherever the blocker sits relative to us first: that's
   // the side we're already drifting toward, and it's the shorter move.
   const first = lead.offset <= car.offset ? 1 : -1;
-  const look = lead.worldY - car.worldY + d.passLookAhead;
+  // FROM THE BLOCKER'S NOSE, not its centre, the same way `passTrigger` above
+  // measures a bumper-to-bumper gap: `passLookAhead` is the clear road wanted
+  // BEYOND the car being passed, and measuring it from a centre point quietly
+  // spent the blocker's own rear half on it — 78 units of real daylight past a
+  // rig against 113 past a roadster, least road checked exactly where the pass
+  // takes longest. The profile figure now means the same thing whatever it is
+  // overtaking.
+  const look = lead.worldY + lead.h / 2 - car.worldY + d.passLookAhead;
   for (const side of [first, -first]) {
     const line = passLine(car, lead, side);
     if (line === null) continue;                    // barrier that side
@@ -361,10 +368,37 @@ function passLine(car, target, side) {
   return Math.abs(offset) > limit ? null : offset;
 }
 
+// Daylight wanted BEHIND the overlap, and the whole of what this driver chooses
+// rather than measures. A swerve is not instant — around 0.4s to cross a lane at
+// the fleet's steerSpeeds — so a body just past the overlap line when the
+// decision is taken can be alongside by the time the car arrives. Shared rather
+// than per-profile because it is a fact about how long a lane change takes, and
+// every driver's takes about as long.
+//
+// It is a MARGIN, not the test: what counts as "beside me" is the two bodies'
+// own lengths, and `blocked` derives that below.
+export const LOOK_BEHIND_SLACK = 30;
+
 // Is anything this driver won't touch in the stretch of road the line at `line`
 // would use? `lookAhead` is how far up the road to care about, measured from the
 // car — a pass looks past the body it is overtaking, a lane preference only as
 // far as the road it is about to occupy.
+//
+// BEHIND IS NOT A MIRROR CHECK, and the field it replaced (`passLookBehind`) read
+// like one. Nothing on this road reacts to a car behind it — braking is
+// `leadCar`, which searches forward only. `worldY` is a CENTRE point, so a body
+// whose centre trails this car's by less than their combined half-length is not
+// behind it at all, it is ALONGSIDE, and a lane change would steer into its
+// flank. So the question is "is the space I am about to move into empty", and
+// the answer has to include the space beside this car's own back bumper.
+//
+// WHICH MAKES IT GEOMETRY, and it is now derived like the lateral test directly
+// above it, from the pair's own `h` exactly as that one uses their `w`. It was a
+// tuned 90 on the driving profile, which could not be right for every pair it
+// met: against a roadster 90 was 33 units of slack, against a rig it was two
+// units SHORT of the overlap, so a rig dodging a hazard could steer into a bus
+// it never saw. One number cannot answer a question whose answer depends on who
+// else is there.
 //
 // TOLERANCE IS WHAT MAKES THIS PER-DRIVER: it answers "is there anything there
 // that I mind" rather than "is anyone there", so a sedan is stopped by a
@@ -373,12 +407,12 @@ function passLine(car, target, side) {
 // Checked once, when committing: during a pass, traffic that moves in is handled
 // by braking (see overtake) rather than by abandoning the line mid-swerve.
 function blocked(car, ignore, line, world, lookAhead) {
-  const from = car.worldY - car.drive.passLookBehind;
   const to = car.worldY + lookAhead;
   const inTheWay = (other) => {
     if (other === car || other === ignore) return false;
     if (!other.alive) return false; // a corpse must not veto a line — see leadCar
     if (Math.abs(other.offset - line) >= (other.w + car.w) / 2) return false;
+    const from = car.worldY - ((car.h + other.h) / 2 + LOOK_BEHIND_SLACK);
     if (other.worldY <= from || other.worldY >= to) return false;
     return !tolerated(car, other);
   };
@@ -746,18 +780,20 @@ function trail(car, dt, world) {
 //
 // BEHIND OR ALONGSIDE: the attack. Lane tracking is the shared trackTarget, but
 // the speed half is deliberately NOT `followSpeed` against the player — braking
-// to avoid the thing this car exists to hit would be backwards. It asks for its
-// profile's `chaseSpeed` (560, the one profile that sets it below the enemy's
-// 600: this car closes to hit rather than to hold a firing gap, so it need not
-// match a fleeing player, only catch a busy one). collisions.js does the rest.
+// to avoid the thing this car exists to hit would be backwards. It asks for
+// EVERYTHING THE TYPE HAS, `speedMax`, because there is no gap to hold and no
+// reason to arrive at less than it can: damage is linear in closing speed
+// (collisions.js). Whether that is enough to catch a fleeing player is the
+// catalogue's answer, not this function's — the bruiser's 560 says no, and says
+// why, in cartypes.js.
 //
 // AHEAD: the same job from the other side. Once it has passed, still tracking the
 // player's lane while asking for LESS speed than they are running IS the block —
 // the player either brakes to match a wall heavier than they are, or rear-ends it.
 //
-// `chaseSpeed` and `ramBrake` are profile fields (driving.js) — how fast this
-// driver chases and how hard it leans on the brake are dispositions. The floor
-// under the block is not, and is RAM_FLOOR below.
+// THE BLOCK IS TWO NUMBERS AND THEY ARE ONE IDEA — "half their speed, but never
+// under 80" — so both live here, next to the tactic, rather than one here and
+// one on a driving profile where only half the sentence would be readable.
 
 // The slowest the block may run, and A CONTRACT WITH player.js rather than a
 // temperament: it sits UNDER the player's own minimum of 100, so lifting off can
@@ -768,6 +804,18 @@ function trail(car, dt, world) {
 // thing setting the block's pace — a type floor above it would be a second,
 // quieter answer to the same question.
 export const RAM_FLOOR = 80;
+
+// How much of the player's own speed the block runs at, which is what makes it
+// bite at ANY speed rather than only at the one it was tuned against. A
+// FRACTION for that reason, and half rather than a harder brake because the
+// damage this tactic deals is symmetric — closing speed costs the bruiser hull
+// on the same curve it costs the player (collisions.js), against a 160 hull to
+// the player's 200. At 0.5 a block off a flat-out player is 48 hull to them and
+// 33 to itself, about five before either dies; braking to RAM_FLOOR outright
+// would make it 89 and 61, a mutual kill in three, which reads as a suicide
+// rather than as a wall. THE TWO CROSS AT PLAYER SPEED 160 (0.5 * 160 = 80), so
+// under that this figure is inert and RAM_FLOOR alone holds the block up.
+export const RAM_BRAKE = 0.5;
 
 function ram(car, dt, world) {
   const target = world.playerBody;
@@ -784,12 +832,12 @@ function ram(car, dt, world) {
   const ahead = car.worldY - target.worldY; // positive once past the player
 
   if (ahead > 0) {
-    const held = Math.max(RAM_FLOOR, target.speed * car.drive.ramBrake);
+    const held = Math.max(RAM_FLOOR, target.speed * RAM_BRAKE);
     car.targetSpeed = followSpeed(car, lead, held);
     return;
   }
 
-  car.targetSpeed = followSpeed(car, lead, car.drive.chaseSpeed);
+  car.targetSpeed = followSpeed(car, lead, car.type.speedMax);
 }
 
 // --- Pursuing ------------------------------------------------------------------
@@ -800,8 +848,9 @@ function ram(car, dt, world) {
 // as the road's baseline pressure rather than a timed encounter.
 //
 // What each type FIRES is not this function's business — `useArms` reads whatever
-// `car.arms` says. The three DISPOSITIONS are profile fields (driving.js's
-// "Chasing the player"): `pursueHold`, `pursueGain`, `chaseSpeed`.
+// `car.arms` says. The two DISPOSITIONS are profile fields (driving.js's
+// "Chasing the player"): `pursueHold` and `pursueGain`. How fast the chase may
+// run is not one of them — that is the type's own `speedMax` (cartypes.js).
 
 // The gap inside which chasing is worth doing at all, and NOT a disposition —
 // which is why it sits here rather than on a profile with the other three. It is
@@ -831,17 +880,19 @@ function pursue(car, dt, world) {
 
   // Hold the gap at `pursueHold`, but still brake for real traffic in the way
   // (the player itself is excluded from the lead search — the proportional term
-  // is what governs distance to THEM). Capped at `chaseSpeed` here, and at the
-  // type's own speedMax a moment later regardless (traffic.js) — a REQUEST, not
-  // an override, so a type whose speedMax sits under its profile's chaseSpeed
-  // simply cannot reach it. See driving.js.
+  // is what governs distance to THEM).
+  //
+  // THE ASK HAS NO CEILING OF ITS OWN, and needs none: the P term is unbounded
+  // above by design — at the edge of PURSUE_RANGE it asks for the player's
+  // speed plus 360 — and traffic.js clamps the result to the type's `speedMax`
+  // one step later, which is the only ceiling on the road. So the shape of the
+  // chase is "match them, plus what the gap is worth, up to what this car is",
+  // and the answer to "can this type close on the player" is one number in the
+  // catalogue. The floor at 0 is all that is left to do here, since a negative
+  // ask (the car well ahead of its hold) is a request to reverse.
   const lead = leadCar(car, world, car.offset, target);
   const held = target.speed + (gap - car.drive.pursueHold) * car.drive.pursueGain;
-  car.targetSpeed = followSpeed(
-    car,
-    lead,
-    Math.max(0, Math.min(car.drive.chaseSpeed, held)),
-  );
+  car.targetSpeed = followSpeed(car, lead, Math.max(0, held));
 }
 
 // "This car has not laid its one deliberate charge yet." A full magazine means

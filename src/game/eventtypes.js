@@ -300,15 +300,18 @@ export const EVENT_TYPES = [
     //   getting there is what the type already does.
     //
     //   THE OUTRIDERS WORK THE MIRROR, which is the type rather than a
-    //   compromise. Their band now reaches 660, past a STOCK player's 620 — the
+    //   compromise. Their band reaches 660, past a STOCK player's 620 — the
     //   headroom exists for a BOOSTED player, whose overdrive and Phase 5 pickups
     //   push well past that ceiling and would otherwise strand this type off the
-    //   bottom of the screen. Against a stock player it mostly still just holds
-    //   station astern on its profile's chaseSpeed of 600 (driving.js) at 20
-    //   units a second of slip, sweeping across the player's line as it goes
-    //   (behaviours.js's `strafe`). `gang` stages the same bike from the same
-    //   side for the same reason. Nine ahead once the road sorts itself out,
-    //   three behind, and no clean air in either mirror.
+    //   bottom of the screen. Against a STOCK player that headroom now bites
+    //   too: `strafe` runs `pursue` (behaviours.js) and a chase spends the whole
+    //   hard band, so an outrider closes on a flat-out player at 40 a second and
+    //   then holds its gap, sweeping across their line as it goes. It used to
+    //   slip 20 a second instead, leashed to 600 by the driving profile; that
+    //   leash is gone (driving.js), and the mirror is correspondingly harder to
+    //   clear by driving. `gang` stages the same bike from the same side for the
+    //   same reason. Nine ahead once the road sorts itself out, three behind,
+    //   and no clean air in either mirror.
     //
     // GATED AT 1500, past every bike's own gate (cartypes.js), so it introduces
     // nothing — the ambient road's own bikes, met all at once. It sits between
@@ -746,13 +749,13 @@ export const EVENT_TYPES = [
       // the one shape this fight must not collapse into.
       //
       // They TOP OUT AT the player's own ceiling (400-620 against 620) and stay
-      // in the fight regardless, because `pursue` chases at the profile's
-      // `chaseSpeed` of 600 (behaviours.js) — comfortably under the type's own
-      // 620 ceiling, so traffic.js's clamp never touches this pair; the figure
-      // that actually governs the chase is the profile's, not the catalogue's
-      // — 20 units a second of slip against a player holding full throttle,
-      // which is half a minute of pursuit and longer than the fight. A player
-      // who slows down to shoot straight keeps them indefinitely. The band was
+      // in the fight for as long as it lasts, because a chase spends the whole
+      // hard band (traffic.js) — 620 against 620 is no slip at all, so the gap
+      // they hold when the fight starts is the gap they hold at the end of it,
+      // whatever the player does with the throttle. They used to be leashed to
+      // 600 and shed at 20 a second, which was already half a minute and longer
+      // than the fight; removing that leash (driving.js) made a long escape into
+      // no escape, and this pair is where it is most visible. The band was
       // widened from a 470 ceiling for the sake of a BOOSTED player, whose speed
       // pickups run well past 620 and would otherwise leave a stock interceptor
       // no way to ever close.
@@ -773,11 +776,9 @@ export const EVENT_TYPES = [
       //
       // Their own speed is no objection to either side. They cruise 400-620, at
       // or under the player's own ceiling — which is what puts a pair of them
-      // ahead by traffic.js's spawn rule — and `pursue` chases at the profile's
-      // `chaseSpeed` of 600 (behaviours.js), under the type's own 620 ceiling so
-      // traffic.js's clamp never bites, so the two behind slip only 20 units a
-      // second against a player at full throttle and stay in the fight for
-      // longer than the fight lasts.
+      // ahead by traffic.js's spawn rule — and the two behind chase at that same
+      // 620, so a player at full throttle holds them off without shaking them.
+      // The pincer stays a pincer for the whole fight.
       { kind: "cars", type: "interceptor", count: 2, side: "ahead", spread: 300 },
       { kind: "cars", type: "interceptor", count: 2, side: "behind", spread: 300 },
     ],

@@ -15,7 +15,13 @@ import { patchConstant, patchArrayConstantElement } from "../tools/car-editor/pa
 import { MAX_SPEED, BASE_MAX_HEALTH, PLAYER_MASS } from "../src/game/player.js";
 import { TIER_PRICES, STATS } from "../src/game/upgrades.js";
 import { SHOP_INTERVAL } from "../src/game/hauler.js";
-import { PURSUE_RANGE, RAM_FLOOR, TRAIL_ENGAGE } from "../src/game/behaviours.js";
+import {
+  LOOK_BEHIND_SLACK,
+  PURSUE_RANGE,
+  RAM_BRAKE,
+  RAM_FLOOR,
+  TRAIL_ENGAGE,
+} from "../src/game/behaviours.js";
 import { SIDE_DAMAGE } from "../src/game/collisions.js";
 import { BEHAVIOR_FIELDS } from "../tools/car-editor/state.js";
 
@@ -159,14 +165,21 @@ test("every group's constants all name that group in their id", () => {
   }
 });
 test("the figures that left the driving profiles are editable as constants", () => {
-  // PURSUE_RANGE and RAM_FLOOR used to be profile fields, editable per profile
-  // on the behavior screen. They moved to behaviours.js because no profile
-  // differed from the baseline and each is arithmetic against another file —
-  // RAM_FLOOR against player.js's MIN_SPEED in particular, which a profile
-  // cannot see. That move would have quietly REMOVED them from the editor, so
-  // this pins the destination the way the shop-ladder test above does.
+  // PURSUE_RANGE, RAM_FLOOR and RAM_BRAKE used to be profile fields, editable
+  // per profile on the behavior screen. They moved to behaviours.js because no
+  // profile differed from the baseline and each is arithmetic against another
+  // file or against its own pair — RAM_FLOOR against player.js's MIN_SPEED,
+  // which a profile cannot see, and RAM_BRAKE against RAM_FLOOR, which is the
+  // other end of the same block. That move would have quietly REMOVED them from
+  // the editor, so this pins the destination the way the shop-ladder test above
+  // does.
   const ids = new Set(CONSTANT_IDS);
-  for (const id of ["driving.PURSUE_RANGE", "driving.RAM_FLOOR"]) {
+  for (const id of [
+    "driving.PURSUE_RANGE",
+    "driving.RAM_FLOOR",
+    "driving.RAM_BRAKE",
+    "driving.LOOK_BEHIND_SLACK",
+  ]) {
     assert.ok(ids.has(id), `${id} left the profile table and must be tunable here`);
   }
   const byId = new Map(
@@ -174,6 +187,8 @@ test("the figures that left the driving profiles are editable as constants", () 
   );
   assert.equal(byId.get("driving.PURSUE_RANGE"), PURSUE_RANGE);
   assert.equal(byId.get("driving.RAM_FLOOR"), RAM_FLOOR);
+  assert.equal(byId.get("driving.RAM_BRAKE"), RAM_BRAKE);
+  assert.equal(byId.get("driving.LOOK_BEHIND_SLACK"), LOOK_BEHIND_SLACK);
   assert.equal(byId.get("driving.TRAIL_ENGAGE"), TRAIL_ENGAGE);
   assert.equal(byId.get("impact.SIDE_DAMAGE"), SIDE_DAMAGE);
 });

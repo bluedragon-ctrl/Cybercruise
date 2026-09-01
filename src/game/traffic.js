@@ -305,24 +305,24 @@ class TrafficCar {
     // THE HARD BAND, applied ONCE and applied HERE: after driveCar, so it
     // outranks every request in either direction — the tactic itself,
     // followSpeed braking behind a car, avoidHazards slowing to fit a swerve,
-    // and (the ceiling's own case) a chase asking for more than this car can
-    // physically give, via `chaseSpeed` on the shared driving profile
-    // (driving.js). A car cannot be driven outside what it is physically
-    // capable of, whatever the reason, and putting the clamp anywhere earlier
-    // would leave one of those able to reach past it.
+    // and a chase's own proportional term, which is deliberately unbounded
+    // above and relies on this line for its ceiling (behaviours.js's `pursue`).
+    // A car cannot be driven outside what it is physically capable of, whatever
+    // the reason, and putting the clamp anywhere earlier would leave one of
+    // those able to reach past it.
     //
     // What the floor buys, and why it is split across the fleet the way it is,
     // is cartypes.js's THE TWO SPEED BANDS. In short: the motorcycles cannot
     // crawl, so braking sheds them; the cars and the boss can, so it doesn't.
     // Every civilian's floor is 0, which makes that half a no-op for them.
     //
-    // The ceiling is symmetric, and closes a gap the floor never had: without
-    // it, `chaseSpeed` was an UNCLAMPED ask (behaviours.js's `pursue`/`ram`),
-    // real for any type whose speedMax happened to sit under its profile's
-    // figure — a car chasing faster than it was rated to. speedMax is now the
-    // one true ceiling regardless of who is asking, which is what makes it
-    // safe to open the cruiseMax..speedMax gap on a type (cartypes.js) instead
-    // of leaving the profile to grant headroom no catalogue entry admits to.
+    // The ceiling is symmetric, and it is THE ONLY ONE — the chase used to
+    // carry a second, lower ceiling of its own on the driving profile
+    // (`chaseSpeed`), which meant how fast a car could chase was set in two
+    // files and readable in neither. That is gone (driving.js says why), so
+    // `speedMax` is the single answer to "how fast can this car be driven, by
+    // anything, for any reason" — and the cruiseMax..speedMax gap in the
+    // catalogue is how a type asks for headroom, in the entry that owns it.
     this.targetSpeed = Math.min(
       this.type.speedMax,
       Math.max(this.type.speedMin, this.targetSpeed),
