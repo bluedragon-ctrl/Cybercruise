@@ -20,6 +20,16 @@ export function clear(ctx, color = "#05060a") {
   ctx.fillRect(0, 0, ctx.canvas.width / s, ctx.canvas.height / s);
 }
 
+// The HUD layer's own clear (Phase 15c, main.js's `#hud` canvas). Transparent,
+// unlike clear() above: the HUD sits over the bloomed world canvas and has to
+// let it show through everywhere it isn't drawing a readout, where the world
+// canvas is the opaque bottom of the stack and paints over whatever was there
+// last frame instead.
+export function clearHud(ctx) {
+  const s = renderScale();
+  ctx.clearRect(0, 0, ctx.canvas.width / s, ctx.canvas.height / s);
+}
+
 // A single glowing line segment.
 //
 // THROUGH PHASE 15D-I THIS CARRIED ITS OWN ctx.shadowBlur — a small, bounded

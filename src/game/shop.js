@@ -209,7 +209,16 @@ export function createShop() {
     // `player`/`loadout` are READ too, only to print each consumable's CURRENT
     // status (see statusFor) — the shelf already told the player what a
     // purchase gives, this is the other half: what they'd be buying it onto.
-    render(ctx, W, H, wallet, visit, garage, player, loadout) {
+    //
+    // TWO CONTEXTS (Phase 15c) — `ctx` is the world canvas (bloomed), `hudCtx`
+    // the HUD layer on top (never bloomed). The backdrop, the dock frame, the
+    // title and the credit total are large/sparse and stay on `ctx`; the
+    // entire shelf (headings, rows, prices, pips, the note line, the control
+    // hint) is the same size class as the HUD readouts that bridge under a
+    // threshold tuned for the world (README's "Rendering the halo") and moves
+    // to `hudCtx`. See main.js's render() for the split rule this is one half
+    // of.
+    render(ctx, hudCtx, W, H, wallet, visit, garage, player, loadout) {
       ctx.save();
       ctx.fillStyle = BACKDROP;
       ctx.fillRect(0, 0, W, H);
@@ -239,7 +248,7 @@ export function createShop() {
       // be promising the player a balance that dies with their next crash.
       // The subtitle says so out loud rather than letting them find out.
       glowText(ctx, `${wallet.credits} CR`, W / 2, 108, PLAYER, 26, "center", 16, true);
-      glowText(ctx, "THIS RUN ONLY — NOT CARRIED OVER", W / 2, 136, GREEN_DIM, 10, "center", 0);
+      glowText(hudCtx, "THIS RUN ONLY — NOT CARRIED OVER", W / 2, 136, GREEN_DIM, 10, "center", 0);
 
       // The shelves. `index` walks ROWS in the same order the cursor does, so
       // the drawn row and the selected row can never disagree — they are the
@@ -248,11 +257,11 @@ export function createShop() {
       let index = 0;
       for (const shelf of SHELVES) {
         if (shelf.heading) {
-          glowText(ctx, shelf.heading, LEFT, y, GREEN_PALE, 12, "left", 8);
+          glowText(hudCtx, shelf.heading, LEFT, y, GREEN_PALE, 12, "left", 8);
           y += HEADING_DROP;
         }
         for (const entry of shelf.entries) {
-          drawRow(ctx, entry, y, index === selected, boughtHere.has(index), wallet, garage, player, loadout);
+          drawRow(hudCtx, entry, y, index === selected, boughtHere.has(index), wallet, garage, player, loadout);
           y += ROW_PITCH;
           index += 1;
         }
@@ -272,11 +281,11 @@ export function createShop() {
       // description and says which it is, in words, with the shortfall in it.
       const note = noteFor(ROWS[selected], garage, wallet, player, loadout);
       if (note) {
-        glowText(ctx, note.text, W / 2, 668, note.urgent ? HAZARD : GREEN_DIM,
+        glowText(hudCtx, note.text, W / 2, 668, note.urgent ? HAZARD : GREEN_DIM,
           11, "center", note.urgent ? 6 : 0);
       }
 
-      glowText(ctx, "↑↓ SELECT — SPACE BUY — ESC UNDOCK", W / 2, H - 96,
+      glowText(hudCtx, "↑↓ SELECT — SPACE BUY — ESC UNDOCK", W / 2, H - 96,
         GREEN_BRIGHT, 14, "center", 10);
     },
   };

@@ -309,7 +309,14 @@ export function createMenu() {
     return { confirmed: false, moved, soundAdjusted, toggled };
   }
 
-  function render(ctx, W, H) {
+  // TWO CONTEXTS (Phase 15c) — `ctx` is the world canvas (bloomed), `hudCtx`
+  // the HUD layer on top (never bloomed). Title, subtitle, the three main
+  // rows and their volume bars are large, deliberately bloom-worthy display
+  // type and stay on `ctx`; the test-row checkboxes and the footer are the
+  // same size class as the HUD readouts that bridge under a threshold tuned
+  // for the world (README's "Rendering the halo"), and move to `hudCtx`. See
+  // main.js's render() for the split rule this is one half of.
+  function render(ctx, hudCtx, W, H) {
     glowText(ctx, "CYBERCRUISE", W / 2, 210, GREEN_BRIGHT, 46, "center", 18);
     // Pause and gameover both reuse the exact same screen, so the subtitle is
     // the one thing that tells all three modes apart at a glance.
@@ -376,20 +383,20 @@ export function createMenu() {
         const box = testRowRect(W, i);
         const color = isSelected ? PLAYER : armed ? GREEN_PALE : GREEN_DIM;
 
-        ctx.save();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(box.x, CHECK_Y, CHECK_BOX, CHECK_BOX);
+        hudCtx.save();
+        hudCtx.strokeStyle = color;
+        hudCtx.lineWidth = 1;
+        hudCtx.strokeRect(box.x, CHECK_Y, CHECK_BOX, CHECK_BOX);
         if (armed) {
-          ctx.fillStyle = color;
-          ctx.shadowColor = color;
-          ctx.shadowBlur = 4;
-          ctx.fillRect(box.x + 2, CHECK_Y + 2, CHECK_BOX - 4, CHECK_BOX - 4);
+          hudCtx.fillStyle = color;
+          hudCtx.shadowColor = color;
+          hudCtx.shadowBlur = 4;
+          hudCtx.fillRect(box.x + 2, CHECK_Y + 2, CHECK_BOX - 4, CHECK_BOX - 4);
         }
-        ctx.restore();
+        hudCtx.restore();
 
         const label = `${row.label}: ${armed ? "ON" : "OFF"}`;
-        glowText(ctx, label, box.x + CHECK_BOX + CHECK_GAP, CHECK_Y - 1, color, CHECK_FONT, "left", isSelected ? 6 : 0);
+        glowText(hudCtx, label, box.x + CHECK_BOX + CHECK_GAP, CHECK_Y - 1, color, CHECK_FONT, "left", isSelected ? 6 : 0);
       }
     }
 
@@ -398,7 +405,7 @@ export function createMenu() {
     const footer = TEST_ROWS.length
       ? "TEST BUILD — SEE src/testoptions.js"
       : "MORE OPTIONS COMING SOON";
-    glowText(ctx, footer, W / 2, H - 40, GREEN_DIM, 12, "center", 6);
+    glowText(hudCtx, footer, W / 2, H - 40, GREEN_DIM, 12, "center", 6);
   }
 
   // Read-only peek at the MUSIC volume for main.js to hand to the audio
