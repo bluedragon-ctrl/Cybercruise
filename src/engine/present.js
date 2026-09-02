@@ -8,11 +8,12 @@
 // fragment stage does and why):
 //
 //   frame (full-res, NEAREST)
-//     -> BRIGHT_FS   -> halfA    (threshold, and a decimating downsample —
-//                                 the frame texture is NEAREST, so this tap
-//                                 is a point sample, not a box filter; the
-//                                 threshold is what matters here, not the
-//                                 resampling quality of a mostly-zero image)
+//     -> BRIGHT_FS   -> halfA    (threshold, and a downsample — FOUR taps, each
+//                                 thresholded before they are averaged, which
+//                                 is a 2x2 box filter that a thin bright line
+//                                 survives. It shipped as ONE tap and that was
+//                                 a real bug, not a quality trade: see
+//                                 BRIGHT_FS's header)
 //     -> BLUR_FS  (H) -> halfB
 //     -> BLUR_FS  (V) -> halfA   (half-res bloom, done)
 //     -> PRESENT_FS   -> quarterA (downsample: halfA is LINEAR, so this same
@@ -271,6 +272,9 @@ let compositeProgram = null;
 // (which texture unit each sampler reads) is set once in build() and never
 // looked up again.
 let uBrightThreshold = null;
+// The FRAME's texel size, for the bright pass's four taps — see BRIGHT_FS.
+// Per-frame like the rest of these, because it changes with the backing store.
+let uBrightTexel = null;
 let uBlurStep = null;
 let uCompExposure = null;
 
@@ -405,6 +409,7 @@ function build() {
   gl.useProgram(brightProgram);
   gl.uniform1i(gl.getUniformLocation(brightProgram, "uFrame"), 0);
   uBrightThreshold = gl.getUniformLocation(brightProgram, "uThreshold");
+  uBrightTexel = gl.getUniformLocation(brightProgram, "uTexel");
 
   gl.useProgram(blurProgram);
   gl.uniform1i(gl.getUniformLocation(blurProgram, "uSource"), 0);
@@ -479,9 +484,14 @@ function teardown() {
 // texture and the drawing buffer are the same size, so every fragment centre
 // falls exactly on one texel; LINEAR would fetch that same texel at four times
 // the cost, and would turn any future half-texel disagreement into a softening
-// of the whole frame rather than an obvious break. This reasoning is about the
-// FRAME texture only — the four bloom targets are LINEAR on purpose, and
-// gl/target.js's header says why.
+// of the whole frame rather than an obvious break. That argument is about the
+// pass this texture is the same size as — COMPOSITE_FS, stage 7 — and it is
+// why the ONE pass that reads this texture at a DIFFERENT size (the bright
+// pass, into a half-res target) does its own box filtering from four NEAREST
+// taps instead of asking for a filter mode here: see BRIGHT_FS's header, which
+// has the measurement showing why a LINEAR fetch could not do that job. The
+// four bloom targets are LINEAR on purpose too, and gl/target.js's header says
+// why.
 function allocate(w, h) {
   if (texture) gl.deleteTexture(texture);
   texture = gl.createTexture();
@@ -621,10 +631,16 @@ export function present() {
 
   // 1. Bright-pass + downsample: frame -> halfA. `texture` is already bound at
   // unit 0 from the upload above, and uBrightFrame->0 was set once in build().
+  //
+  // uTexel is the SOURCE frame's texel size, not this target's: the four taps
+  // BRIGHT_FS makes are half a FRAME texel either side of the quad corner they
+  // straddle. See that shader's header for the flicker those four taps exist to
+  // remove and why one tap could not.
   gl.bindFramebuffer(gl.FRAMEBUFFER, halfA.framebuffer);
   gl.viewport(0, 0, hw, hh);
   gl.useProgram(brightProgram);
   gl.uniform1f(uBrightThreshold, BLOOM_THRESHOLD);
+  gl.uniform2f(uBrightTexel, 1 / w, 1 / h);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   // 2. Blur H, half-res: halfA -> halfB.

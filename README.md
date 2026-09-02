@@ -261,6 +261,24 @@ Things about it worth knowing before touching the renderer:
 - **Both canvases are sized by `engine/viewport.js`** (`mirrorCanvas`), so the
   fit, the eighth-step quantisation, the `MAX_SCALE` cap and the resize settle
   have one implementation rather than two that can drift.
+- **THE BRIGHT PASS TAKES FOUR TAPS AND THRESHOLDS EACH ONE BEFORE AVERAGING
+  THEM**, and that is a bug fix, not a quality knob. It shipped in 15b as a
+  single NEAREST tap into a half-res target, which works out to sampling only
+  the frame's ODD ROWS - so a one-pixel-tall bright horizontal line (a
+  building's roof outline is exactly that) had a halo on the frames where it
+  landed on an odd row and NO halo on the others, and flickered at up to 30Hz
+  as the city floor scrolled it between them. Reported as building edges
+  flickering at speed after 15c; measured on a 64x64 probe as total green
+  16320 (bare core, zero bloom) on an even row against 65792 on an odd one,
+  and 41088 flat across every row afterwards - which is also, to within 0.08%,
+  the mean of the two states it used to alternate between, so the halo is now
+  steady at the brightness the eye was already integrating. **A LINEAR fetch
+  was tried first and is the trap here**: one bilinear tap at the quad corner
+  is the same 2x2 average for no extra fetch, but it averages BEFORE the
+  threshold, which puts a 1px line at exactly 0.5 - under `BLOOM_THRESHOLD`'s
+  0.55 - and deletes thin lines' halos outright (the same probe read 16320 on
+  every row: no flicker, because no bloom). Thresholding per tap is not
+  expressible as a filter mode. `BRIGHT_FS`'s header has the derivation.
 
 **A THIRD CANVAS, AS OF PHASE 15C: `#hud`, plain 2D, never uploaded to the
 GPU.** `src/main.js`'s `drawHud()`, the menu's test-row checkboxes and the
@@ -1405,6 +1423,23 @@ is on hold is everything that wants a SERVER behind it.
           chosen with enough margin (TETRA's ~1.2px being the tightest) that
           nothing the suite already asserted about derived extents or lane fit
           came anywhere near breaking
+  - [x] **15c-i** — DONE. THE BRIGHT PASS SAMPLED HALF THE FRAME'S ROWS, and
+        the retune in 15c is what made it visible: reported as building edges
+        flickering at speed. One NEAREST tap into a half-res target works out
+        to reading only the ODD rows, so a 1px bright horizontal line — a
+        building's roof outline — had a halo on the frames where it landed on
+        an odd row and none on the others, alternating at up to 30Hz as the
+        floor scrolled. Not a 15c regression and not a 2D-layer problem: the
+        aliasing shipped in 15b, 15d-ii made the edges 1px by collapsing
+        `neonStroke`'s overdraw, and 15c's stronger halo is what raised the
+        blink out of the noise. Only HORIZONTAL features show it, because only
+        y scrolls. Fixed by taking FOUR taps and thresholding each BEFORE
+        averaging — parity-invariant by construction. See The present path
+        above for the measurements, including why the cheaper LINEAR fetch
+        looks equivalent, is not, and silently deletes thin lines' halos
+        instead. Pixel-identity re-verified (0 differing channels with the
+        threshold forced to 1.0); 2 frames over 17ms in 600, mean 16.69ms, so
+        the three extra fetches cost nothing measurable.
   - [ ] **15e** — The rest of the full-screen effects, now that a fragment
         shader is a place things can live: chromatic aberration, vignette,
         heat shimmer, and Phase 8's scanlines moved off Canvas2D into the pass
