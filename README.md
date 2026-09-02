@@ -731,6 +731,21 @@ change. Those get fixed as they turn up rather than deferred to the polish
 phase, so the history interleaves phase features with side-steps into earlier
 phases' code.
 
+THE NUMBERS ARE HISTORY, NOT A QUEUE. They are the order things were built in,
+and 36 files refer to them from code comments — so an open phase is never
+renumbered to move it up. The working order is written here instead.
+
+Currently: **15, then 12, then 10** — the renderer before the polish that would
+otherwise be re-tuned by it (15d re-tunes `spread`/`halo` across the whole
+catalogue, which IS visual polish, so doing 12 first means tuning numbers 15d
+then invalidates), and both before the bosses that would be drawn against them.
+Phase 12 keeps the gameplay-balance half; 15d owns the visual half.
+
+**11d, 13 and 14 are ON HOLD**, together, because all three need a hosting
+decision that has not been made. The game is published to GitHub Pages today,
+which is the static half of 13 and all a no-build ES-module layout needs; what
+is on hold is everything that wants a SERVER behind it.
+
 - [x] **Phase 0** — Skeleton: neon car steering over a scrolling grid
 - [x] **Phase 1** — Road: infinite curving highway + barriers
 - [x] **Phase 2** — Surroundings A: simplified box buildings along the road
@@ -774,16 +789,30 @@ phases' code.
         SPIKE MINES — sold from a third shelf as ownership flags, each read by
         the system it changes and by nothing else. See The upgrade shop above.
         More are a catalogue entry plus whichever system reads the flag
-  - [ ] **11d** — Persistence, once players have records to hold one: turn
+  - [ ] **11d** — ON HOLD (needs a server — see 13). Persistence, once
+        players have records to hold one: turn
         `main.js`'s `CREDIT_STORE` back on and decide, then, whether the
-        upgrade ladder persists with the money or stays scoped to a run
-- [ ] **Phase 12** — Polish: balance, high scores, performance
-- [ ] **Phase 13** — Online server: put the game on a public URL. Static
-      hosting is enough for the no-build ES-module layout; the server side is
-      whatever the game wants beyond that — a shared high-score board being
-      the obvious first thing, which also means the score submission has to
-      be something the server can sanity-check
-- [ ] **Phase 14** — Advertisement: consider monetising via ads. Decide the
+        upgrade ladder persists with the money or stays scoped to a run.
+        localStorage would technically unblock this without a server and is
+        deliberately not the answer: a ladder that persists per-BROWSER is a
+        different design from one that persists per-PLAYER, and taking the
+        cheap one now forecloses the other
+- [ ] **Phase 12** — Polish: gameplay balance and performance. NOT the visual
+      polish — 15d owns that and lands first, or this phase spends its time
+      tuning glow constants the renderer swap then discards. High scores were
+      the third item here and have moved to 13, since a board worth having is
+      a shared one
+- [ ] **Phase 13** — ON HOLD pending a hosting decision. Online server. The
+      STATIC half is DONE: the game is published to GitHub Pages, which the
+      no-build ES-module layout reached with no special handling — the
+      standing proof that the zero-dependency rule pays for itself. On hold is
+      anything wanting a server behind it — a shared high-score board being
+      the obvious first thing, which also means score submission has to be
+      something a server can sanity-check, i.e. the game stops being the only
+      thing that knows how a score was earned. That constraint is the real
+      content of this phase, and it is why 11d waits on it
+- [ ] **Phase 14** — ON HOLD with 13 and 11d. Advertisement: consider
+      monetising via ads. Decide the
       format first (an interstitial between runs and a rewarded spot in the
       upgrade shop fit the loop; nothing mid-run), then whether it is worth
       the load cost and the third-party script at all
@@ -808,3 +837,72 @@ phases' code.
       purely visual ambition, and a full WebGL/WebGPU renderer (which would also
       retire the sprite cache, free per-object rotation and lift the scaling
       constraints above) stays out of scope until the post pass proves the look
+  - [ ] **15a** — The present path, looking identical: a WebGL2 canvas in front
+        of the existing one, the finished 2D frame uploaded as a texture and
+        blitted straight back out with no effects at all. Ships a no-op, which
+        is the point — it isolates the two unmeasured costs from the look.
+        First is the per-frame `texSubImage2D` of a 1200x1600 canvas (2D and
+        WebGL contexts cannot share a canvas, so the upload is unavoidable and
+        decides whether the phase is viable at all). MEASURED, and it clears:
+        on an Intel Iris Xe — the weak integrated GPU MAX_SCALE above is
+        written for — a 1200x1600 RGBA upload plus a full-screen textured draw
+        costs ~1047us sustained per frame, and ~259us at scale 1; the two track
+        pixel count as a bandwidth-bound copy should (~6.5 GB/s effective).
+        Crucially only ~15us of that is CPU SUBMIT time — the cost is GPU-side
+        and does not compete with update() on the main thread. That puts the 2D
+        frame plus the upload at ~2ms of the 16.7ms budget, leaving ~14.6ms for
+        the blur chain. Two traps found re-deriving this, both of which gave
+        physically impossible answers first: Chrome ELIDES re-uploading a 2D
+        canvas that has not changed, so the source must be dirtied every
+        iteration, and gl.finish() is not a sync point on ANGLE/D3D11 — a 1px
+        readPixels is. One number is still open, because rAF is throttled in a
+        hidden tab and it cannot be had from a spike: the dropped-frame count
+        under a live compositor, which is what 15a ships in order to obtain. Second is that `will-change:
+        transform` on the canvas is load-bearing (48 dropped frames of 599
+        unpromoted against 7 promoted — `css/style.css`), and this moves the
+        promoted layer to the GL canvas while the 2D one stops being composited
+        — so that measurement is RE-TAKEN, not inherited. The fallback falls
+        out for free: no WebGL2, or a lost context, and the 2D canvas is shown
+        directly, which is today's game exactly
+  - [ ] **15b** — Bloom: bright-pass threshold, half- and quarter-res separable
+        blur, additive recombine with a tone knee. The whole frame, text
+        included, and the flag from Phase 15 is what A/Bs it. Blurring at
+        reduced resolution is what makes this affordable, and is not the
+        rejected Canvas2D downsample above — there the intermediate composite
+        was the cost; here it is a texture bind
+  - [ ] **15c** — The text decision, taken by LOOKING at 15b rather than in
+        advance: either blooming text is right for a Courier-New deck HUD and
+        nothing changes, or the HUD splits onto its own transparent 2D canvas
+        over the bloomed world. The seam already exists — everything in
+        `main.js`'s `render()` before `drawHud()` is world, everything after is
+        chrome — so the split is a second context and a parameter swap. Costs a
+        second full-size canvas repainted on the game's clock, which is the
+        trade the gutters declined (see The gutters); measure before assuming
+        it is free
+  - [ ] **15d** — Collapse the fake halo, which is the payoff and the reason
+        the phase is worth doing twice over: `neonStroke` strokes every path
+        THREE times — wide and faint, mid, bright core — purely because
+        `shadowBlur` was unaffordable (865us shadowed against 217us layered for
+        one full-height barrier). With bloom doing the halo per-pixel that
+        collapses to ONE stroke, and the same argument retires the `shadowBlur`
+        baked into the sprite cache and `glowOrb`'s gradient. The 2D layer gets
+        CHEAPER while the game looks better. `spread` and `halo` stop being
+        per-call constants and become bloom parameters, so the whole catalogue
+        is re-tuned here — the one sub-phase that touches game modules, and the
+        one that can turn the invariant suite red for the right reason
+  - [ ] **15e** — The rest of the full-screen effects, now that a fragment
+        shader is a place things can live: chromatic aberration, vignette,
+        heat shimmer, and Phase 8's scanlines moved off Canvas2D into the pass
+        that should always have owned them. Each is a few lines of GLSL against
+        a texture that is already bound, which is the whole argument for having
+        built 15a
+  - [ ] **15f** — Only if 15a-15e land and the look is worth it: migrate
+        effects and particles into the GPU path incrementally, HUD and menus
+        staying on Canvas2D. Sprites would become a texture atlas rather than a
+        `Map` of canvases, which buys free tinting, additive blending and
+        rotation and starts to lift the tiling constraints in Display scaling
+        above. Re-authoring the line art itself as GPU geometry — the ~3000
+        lines across `carshapes`/`buildingshapes`/`obstacleshapes`/`bossshapes`
+        and friends that ARE the game's look, and that `tools/gallery` and
+        `tools/car-editor` both draw through a plain 2D context — is where true
+        per-pixel neon lives and stays out of scope
