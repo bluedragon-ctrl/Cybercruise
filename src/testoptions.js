@@ -42,10 +42,9 @@ export const SHOW_TEST_OPTIONS = true;
 // renderer with it.
 //
 // Off is not a degraded mode either — it is the game exactly as it was before
-// Phase 15a, which is why it is the honest comparison. As of 15a the two are
-// pixel-identical by construction (the pass is a blit with no effects), so the
-// only thing this flag can currently change is the plumbing's cost; from 15b it
-// is what turns bloom on and off.
+// Phase 15a, which is why it is the honest comparison. From 15b this is what
+// turns bloom on and off: the frame plus a bright-pass/blur/recombine chain
+// (src/engine/present.js) against the plain Canvas2D frame with none of it.
 //
 // The same switch is thrown for you when the machine cannot hold up its end:
 // no WebGL2, or a context lost mid-run, and present.js falls back to the 2D
