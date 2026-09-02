@@ -4,6 +4,7 @@
 
 import { createLoop } from "./engine/loop.js";
 import { LOGICAL_W, LOGICAL_H, initViewport, applyTransform, snapToDevice } from "./engine/viewport.js";
+import * as present from "./engine/present.js";
 import { initInput, isDown, consumePress } from "./engine/input.js";
 import { initMouse } from "./engine/mouse.js";
 import { clear, glowText } from "./engine/neon.js";
@@ -82,6 +83,17 @@ const H = LOGICAL_H;
 // The third argument is the cabinet element, which the viewport measures to find
 // the chrome around the canvas (bezel padding plus the hint bar) so the WHOLE
 // frame stays inside the window, not just the playfield.
+// The GPU present path (engine/present.js): the finished 2D frame uploaded to
+// the WebGL2 canvas in front of this one and blitted back out. BEFORE
+// initViewport, because it registers that canvas as a viewport mirror and the
+// viewport's first sizing pass is what gives it a backing store.
+//
+// Returns false — and changes nothing at all — when the flag in testoptions.js
+// is off or the machine has no WebGL2. Nothing here branches on the answer:
+// present() below is a no-op in that case and the 2D canvas is on screen, which
+// is what the game did before this existed.
+present.init(canvas, document.getElementById("present"));
+
 initViewport(canvas, () => {}, document.getElementById("frame"));
 const hint = document.getElementById("hint");
 
@@ -1764,6 +1776,25 @@ function render(alpha) {
   hauler.renderOverlay(ctx, W, H);
 }
 
-const loop = createLoop(update, render);
+// THE PRESENT STEP (engine/present.js): the finished 2D frame uploaded as a
+// texture and blitted back out through the WebGL2 canvas in front of it. One
+// call, after everything, which is the layering claim Phase 15 rests on — no
+// game module knows the GPU path exists, and 15b's bloom lands inside
+// present.js without touching a line above. It returns immediately when the
+// path is off or unavailable, in which case the browser is showing the 2D
+// canvas directly.
+//
+// WRAPPED AROUND render() RATHER THAN WRITTEN AT ITS TAIL, and that is not
+// tidiness. render() returns early on the two full-screen states that cover the
+// world outright — the menu (and pause, and gameover) and the shop — so a
+// present written at the bottom of the function would be skipped on exactly the
+// screens where nothing else is moving either. The result is not a stale frame
+// but a BLACK one: the GL drawing buffer is cleared after every composite, so a
+// frame that does not redraw it shows nothing at all. Here there is no branch it
+// can fall out of.
+const loop = createLoop(update, (alpha) => {
+  render(alpha);
+  present.present();
+});
 loop.start();
 

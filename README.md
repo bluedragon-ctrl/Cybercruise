@@ -196,7 +196,38 @@ Two profiling traps, both of which cost time to rediscover: `getImageData` used
 to "force a flush" demotes the canvas out of GPU acceleration and changes what is
 being compared, and measuring throughput inside `requestAnimationFrame` silently
 floors at vsync and reports a ratio of ~1. Two plausible-looking methods
-disagreed by 5x.
+disagreed by 5x. A third, found in Phase 15a: rAF is throttled to a standstill
+in a hidden tab, so anything counting frames has to be measured with the page
+actually on screen.
+
+### The present path
+
+The finished 2D frame is uploaded as a texture and blitted back out through a
+WebGL2 canvas sitting on top of the 2D one. As of Phase 15a that pass does
+**nothing** — the frame is pixel-identical either way — and that is the point:
+it isolates the plumbing from the look, so 15b's bloom lands with one possible
+cause for any regression. `src/engine/present.js` is the whole of it, with
+`src/engine/gl/` holding the WebGL2 setup and the shaders.
+
+Three things about it are worth knowing before touching the renderer:
+
+- **It is one call, wrapped around `render()` in `main.js`** — not written at
+  that function's tail, because `render()` returns early on the menu and the
+  shop and a present those branches skip is a **black** screen, not a stale one.
+  No module under `src/game/` knows the GPU path exists.
+- **`src/testoptions.js`'s `GL_PRESENT` A/Bs it**, and the same switch is thrown
+  automatically when there is no WebGL2 or the context is lost mid-run: the game
+  falls back to showing the 2D canvas, which is a complete game. Both paths are
+  verified, context loss included.
+- **Both canvases are sized by `engine/viewport.js`** (`mirrorCanvas`), so the
+  fit, the eighth-step quantisation, the `MAX_SCALE` cap and the resize settle
+  have one implementation rather than two that can drift.
+
+Costs, measured: ~259us per frame for the upload plus draw at scale 1 and
+~1047us at 1200x1600 on an Intel Iris Xe, of which only ~15us is CPU submit
+time — and **no dropped frames the 2D path does not also drop**. `present.js`'s
+header carries the three-configuration comparison and the reason its headline
+column is noise rather than signal.
 
 ### Display scaling
 
@@ -215,10 +246,12 @@ Two constraints worth knowing before touching it:
   SMEARING as it scrolls. Change any of those four and recompute the gcd.
   Integer-only scaling was tried first and is the wrong answer; `viewport.js`
   says why.
-- **`will-change: transform` on the canvas is load-bearing** — 48 dropped frames
-  of 599 unpromoted against 7 promoted. `css/style.css` carries that measurement
-  and the alternatives tried against it, alongside why `#hint` needs
-  `width: 0; min-width: 100%`.
+- **`will-change: transform` is load-bearing on whichever canvas is on screen**
+  — 48 dropped frames of 599 unpromoted against 7 promoted. Phase 15a moved the
+  promotion to the present canvas and re-took the measurement; on newer hardware
+  the gap has closed to nothing, and the rule is kept anyway. `css/style.css`
+  carries both figures, the alternatives tried against them, and why `#hint`
+  needs `width: 0; min-width: 100%`.
 
 ### The gutters
 
@@ -832,12 +865,13 @@ is on hold is everything that wants a SERVER behind it.
       modules is the trap that makes a full port expensive), and risks nothing
       in the test suite. If it lands, effects and particles can migrate into the
       GPU path incrementally while the HUD, menus and shop stay on Canvas2D.
-      Unmeasured risk to settle first: the per-frame canvas->texture upload.
+      The risk that had to be settled first — the per-frame canvas->texture
+      upload — is settled: 15a shipped it and it clears (see The present path).
       NOT a performance phase — the 1x frame is ~1ms of a 16.7ms budget; this is
       purely visual ambition, and a full WebGL/WebGPU renderer (which would also
       retire the sprite cache, free per-object rotation and lift the scaling
       constraints above) stays out of scope until the post pass proves the look
-  - [ ] **15a** — The present path, looking identical: a WebGL2 canvas in front
+  - [x] **15a** — DONE. The present path, looking identical: a WebGL2 canvas in front
         of the existing one, the finished 2D frame uploaded as a texture and
         blitted straight back out with no effects at all. Ships a no-op, which
         is the point — it isolates the two unmeasured costs from the look.
@@ -855,15 +889,22 @@ is on hold is everything that wants a SERVER behind it.
         physically impossible answers first: Chrome ELIDES re-uploading a 2D
         canvas that has not changed, so the source must be dirtied every
         iteration, and gl.finish() is not a sync point on ANGLE/D3D11 — a 1px
-        readPixels is. One number is still open, because rAF is throttled in a
-        hidden tab and it cannot be had from a spike: the dropped-frame count
-        under a live compositor, which is what 15a ships in order to obtain. Second is that `will-change:
-        transform` on the canvas is load-bearing (48 dropped frames of 599
-        unpromoted against 7 promoted — `css/style.css`), and this moves the
-        promoted layer to the GL canvas while the 2D one stops being composited
-        — so that measurement is RE-TAKEN, not inherited. The fallback falls
-        out for free: no WebGL2, or a lost context, and the 2D canvas is shown
-        directly, which is today's game exactly
+        readPixels is. The one number that could not be had from a spike, since
+        rAF is throttled in a hidden tab, is the DROPPED-FRAME COUNT under a
+        live compositor — obtained by shipping this, and the answer is that the
+        GL path drops none the 2D path does not (`engine/present.js` carries the
+        three-configuration table and why its headline column is noise). Second
+        is that `will-change: transform` on the canvas is load-bearing (48
+        dropped frames of 599 unpromoted against 7 promoted — `css/style.css`),
+        and this moves the promoted layer to the GL canvas while the 2D one
+        stops being composited — so that measurement was RE-TAKEN rather than
+        inherited: promoted and unpromoted now measure identically on both
+        canvases, and the declaration is kept as a contract rather than as a
+        fix. The fallback fell out for free as expected: no WebGL2, or a
+        context lost mid-run, and the 2D canvas is shown directly, which is
+        today's game exactly — both verified, the loss with
+        `WEBGL_lose_context` in a live run, restore included. See The present
+        path above
   - [ ] **15b** — Bloom: bright-pass threshold, half- and quarter-res separable
         blur, additive recombine with a tone knee. The whole frame, text
         included, and the flag from Phase 15 is what A/Bs it. Blurring at

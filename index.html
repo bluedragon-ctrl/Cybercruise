@@ -13,6 +13,19 @@
          device pixel ratio; 600x800 is the game's LOGICAL playfield, which never
          changes. See that file for the fit/scale/dpr split. -->
     <canvas id="game" width="600" height="800"></canvas>
+    <!-- The present surface (src/engine/present.js): the finished 2D frame
+         above, uploaded as a texture and blitted back out through WebGL2. A
+         SECOND ELEMENT because a 2D and a WebGL context cannot share a canvas.
+
+         It is out of flow and starts hidden, both of which matter. #frame is
+         shrink-wrapped to #game and the viewport measures #game to work out how
+         much of the window the cabinet's chrome eats, so a second in-flow canvas
+         would either double the cabinet's height or take a vote in its size.
+         Hidden until src/engine/present.js has a live WebGL2 context, so a
+         browser without one — or a context lost mid-run — simply keeps showing
+         the 2D canvas, which is the whole fallback. css/style.css does the swap
+         off a class on #frame. -->
+    <canvas id="present" width="600" height="800" aria-hidden="true"></canvas>
     <div id="hint">&uarr;/&darr; select &middot; &larr;/&rarr; adjust &middot; SPACE/ENTER confirm</div>
   </div>
 

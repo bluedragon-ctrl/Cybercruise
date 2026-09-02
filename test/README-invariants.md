@@ -63,6 +63,7 @@ per system rather than a new section in an old one.
 | `events.test.js` | the event catalogue's gating, the formations' geometry, and the director's two promises: a staged encounter can never seal the road, and a shop visit is only ever late |
 | `gutter.test.js` | `telemetry.js`'s line composition and emission pacing, and `console.js`'s divert mode |
 | `test-options.test.js` | the two cheat rows, and the claim that switching one off in `testoptions.js` is the whole removal |
+| `present.test.js` | the GPU present path's fallback, which no machine with WebGL2 would otherwise exercise, and the sampler name shared between `present.js` and the shader it binds |
 
 The `car-editor-*.test.js` files are ordinary unit tests of `tools/car-editor/`
 rather than part of this suite.

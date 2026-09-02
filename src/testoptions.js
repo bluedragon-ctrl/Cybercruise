@@ -31,6 +31,27 @@
 // the two per-option flags below.
 export const SHOW_TEST_OPTIONS = true;
 
+// GL PRESENT: route the finished 2D frame through the WebGL2 canvas in front of
+// it (engine/present.js) rather than showing the 2D canvas directly.
+//
+// NOT A CHEAT, AND IT SHIPS ON. It is here because Phase 15's whole premise is
+// that the GPU path can be A/B'd against the Canvas2D one, and this file is the
+// place a switch is reachable without hunting through the engine. It is
+// deliberately NOT gated by SHOW_TEST_OPTIONS above and has no menu row:
+// SHOW_TEST_OPTIONS false is "ship it", and shipping must not silently take the
+// renderer with it.
+//
+// Off is not a degraded mode either — it is the game exactly as it was before
+// Phase 15a, which is why it is the honest comparison. As of 15a the two are
+// pixel-identical by construction (the pass is a blit with no effects), so the
+// only thing this flag can currently change is the plumbing's cost; from 15b it
+// is what turns bloom on and off.
+//
+// The same switch is thrown for you when the machine cannot hold up its end:
+// no WebGL2, or a context lost mid-run, and present.js falls back to the 2D
+// canvas on its own.
+export const GL_PRESENT = true;
+
 // INVULNERABILITY: the car takes no hull damage at all — every source funnels
 // through Player.damage(), so the flag is honoured there once and covers
 // bullets, blasts, ramming and wall-scrape alike. Speed is still scrubbed by a
