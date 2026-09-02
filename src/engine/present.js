@@ -24,6 +24,12 @@
 //     -> BLUR_FS  (V) -> quarterA (quarter-res bloom, done)
 //     -> COMPOSITE_FS(frame, halfA, quarterA) -> the drawing buffer
 //
+// THAT IS THE CHAIN WITH testoptions.js's GL_PRESENT ON, which is the default
+// and the only path this file's pixel-identity claims are about. Off, present()
+// stops after the upload and reuses PRESENT_FS for a single frame -> drawing
+// buffer blit — 15a's original no-op, with none of the seven passes above. See
+// GL_PRESENT's own comment for why "off" no longer means "no GPU pass at all".
+//
 // WHY TWO RESOLUTIONS RATHER THAN ONE. A single blur radius is a choice
 // between a tight halo (misses broad glow) and a soft one (loses the bright
 // core to a wash) — see CLAUDE.md's phase notes on 15b/15d. Blurring the same
@@ -38,12 +44,22 @@
 // and this PR does not try to make a doubled halo (three-pass neonStroke plus
 // bloom) look right.
 //
-// WHAT WOULD GO WRONG WITHOUT THIS MODULE: nothing, immediately, which is the
-// unusual thing about it. The 2D canvas below is a complete game on its own,
-// and that is exactly why the fallback is cheap enough to be unconditional —
-// no WebGL2, or a context lost mid-run, and the game shows the 2D canvas
-// directly and keeps playing. Every failure path in gl/context.js funnels into
-// the single `live` flag below.
+// WHAT WOULD GO WRONG WITHOUT THIS MODULE, AS OF 15D-I: the game does not run.
+// WebGL2 is required (see gl/context.js's header for the reversal and why),
+// and this module is where that requirement is enforced and where both of its
+// failure paths are answered — a `#gl-notice` DOM overlay (index.html,
+// css/style.css), not drawn on either canvas, because the one case it exists
+// for is the one where the thing that draws text is the thing that is
+// missing. No WebGL2 at `init()` shows it as a dead end: `init()` returns
+// false, the caller (main.js) never starts the loop, and nothing is
+// playable. A context lost mid-run shows it as a pause: `live` drops to
+// false, present() becomes a no-op every frame until `webglcontextrestored`
+// fires, and the overlay covers whatever the (frozen, unadvancing) 2D canvas
+// is currently showing so a driver hiccup never reads as "keep driving
+// blind" — see gl/context.js's header for why that used to be answerable by
+// just showing the 2D canvas and no longer is. Every failure path in
+// gl/context.js funnels into the single `live` flag below either way; only
+// what `live` false now MEANS has changed.
 //
 // TWO CANVASES, WHICH IS NOT A CHOICE. A 2D and a WebGL context cannot share a
 // canvas element, so the frame has to cross from one to the other as a texture
@@ -174,35 +190,91 @@ let halfB = null;
 let quarterA = null;
 let quarterB = null;
 
-// The single branch every failure funnels into: no WebGL2, a shader that would
-// not compile, a lost context. False means present() does nothing and the 2D
-// canvas is what the player is looking at — today's game exactly.
+// False before init() has run, and again for as long as a lost context stays
+// lost — the single branch every RUNTIME failure funnels into. present()
+// no-ops while this is false; what that MEANS to the player is the notice
+// below. init() failing outright never sets this at all: it returns false
+// before touching `live`, and main.js does not start the loop in that case
+// (see this file's header) — so a permanently-false `live` is never reached
+// through this flag, only through the loop never starting.
 let live = false;
 
-// Exposed for verifying the fallback by hand from the console: force a loss
-// with the WEBGL_lose_context extension and this is what says the game noticed.
+// Exposed for verifying the pause by hand from the console: force a loss with
+// the WEBGL_lose_context extension and this is what says the game noticed.
 // Nothing in the render path reads it.
 export function isLive() {
   return live;
 }
 
-// Show the GL canvas or the 2D one. A CLASS ON THE CABINET, not inline styles
-// on two elements, because the swap is three coupled rules (which canvas is
-// visible, which one is promoted to a compositor layer, and which one carries
-// the cabinet's background) and css/style.css is where all three are already
-// written down. Inline styles here would be a second, partial copy of that
-// stylesheet.
+// Show the GL canvas or the 2D one underneath it. A CLASS ON THE CABINET, not
+// inline styles on two elements, because the swap is three coupled rules
+// (which canvas is visible, which one is promoted to a compositor layer, and
+// which one carries the cabinet's background) and css/style.css is where all
+// three are already written down. Inline styles here would be a second,
+// partial copy of that stylesheet.
 //
-// The 2D canvas goes `visibility: hidden`, not `display: none`: it must keep
-// its box, because engine/viewport.js measures it to derive the cabinet's
-// chrome (chromeSize there) and engine/gutter.js measures the cabinet to hang
-// the side panels off it. A displaced 2D canvas would collapse the cabinet and
-// take the gutters with it. Hidden is enough — a hidden element is not
-// painted, so the 2D canvas stops being composited, which is the point.
+// The 2D canvas goes `visibility: hidden`, not `display: none`, whichever
+// canvas is on top: it must keep its box, because engine/viewport.js measures
+// it to derive the cabinet's chrome (chromeSize there) and engine/gutter.js
+// measures the cabinet to hang the side panels off it. A displaced 2D canvas
+// would collapse the cabinet and take the gutters with it. Hidden is enough —
+// a hidden element is not painted, so the 2D canvas stops being composited,
+// which is the point. A CALL WITH `next` FALSE, during a context loss, does
+// not put the 2D canvas back on top of anything worth looking at — see
+// showNotice below, which covers both canvases with the loss message
+// regardless of this class.
 function setLive(next) {
   live = next;
   if (frameEl) frameEl.classList.toggle("gl", next);
 }
+
+// --- The WebGL2-required / context-lost notice ------------------------------
+//
+// Plain DOM (`#gl-notice` in index.html, styled in css/style.css), covering
+// the whole cabinet at a z-index above both canvases. NOT drawn on either
+// canvas, because the two cases it exists for are exactly the two cases where
+// drawing might not work: no WebGL2 at all, or the context that would draw it
+// just having been lost. `fatal` picks the tone (a permanent dead end vs a
+// pause worth waiting out) and nothing else — same two DOM nodes either way,
+// found once per `init()` off the cabinet element already in hand rather than
+// threaded through as a third canvas-shaped parameter.
+let noticeEl = null;
+let noticeTitleEl = null;
+let noticeBodyEl = null;
+
+function showNotice(fatal, title, body) {
+  if (!noticeEl) return;
+  noticeTitleEl.textContent = title;
+  noticeBodyEl.textContent = body;
+  noticeEl.classList.toggle("fatal", fatal);
+  noticeEl.hidden = false;
+}
+
+function hideNotice() {
+  if (noticeEl) noticeEl.hidden = true;
+}
+
+const WEBGL2_MISSING_TITLE = "WEBGL2 REQUIRED";
+const WEBGL2_MISSING_BODY =
+  "Cybercruise needs WebGL2 to run, and this browser or graphics driver " +
+  "doesn't provide it. Try updating your browser or your graphics drivers, " +
+  "or open the game in a different browser.";
+
+// A shader/program that fails to compile or link after WebGL2 itself was
+// acquired successfully — see gl/context.js's compile()/buildProgram(), which
+// already console.warn the real reason. Kept distinct from the message above
+// rather than reused for it: this machine HAS WebGL2, so telling it to update
+// a browser or driver would be pointing at the wrong fix.
+const RENDER_INIT_FAILED_TITLE = "RENDERER FAILED TO START";
+const RENDER_INIT_FAILED_BODY =
+  "WebGL2 is available, but the renderer failed to start — see the browser " +
+  "console for the reason. Reloading may help.";
+
+const GPU_LOST_TITLE = "GPU CONNECTION LOST";
+const GPU_LOST_BODY =
+  "The graphics context was lost — a driver reset, a GPU switch, or waking " +
+  "from sleep can all cause this. The run is paused and will resume " +
+  "automatically once the connection is back.";
 
 // (Re)create everything that dies with the context. Written to be run any
 // number of times: gl/context.js calls it again after a restore, and every
@@ -337,23 +409,32 @@ function allocate(w, h) {
   resizeTarget(gl, quarterB, quarterW, quarterH);
 }
 
-// Wire the present path up. Returns whether the GL path is live; false is a
-// complete answer rather than an error, and means the game runs exactly as it
-// did before this module existed.
+// Wire the present path up. Returns whether WebGL2 is live; false is now a
+// FATAL answer — see this file's header — and the caller (main.js) must not
+// start the game loop when it comes back false. The notice is already shown
+// by the time this returns, in every failing case: there is nothing left for
+// a caller to do about "false" except stay stopped.
+//
+// `onLost`/`onRestored` are the CALLER's own hooks, layered on top of what
+// this module already does for every loss/restore (teardown/rebuild, the
+// notice). They exist so main.js can pause and resume the game's own state
+// machine without this module knowing that a state machine exists — the same
+// callback-not-import shape gl/context.js itself uses one level down.
 //
 // CALLED BEFORE initViewport, deliberately: the GL canvas is registered as a
 // viewport mirror here, and the viewport's first sizing pass is what gives it a
 // backing store. Registered after, it would spend its first frames at the
 // 300x150 default a canvas element carries.
-export function init(gameCanvas, presentCanvas) {
-  // The flag off is not a degraded mode — it is the shipping game up to Phase
-  // 14. Nothing is created, nothing is registered, and the cabinet never gets
-  // the `gl` class, so the second canvas stays `display: none` and out of the
-  // compositor entirely.
-  if (!GL_PRESENT || !gameCanvas || !presentCanvas) return false;
+export function init(gameCanvas, presentCanvas, { onLost, onRestored } = {}) {
+  if (!gameCanvas || !presentCanvas) return false;
 
   source = gameCanvas;
   frameEl = presentCanvas.parentElement;
+  // Found once, off the cabinet element already in hand — see showNotice's
+  // header for why this lives here rather than as a third parameter.
+  noticeEl = frameEl ? frameEl.querySelector("#gl-notice") : null;
+  noticeTitleEl = noticeEl ? noticeEl.querySelector(".gl-notice-title") : null;
+  noticeBodyEl = noticeEl ? noticeEl.querySelector(".gl-notice-body") : null;
 
   gl = createContext(presentCanvas, {
     // A loss can arrive between any two calls, including inside present(). Both
@@ -361,16 +442,30 @@ export function init(gameCanvas, presentCanvas) {
     onLost: () => {
       teardown();
       setLive(false);
+      showNotice(false, GPU_LOST_TITLE, GPU_LOST_BODY);
+      if (onLost) onLost();
     },
     onRestored: () => {
-      if (build()) setLive(true);
+      if (build()) {
+        setLive(true);
+        hideNotice();
+        if (onRestored) onRestored();
+      }
+      // build() failing HERE — a restore that reconnects but then fails to
+      // recompile — is not given a message of its own: `live` stays false and
+      // the loss notice stays up, which is still the honest answer. It just
+      // stops being true that reconnecting is all that is being waited for.
     },
   });
-  if (!gl) return false;
+  if (!gl) {
+    showNotice(true, WEBGL2_MISSING_TITLE, WEBGL2_MISSING_BODY);
+    return false;
+  }
 
   mirrorCanvas(presentCanvas);
   if (!build()) {
     gl = null;
+    showNotice(true, RENDER_INIT_FAILED_TITLE, RENDER_INIT_FAILED_BODY);
     return false;
   }
   setLive(true);
@@ -400,6 +495,23 @@ export function present() {
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, source);
+
+  // THE DEVELOPER SWITCH, off: skip bloom and blit the just-uploaded frame
+  // straight to the drawing buffer — the 15a no-op path, kept for exactly the
+  // reason 15a built it, comparing the look with and without bloom. What
+  // changed in 15d-i is what "off" is being compared AGAINST: before, off
+  // meant no GPU pass at all (the 2D canvas, shown directly); that machine no
+  // longer exists (gl/context.js's header), so off now means "this GPU pass,
+  // minus bloom" — still through present, still through the upload above,
+  // just without the seven-draw chain below it. See testoptions.js's own
+  // comment on GL_PRESENT.
+  if (!GL_PRESENT) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, w, h);
+    gl.useProgram(presentProgram);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    return;
+  }
 
   const hw = halfA.width, hh = halfA.height;
   const qw = quarterA.width, qh = quarterA.height;

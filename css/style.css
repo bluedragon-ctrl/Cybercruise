@@ -124,10 +124,12 @@ body {
    and every other click in the game.
 
    HIDDEN UNTIL THERE IS A CONTEXT. The `gl` class below is added by present.js
-   only once WebGL2 is live and removed again if the context is lost, so a
-   machine without WebGL2 and a machine that loses it mid-run both end up
-   showing the 2D canvas — which is the complete game. `display: none` rather
-   than transparency, so an inert present canvas is not a compositor layer. */
+   only once WebGL2 is live and removed again if the context is lost — which,
+   as of Phase 15d-i, no longer means the 2D canvas underneath becomes the
+   thing the player is looking at: WebGL2 is required (src/engine/gl/context.js),
+   and #gl-notice below covers whichever canvas would otherwise show through in
+   both failure cases. `display: none` rather than transparency, so an inert
+   present canvas is not a compositor layer. */
 #present {
   position: absolute;
   left: var(--bezel);
@@ -175,6 +177,69 @@ body {
 #frame.gl #game {
   visibility: hidden;
   will-change: auto;
+}
+
+/* --- The WebGL2 notice -----------------------------------------------------
+
+   src/engine/present.js's answer to "no WebGL2 at all" and to a context lost
+   mid-run, now that Phase 15d-i has retired the Canvas2D fallback that used to
+   answer both (src/engine/gl/context.js's header). Plain DOM, not drawn on
+   either canvas, because the one case it exists for is the one where the
+   thing that draws text is the thing that is missing.
+
+   INSET: 0 ON #frame, covering the bezel too, rather than stepped in like
+   #present above: this does not have to line up with the 2D frame pixel for
+   pixel, it has to cover it COMPLETELY, so neither the stale 2D content nor an
+   undefined WebGL drawing buffer is ever what the player is actually looking
+   at. Z-INDEX for the same reason — #present's own `will-change: transform`
+   can open a stacking context, and paint order between siblings isn't
+   something to leave to DOM position when covering them completely is the
+   whole point. */
+.gl-notice {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  background: var(--frame);
+  border-radius: 10px;
+}
+
+/* AUTHOR CSS BEATS THE UA STYLESHEET, which is what makes this rule load-
+   bearing rather than redundant with the `hidden` attribute: the browser's own
+   `[hidden] { display: none }` is a UA rule, and `.gl-notice`'s own `display:
+   flex` above — same specificity, but an AUTHOR rule — wins over it regardless
+   of source order, so present.js's `noticeEl.hidden = true` would otherwise be
+   silently ignored and the notice would always cover the cabinet. */
+.gl-notice[hidden] {
+  display: none;
+}
+
+.gl-notice-title {
+  font-size: 16px;
+  letter-spacing: 2px;
+  /* Amber, matching .tone-warn below — recoverable by default: a context loss
+     is a pause, not a dead end. */
+  color: rgba(255, 176, 32, 0.9);
+  text-shadow: 0 0 8px currentColor;
+}
+
+/* The no-WebGL2-at-all case: nothing to wait out, so it reads red like
+   .tone-critical rather than amber like the recoverable default above. */
+.gl-notice.fatal .gl-notice-title {
+  color: rgba(255, 77, 77, 0.92);
+}
+
+.gl-notice-body {
+  max-width: 42ch;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(182, 255, 204, 0.82);
 }
 
 /* The control legend under the playfield.

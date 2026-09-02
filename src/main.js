@@ -88,11 +88,20 @@ const H = LOGICAL_H;
 // initViewport, because it registers that canvas as a viewport mirror and the
 // viewport's first sizing pass is what gives it a backing store.
 //
-// Returns false — and changes nothing at all — when the flag in testoptions.js
-// is off or the machine has no WebGL2. Nothing here branches on the answer:
-// present() below is a no-op in that case and the 2D canvas is on screen, which
-// is what the game did before this existed.
-present.init(canvas, document.getElementById("present"));
+// WEBGL2 IS REQUIRED AS OF PHASE 15D-I (see engine/gl/context.js's header for
+// the reversal and why). `glReady` false means present.js has already shown
+// the "WEBGL2 REQUIRED" notice and there is nothing left for this module to
+// do except never start the loop — see the bottom of this file. `onLost`/
+// `onRestored` are this module's own hooks into a context loss mid-run,
+// layered on top of what present.js already does for one on its own (its
+// header has the full design): they exist so the WORLD stops advancing while
+// the GPU is down, which present.js has no way to do by itself, since it
+// knows nothing about `state` or the fixed-step loop. See onGpuContextLost/
+// onGpuContextRestored and the "gpulost" frozen state below.
+const glReady = present.init(canvas, document.getElementById("present"), {
+  onLost: onGpuContextLost,
+  onRestored: onGpuContextRestored,
+});
 
 initViewport(canvas, () => {}, document.getElementById("frame"));
 const hint = document.getElementById("hint");
@@ -130,8 +139,9 @@ initMouse(canvas);
 // the same menu.js screen both times, see its header for how it tells them
 // apart. "gameover" is that screen a third time; RESTART calls newGame().
 //
-// THE FROZEN STATES are "connecting", "dying", "lifting" and "lowering". They
-// share one shape, and their handlers below only note what is unique to each:
+// THE FROZEN STATES are "connecting", "dying", "lifting", "lowering" and
+// "gpulost". They share one shape, and their handlers below only note what is
+// unique to each:
 //
 //   THE WORLD IS DRAWN BUT NOT ADVANCED. render() runs its whole world path,
 //   so the road, the traffic and the car stay visible exactly where they were;
@@ -153,12 +163,28 @@ initMouse(canvas);
 // game/hauler.js's drone carrying the car off the road and back, with
 // "shopping" (game/shop.js) between them, covering the world as "paused" does.
 //
+// "gpulost" IS THE ODD ONE OUT: every other frozen state is entered by a
+// player action or a sequence finishing, on the tick that does it. This one is
+// entered ASYNCHRONOUSLY, from present.js's onLost callback, which can fire
+// between any two ticks regardless of what state was current — the whole
+// reason WebGL2's context can be lost mid-run (engine/gl/context.js's header)
+// is that it is a driver event, not a game one. onGpuContextLost/
+// onGpuContextRestored below are what save and restore the state it
+// interrupted; every other frozen state above always knows in advance what
+// comes next.
+//
 // THE APPROACH IS NOT A STATE. The drone's arrival happens under "playing"
 // with the world still live — see hauler.js's phase list. Only the grab
 // freezes anything.
 const menu = createMenu();
 let state = "menu"; // "menu" | "connecting" | "playing" | "paused" | "dying" | "gameover"
-                    //   | "lifting" | "shopping" | "lowering"
+                    //   | "lifting" | "shopping" | "lowering" | "gpulost"
+
+// Which state to resume once the GPU context is restored — see
+// onGpuContextLost/onGpuContextRestored below. Only meaningful while
+// state === "gpulost"; null the rest of the time, including at module load,
+// since a loss cannot arrive before present.init() below has run.
+let gpuLostFrom = null;
 
 // The edge-detector state for Phase 8 step 5's sector-transition audio (see
 // the "playing" branch's own comment on sectorGlitching below) — declared up
@@ -692,7 +718,7 @@ let rigDue = 0;
 let hudClock = 0;
 
 // How each game state reads on the deck. ONE table for both columns, so the
-// nine states can never be listed twice and drift apart.
+// ten states can never be listed twice and drift apart.
 //
 //   link  the state machine's vocabulary, TRANSLATED. The raw state name would
 //         leak an implementation detail into the fiction, and half of them
@@ -714,6 +740,7 @@ const DECK_STATE = {
   lifting:    { link: "DOCKING",     mode: "idle" },
   shopping:   { link: "DOCKED",      mode: "idle" },
   lowering:   { link: "UNDOCKING",   mode: "idle" },
+  gpulost:    { link: "GPU DROPPED", mode: "idle" },
 };
 const DECK_STATE_FALLBACK = DECK_STATE.menu;
 
@@ -824,8 +851,31 @@ function update(dt) {
     case "lifting": return updateLifting(dt);
     case "shopping": return updateShopping();
     case "lowering": return updateLowering(dt);
+    case "gpulost": return updateGpuLost(dt);
     default: return updatePlaying(dt);
   }
+}
+
+// present.js's onLost/onRestored, wired at the top of this file into
+// present.init(). A loss can arrive on any tick regardless of `state` — see
+// the "gpulost" note in the state machine header above — so unlike every other
+// state transition in this file, these two are not called from inside
+// update()'s own switch.
+function onGpuContextLost() {
+  // Never overwritten by a second loss arriving before a restore: present.js's
+  // own `live` flag already makes a second onLost from an already-dead context
+  // impossible (gl/context.js only fires it once per context), so this is
+  // reached at most once per outage.
+  gpuLostFrom = state;
+  state = "gpulost";
+}
+
+function onGpuContextRestored() {
+  // gpuLostFrom is only ever null before the first loss of the session (see
+  // its own declaration) — by the time this fires, onGpuContextLost has
+  // already run and set it to whatever "gpulost" interrupted.
+  state = gpuLostFrom;
+  gpuLostFrom = null;
 }
 
 function updateMenu() {
@@ -993,6 +1043,19 @@ function updateLowering(dt) {
     state = "playing";
     hint.innerHTML = PLAY_HINT;
   }
+}
+
+// The one frozen state entered off the player's own action or a sequence
+// finishing — see the "gpulost" note in the state machine header above. There
+// is no `done` condition to poll here: onGpuContextRestored (wired into
+// present.init() at the top of this file) is what leaves it, asynchronously,
+// whenever the browser actually fires `webglcontextrestored`. Until then this
+// tick does nothing but keep the console's own clock honest and drain input,
+// the same as every other frozen state.
+function updateGpuLost(dt) {
+  gameConsole.update(dt);
+  consumePress("pause");
+  consumePress("fire");
 }
 
 function updatePlaying(dt) {
@@ -1780,9 +1843,11 @@ function render(alpha) {
 // texture and blitted back out through the WebGL2 canvas in front of it. One
 // call, after everything, which is the layering claim Phase 15 rests on — no
 // game module knows the GPU path exists, and 15b's bloom lands inside
-// present.js without touching a line above. It returns immediately when the
-// path is off or unavailable, in which case the browser is showing the 2D
-// canvas directly.
+// present.js without touching a line above. It returns immediately while
+// `state === "gpulost"` (present.js's own `live` flag is what makes this a
+// no-op, not a branch here) — the drawing buffer simply is not touched for as
+// long as the outage lasts, which is fine, because the #gl-notice overlay
+// (present.js's showNotice) is covering it for exactly as long.
 //
 // WRAPPED AROUND render() RATHER THAN WRITTEN AT ITS TAIL, and that is not
 // tidiness. render() returns early on the two full-screen states that cover the
@@ -1796,5 +1861,13 @@ const loop = createLoop(update, (alpha) => {
   render(alpha);
   present.present();
 });
-loop.start();
+// GLREADY FALSE MEANS NO WEBGL2 AT ALL — present.js has already shown the
+// fatal "WEBGL2 REQUIRED" notice (see the `glReady` comment above), and
+// WebGL2 is required to run the game at all now (engine/gl/context.js's
+// header), so there is nothing left to do but leave the loop stopped. Every
+// object built above it — the menu, the player, the whole per-run state — sits
+// unused rather than being built conditionally, since none of it costs
+// anything left idle and skipping construction here would be a second "is GL
+// up" branch to keep in sync with this one.
+if (glReady) loop.start();
 
