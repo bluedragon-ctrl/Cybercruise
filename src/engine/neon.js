@@ -2,6 +2,7 @@
 // All helpers save/restore context state so callers stay clean.
 
 import { renderScale } from "./viewport.js";
+import { GLYPHS, advance, textWidth } from "./vectorfont.js";
 
 export function clear(ctx, color = "#05060a") {
   ctx.fillStyle = color;
@@ -130,5 +131,84 @@ export function glowText(ctx, text, x, y, color, size = 16, align = "left", blur
   ctx.shadowColor = color;
   ctx.shadowBlur = blur;
   ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+// THE GAME'S DISPLAY TYPE, stroked from engine/vectorfont.js's alphabet rather
+// than filled from a system font — see that module's header for why the title
+// stopped being `Courier New` and what it bought.
+//
+// NO ctx.shadowBlur, and unlike glowText below that is not an oversight to be
+// corrected later: this draws on the BLOOMED canvas (main.js's render() owns
+// the split), so bloom already supplies a per-pixel halo over exactly these
+// pixels. A baked shadow underneath it is the doubled glow 15d-ii removed from
+// every other stroke in the game — see glowLine's header — and on text
+// specifically it is what made the old title's halo blotchy: two letters'
+// shadow skirts summing over BLOOM_THRESHOLD wherever the glyphs crowded, then
+// the composite's knee saturating that sum into an opaque patch.
+//
+// `align` matches glowText's: "left" | "center" | "right", measured off the
+// same `x`. `y` is the cap's TOP, matching `textBaseline = "top"` everywhere
+// else, so a vector string drops into a glowText call site without moving.
+//
+// `track` is EXTRA space between cells, in cap-height units — the knob that
+// turns a word from a tight banner into the wide, airy lettering an arcade
+// marquee used. It is the caller's, not the font's, because the same alphabet
+// wants to be tight at 54px and open at 11px.
+export function vectorText(ctx, text, x, y, color, capHeight, align = "left", width = 2, track = 0.12) {
+  const trackPx = track * capHeight;
+  const total = textWidth(text, capHeight, trackPx);
+  let cx = align === "center" ? x - total / 2 : align === "right" ? x - total : x;
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  // ONE PATH FOR THE WHOLE STRING, not one stroke per glyph: a stroke is a
+  // pipeline flush and the reason the road's barriers needed a cache at all
+  // (game/road.js's strip cache). Batching a title into a single stroke keeps
+  // an eleven-letter banner at the cost of one.
+  ctx.beginPath();
+  for (const ch of text) {
+    const glyph = GLYPHS[ch];
+    if (glyph) {
+      for (const poly of glyph) {
+        for (let i = 0; i < poly.length; i++) {
+          const px = cx + poly[i][0] * capHeight;
+          const py = y + poly[i][1] * capHeight;
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+      }
+    }
+    cx += advance(capHeight, trackPx);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+// A SEGMENTED METER, the instrument that replaced "SOUND: 50%" on the menu.
+//
+// `steps` is the number of segments AND the number of keypresses that cross
+// the whole range (menu.js asserts that against its own VOLUME_STEP), so the
+// meter is not an approximation of the value — it IS the value, counted. That
+// is the same reason the HUD shows a hull BAR rather than a percentage: an
+// instrument is read at a glance, a number has to be parsed.
+export function segmentMeter(ctx, x, y, w, h, level, steps, color, dim) {
+  const gap = 2;
+  const seg = (w - gap * (steps - 1)) / steps;
+  const lit = Math.round(level * steps);
+  ctx.save();
+  for (let i = 0; i < steps; i++) {
+    const sx = x + i * (seg + gap);
+    if (i < lit) {
+      ctx.fillStyle = color;
+      ctx.fillRect(sx, y, seg, h);
+    } else {
+      ctx.strokeStyle = dim;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sx + 0.5, y + 0.5, seg - 1, h - 1);
+    }
+  }
   ctx.restore();
 }

@@ -122,15 +122,80 @@ void main() {
 // vUv — see PRESENT_VS's header. This is the one place in the chain the frame
 // texture (the only CPU-uploaded one) is read, so this is the one place that
 // correction belongs.
+//
+// --- FOUR TAPS, THRESHOLDED INDIVIDUALLY, THEN AVERAGED ----------------------
+//
+// This pass renders the full-res frame into a HALF-res target, so it is a
+// downsample as well as a threshold, and how it samples is not a quality
+// preference — it decides whether THIN BRIGHT HORIZONTAL FEATURES FLICKER as
+// the world scrolls under them.
+//
+// THE BUG THIS REPLACED. One tap, NEAREST: a destination texel centre at
+// v = (i + 0.5) / (h/2) maps to source row h - (2i + 1) — always ODD. The
+// bright pass therefore sampled only the frame's odd rows, and half the rows
+// in the image contributed no bloom at all. A one-device-pixel horizontal line
+// — a building's roof outline (game/buildingshapes.js) is exactly that, and
+// BUILDING_EDGE's green channel is 1.0, far over the threshold — alternated
+// between "haloed" and "no halo whatsoever" as the floor scrolled it across
+// row parities, at up to 30Hz. MEASURED, on a 64x64 probe with a single such
+// line: total green 16320 (the bare core, zero bloom) on an even row against
+// 65792 on an odd one. The core stays put either way, since COMPOSITE_FS reads
+// the frame at full resolution, so it reads as the EDGE FLICKERING rather than
+// anything vanishing. Only HORIZONTAL features showed it, because only y
+// scrolls — the city floor's columns are fixed in screen x (game/citygrid.js).
+//
+// ANTI-ALIASING DOES NOT SAVE A SOFT LINE FROM IT, which is what makes this
+// general rather than a buildings bug: the subtractive threshold below clips a
+// 1.5px stroke's ~25%-alpha skirt to exactly zero and hands the pass back a
+// single full-alpha row, so entities drawn at fractional screen y (obstacles,
+// pickups, traffic) get the same modulation as a shimmer.
+//
+// WHY FOUR TAPS AND NOT A LINEAR FETCH. A destination texel centre maps to
+// source coordinate exactly 2i + 1.0 — the corner where four texels meet — so
+// a single bilinear tap there IS their 25/25/25/25 average, parity-invariant
+// for free and with no extra fetch. That was tried first (a WebGL2 sampler
+// object overriding the frame texture's NEAREST for this pass alone) and
+// REJECTED ON MEASUREMENT: averaging BEFORE the threshold gives a 1px line a
+// pre-threshold value of exactly 0.5, which is below BLOOM_THRESHOLD's 0.55,
+// so every thin bright line lost its halo outright — the same probe read 16320
+// on every row, flicker gone because the bloom was gone. Thresholding each tap
+// FIRST is what keeps a thin line's own brightness intact through the average,
+// and it cannot be expressed as a filter mode.
+//
+// PARITY-INVARIANT BY CONSTRUCTION, not by tuning: the four taps are the four
+// source texels of one 2x2 quad, so a 1px horizontal line lights exactly two
+// of them whichever row of the quad it occupies. The result is the same number
+// either way — the flicker is removed, not reduced.
+//
+// THE COST IS HALF THE PEAK: 0.225 where an odd row used to give 0.45. That is
+// the arithmetic mean of what the frame used to alternate between, so a scene's
+// halo lands where the eye was already integrating it to; BLOOM_EXPOSURE was
+// re-checked against this and left at 4.0.
+//
+// `uTexel` is the SOURCE's texel size (present.js sets it from the frame
+// texture, not from this pass's own half-res target), so the half-texel offsets
+// below land on the four texel centres flanking the quad corner. The taps are
+// symmetric about that corner, so the frame's y-flip does not change which four
+// texels they are and needs no sign care.
+//
+// THE PIXEL-IDENTITY SELF-TEST SURVIVES UNCHANGED: with uThreshold >= 1.0 each
+// of the four `max`es is exactly zero before anything is summed, so the sum is
+// exactly zero and the proof above still holds by inspection.
 export const BRIGHT_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uFrame;
 uniform float uThreshold;
+uniform vec2 uTexel;
 in vec2 vUv;
 out vec4 fragColor;
 void main() {
-  vec3 c = texture(uFrame, vec2(vUv.x, 1.0 - vUv.y)).rgb;
-  fragColor = vec4(max(c - uThreshold, 0.0), 1.0);
+  vec2 uv = vec2(vUv.x, 1.0 - vUv.y);
+  vec2 o = uTexel * 0.5;
+  vec3 c = max(texture(uFrame, uv + vec2(-o.x, -o.y)).rgb - uThreshold, 0.0)
+         + max(texture(uFrame, uv + vec2( o.x, -o.y)).rgb - uThreshold, 0.0)
+         + max(texture(uFrame, uv + vec2(-o.x,  o.y)).rgb - uThreshold, 0.0)
+         + max(texture(uFrame, uv + vec2( o.x,  o.y)).rgb - uThreshold, 0.0);
+  fragColor = vec4(c * 0.25, 1.0);
 }`;
 
 // One separable Gaussian pass. present.js runs it four times a frame — H then

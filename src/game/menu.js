@@ -28,7 +28,8 @@
 
 import { consumePress } from "../engine/input.js";
 import { mousePos, isMouseDown, consumeMouseClick } from "../engine/mouse.js";
-import { glowText, glowLine } from "../engine/neon.js";
+import { glowText, vectorText, segmentMeter } from "../engine/neon.js";
+import { textWidth } from "../engine/vectorfont.js";
 import { GREEN, GREEN_DIM, GREEN_PALE, GREEN_BRIGHT, PLAYER } from "../engine/palette.js";
 import { LOGICAL_H } from "../engine/viewport.js";
 import {
@@ -55,16 +56,71 @@ function clamp01(v) {
 // — shared between render() and update()'s hit-testing so what's drawn can
 // never drift from what's clickable. The test checkboxes live at the foot of
 // the screen instead (CHECK_Y below) and don't use this.
-const MENU_START_Y = 420;
-const MENU_ROW_SPACING = 52;
+// ROW 0 SITS APART FROM THE OTHER TWO, with a gap far wider than the pitch
+// between them, because it is not one of a list of three — it is the only row
+// that leaves this screen (see ROW0_LABEL), and the two below it are settings
+// you adjust and stay. Even spacing said "pick one of three"; this says "here
+// is the way in, and here are the knobs". The same reason row 0 is set larger
+// (ROW0_CAP), stated in position instead of in size.
+const ROW0_Y = 370;
+const VOLUME_START_Y = 470;
+const MENU_ROW_SPACING = 58;
+
+// THE ONE PLACE ROW GEOMETRY IS DERIVED. render() draws at these y's and
+// barRect() hit-tests against them, so a layout change cannot move what is
+// drawn away from what is clickable — the same rule the old
+// MENU_START_Y + row * SPACING arithmetic kept when the three rows were
+// evenly pitched and it was expressible as one line.
+function rowY(row) {
+  return row === 0 ? ROW0_Y : VOLUME_START_Y + (row - 1) * MENU_ROW_SPACING;
+}
 
 // Row 0 is the only one that ever ends update() with `confirmed`; every row
 // below it adjusts or toggles in place and leaves the menu up. Row 0's label is
 // the only thing that differs between the three modes — see the header.
-const ROW0_LABEL = { start: "START GAME", pause: "CONTINUE", gameover: "RESTART" };
+//
+// CONNECT / RECONNECT, NOT START GAME / RESTART. The game's own fiction is
+// that the player is jacked into a car over an uplink — it is what the
+// connecting sequence (game/jackin.js) shows, what the HUD's UPLINK STABLE
+// line reports, and what death is presented as (game/disconnect.js, and the
+// gameover subtitle below is CONNECTION LOST). "START GAME" and "RESTART" are
+// the words a menu uses ABOUT a game; these are the words the machine in the
+// fiction would use, and they cost nothing to say instead. Pause keeps
+// CONTINUE — the connection was never dropped there, so re-connecting is not
+// what the row does.
+export const ROW0_LABEL = { start: "CONNECT", pause: "CONTINUE", gameover: "RECONNECT" };
 const SOUND_ROW = 1;
 const MUSIC_ROW = 2;
 const VOLUME_STEP = 0.1;
+
+// The volume meters' segment count, DERIVED from the step rather than chosen:
+// one segment per keypress means the meter is not an approximation of the
+// level, it is the level counted out, and a left/right press always moves
+// exactly one segment. Retuning VOLUME_STEP re-derives it instead of leaving a
+// meter whose segments no longer line up with what the keys do.
+const VOLUME_SEGMENTS = Math.round(1 / VOLUME_STEP);
+
+// The three strings the screen shows besides its rows. SUBTITLE is what tells
+// the three modes apart at a glance — the same screen, three contexts (see the
+// header) — and CONNECTION LOST is the line ROW0_LABEL's RECONNECT answers.
+const TITLE = "CYBERCRUISE";
+const SUBTITLE = {
+  start: "NEON HIGHWAY COMBAT",
+  pause: "PAUSED",
+  gameover: "CONNECTION LOST",
+};
+// EVERY string this screen renders in vector type, in one list, so
+// vectorfont.test.js can assert the alphabet covers all of them rather than
+// keeping a second copy of these labels that could drift from these. Adding a
+// mode, or a row label with a character the font lacks, fails there instead of
+// showing up as a hole in the title screen.
+export const VECTOR_STRINGS = [
+  TITLE,
+  ...Object.values(ROW0_LABEL),
+  ...Object.values(SUBTITLE),
+  "SOUND",
+  "MUSIC",
+];
 
 // THE TEST ROWS (testoptions.js) are the only part of this menu that is not
 // always there: each one exists only while its flag in that file says so, and
@@ -131,8 +187,90 @@ export function testRowRect(W, i) {
 const BAR_W = 200;
 const BAR_H = 12;
 function barRect(W, row) {
-  const rowY = MENU_START_Y + row * MENU_ROW_SPACING;
-  return { x: W / 2 - BAR_W / 2, y: rowY + 30, w: BAR_W, h: BAR_H };
+  return { x: W / 2 - BAR_W / 2, y: rowY(row) + 30, w: BAR_W, h: BAR_H };
+}
+
+// DISPLAY TYPE SIZES. The title is set far larger and higher than the 46px
+// Courier it replaced, because a stroked face carries a size the filled one
+// could not: at 46px the old title was a dense block of typewriter letters, and
+// the same 11 characters as open line art want the room to read as a marquee.
+const TITLE_CAP = 54;
+const TITLE_Y = 150;
+const SUBTITLE_Y = 238;
+
+// ROW 0 IS NOT THE SAME SIZE AS THE TWO BELOW IT, and that is the row's job
+// showing in its type: row 0 is the only one that ever leaves this screen
+// (see ROW0_LABEL), while SOUND and MUSIC adjust in place and stay. Setting
+// the three at one size made a volume slider look like an equal alternative
+// to starting the game. The volume rows are labels on their meters now, and
+// sized like labels.
+const ROW0_CAP = 24;
+const VOLUME_CAP = 15;
+function rowCap(row) {
+  return row === 0 ? ROW0_CAP : VOLUME_CAP;
+}
+
+// THE PERSPECTIVE FLOOR behind the menu — the same road the game is about,
+// seen from a standstill. Drawn faint enough to sit under the type rather than
+// compete with it, and built from the two families the city floor already uses
+// (game/scenery.js): verticals converging on a vanishing point, horizontals
+// bunching toward the horizon.
+//
+// DRAWN LIVE, NOT CACHED, and that is affordable for the reason scenery.js's
+// grid was NOT: this is ~30 lines on a screen with no world behind it and no
+// frame budget to share, against that grid's ~2000 over a running game.
+const HORIZON_FROM_BOTTOM = 150;
+const FLOOR_COLUMNS = 20;
+const FLOOR_ROWS = 9;
+function drawHorizon(ctx, W, H) {
+  const horizon = H - HORIZON_FROM_BOTTOM;
+  ctx.save();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(57,255,136,0.10)";
+  ctx.beginPath();
+  for (let i = 0; i <= FLOOR_COLUMNS; i++) {
+    const x = (i / FLOOR_COLUMNS) * W;
+    ctx.moveTo(x, H);
+    // Converging on the screen's centre, but only PART of the way (0.18): a
+    // true single vanishing point puts every line through one pixel and reads
+    // as a starburst, where a shallow convergence reads as a road running to a
+    // horizon a long way off.
+    ctx.lineTo(W / 2 + (x - W / 2) * 0.18, horizon);
+  }
+  for (let i = 0; i < FLOOR_ROWS; i++) {
+    const t = i / (FLOOR_ROWS - 1);
+    const y = horizon + (H - horizon) * t * t * 1.6; // squared: rows bunch toward the horizon
+    if (y > H) break;
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+  }
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(57,255,136,0.35)";
+  ctx.beginPath();
+  ctx.moveTo(0, horizon);
+  ctx.lineTo(W, horizon);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// The selected row's markers — a chevron on each side, pointing inward at the
+// label. See render() for why this replaced a "> " prefix.
+const BRACKET_GAP = 14; // from the label's edge to the chevron's point
+const BRACKET_W = 7;
+function drawBrackets(ctx, cx, y, labelW, cap, color) {
+  const half = labelW / 2 + BRACKET_GAP;
+  const top = y + cap * 0.12, bot = y + cap * 0.88;
+  const mid = (top + bot) / 2;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.4;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(cx - half - BRACKET_W, top); ctx.lineTo(cx - half, mid); ctx.lineTo(cx - half - BRACKET_W, bot);
+  ctx.moveTo(cx + half + BRACKET_W, top); ctx.lineTo(cx + half, mid); ctx.lineTo(cx + half + BRACKET_W, bot);
+  ctx.stroke();
+  ctx.restore();
 }
 
 export function createMenu() {
@@ -317,54 +455,45 @@ export function createMenu() {
   // for the world (README's "Rendering the halo"), and move to `hudCtx`. See
   // main.js's render() for the split rule this is one half of.
   function render(ctx, hudCtx, W, H) {
-    glowText(ctx, "CYBERCRUISE", W / 2, 210, GREEN_BRIGHT, 46, "center", 18);
+    drawHorizon(ctx, W, H);
+
+    vectorText(ctx, TITLE, W / 2, TITLE_Y, GREEN_BRIGHT, TITLE_CAP, "center", 3.5, 0.13);
     // Pause and gameover both reuse the exact same screen, so the subtitle is
     // the one thing that tells all three modes apart at a glance.
-    const subtitle = mode === "pause" ? "PAUSED" : mode === "gameover" ? "CONNECTION LOST" : "NEON HIGHWAY COMBAT";
-    glowText(ctx, subtitle, W / 2, 268, GREEN_PALE, 14, "center", 8);
-    glowLine(ctx, W / 2 - 120, 302, W / 2 + 120, 302, GREEN_DIM, 1);
+    vectorText(ctx, SUBTITLE[mode], W / 2, SUBTITLE_Y, GREEN_PALE, 15, "center", 1.4, 0.34);
 
     // The three REAL rows only — the test checkboxes are a different size, in
     // a different place, on purpose (see CHECK_Y above), so they are drawn in
     // their own pass below rather than folded into this one.
+    //
+    // The two volume rows no longer carry their level as a PERCENTAGE in the
+    // label: the meter below each of them counts it out exactly (see
+    // VOLUME_SEGMENTS), so the number was the same fact printed twice.
     const rows = [ROW0_LABEL[mode], "SOUND", "MUSIC"];
     for (let i = 0; i < rows.length; i++) {
       const isSelected = i === selected;
-      let label = rows[i];
-      if (i === SOUND_ROW) label += `: ${Math.round(soundLevel * 100)}%`;
-      if (i === MUSIC_ROW) label += `: ${Math.round(volume * 100)}%`;
-      glowText(
-        ctx,
-        (isSelected ? "> " : "  ") + label,
-        W / 2,
-        MENU_START_Y + i * MENU_ROW_SPACING,
-        isSelected ? PLAYER : GREEN,
-        22,
-        "center",
-        isSelected ? 16 : 8,
-      );
+      const y = rowY(i);
+      const color = isSelected ? PLAYER : GREEN;
+      const cap = rowCap(i);
+      vectorText(ctx, rows[i], W / 2, y, color, cap, "center", isSelected ? 2.6 : 1.8, 0.16);
+      // SELECTION IS A PAIR OF BRACKETS, not the old "> " prefix. A prefix
+      // inside a CENTRED string shifts the whole label sideways when the
+      // cursor lands on it, so every row twitched as the cursor passed; a
+      // bracket on each side is symmetric, so nothing moves. It is also the
+      // marker an arcade menu used, which is the point of the rest of this
+      // screen.
+      if (isSelected) drawBrackets(ctx, W / 2, y, textWidth(rows[i], cap, 0.16 * cap), cap, color);
     }
 
-    // SOUND/MUSIC rows' volume bars — empty track plus a filled portion, the
-    // same styling main.js's HUD hull bar uses. Exactly the rects update()
-    // hit-tests the mouse against (barRect), so what's drawn is always what's
-    // clickable.
+    // SOUND/MUSIC rows' volume meters, at exactly the rects update()
+    // hit-tests the mouse against (barRect) so what's drawn is always what's
+    // clickable — the geometry is unchanged from the solid bar these replaced,
+    // only what fills it is.
     for (const [row, level] of [[SOUND_ROW, soundLevel], [MUSIC_ROW, volume]]) {
       const bar = barRect(W, row);
-      ctx.save();
-      ctx.strokeStyle = "rgba(120,255,180,0.4)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(bar.x, bar.y, bar.w, bar.h);
-      ctx.restore();
-      if (level > 0) {
-        ctx.save();
-        ctx.fillStyle = GREEN_BRIGHT;
-        ctx.shadowColor = GREEN_BRIGHT;
-        ctx.shadowBlur = 10;
-        ctx.fillRect(bar.x + 1, bar.y + 1, (bar.w - 2) * level, bar.h - 2);
-        ctx.restore();
-      }
+      segmentMeter(ctx, bar.x, bar.y, bar.w, bar.h, level, VOLUME_SEGMENTS, GREEN_BRIGHT, GREEN_DIM);
     }
+
 
     // The test checkboxes — small on purpose (see CHECK_Y above), and drawn
     // at all only once F1 has set `testOptionsVisible` (see update()). Off

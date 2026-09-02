@@ -7,7 +7,7 @@ import { LOGICAL_W, LOGICAL_H, initViewport, applyTransform, snapToDevice, mirro
 import * as present from "./engine/present.js";
 import { initInput, isDown, consumePress } from "./engine/input.js";
 import { initMouse } from "./engine/mouse.js";
-import { clear, clearHud, glowText } from "./engine/neon.js";
+import { clear, clearHud, glowText, vectorText } from "./engine/neon.js";
 import { GREEN, GREEN_BRIGHT, GREEN_PALE, HAZARD, PLAYER, PLAYER_THRUST, SHIELD_FLICKER } from "./engine/palette.js";
 import { Player, BOOST_EXPIRING, BOOST_FLICKER_RATE } from "./game/player.js";
 import { Projectiles } from "./game/projectiles.js";
@@ -1694,11 +1694,15 @@ function render(alpha) {
     menu.render(ctx, hudCtx, W, H);
     // menu.js never touches the world (see its header) — the final score is
     // world state, so it's main.js's job to draw it, not menu.open()'s to
-    // have been handed it. Placed above the RESTART row rather than fighting
+    // have been handed it. Placed above the RECONNECT row rather than fighting
     // menu.js's own layout for space inside it. On `ctx`: same size class as
     // the menu's own rows, and there is no live HUD on this screen to cover.
+    // IN VECTOR TYPE (engine/vectorfont.js), like every other line on this
+    // screen: these two sit between the menu's subtitle and its rows, so
+    // leaving them in Courier would have made the gameover screen the one
+    // place in the game where the two faces are read against each other.
     if (state === "gameover") {
-      glowText(ctx, `FINAL SCORE ${score.points}`, W / 2, 350, GREEN_BRIGHT, 18, "center", 10);
+      vectorText(ctx, `FINAL SCORE ${score.points}`, W / 2, 296, GREEN_BRIGHT, 17, "center", 1.8, 0.22);
       // What the run was worth in CREDITS. Reads lastRunEarnings rather than
       // `earned`, which the death-time bank() has already zeroed by the time
       // this screen exists — see Wallet.bank().
@@ -1709,7 +1713,7 @@ function render(alpha) {
       // the second of which promised a persistence the game no longer claims.
       // The word comes back with the balance, when players have records to
       // hold one.
-      glowText(ctx, `CREDITS EARNED ${wallet.lastRunEarnings}`, W / 2, 376, GREEN_PALE, 13, "center", 8);
+      vectorText(ctx, `CREDITS EARNED ${wallet.lastRunEarnings}`, W / 2, 326, GREEN_PALE, 12, "center", 1.3, 0.3);
     }
     return;
   }
