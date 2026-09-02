@@ -22,9 +22,10 @@
 // keeps state: "a ping just started" is an EDGE, and an edge needs memory. See
 // announce() for how that memory is held to one scalar.
 //
-// COST. Genuinely per-frame paths. NO ctx.shadowBlur — the glow is neonStroke's
-// own overdraw, since a shadow on a path spanning much of the canvas measured
-// ~0.5ms/frame on its own. Batched by colour: every conduit's dash in one path,
+// COST. Genuinely per-frame paths. NO ctx.shadowBlur — the glow is bloom's,
+// over the finished frame (engine/present.js), since a shadow on a path
+// spanning much of the canvas measured ~0.5ms/frame on its own. Batched by
+// colour: every conduit's dash in one path,
 // every packet dot in one fill; ping arcs get their own strokes only because
 // they need independent fade alpha a shared path can't express. Bounded by the
 // visible node walk (scenery.js's visibleNodes), so anything off screen is never
@@ -418,7 +419,7 @@ function drawConduits(ctx, conduits) {
       c.moveTo(link.x1, link.y1);
       c.lineTo(link.x2, link.y2);
     }
-  }, CONDUIT_LINE, CONDUIT_WIDTH, 3);
+  }, CONDUIT_LINE, CONDUIT_WIDTH);
   ctx.restore();
 
   // Every LIVE packet dot in one rect batch/fill — no ctx.shadowBlur, the
@@ -452,7 +453,7 @@ function drawPings(ctx, pings) {
   for (const p of pings) {
     neonStroke(ctx, (c) => {
       c.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-    }, PING_RING, 1.5, 3, 0.13, p.alpha);
+    }, PING_RING, 1.5, p.alpha);
   }
 }
 

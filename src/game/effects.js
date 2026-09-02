@@ -17,10 +17,11 @@
 // COST. Unlike cars, an explosion is unique per instance, so the sprite cache
 // cannot help: every frame is drawn live. That rules out ctx.shadowBlur — as
 // neon.js documents, blur cost scales with the shadow's BOUNDING-BOX AREA, and a
-// debris field's box is enormous. Everything here goes through neonStroke's
-// overdraw halo instead, and each pass batches ALL of its fragments into one path
-// so the three stroke passes are paid once per pass, not once per particle. A
-// wreck is 9 strokes per frame regardless of how many pieces it is made of.
+// debris field's box is enormous. Everything here goes through neonStroke
+// instead, which since Phase 15d-ii is a single plain stroke (bloom supplies the
+// halo — see neon.js's header), and each pass batches ALL of its fragments into
+// one path so that stroke is paid once per pass, not once per particle. A wreck
+// is 3 strokes per frame regardless of how many pieces it is made of.
 
 import { neonStroke } from "../engine/neon.js";
 import { carShapeOutline } from "./carshapes.js";
@@ -117,7 +118,7 @@ export function drawChromaticSplit(ctx, cx, cy, w, h, { drift, jitter, spreadPx,
         c.moveTo(cx + x1 + ox, cy + y1 + oy);
         c.lineTo(cx + x2 + ox, cy + y2 + oy);
       }
-    }, color, 2, 4, 0.13, alpha);
+    }, color, 2, alpha);
   }
 }
 
@@ -204,13 +205,13 @@ export function drawWreck(ctx, cx, cy, t, opts = {}) {
 
   // Interior first, so the shell fragments read as being in front of the spray.
   neonStroke(ctx, (c) => buildStreaks(c, cx, cy, tt, base, rand, spread),
-    thrust, 2, 4, 0.13, Math.max(0, 1 - Math.pow(t, 1.5)));
+    thrust, 2, Math.max(0, 1 - Math.pow(t, 1.5)));
   neonStroke(ctx, (c) => buildChunks(c, cx, cy, tt, base, rand, spread),
-    color, 1.5, 4, 0.13, t < 0.65 ? 1 : Math.max(0, 1 - (t - 0.65) / 0.35));
+    color, 1.5, t < 0.65 ? 1 : Math.max(0, 1 - (t - 0.65) / 0.35));
 
   // The shell, fading first so the spray is what you are left watching.
   neonStroke(ctx, (c) => buildShell(c, cx, cy, tt, shape, w, h, rand),
-    color, 2, 4, 0.13, Math.max(0, 1 - Math.pow(t, 1.7)));
+    color, 2, Math.max(0, 1 - Math.pow(t, 1.7)));
 
   // A brief white core, so an effect built from fragments still reads as an
   // impact rather than the car quietly disassembling.
@@ -220,7 +221,7 @@ export function drawWreck(ctx, cx, cy, t, opts = {}) {
     neonStroke(ctx, (c) => {
       c.moveTo(cx + r, cy);
       c.arc(cx, cy, r, 0, Math.PI * 2);
-    }, "#ffffff", 3, 5, 0.16, k);
+    }, "#ffffff", 3, k);
   }
   ctx.restore();
 }
@@ -273,7 +274,7 @@ export function drawMineBlast(ctx, cx, cy, t, opts = {}) {
         if (i === 0) c.moveTo(x, y);
         else c.lineTo(x, y);
       }
-    }, ring ? PLAYER : CRITICAL_FLASH, 2.5 - ring, 4, 0.14,
+    }, ring ? PLAYER : CRITICAL_FLASH, 2.5 - ring,
       Math.max(0, 1 - Math.pow(t, 1.5)));
   }
 
@@ -294,7 +295,7 @@ export function drawMineBlast(ctx, cx, cy, t, opts = {}) {
         c.lineTo(x, y);
       }
     }
-  }, PLAYER, 1.5, 4, 0.13, Math.max(0, 1 - t) * (t < 0.12 ? t / 0.12 : 1));
+  }, PLAYER, 1.5, Math.max(0, 1 - t) * (t < 0.12 ? t / 0.12 : 1));
 
   // The collapsing white core — the charge dumping itself.
   if (t < 0.3) {
@@ -303,7 +304,7 @@ export function drawMineBlast(ctx, cx, cy, t, opts = {}) {
     neonStroke(ctx, (c) => {
       c.moveTo(cx + r, cy);
       c.arc(cx, cy, r, 0, Math.PI * 2);
-    }, "#ffffff", 4, 5, 0.2, k);
+    }, "#ffffff", 4, k);
   }
   ctx.restore();
 }
@@ -395,11 +396,11 @@ export function drawFireballBurst(ctx, cx, cy, t, opts = {}) {
 
   // Smoke first, so it reads as rising behind the fire rather than in front.
   neonStroke(ctx, (c) => buildFireballSmoke(c, cx, cy, tt, rand, radius),
-    GREEN_DIM, 2, 4, 0.1, Math.max(0, t - 0.15) * 0.6);
+    GREEN_DIM, 2, Math.max(0, t - 0.15) * 0.6);
 
   // The ragged outer ring.
   neonStroke(ctx, (c) => buildFireballOutline(c, cx, cy, R, rand),
-    ROCKET, 2.5, 4, 0.15, Math.max(0, 1 - Math.pow(t, 1.6)));
+    ROCKET, 2.5, Math.max(0, 1 - Math.pow(t, 1.6)));
 
   // Inner glow, fading a little ahead of the outer ring.
   if (t < 0.7) {
@@ -407,12 +408,12 @@ export function drawFireballBurst(ctx, cx, cy, t, opts = {}) {
     neonStroke(ctx, (c) => {
       c.moveTo(cx + R * 0.45, cy);
       c.arc(cx, cy, R * 0.45, 0, Math.PI * 2);
-    }, ROCKET_HOT, 3, 4, 0.16, k);
+    }, ROCKET_HOT, 3, k);
   }
 
   // Falling embers.
   neonStroke(ctx, (c) => buildFireballEmbers(c, cx, cy, tt, rand, radius),
-    ROCKET, 2, 4, 0.13, Math.max(0, 1 - Math.pow(t, 1.3)));
+    ROCKET, 2, Math.max(0, 1 - Math.pow(t, 1.3)));
 
   // The white core flash — same device drawWreck and drawMineBlast use, so an
   // impact still reads as one even before the eye has parsed the fire.
@@ -422,7 +423,7 @@ export function drawFireballBurst(ctx, cx, cy, t, opts = {}) {
     neonStroke(ctx, (c) => {
       c.moveTo(cx + r, cy);
       c.arc(cx, cy, r, 0, Math.PI * 2);
-    }, "#ffffff", 3, 5, 0.18, k);
+    }, "#ffffff", 3, k);
   }
   ctx.restore();
 }
@@ -484,7 +485,7 @@ function drawSplinters(ctx, cx, cy, t, w, h, seed) {
       c.moveTo(px - Math.cos(spin) * len, py - Math.sin(spin) * len);
       c.lineTo(px + Math.cos(spin) * len, py + Math.sin(spin) * len);
     }
-  }, NEUTRAL, 2, 4, 0.13, Math.max(0, 1 - Math.pow(t, 1.4)));
+  }, NEUTRAL, 2, Math.max(0, 1 - Math.pow(t, 1.4)));
 
   // A few brighter stripe shards, from the painted face of the beam. They fade
   // first, so the last thing on screen is plain debris.
@@ -498,7 +499,7 @@ function drawSplinters(ctx, cx, cy, t, w, h, seed) {
       c.moveTo(px, py);
       c.lineTo(px - Math.cos(a) * 9, py - Math.sin(a) * 9);
     }
-  }, NEUTRAL_PALE, 1.5, 4, 0.13, Math.max(0, 1 - t * 1.8));
+  }, NEUTRAL_PALE, 1.5, Math.max(0, 1 - t * 1.8));
 }
 
 // Heavy debris: a hard hit that mostly stays where it happened.
@@ -515,7 +516,7 @@ function drawHeavyImpact(ctx, cx, cy, t, w, h, seed) {
     neonStroke(ctx, (c) => {
       c.moveTo(cx + r, cy);
       c.arc(cx, cy, r, 0, Math.PI * 2);
-    }, NEUTRAL_PALE, 3.5, 4, 0.15, 1 - k);
+    }, NEUTRAL_PALE, 3.5, 1 - k);
   }
 
   // Four stubby lances at the contact point: the force having nowhere to go.
@@ -528,7 +529,7 @@ function drawHeavyImpact(ctx, cx, cy, t, w, h, seed) {
         c.moveTo(cx + Math.cos(a) * L * 0.25, cy + Math.sin(a) * L * 0.25);
         c.lineTo(cx + Math.cos(a) * L, cy + Math.sin(a) * L);
       }
-    }, "#ffffff", 3.5, 5, 0.18, k);
+    }, "#ffffff", 3.5, k);
   }
 
   // The chunks. Heavy drag (8/sec vs the splinters' 2.6) means they lurch out
@@ -555,7 +556,7 @@ function drawHeavyImpact(ctx, cx, cy, t, w, h, seed) {
         c.lineTo(px + Math.cos(a2) * r, py + Math.sin(a2) * r);
       }
     }
-  }, NEUTRAL, 2, 4, 0.13, t < 0.7 ? 1 : Math.max(0, 1 - (t - 0.7) / 0.3));
+  }, NEUTRAL, 2, t < 0.7 ? 1 : Math.max(0, 1 - (t - 0.7) / 0.3));
 
   // Dust: a dim, slowly spreading ring of dashes low to the tarmac, still
   // hanging there after the chunks have stopped. The one part of the effect
@@ -567,7 +568,7 @@ function drawHeavyImpact(ctx, cx, cy, t, w, h, seed) {
       c.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
       c.lineTo(cx + Math.cos(a + 0.22) * r, cy + Math.sin(a + 0.22) * r);
     }
-  }, NEUTRAL_DEEP, 2.5, 3, 0.12, Math.max(0, 1 - t) * 0.7);
+  }, NEUTRAL_DEEP, 2.5, Math.max(0, 1 - t) * 0.7);
 }
 
 // A burst water barrel. The odd one out of the three, on purpose: it is the only
@@ -603,7 +604,7 @@ function drawWaterBurst(ctx, cx, cy, t, w, h, seed) {
         if (i === 0) c.moveTo(x, y);
         else c.lineTo(x, y);
       }
-    }, GREEN_BRIGHT, 2.5, 4, 0.14, 1 - k);
+    }, GREEN_BRIGHT, 2.5, 1 - k);
   }
 
   // Droplets. Heavy drag (5/sec) and short streaks that get shorter as they
@@ -621,7 +622,7 @@ function drawWaterBurst(ctx, cx, cy, t, w, h, seed) {
       c.moveTo(px, py);
       c.lineTo(px - Math.cos(a) * len, py - Math.sin(a) * len);
     }
-  }, GREEN_PALE, 2, 4, 0.13, Math.max(0, 1 - Math.pow(t, 1.7)));
+  }, GREEN_PALE, 2, Math.max(0, 1 - Math.pow(t, 1.7)));
 
   // The puddle: a wide, dim, wobbling pool that spreads slowly and is the LAST
   // thing to fade. Water doesn't vanish, it lies there — and it gives the barrels
@@ -638,7 +639,7 @@ function drawWaterBurst(ctx, cx, cy, t, w, h, seed) {
       if (i === 0) c.moveTo(x, y);
       else c.lineTo(x, y);
     }
-  }, GREEN_DIM, 2.5, 3, 0.12, t < 0.5 ? 0.85 : Math.max(0, 1 - (t - 0.5) / 0.5) * 0.85);
+  }, GREEN_DIM, 2.5, t < 0.5 ? 0.85 : Math.max(0, 1 - (t - 0.5) / 0.5) * 0.85);
 
   // Shards of the drum itself, so the burst stays attached to the object that
   // burst. Amber, few, and gone early — the water is the event, not these.
@@ -653,7 +654,7 @@ function drawWaterBurst(ctx, cx, cy, t, w, h, seed) {
       c.moveTo(px - Math.cos(spin) * len, py - Math.sin(spin) * len);
       c.lineTo(px + Math.cos(spin) * len, py + Math.sin(spin) * len);
     }
-  }, NEUTRAL, 2, 4, 0.13, Math.max(0, 1 - t * 1.6));
+  }, NEUTRAL, 2, Math.max(0, 1 - t * 1.6));
 }
 
 // Break a roadblock apart. `style` is SPLINTER, WATER or IMPACT
@@ -714,8 +715,8 @@ export function drawCollectBurst(ctx, cx, cy, t) {
   neonStroke(ctx, (c) => {
     c.moveTo(cx + r, cy);
     c.arc(cx, cy, r, 0, Math.PI * 2);
-  }, color, 2, 4, 0.15, a * 0.9);
-  neonStroke(ctx, (c) => buildCollectSparks(c, cx, cy, r), color, 1.5, 4, 0.13, a);
+  }, color, 2, a * 0.9);
+  neonStroke(ctx, (c) => buildCollectSparks(c, cx, cy, r), color, 1.5, a);
   ctx.restore();
 }
 
@@ -762,7 +763,7 @@ export function drawTargetMark(ctx, cx, cy, w, h, phase, color = PLAYER_THRUST) 
         c.lineTo(x, y - sy * MARK_CORNER);
       }
     }
-  }, color, 1.6, 4, 0.14, alpha);
+  }, color, 1.6, alpha);
 }
 
 // --- The boss's hull meter ----------------------------------------------------
@@ -877,18 +878,18 @@ export function drawShieldArc(ctx, x1, y1, x2, y2, t, opts = {}) {
 
   ctx.save();
   neonStroke(ctx, (c) => buildArcBolt(c, x1, y1, x2, y2, rng(seed), 1),
-    color, 1.8, 5, 0.16, a);
+    color, 1.8, a);
   // A second, tighter bolt on its own seed: two strands reading as one
   // discharge, which is the cheapest way to make a bolt look hot rather than
   // drawn.
   neonStroke(ctx, (c) => buildArcBolt(c, x1, y1, x2, y2, rng(seed * 31 + 7), 0.45),
-    glow, 1.2, 4, 0.13, a * 0.85);
+    glow, 1.2, a * 0.85);
   // Where it lands.
   const r = 3 + t * 9;
   neonStroke(ctx, (c) => {
     c.moveTo(x2 + r, y2);
     c.arc(x2, y2, r, 0, Math.PI * 2);
-  }, glow, 1.4, 4, 0.15, a);
+  }, glow, 1.4, a);
   ctx.restore();
 }
 

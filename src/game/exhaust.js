@@ -12,11 +12,13 @@
 // stay as the NOZZLES, baked into the sprite; the plume is drawn live on top
 // of the blit, which is the only layer that may vary per frame for free.
 //
-// Cost: three batched neonStroke calls per frame, both flames in each path.
-// Per engine/neon.js's own note, `build` may batch disjoint segments into one
-// path, so the three overdraw passes are paid once, not once per flame. Big
-// linear glow uses overdraw and never ctx.shadowBlur (see the render-profile
-// notes in the README).
+// Cost: three (four once the hot core is showing) batched neonStroke calls
+// per frame, both flames in each path — `build` may batch disjoint segments
+// into one path (engine/neon.js), so each layer is one stroke regardless of
+// which flame it belongs to. Big linear glow never used ctx.shadowBlur (see
+// the render-profile notes in the README); since Phase 15d-ii neonStroke
+// itself is a single stroke too, and bloom (engine/present.js) supplies the
+// halo over the finished frame instead of a second overdraw pass per layer.
 
 import { neonStroke } from "../engine/neon.js";
 import { PLAYER, PLAYER_THRUST } from "../engine/palette.js";
@@ -32,10 +34,13 @@ const LEN_MAX = 26;
 // Stroke widths for the two body layers. The plume is drawn as a short wide
 // ROOT overlapping a long thin TIP, which is what gives it a taper — a single
 // constant-width stroke reads as a rod, and neonStroke has no width ramp.
-// Deliberately wide and soft rather than sharp: a thin bright line reads as a
-// rod or a leg poking out of the tail, not as burning gas. The `spread` and
-// `halo` arguments in render() are pushed up to match, so most of what the eye
-// sees is the outer overdraw pass, not the core.
+// Deliberately wide rather than sharp: a thin bright line reads as a rod or a
+// leg poking out of the tail, not as burning gas. Through Phase 15d-i that
+// width was reinforced by pushing each layer's own `spread`/`halo` up to
+// match, so most of what the eye saw was neonStroke's own overdraw rather
+// than the core; 15d-ii retired that overdraw (neon.js's header), so the
+// widths below are now the WHOLE of what shapes the taper, and bloom
+// (engine/present.js) is what supplies the softness around them.
 const ROOT_WIDTH = 5.2;
 const TIP_WIDTH = 2.6;
 const ROOT_FRAC = 0.42; // how much of the plume's length the root covers
@@ -162,16 +167,16 @@ export class Exhaust {
     // shorter and wider than the one under it, and the overlap near the pipes
     // is what makes the flame read as tapering — neonStroke has no width ramp,
     // so a taper has to be built out of stacked constant-width passes.
-    neonStroke(ctx, layer(WISP_FRAC), PLAYER_THRUST, WISP_WIDTH, 8, 0.18, flicker * WISP_ALPHA);
-    neonStroke(ctx, layer(1), PLAYER_THRUST, TIP_WIDTH, 7, 0.17, flicker);
-    neonStroke(ctx, layer(ROOT_FRAC), PLAYER_THRUST, ROOT_WIDTH, 5, 0.19, flicker);
+    neonStroke(ctx, layer(WISP_FRAC), PLAYER_THRUST, WISP_WIDTH, flicker * WISP_ALPHA);
+    neonStroke(ctx, layer(1), PLAYER_THRUST, TIP_WIDTH, flicker);
+    neonStroke(ctx, layer(ROOT_FRAC), PLAYER_THRUST, ROOT_WIDTH, flicker);
 
     // The hot core, only near the top of the speed band. Its alpha ramps from
     // 0 at the threshold to 1 at redline, so it arrives as a colour shift
     // rather than as a layer switching on.
     if (this.intensity > CORE_SPEED) {
       const heat = (this.intensity - CORE_SPEED) / (1 - CORE_SPEED);
-      neonStroke(ctx, layer(CORE_FRAC), PLAYER, CORE_WIDTH, 5, 0.18, heat * flicker);
+      neonStroke(ctx, layer(CORE_FRAC), PLAYER, CORE_WIDTH, heat * flicker);
     }
 
     ctx.restore();

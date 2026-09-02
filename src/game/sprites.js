@@ -56,9 +56,25 @@ export function drawObstacle(ctx, cx, cy, opts = {}) {
 // through to the game and the gallery alike.
 // ---------------------------------------------------------------------------
 
-// Margin around a cached sprite so the glow (max shadowBlur used here is 13)
-// isn't clipped by the offscreen canvas edge.
-const GLOW_PAD = 18;
+// Margin around a cached sprite so its artwork isn't clipped by the offscreen
+// canvas edge.
+//
+// RE-MEASURED FOR PHASE 15D-II, AND IT SHRANK FROM 18. Through 15d-i this was
+// sized off "max shadowBlur used here is 13" — the car catalogue's own
+// silhouette outline, glowPoly'd at blur 13 (carshapes.js). 15d-ii retires
+// every shadowBlur baked into a cached sprite (see obstacleshapes.js's
+// GLOW_BLEED header for the same argument in more detail: bloom,
+// engine/present.js, supplies the halo now, and a shadow baked into the
+// sprite bitmap would double up with it), so nothing left in a car, building
+// or node sprite bleeds further than half a stroke's width past its nominal
+// edge. MEASURED the same way GLOW_BLEED is (render to an offscreen canvas,
+// scan the alpha > 40 bounding box against carShapeExtent/shapeExtent/
+// nodeExtent) across every car shape, every building shape at a spread of
+// variant params, and every node variant: the worst car (GLIDE) bled 3.3px,
+// the worst building 1.6px, every node exactly 1px. 6 covers the worst case
+// with margin and is a single shared constant across all three catalogues,
+// same as before.
+const GLOW_PAD = 6;
 
 // drawWheel lays its tread bands every TREAD_SPACING px and wraps, so the wheel's
 // appearance repeats with a period of exactly that much travel. Sampling that

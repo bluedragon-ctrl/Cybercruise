@@ -296,7 +296,8 @@ function paintRoad(ctx, distance, playerY, W, yFrom, yTo) {
 
   // Glowing neon barriers. These span the full canvas height, so a shadowBlur
   // glow would blur a screen-sized bounding box twice per frame (~1.8ms of a
-  // ~5ms frame); neonStroke gets the same look from overdraw instead.
+  // ~5ms frame); neonStroke draws a plain stroke instead and bloom
+  // (engine/present.js) supplies the halo over the finished frame.
   //
   // ROAD_EDGE, not GREEN (Phase 7f): the road recolours with the same sector
   // the city floor below it does — see palette.js's own "why the split falls
@@ -312,7 +313,6 @@ function paintRoad(ctx, distance, playerY, W, yFrom, yTo) {
     ctx,
     (c) => traceCentreDashes(c, distance, playerY, W, yFrom, yTo),
     ROAD_CENTERLINE,
-    3,
     3,
   );
 }
@@ -378,7 +378,7 @@ function drawRoadWall(ctx, edgeX, sign) {
   // wall's rim tracks the barrier it belongs to rather than staying green under
   // a recoloured edge. Also a full-height path, so it gets the same overdraw
   // treatment as the barriers.
-  neonStroke(ctx, (c) => traceEdge(c, edgeX, dx, WALL_DY), ROAD_EDGE_DIM, 1.5, 3);
+  neonStroke(ctx, (c) => traceEdge(c, edgeX, dx, WALL_DY), ROAD_EDGE_DIM, 1.5);
 }
 
 // --- Strip cache -------------------------------------------------------------

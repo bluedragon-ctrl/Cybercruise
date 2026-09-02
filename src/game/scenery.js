@@ -169,7 +169,8 @@ export function render(ctx, distance, playerY, W, H) {
 // No ctx.shadowBlur anywhere here: this tile is one canvas-spanning path, and a
 // shadow on a shape that size measured ~0.5ms/frame from a single draw call (see
 // neonStroke's header for the same trade on the road's barriers). The dashed
-// centre lines get their glow from neonStroke's overdraw passes instead.
+// centre lines get their glow from bloom over the finished frame instead
+// (engine/present.js) — neonStroke itself is a single stroke since Phase 15d-ii.
 //
 // All of this is a ONE-TIME cost (tile build, on first draw or canvas resize),
 // so it can afford more draw calls than the per-frame budget ever could.
@@ -249,15 +250,15 @@ function insideAvenue(x) {
   return local > STREET_INSET && local < STREET_INSET + STREET_WIDTH;
 }
 
-// A dashed neon stroke: neonStroke's own overdraw passes, with the dash
-// pattern scoped to just this call via an outer save/restore (neonStroke saves
-// and restores around its own passes, but that inner restore returns to
-// whatever was current when IT was called — including a dash set just before —
-// so the outer pair is what actually clears it again afterward).
-function neonDashedStroke(ctx, build, color, dash, width, spread) {
+// A dashed neon stroke, with the dash pattern scoped to just this call via an
+// outer save/restore (neonStroke saves and restores around its own stroke, but
+// that inner restore returns to whatever was current when IT was called —
+// including a dash set just before — so the outer pair is what actually clears
+// it again afterward).
+function neonDashedStroke(ctx, build, color, dash, width) {
   ctx.save();
   ctx.setLineDash(dash);
-  neonStroke(ctx, build, color, width, spread);
+  neonStroke(ctx, build, color, width);
   ctx.restore();
 }
 
@@ -327,7 +328,6 @@ function floorGridTile(W, H, sector) {
       FLOOR_STREET_LINE,
       DASH,
       2,
-      3,
     );
   }
 
@@ -346,7 +346,6 @@ function floorGridTile(W, H, sector) {
       FLOOR_STREET_LINE,
       DASH,
       2,
-      3,
     );
   }
 
@@ -371,7 +370,6 @@ function floorGridTile(W, H, sector) {
     },
     FLOOR_TICK,
     1,
-    3,
   );
 
   // The fine CELL grid, one batched path stroked WITHOUT ctx.shadowBlur (see
@@ -396,7 +394,6 @@ function floorGridTile(W, H, sector) {
     },
     FLOOR_GRID,
     1,
-    3,
   );
 
   floorTiles.set(key, canvas);

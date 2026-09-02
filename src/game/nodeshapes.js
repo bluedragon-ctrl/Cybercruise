@@ -9,13 +9,17 @@
 // this lives in its own module instead of another entry in buildingshapes.js's
 // BUILDERS catalogue (which is nothing BUT extruded prisms).
 //
-// GLOW IS ALLOWED HERE. The last two sub-phases (7b's traffic dots, 7c's
-// drones) banned ctx.shadowBlur because they redraw every frame; a node is the
-// opposite case — baked into a sprite once via sprites.js's drawNodeVariant and
-// blitted thereafter (spritecache.js's whole reason to exist), so it can afford
-// neonStroke's full multi-pass treatment and come out crisper and brighter than
-// the buildings around it, which is exactly the point: a node has to read as
-// the most deliberate mark on the floor, not as texture.
+// GLOW IS ALLOWED HERE, historically. The last two sub-phases (7b's traffic
+// dots, 7c's drones) banned ctx.shadowBlur because they redraw every frame; a
+// node is the opposite case — baked into a sprite once via sprites.js's
+// drawNodeVariant and blitted thereafter (spritecache.js's whole reason to
+// exist). Through Phase 15d-i that meant it could afford neonStroke's full
+// multi-pass overdraw and come out crisper and brighter than the buildings
+// around it; 15d-ii retired that overdraw everywhere (neon.js's header) in
+// favour of bloom over the whole finished frame, so a node's extra brightness
+// now comes from drawing it bright enough for bloom's threshold to catch, not
+// from an extra pair of strokes. It still reads as the most deliberate mark on
+// the floor — that was never the overdraw's doing alone.
 //
 // A BOUNDED SET OF LOOKS, keyed off the plot index (citygrid.js's reserve()),
 // never rolled per frame — see NODE_VARIANTS below for why the count is fixed
@@ -75,7 +79,7 @@ export function drawNode(ctx, cx, cy, v) {
       c.lineTo(x, y);
       c.lineTo(x, y - sy * leg);
     }
-  }, NODE_BRACKET, 1.5, 4);
+  }, NODE_BRACKET, 1.5);
 
   // Centre glyph — a diamond or a crosshair, per variant. Brighter than the
   // brackets (NODE_GLYPH vs. NODE_BRACKET): the glyph is the "signal", the
@@ -88,21 +92,21 @@ export function drawNode(ctx, cx, cy, v) {
       c.lineTo(cx, cy + r);
       c.lineTo(cx - r, cy);
       c.closePath();
-    }, NODE_GLYPH, 1.5, 4);
+    }, NODE_GLYPH, 1.5);
   } else {
     neonStroke(ctx, (c) => {
       c.moveTo(cx - r, cy);
       c.lineTo(cx + r, cy);
       c.moveTo(cx, cy - r);
       c.lineTo(cx, cy + r);
-    }, NODE_GLYPH, 1.5, 4);
+    }, NODE_GLYPH, 1.5);
     // A small ring around the crosshair's centre — the second glyph would
     // otherwise be strictly less mark than the diamond (four strokes vs.
     // four), and the ring is what gives it its own "signal" identity rather
     // than reading as a diamond with its corners cut off.
     neonStroke(ctx, (c) => {
       c.arc(cx, cy, r * 0.45, 0, TAU);
-    }, NODE_GLYPH, 1, 4);
+    }, NODE_GLYPH, 1);
   }
 }
 

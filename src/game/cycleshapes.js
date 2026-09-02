@@ -56,8 +56,9 @@
 //             mirrored pair. Every single-track axle here uses it — both of
 //             CRUISER's and RACER's, and the odd wheel of each trike. Drawing
 //             one wheel rather than a pair 0px apart matters: laying the same
-//             tread down twice doubles its shadowBlur, and that tyre would read
-//             visibly brighter than every other on the road.
+//             tread down twice recomposites its semi-transparent scroll bands
+//             on top of themselves (carshapes.js's drawTread), and that tyre
+//             would read visibly brighter than every other on the road.
 //   OUTBOARD  a wide profile at the axle plus `expose` 10, so the tyre stands
 //             clear of the flank. The trikes' twin axles.
 //

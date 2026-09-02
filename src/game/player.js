@@ -5,7 +5,7 @@
 
 import { drawCarCached } from "./sprites.js";
 import { Exhaust } from "./exhaust.js";
-import { glowOrb } from "../engine/neon.js";
+import { neonStroke } from "../engine/neon.js";
 import { steerAxis, throttleAxis } from "../engine/input.js";
 import { PLAYER, PLAYER_THRUST, HAZARD, SHIELD_FLICKER } from "../engine/palette.js";
 import * as gameConsole from "../engine/console.js";
@@ -86,19 +86,50 @@ const DAMAGE_THRESHOLDS = [
   { frac: 0.25, text: "HULL DAMAGE 75%", severity: gameConsole.CRITICAL },
 ];
 
-// The shield buff (game/pickuptypes.js's SHIELD entry activates this). ONE
-// blurred ball of light wrapped around the whole car (engine/neon.js's
-// glowOrb), breathing in and out — it replaced a pair of counter-rotating
-// dashed rings, which drew the eye to the rings' own motion instead of to the
-// car being protected. A halo that just pulses stays legible at speed and
-// still reads as "this thing is wrapped in something".
+// The shield buff (game/pickuptypes.js's SHIELD entry activates this). A ring
+// of light wrapped around the whole car, breathing in and out — it replaced a
+// pair of counter-rotating dashed rings, which drew the eye to the rings' own
+// motion instead of to the car being protected. A halo that just pulses stays
+// legible at speed and still reads as "this thing is wrapped in something".
+// STILL A RING, NOT THE SAME REJECTED DESIGN: nothing here rotates or dashes,
+// only the radius and the alpha breathe — the thing that made the old pair
+// distracting was the two rings visibly turning against each other, not the
+// fact that they were rings.
+//
+// THROUGH PHASE 15D-I THIS WAS engine/neon.js's glowOrb: a radial gradient,
+// bright in a band partway out and fading to nothing at the edge, drawn
+// ADDITIVELY so it brightened the wireframe rather than veiling it. 15D-II
+// RETIRES THE GRADIENT for the same reason neonStroke's overdraw went: bloom
+// (engine/present.js) now supplies a soft falloff around anything bright
+// enough to cross its threshold, so a second, hand-authored falloff doubles
+// up with it. What is left is a single plain stroked ring — still additive,
+// still nothing drawn over the car's own centre (a filled disc would wash the
+// wireframe out there, which is exactly what the gradient's dimmed middle
+// stop was avoiding; a ring keeps avoiding it by construction, drawing
+// nothing inside its own radius at all).
 //
 // The radius spans the car with room to spare (the body is 34x64), so the
-// glow's bright band sits just outside the wireframe rather than on top of it.
+// ring sits just outside the wireframe rather than on top of it.
 const SHIELD_ORB_R = 44; // radius at the top of the breath
 const SHIELD_ORB_PULSE = 7; // px the radius shrinks by at the bottom of it
+const SHIELD_ORB_WIDTH = 2.5; // stroke width — bloom supplies the spread now,
+                               // this only has to be thick enough to bloom
 const SHIELD_PULSE_RATE = 4.2; // rad/sec — roughly a breath every 1.5s
-const SHIELD_ORB_ALPHA = 0.3; // peak alpha; halved at the bottom of the breath
+// PEAK ALPHA, AND WHY IT IS 0.85 NOT 0.3. Bloom (engine/present.js) thresholds
+// PER CHANNEL at 0.75 of an 8-bit channel — see BRIGHT_FS's `max(c -
+// uThreshold, 0.0)` — so a stroke's COMPOSITED brightness has to clear that on
+// at least one channel or it contributes nothing at all, gradient or no
+// gradient. glowOrb's old alpha of 0.3 was tuned for a HAND-DRAWN falloff that
+// never needed to cross any threshold; carried over unchanged when this became
+// a plain bloomed stroke, it measured as a ring with literally zero bloom —
+// `PLAYER` (#39f6ff) at alpha 0.3 composites to (0.07, 0.29, 0.30), nowhere
+// near 0.75 on any channel. 0.85 clears it on both G (0.82) and B (0.85), with
+// enough margin to survive rounding. The trade this makes ON PURPOSE: at the
+// bottom of the breath (0.5x this, still under 0.75) the ring goes briefly
+// bloomless rather than merely dimmer — the glow now pulses with the breath
+// instead of just the radius, which reads as MORE alive than the old orb did,
+// not less.
+const SHIELD_ORB_ALPHA = 0.85;
 // The last stretch of the window flickers toward SHIELD_FLICKER — the same
 // "about to lose it" tell CRITICAL_FLASH gives a dying car (traffic.js),
 // moved into the player's own family. Kept short: a flicker that ran the
@@ -652,10 +683,11 @@ export class Player {
     if (this.shieldTime > 0) this.renderShield(ctx, x);
   }
 
-  // One blurred, pulsing halo around the car. Drawn OVER the car (after
-  // drawCarCached above) but ADDITIVELY (see glowOrb), so it brightens the
-  // wireframe underneath instead of veiling it — the same "a layer on top"
-  // logic the hit-flash colour follows.
+  // One pulsing ring around the car. Drawn OVER the car (after drawCarCached
+  // above) but ADDITIVELY ("lighter"), so it brightens the wireframe
+  // underneath instead of veiling it — the same "a layer on top" logic the
+  // hit-flash colour follows. See SHIELD_ORB_R's own comment for why this is
+  // a plain stroke rather than glowOrb's old radial gradient.
   renderShield(ctx, x) {
     const expiring = this.shieldTime < SHIELD_EXPIRING;
     const flicker = expiring && Math.sin(this.shieldPhase * SHIELD_FLICKER_RATE) > 0;
@@ -665,6 +697,12 @@ export class Player {
     const breath = (Math.sin(this.shieldPhase * SHIELD_PULSE_RATE) + 1) / 2; // 0..1
     const r = SHIELD_ORB_R - SHIELD_ORB_PULSE * (1 - breath);
     const alpha = SHIELD_ORB_ALPHA * (0.5 + 0.5 * breath);
-    glowOrb(ctx, x, this.y, r, color, alpha);
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    neonStroke(ctx, (c) => {
+      c.moveTo(x + r, this.y);
+      c.arc(x, this.y, r, 0, Math.PI * 2);
+    }, color, SHIELD_ORB_WIDTH, alpha);
+    ctx.restore();
   }
 }

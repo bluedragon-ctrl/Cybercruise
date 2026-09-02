@@ -148,7 +148,7 @@ export class Disconnect {
       neonStroke(ctx, (c) => {
         c.moveTo(cx + r, cy);
         c.arc(cx, cy, r, 0, Math.PI * 2);
-      }, "#ffffff", 3, 5, 0.18, k);
+      }, "#ffffff", 3, k);
     }
 
     // LOCAL: the car's own chromatic split. The SAME wireframe outline,
@@ -191,7 +191,7 @@ export class Disconnect {
       ctx.globalAlpha = bandAlpha;
       for (let i = 0; i < 2; i++) {
         const yy = rand() * H;
-        glowLine(ctx, 0, yy, W, yy, "#ffffff", 1.5, 7);
+        glowLine(ctx, 0, yy, W, yy, "#ffffff", 1.5);
       }
       ctx.restore();
     }

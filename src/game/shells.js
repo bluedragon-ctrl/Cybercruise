@@ -242,7 +242,7 @@ export class Shells {
         c.moveTo(s.screenX + s.radius, s.screenY);
         c.arc(s.screenX, s.screenY, s.radius, 0, Math.PI * 2);
       }
-    }, MARK_COLOR, 1.5, 4, 0.13, 0.5);
+    }, MARK_COLOR, 1.5, 0.5);
 
     // 2 and 3. The timers, split so the ones about to land can carry their own
     // alpha — a batch has only one. The blink is taken from whichever URGENT
@@ -274,7 +274,7 @@ export class Shells {
           c.moveTo(s.screenX, s.screenY - MARK_ARM);
           c.lineTo(s.screenX, s.screenY + MARK_ARM);
         }
-      }, MARK_COLOR, 2, 5, 0.13, alpha);
+      }, MARK_COLOR, 2, alpha);
     }
   }
 }

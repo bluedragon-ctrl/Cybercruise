@@ -29,10 +29,15 @@
 //   there are more pixels to draw into than 34x62 suggests.
 //
 // WHAT ACTUALLY LIMITS IT IS THE GLOW, not the budget and not the pixels. Every
-// mark carries a shadowBlur, so two marks a couple of px apart do not read as
-// two -- their halos merge and the hull drifts toward one bright blob. Past
-// roughly thirty, detail starts costing legibility instead of buying it, which
-// is why the number is a ceiling rather than a target.
+// mark drawn bright enough to matter blooms (engine/present.js), so two marks a
+// couple of px apart do not read as two -- their halos merge and the hull
+// drifts toward one bright blob. That was true when the halo was a per-mark
+// shadowBlur (through Phase 15d-i) and it is still true now that the halo is
+// bloom over the whole frame instead (15d-ii, see neon.js's header) -- bloom
+// merges nearby bright pixels just as readily, it just does it for the whole
+// screen at once rather than per shadowBlur call. Past roughly thirty, detail
+// starts costing legibility instead of buying it, which is why the number is a
+// ceiling rather than a target.
 //
 // CHECK IT IN THE GALLERY, whose silhouette catalogue draws these at 2x for
 // exactly this reason (tools/gallery/gallery.js). At 1x every hull looks equally
@@ -143,7 +148,7 @@ function halfWidthAt(parts, y) {
 export const TREAD_SPACING = 4;
 
 function drawTread(ctx, x, top, bot, color, phase, ww, spacing = TREAD_SPACING) {
-  glowPoly(ctx, [[x - ww, top], [x + ww, top], [x + ww, bot], [x - ww, bot]], color, 1.5, 7);
+  glowPoly(ctx, [[x - ww, top], [x + ww, top], [x + ww, bot], [x - ww, bot]], color, 1.5);
 
   const off = ((phase % spacing) + spacing) % spacing; // wrapped scroll offset
   ctx.save();
@@ -153,8 +158,6 @@ function drawTread(ctx, x, top, bot, color, phase, ww, spacing = TREAD_SPACING) 
   ctx.strokeStyle = color;
   ctx.globalAlpha = 0.5;
   ctx.lineWidth = 1.2;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 2;
   ctx.beginPath();
   for (let yy = top + off; yy <= bot; yy += spacing) {
     ctx.moveTo(x - ww, yy);
@@ -180,8 +183,6 @@ function drawRotor(ctx, x, y, r, color, phase, blades = 3) {
   ctx.strokeStyle = color;
   ctx.fillStyle = CAR_FILL_RAISED;
   ctx.lineWidth = 1.5;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 9;
   ctx.beginPath();
   ctx.arc(x, y, r, 0, TAU);
   ctx.fill();
@@ -202,10 +203,34 @@ function drawRotor(ctx, x, y, r, color, phase, blades = 3) {
   //
   // No shape in CAR_SHAPES had rotors until the gunship — bossshapes.js's hulls
   // are gallery-only and drawn uncached — which is why it went unnoticed.
+  // ONE OF TWO PLACES IN THIS FILE THAT STILL CARRY shadowBlur, and
+  // deliberately so — see neon.js's header for the general case this is an
+  // exception to, and drawShapeObject's own `shape.localGlow` for the other
+  // (a whole-hull version of the same argument this function makes for just
+  // its blades). This draw is genuinely tiny (a disc of radius `r`, ~11-37px,
+  // so the shadow's cost scales with an area that stays small regardless of
+  // which hull calls it — this is not a canvas-spanning path), which is what
+  // makes it affordable set UNCONDITIONALLY here rather than gated behind a
+  // flag the way the rest of a hull's draw is: every caller gets it, cached
+  // or not. That matters most for hauler.js's CLAW LIFTER, drawn LIVE,
+  // uncached, every frame of the lift/lower sequence, in HAULER — a colour
+  // kept deliberately below PLAYER in value (hauler.js's render() comment)
+  // whose brightest channel never reaches BLOOM_THRESHOLD even at alpha 1, so
+  // bloom can never supply a halo here no matter how bright this draws.
+  // Without a local blur, a thin single-alpha spoke re-rasterised at a new
+  // angle every live frame has no softening at all between one angle and the
+  // next, and reads as blinking rather than turning — found live, not by
+  // measurement, the same way the vertex-stage Y-flip bug in 15b was. (On a
+  // CLAW LIFTER draw specifically this shadowBlur=4 also runs inside that
+  // hull's own ambient `localGlow` shadowBlur=6 — the local override here
+  // just wins for the blade stroke itself, same as any nested shadowBlur
+  // assignment would; nothing about that interaction is fragile, it is
+  // ordinary canvas state.)
   const a0 = (phase / TREAD_SPACING) * (TAU / blades);
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 4;
   ctx.globalAlpha = 0.55;
   ctx.lineWidth = 1.2;
-  ctx.shadowBlur = 3;
   ctx.beginPath();
   for (let i = 0; i < blades; i++) {
     const a = a0 + (i * TAU) / blades;
@@ -215,7 +240,6 @@ function drawRotor(ctx, x, y, r, color, phase, blades = 3) {
   ctx.stroke();
 
   ctx.globalAlpha = 1;
-  ctx.shadowBlur = 6;
   ctx.beginPath();
   ctx.arc(x, y, 2.2, 0, TAU);
   ctx.stroke();
@@ -270,31 +294,42 @@ function drawHoverShadow(ctx, cx, cy, hw, hh, color, drop, scale) {
   // The leader, from just clear of the hull's lower edge to the top of the ring.
   const from = cy + hh * 0.72;
   ctx.setLineDash([TRACK_DASH, TRACK_DASH]);
-  glowLine(ctx, cx, from, cx, gy - ry, color, 1, 5);
+  glowLine(ctx, cx, from, cx, gy - ry, color, 1);
   ctx.setLineDash([]);
 
   // The ring itself, hollow -- no fill, so the road and grid read straight
   // through it the way they do through everything else on this screen.
-  glowPoly(ctx, polygon(cx, gy, rx, ry, 18), color, 1, 6);
+  glowPoly(ctx, polygon(cx, gy, rx, ry, 18), color, 1);
 
   // ...and a centre cross, so the mark has a POINT rather than just an area.
   const tick = Math.min(rx, ry) * 0.45;
-  glowLine(ctx, cx - tick, gy, cx + tick, gy, color, 1, 4);
-  glowLine(ctx, cx, gy - tick, cx, gy + tick, color, 1, 4);
+  glowLine(ctx, cx - tick, gy, cx + tick, gy, color, 1);
+  glowLine(ctx, cx, gy - tick, cx, gy + tick, color, 1);
 
   ctx.restore();
 }
 
 // Helpers handed to the per-shape callbacks, so a shape's own drawing code stays
 // in fractions and never touches pixels.
+//
+// `b`, THE TRAILING GLOW ARGUMENT, IS ACCEPTED AND NO LONGER USED. Through
+// Phase 15d-i it was the shadowBlur radius passed straight to glowLine/
+// glowPoly; 15d-ii retired shadowBlur from both (see neon.js's header — bloom
+// now supplies every halo, and a per-mark shadow baked into the cached sprite
+// would double up with it). The catalogue below calls `line`/`solid` with a `b`
+// on roughly two hundred marks, authored over several phases against the old
+// per-mark tuning; rewriting all of them to drop an argument that no longer
+// does anything is a mechanical pass worth doing on its own, not folded into
+// this one, so the parameter stays here — silently ignored, in exactly ONE
+// place — rather than at every call site.
 function makeTools(ctx, cx, cy, hw, hh) {
   return {
     // Stroked-only shape: a panel line or flat marking.
     line: (x1, y1, x2, y2, color, w = 1, b = 5) =>
-      glowLine(ctx, cx + x1 * hw, cy + y1 * hh, cx + x2 * hw, cy + y2 * hh, color, w, b),
+      glowLine(ctx, cx + x1 * hw, cy + y1 * hh, cx + x2 * hw, cy + y2 * hh, color, w),
     // Opaque part. `fill` picks the height: CAR_FILL_RAISED or CAR_FILL_HIGH.
     solid: (pts, color, fill = CAR_FILL_RAISED, w = 1.5, b = 9) =>
-      glowPoly(ctx, pts.map(([fx, fy]) => [cx + fx * hw, cy + fy * hh]), color, w, b, fill),
+      glowPoly(ctx, pts.map(([fx, fy]) => [cx + fx * hw, cy + fy * hh]), color, w, fill),
   };
 }
 
@@ -928,6 +963,22 @@ const WHEEL_EXPOSE = 7; // px of tyre that must clear the bodywork
 const TRACK_W = 7;
 const TRACK_EXPOSE = 12;
 
+// `shape.localGlow`: THE ONE OPT-IN BACK INTO PER-DRAW shadowBlur, for a hull
+// whose own colour was chosen to sit BELOW BLOOM_THRESHOLD on purpose (see
+// hauler.js's CLAW LIFTER — the drone is meant to read as visibly dimmer than
+// the car it is carrying) and that is drawn LIVE rather than cached (so the
+// per-frame shadowBlur cost this phase spent elsewhere removing is one this
+// hull was never going to be exempt from anyway). drawShapeObject sets this
+// once, ambiently, rather than threading it through every `tools.line`/
+// `tools.solid` call it wraps: neither glowLine nor glowPoly touch
+// shadowColor/shadowBlur any more (see neon.js's header), so whatever this
+// sets stays live through every nested draw until the matching restore() —
+// the same trick a caller uses to scope a dash pattern (see scenery.js's
+// neonDashedStroke). NOT a general "dim colours get shadowBlur back"
+// mechanism — see this file's own header on why one hull opting in on
+// purpose is a bounded exception, not a rule.
+const LOCAL_GLOW_BLUR = 6;
+
 // Draws shape `index` centred at (cx, cy), pointing "up" (toward smaller y).
 export function drawCarShape(ctx, cx, cy, index, opts = {}) {
   drawShapeObject(ctx, cx, cy, CAR_SHAPES[index] ?? CAR_SHAPES[0], opts);
@@ -956,6 +1007,12 @@ export function drawShapeObject(ctx, cx, cy, shape, opts = {}) {
   const tools = makeTools(ctx, cx, cy, hw, hh);
   const parts = shape.parts ?? [shape.profile];
 
+  if (shape.localGlow) {
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = LOCAL_GLOW_BLUR;
+  }
+
   // 0. The ground track, if this hull flies. Below everything, so the hull and
   //    its details paint over the top of the leader climbing to them.
   if (shape.hover && shape.hover.blot !== false) {
@@ -974,9 +1031,10 @@ export function drawShapeObject(ctx, cx, cy, shape, opts = {}) {
        shape.wheels ?? []) {
     // A SOLO wheel sits ON the centreline, and `expose` means nothing to it:
     // there is no flank for it to clear. It is drawn ONCE rather than as a pair
-    // 0px apart because laying the same tread down twice doubles its shadowBlur,
-    // and that one tyre would then read visibly brighter than every other on the
-    // road -- the neon equivalent of z-fighting.
+    // 0px apart because laying the same tread down twice recomposites its
+    // semi-transparent scroll bands (drawTread's globalAlpha = 0.5) on top of
+    // themselves, and that one tyre would then read visibly brighter than every
+    // other on the road -- the neon equivalent of z-fighting.
     if (solo) {
       drawWheel(ctx, cx, cy + y * hh, color, wheelPhase, ww, wl);
       continue;
@@ -996,7 +1054,7 @@ export function drawShapeObject(ctx, cx, cy, shape, opts = {}) {
   }
 
   // 3. The chassis, opaque so the road and grid don't show through.
-  for (const p of parts) glowPoly(ctx, fracLoop(p, cx, cy, hw, hh), color, 2, 13, CAR_FILL);
+  for (const p of parts) glowPoly(ctx, fracLoop(p, cx, cy, hw, hh), color, 2, CAR_FILL);
 
   // 4. Markings painted on the chassis.
   if (shape.flat) shape.flat(tools, color, thrust, headlight, accent);
@@ -1012,7 +1070,7 @@ export function drawShapeObject(ctx, cx, cy, shape, opts = {}) {
     const half = hw * shape.wing;
     glowPoly(ctx, [
       [cx - half, wy - 4], [cx + half, wy - 4], [cx + half, wy + 4], [cx - half, wy + 4],
-    ], color, 1.5, 8, CAR_FILL_HIGH);
+    ], color, 1.5, CAR_FILL_HIGH);
   }
 
   // 7. Markings on raised parts.
@@ -1030,6 +1088,8 @@ export function drawShapeObject(ctx, cx, cy, shape, opts = {}) {
   for (const [fx, fy, r, blades = 3] of shape.rotors ?? []) {
     drawRotor(ctx, cx + fx * hw, cy + fy * hh, r, color, wheelPhase, blades);
   }
+
+  if (shape.localGlow) ctx.restore();
 }
 
 // The shape's closed outline(s) as px offsets from the car's centre — one loop
