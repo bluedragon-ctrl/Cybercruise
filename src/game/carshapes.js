@@ -963,6 +963,22 @@ const WHEEL_EXPOSE = 7; // px of tyre that must clear the bodywork
 const TRACK_W = 7;
 const TRACK_EXPOSE = 12;
 
+// `shape.localGlow`: THE ONE OPT-IN BACK INTO PER-DRAW shadowBlur, for a hull
+// whose own colour was chosen to sit BELOW BLOOM_THRESHOLD on purpose (see
+// hauler.js's CLAW LIFTER — the drone is meant to read as visibly dimmer than
+// the car it is carrying) and that is drawn LIVE rather than cached (so the
+// per-frame shadowBlur cost this phase spent elsewhere removing is one this
+// hull was never going to be exempt from anyway). drawShapeObject sets this
+// once, ambiently, rather than threading it through every `tools.line`/
+// `tools.solid` call it wraps: neither glowLine nor glowPoly touch
+// shadowColor/shadowBlur any more (see neon.js's header), so whatever this
+// sets stays live through every nested draw until the matching restore() —
+// the same trick a caller uses to scope a dash pattern (see scenery.js's
+// neonDashedStroke). NOT a general "dim colours get shadowBlur back"
+// mechanism — see this file's own header on why one hull opting in on
+// purpose is a bounded exception, not a rule.
+const LOCAL_GLOW_BLUR = 6;
+
 // Draws shape `index` centred at (cx, cy), pointing "up" (toward smaller y).
 export function drawCarShape(ctx, cx, cy, index, opts = {}) {
   drawShapeObject(ctx, cx, cy, CAR_SHAPES[index] ?? CAR_SHAPES[0], opts);
@@ -991,21 +1007,6 @@ export function drawShapeObject(ctx, cx, cy, shape, opts = {}) {
   const tools = makeTools(ctx, cx, cy, hw, hh);
   const parts = shape.parts ?? [shape.profile];
 
-  // `shape.localGlow`: THE ONE OPT-IN BACK INTO PER-DRAW shadowBlur, for a hull
-  // whose own colour was chosen to sit BELOW BLOOM_THRESHOLD on purpose (see
-  // hauler.js's CLAW LIFTER — the drone is meant to read as visibly dimmer
-  // than the car it is carrying) and that is drawn LIVE rather than cached
-  // (so the per-frame shadowBlur cost this phase spent elsewhere removing is
-  // one this hull was never going to be exempt from anyway). Set once here,
-  // ambiently, rather than threaded through every `tools.line`/`tools.solid`
-  // call below: neither glowLine nor glowPoly touch shadowColor/shadowBlur
-  // any more (see neon.js's header), so whatever this sets stays live through
-  // every nested draw until the matching restore() at the bottom — the same
-  // trick a caller uses to scope a dash pattern (see scenery.js's
-  // neonDashedStroke). NOT a general "dim colours get shadowBlur back"
-  // mechanism — see this file's own header on why one hull opting in on
-  // purpose is a bounded exception, not a rule.
-  const LOCAL_GLOW_BLUR = 6;
   if (shape.localGlow) {
     ctx.save();
     ctx.shadowColor = color;

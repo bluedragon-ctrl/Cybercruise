@@ -127,8 +127,6 @@ function drawTracerGlyph(ctx, cx, cy) {
   ctx.strokeStyle = PLAYER_THRUST;
   ctx.lineWidth = 1.8;
   ctx.lineCap = "round";
-  ctx.shadowColor = PLAYER_THRUST;
-  ctx.shadowBlur = 8;
   ctx.beginPath();
   ctx.arc(cx + 2, cy + 2, 9, Math.PI * 1.15, Math.PI * 1.85);
   ctx.stroke();

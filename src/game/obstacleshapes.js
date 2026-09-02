@@ -163,12 +163,17 @@ const GLOW_BLEED = 3;
 //
 // The bound is on the ARTWORK, not just the collision box: extent.x below is
 // half this plus GLOW_BLEED, and that is what has to stay inside LANE_WIDTH /
-// 2 (32.5). At 0.8 lanes the beam was 52px and the artwork measured 33 — half
-// a pixel over the edge the whole time, hidden because the declared extent
-// said 29 (that was against the old, shadowBlur-driven bleed of 7 on this
-// part; see GLOW_BLEED's own header for why it is smaller now). At 0.775 the
-// beam is 50.4px; the scan there now measures the artwork reaching 29, well
-// inside the 32.5 bound with room to spare.
+// 2 — 35.75 TODAY. (Not 32.5: ROAD_HALF_WIDTH's own header records a 130 ->
+// 143 retune, a 10% widening, and LANE_WIDTH moves with it — 65 -> 71.5. The
+// numbers just below predate that retune and are kept as the historical
+// measurement they are, not rescaled to match it.) At its original 0.8
+// lanes — 52px against the THEN-current bound of 32.5 — the beam's artwork
+// measured 33: half a pixel over the edge the whole time, hidden because the
+// declared extent said 29 (that was against the old, shadowBlur-driven bleed
+// of 7 on this part; see GLOW_BLEED's own header for why it is smaller now).
+// At 0.775 lanes today the beam is 55.4px (71.5 * 0.775); the scan there now
+// measures the artwork reaching 29, comfortably inside the current 35.75
+// bound — about 6.75px to spare.
 const TRESTLE_WIDTH = LANE_WIDTH * 0.775;
 const TRESTLE_FOOT_HALF = 13; // the folding feet run cy ± this, past the beam
 

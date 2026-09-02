@@ -442,8 +442,8 @@ line). `GLOW_BLEED` drops from 6 to 3 and `BEAM_GLOW_BLEED` (7, the trestle's
 own outlier under the old blur-driven regime) is retired entirely — folded
 into the same constant, since the trestle is no longer the outlier: TETRA's
 end-cap strokes are, at 1.8px measured against GLOW_BLEED=3's 1.2px of margin.
-The trestle's own lane-fit bound (LANE_WIDTH/2 = 32.5px, see that entry's own
-comment) now has ~3.5px of headroom where it once had ~0.3.
+The trestle's own lane-fit bound (LANE_WIDTH/2 = 35.75px, see that entry's own
+comment) now has ~5.0px of headroom where it once had ~1.0.
 
 **GLOW_PAD (`sprites.js`), measured the same way** across every car shape,
 every building shape at a spread of variant parameters, and every node
@@ -451,9 +451,8 @@ variant: the worst car (GLIDE) bled 3.3px past its `carShapeExtent`, the worst
 building 1.6px, every node exactly 1px (half of `neonStroke`'s own 1.5-2px
 line width, which is all a node ever carried). `GLOW_PAD` drops from 18 to 6 —
 a real reduction in every cached sprite's canvas size, not just a cosmetic
-number: a car sprite's backing store shrinks by (36-12)² relative to its
-artwork on each axis, i.e. every sprite canvas is smaller by 24px on both
-width and height than before.
+number: the pad shrinks by 12px on each side of a sprite, so every cached
+sprite's canvas is smaller by 24px on both width and height than before.
 
 **The 2D cost.** Two measurement attempts here, reported honestly because the
 first one didn't work. A whole-`render()` before/after comparison (a second
