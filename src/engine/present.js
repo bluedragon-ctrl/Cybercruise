@@ -38,11 +38,90 @@
 // extra blur pass, which is cheap because both run on a quarter of the pixels
 // or fewer.
 //
-// 15B'S NUMBERS ARE PROVISIONAL. BLOOM_THRESHOLD and BLOOM_EXPOSURE below, and
-// the half/quarter mix in COMPOSITE_FS, are a first pass, not a tuned look —
-// see CLAUDE.md and gl/shaders.js's header for why 15d owns the final numbers
-// and this PR does not try to make a doubled halo (three-pass neonStroke plus
-// bloom) look right.
+// BLOOM_THRESHOLD/BLOOM_EXPOSURE ARE FINAL AS OF PHASE 15C. 15b shipped them
+// provisional; 15d-ii held them at those same provisional values because the
+// only stronger setting it tried (0.55/4.0) bridged HUD text into unreadable
+// blobs, and reverted. Phase 15c is what removes that constraint — see "THE
+// HUD SPLIT" below — and these two constants are the payoff: retuned for the
+// world alone, with nothing dense sharing this canvas to bridge any more. The
+// half/quarter mix in COMPOSITE_FS is unchanged and still provisional; only
+// the two constants below were in scope for this phase.
+//
+// --- The HUD split (Phase 15c) ----------------------------------------------
+//
+// A second 2D canvas (`#hud` — index.html, css/style.css), painted on top of
+// this one, transparent, never uploaded to the GPU and never touched by the
+// chain below. drawHud() (main.js), the menu's test-row checkboxes and the
+// shop's price list all draw there now instead of on the canvas this module
+// bloom's — see main.js's render() for the full split rule (which surface
+// goes on which canvas and why).
+//
+// THE ALTERNATIVE, AND WHY IT LOST. The other way to keep the HUD out of the
+// bloom chain was to draw it to an OFFSCREEN 2D canvas, upload it as a SECOND
+// TEXTURE, and composite it in COMPOSITE_FS after bloom — one visible canvas,
+// no compositor layering. Rejected on 15a's own measurement: the per-frame
+// frame-texture upload already dominates this pass at ~1047us sustained
+// (see "TWO CANVASES" above), and it is bandwidth-bound (only ~15us of that
+// is CPU submit), so a second full-size upload for the HUD would cost
+// roughly that same ~1047us AGAIN every frame — nearly doubling the chain's
+// already-dominant cost to buy back a compositor blend that `will-change:
+// transform` already makes close to free (the same trick `#present` already
+// gets over `#game` — see css/style.css). The DOM layer instead costs a
+// second small canvas repainted on the game's clock: measured live at
+// ~0.72ms mean (p95 ~1.1ms, one 8.2ms outlier in ~1000 samples, consistent
+// with this environment's own noise floor) for `#hud`'s own clear-and-redraw,
+// against the ~1047us the rejected path would have added on top of the
+// existing upload. A THIRD option — masking the bright-pass so HUD pixels
+// never enter the chain at all — was considered and rejected without being
+// built: the HUD is not a tidy rectangle (the console panel, the wallet
+// line and damage flashes all move), so there is no static mask that would
+// work.
+//
+// This is the same trade `engine/gutter.js`'s header calls "declined" for
+// the side gutters — a second surface repainted on the game's clock, instead
+// of DOM diffed at ~1 write/second — taken here instead of declined, because
+// the HUD repaints every frame and needs Canvas2D's text/blend primitives,
+// which DOM diffing has no equivalent of.
+//
+// GLOWTEXT'S OWN shadowBlur IS UNCHANGED, and that is what keeps HUD text
+// (and the menu/shop text that joined it) from going dark on the new canvas:
+// it was never part of 15d-ii's shadowBlur ban (that was about canvas-
+// spanning paths and cached sprites bloom now covers instead), so it keeps
+// glowing exactly as it always did, just without ALSO getting bloom's
+// per-pixel halo on top — which is the double-glow that made small text
+// bridge in the first place.
+//
+// RETUNED LIVE, A/B AGAINST THE OLD 0.75/3.0: 0.55/4.0 (the exact pair 15d-ii
+// tried and reverted) with nothing dense left on the bloomed canvas to
+// bridge. Confirmed live across a busy gameplay scene, the menu title and
+// rows, and the gameover screen — buildings and barriers gained a visibly
+// thicker, richer halo without washing into flat blobs (internal wireframe
+// detail stays legible), and HUD/menu/shop text on the new `#hud` layer
+// stayed crisp throughout, since none of it shares this chain any more. A
+// readPixels scan through a barrier's cross-section (green channel, GL
+// drawing buffer, `preserveDrawingBuffer` temporarily forced true to make
+// the read possible) confirmed the core still saturates at 255 and the halo
+// spreads measurably further at 0.55/4.0 than at 0.75/3.0, consistent with
+// (not a re-derivation of) 15d-ii's own "roughly doubled" finding — an exact
+// pixel-for-pixel before/after was not attempted, since the two scans were
+// taken on different live runs (different traffic, different road curve) and
+// are not directly subtractable; the visual comparison across three screen
+// types is the stronger evidence here.
+//
+// THE SELF-TEST'S BLIND SPOT, worth recording once this module has a second
+// canvas layered onto its output. THE PIXEL-IDENTITY SELF-TEST (README's "The
+// present path": forcing BLOOM_THRESHOLD above 1.0 and diffing the composite
+// against the source frame byte for byte) proves colourspace, precision and
+// filtering — but it
+// is a same-frame diff, so it is BLIND TO ORIENTATION: a vertically mirrored
+// copy of an all-zero contribution is still all zeros, and the test would
+// pass either way. That blind spot is exactly what 15b's own PRESENT_VS
+// Y-flip bug went through undetected (see that shader's header) — found live,
+// not by this test. Phase 15e adds more GPU-to-GPU passes over the same
+// targets, which is more surface for the identical mistake; a future self-
+// test that wants to catch an orientation bug needs content with an
+// asymmetric feature in it (e.g. a single bright corner pixel), not a
+// uniform field.
 //
 // WHAT WOULD GO WRONG WITHOUT THIS MODULE, AS OF 15D-I: the game does not run.
 // WebGL2 is required (see gl/context.js's header for the reversal and why),
@@ -88,6 +167,7 @@
 //   15a, GL_PRESENT off        6, 6, 6        0, 0, 0                16.67ms
 //   15a, GL_PRESENT on         6, 19, 20      0, 0, 1                16.67ms
 //   15b, GL_PRESENT on         see README's Phase 15b entry for the re-take
+//   15c, HUD layer added       19             0                      16.67ms
 //
 // READ THE SECOND COLUMN, NOT THE FIRST. Every sample holds a 16.67ms mean —
 // dead-on 60Hz — and every frame counted in the first column landed between
@@ -100,6 +180,28 @@
 // 15a exercise: a 116ms stall on a GL_PRESENT-on sample, unreproduced in five
 // other samples of that configuration and the shape of a GC pause or a track
 // load rather than of a present path.
+//
+// THE 15C ROW IS ONE SAMPLE, NOT THREE, reported honestly rather than padded.
+// A second attempt RE-TRIGGERED the README's own fourth profiling trap rather
+// than turning up a new one: reloading the tab with a plain `navigate` call
+// (rather than the `preview_start` call that originally opened it) reproduced
+// the exact "hidden:false but rAF still throttled" symptom the README's
+// rendering-performance section already documents — the second sample's rAF
+// loop sat mostly idle and then delivered one 5983ms frame, an artifact of
+// the measurement method, not of this PR. The one clean sample (above) lands
+// squarely inside 15a's own "6, 19, 20" range for GL_PRESENT on, with zero
+// missed vsync, which
+// is what a third canvas costing nothing worth a dropped frame should look
+// like. The bare-desktop GPU re-measurement 15b's entry already owed remains
+// owed — this sandboxed/remoted pane is still not where that number should be
+// taken from, and 15c does not attempt it.
+//
+// THE HUD LAYER'S OWN CPU COST, measured directly (not inferred from the
+// table above): `#hud`'s clear-and-redraw, batched over ~1000 gameplay
+// frames, averaged ~0.72ms (p95 ~1.1ms, one 8.2ms outlier consistent with
+// this environment's own GC-pause noise rather than a per-frame cost). That
+// is the real price of the DOM-layer choice — see "The HUD split" above for
+// what the rejected second-texture alternative would have cost instead.
 //
 // So, as of 15a: THE GPU PATH DROPS NO FRAMES THE 2D PATH DOES NOT, and the
 // plumbing cost nothing measurable when the flag was off. 15b adds real
@@ -134,18 +236,19 @@ import { createContext, buildProgram } from "./gl/context.js";
 import { PRESENT_VS, PRESENT_FS, BRIGHT_FS, BLUR_FS, COMPOSITE_FS } from "./gl/shaders.js";
 import { createTarget, resizeTarget } from "./gl/target.js";
 
-// PROVISIONAL — see the file header and gl/shaders.js. Per-channel: a pixel
-// below this on every channel contributes no bloom at all, so most of a dark
-// road contributes nothing and the cost stays where the fullscreen passes are
-// cheapest (a near-empty bright-pass target). Raised to >= 1.0 for the
-// pixel-identity self-test below, since every frame channel is in [0, 1].
-const BLOOM_THRESHOLD = 0.75;
+// FINAL AS OF PHASE 15C — see the file header's "The HUD split" for the A/B
+// this retune rests on. Per-channel: a pixel below this on every channel
+// contributes no bloom at all, so most of a dark road contributes nothing and
+// the cost stays where the fullscreen passes are cheapest (a near-empty
+// bright-pass target). Raised to >= 1.0 for the pixel-identity self-test
+// below, since every frame channel is in [0, 1].
+const BLOOM_THRESHOLD = 0.55;
 
-// PROVISIONAL — multiplies the bright-pass contribution before COMPOSITE_FS's
-// `1 - exp(-x)` knee (gl/shaders.js). Higher pushes more of the knee's curve
-// into its steep early region, which reads as a stronger glow for the same
-// threshold.
-const BLOOM_EXPOSURE = 3.0;
+// FINAL AS OF PHASE 15C — multiplies the bright-pass contribution before
+// COMPOSITE_FS's `1 - exp(-x)` knee (gl/shaders.js). Higher pushes more of the
+// knee's curve into its steep early region, which reads as a stronger glow
+// for the same threshold.
+const BLOOM_EXPOSURE = 4.0;
 
 // The 2D canvas the game draws into, and the WebGL2 canvas in front of it.
 let source = null;

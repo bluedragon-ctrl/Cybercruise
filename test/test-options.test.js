@@ -102,10 +102,15 @@ function recordingCtx() {
   };
 }
 
+// menu.render() now takes TWO contexts (Phase 15c: the world canvas and the
+// HUD layer's own — see main.js's render() for the split). The test rows draw
+// on the HUD one, but this suite doesn't care which canvas drew a label, only
+// whether it was drawn — so both recording contexts feed one merged list.
 function labels(menu) {
   const ctx = recordingCtx();
-  menu.render(ctx, 600, 800);
-  return ctx.texts;
+  const hudCtx = recordingCtx();
+  menu.render(ctx, hudCtx, 600, 800);
+  return [...ctx.texts, ...hudCtx.texts];
 }
 
 // initInput registers keydown/keyup/blur on whatever it is handed, exactly as

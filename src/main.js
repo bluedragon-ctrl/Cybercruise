@@ -3,11 +3,11 @@
 // parallax city, sharing the road with other traffic — and shooting at it.
 
 import { createLoop } from "./engine/loop.js";
-import { LOGICAL_W, LOGICAL_H, initViewport, applyTransform, snapToDevice } from "./engine/viewport.js";
+import { LOGICAL_W, LOGICAL_H, initViewport, applyTransform, snapToDevice, mirrorCanvas } from "./engine/viewport.js";
 import * as present from "./engine/present.js";
 import { initInput, isDown, consumePress } from "./engine/input.js";
 import { initMouse } from "./engine/mouse.js";
-import { clear, glowText } from "./engine/neon.js";
+import { clear, clearHud, glowText } from "./engine/neon.js";
 import { GREEN, GREEN_BRIGHT, GREEN_PALE, HAZARD, PLAYER, PLAYER_THRUST, SHIELD_FLICKER } from "./engine/palette.js";
 import { Player, BOOST_EXPIRING, BOOST_FLICKER_RATE } from "./game/player.js";
 import { Projectiles } from "./game/projectiles.js";
@@ -65,6 +65,19 @@ import { sectorIndex } from "./game/citygrid.js";
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
+// THE HUD LAYER (Phase 15c): a third canvas, plain 2D, transparent, sitting on
+// top of the present canvas below — drawHud(), the menu's test rows and the
+// shop's price list draw here instead of on `ctx`. See render()'s own header
+// on the split rule (which canvas a new readout goes on and why) and
+// engine/present.js's header for why this is a DOM layer rather than a second
+// WebGL texture. Registered as a viewport mirror alongside the present canvas
+// (below), so it is sized and scaled with the other two — but `initViewport`
+// is still handed `canvas` (the 2D one) as the MEASURED element, because that
+// is what establishes the cabinet's chrome size for gutter.js; adding a
+// mirror does not change which element is measured.
+const hud = document.getElementById("hud");
+const hudCtx = hud.getContext("2d");
+
 // The playfield is 600x800 FOREVER — a game constant, not a window measurement.
 // Only the raster resolution behind it follows the screen; see
 // engine/viewport.js for why the world's dimensions must not, and for what
@@ -102,6 +115,15 @@ const glReady = present.init(canvas, document.getElementById("present"), {
   onLost: onGpuContextLost,
   onRestored: onGpuContextRestored,
 });
+
+// THE HUD CANVAS, registered as a viewport mirror the same way present.init()
+// registers the present canvas above (and for the same reason: BEFORE
+// initViewport, so its first sizing pass gives this a backing store too,
+// rather than leaving it at a canvas element's 300x150 default for its first
+// frames). present.js has no reason to know this canvas exists — it never
+// touches the GPU — so this is a plain mirrorCanvas() call here rather than a
+// second present.init()-style entry point.
+mirrorCanvas(hud);
 
 initViewport(canvas, () => {}, document.getElementById("frame"));
 const hint = document.getElementById("hint");
@@ -1412,16 +1434,25 @@ function updatePlaying(dt) {
 }
 
 
+// THE HUD, drawn onto `hudCtx` (Phase 15c) — see render()'s own header for the
+// canvas split this is half of. Every draw in this function used to share the
+// world canvas with everything bloom sees; none of it does any more, which is
+// why BLOOM_THRESHOLD/BLOOM_EXPOSURE (engine/present.js) could finally be
+// tuned for the world alone. glowText's own shadowBlur is untouched and still
+// does the glowing here — it was never the thing 15d-ii banned (that was
+// shadowBlur on canvas-spanning paths and cached sprites); on a canvas bloom
+// never reads, it is the ONLY source of glow, exactly as it always was for
+// HUD text specifically.
 function drawHud() {
-  glowText(ctx, "CYBERCRUISE", 12, 12, GREEN, 18, "left", 12);
+  glowText(hudCtx, "CYBERCRUISE", 12, 12, GREEN, 18, "left", 12);
 
   // Score gets the biggest readout on screen — it's the thing being played for.
   // A small "SCORE" header (same device HULL uses over the health bar, below)
   // names the number, and the number itself is bold on top of its own glow so
   // it still reads as the HUD's centrepiece next to DIST/SPD's plain instrument
   // readouts.
-  glowText(ctx, "SCORE", W - 12, 8, GREEN_PALE, 11, "right", 6);
-  glowText(ctx, `${score.points}`, W - 12, 20, GREEN_BRIGHT, 22, "right", 14, true);
+  glowText(hudCtx, "SCORE", W - 12, 8, GREEN_PALE, 11, "right", 6);
+  glowText(hudCtx, `${score.points}`, W - 12, 20, GREEN_BRIGHT, 22, "right", 14, true);
 
   // The last kill's award, fading out under the total, so the player can see
   // WHY the number jumped — red for a fine, green for a bounty. Presentation
@@ -1430,16 +1461,16 @@ function drawHud() {
   if (alpha > 0) {
     const award = score.lastAward;
     const text = `${award >= 0 ? "+" : ""}${award}`;
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    glowText(ctx, text, W - 12, 48, award >= 0 ? GREEN_BRIGHT : HAZARD, 16, "right", 10);
-    ctx.restore();
+    hudCtx.save();
+    hudCtx.globalAlpha = alpha;
+    glowText(hudCtx, text, W - 12, 48, award >= 0 ? GREEN_BRIGHT : HAZARD, 16, "right", 10);
+    hudCtx.restore();
   }
 
   // Shown in DIST_UNITS, not raw world units — see road.js. The same scale the
   // catalogues' `minDistance` gates are written in, so a player who sees DIST 100
   // is seeing exactly the moment the enemy is allowed on the road.
-  glowText(ctx, `DIST ${Math.floor(distance / road.DIST_UNITS)}`, W - 12, 70, GREEN_PALE, 13, "right");
+  glowText(hudCtx, `DIST ${Math.floor(distance / road.DIST_UNITS)}`, W - 12, 70, GREEN_PALE, 13, "right");
   // SPD carries the OVERDRIVE buff (game/pickuptypes.js's BOOST) rather than
   // getting its own readout, and it is the right line for it: the buff's whole
   // effect is this number, so the countdown belongs where the player is already
@@ -1454,7 +1485,7 @@ function drawHud() {
   const boostExpiring = boosted && player.boostTime < BOOST_EXPIRING
     && Math.sin(player.boostPhase * BOOST_FLICKER_RATE) > 0;
   glowText(
-    ctx,
+    hudCtx,
     boosted
       ? `SPD ${Math.round(player.speed)}  +${player.boost} ${player.boostTime.toFixed(1)}s`
       : `SPD ${Math.round(player.speed)}`,
@@ -1473,7 +1504,7 @@ function drawHud() {
   // (palette.js's header) — a yellow number in the HUD corner would read as
   // "neutral car" to the same half-second glance the whole colour discipline
   // exists to protect. The `CR` label does the work a colour would.
-  glowText(ctx, `CR ${wallet.credits}`, W - 12, 106, GREEN_PALE, 13, "right");
+  glowText(hudCtx, `CR ${wallet.credits}`, W - 12, 106, GREEN_PALE, 13, "right");
 
   // The last payout, fading under the total, same device the score's own
   // award uses above — and deliberately on its own line rather than sharing
@@ -1484,10 +1515,10 @@ function drawHud() {
   const credAlpha = wallet.awardAlpha;
   if (credAlpha > 0 && wallet.lastAward !== 0) {
     const cr = wallet.lastAward;
-    ctx.save();
-    ctx.globalAlpha = credAlpha;
-    glowText(ctx, `${cr >= 0 ? "+" : ""}${cr}CR`, W - 12, 124, cr >= 0 ? GREEN_BRIGHT : HAZARD, 13, "right", 8);
-    ctx.restore();
+    hudCtx.save();
+    hudCtx.globalAlpha = credAlpha;
+    glowText(hudCtx, `${cr >= 0 ? "+" : ""}${cr}CR`, W - 12, 124, cr >= 0 ? GREEN_BRIGHT : HAZARD, 13, "right", 8);
+    hudCtx.restore();
   }
 
   const weapon = loadout.current;
@@ -1522,15 +1553,15 @@ function drawHud() {
   // behind the text can wash out even the glow. A flat translucent panel —
   // no border, nothing else neon about it — reads as a HUD plate the text
   // sits on rather than another glowing game element competing with it.
-  ctx.save();
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.fillRect(bx - 8, wy - 10, bw + 18, by + bh + 6 + 16 - (wy - 10));
-  ctx.restore();
+  hudCtx.save();
+  hudCtx.fillStyle = "rgba(0,0,0,0.55)";
+  hudCtx.fillRect(bx - 8, wy - 10, bw + 18, by + bh + 6 + 16 - (wy - 10));
+  hudCtx.restore();
 
   for (const w of weaponRows) {
     const current = w === weapon;
     glowText(
-      ctx,
+      hudCtx,
       `${current ? "> " : "  "}${w.type.label} ${w.ammoText}`,
       bx,
       wy,
@@ -1542,7 +1573,7 @@ function drawHud() {
     wy += 18;
   }
 
-  glowText(ctx, "HULL", bx, by - 16, GREEN_PALE, 12, "left", 6);
+  glowText(hudCtx, "HULL", bx, by - 16, GREEN_PALE, 12, "left", 6);
 
   // SHIELD, only while active — same "about to lose it" flicker the halo
   // around the car gives in its last second (player.js's renderShield),
@@ -1550,7 +1581,7 @@ function drawHud() {
   if (player.shieldTime > 0) {
     const expiring = player.shieldTime < 1 && Math.sin(player.shieldPhase * 26) > 0;
     glowText(
-      ctx, `SHIELD ${player.shieldTime.toFixed(1)}s`, bx + bw, by - 16,
+      hudCtx, `SHIELD ${player.shieldTime.toFixed(1)}s`, bx + bw, by - 16,
       expiring ? SHIELD_FLICKER : PLAYER, 12, "right", 8,
     );
   } else if (player.shieldCharge > 0) {
@@ -1570,27 +1601,27 @@ function drawHud() {
     // is what distinguishes armed from running — steady text counts down, a
     // pulsing one is waiting for a hit.
     const breath = (Math.sin(hudClock * 4.2) + 1) / 2; // player.js's SHIELD_PULSE_RATE
-    ctx.save();
-    ctx.globalAlpha = 0.55 + 0.45 * breath;
-    glowText(ctx, `SHIELD ${player.shieldCharge.toFixed(1)}s`, bx + bw, by - 16, PLAYER, 12, "right", 8);
-    ctx.restore();
+    hudCtx.save();
+    hudCtx.globalAlpha = 0.55 + 0.45 * breath;
+    glowText(hudCtx, `SHIELD ${player.shieldCharge.toFixed(1)}s`, bx + bw, by - 16, PLAYER, 12, "right", 8);
+    hudCtx.restore();
   }
 
   // Empty track.
-  ctx.save();
-  ctx.strokeStyle = "rgba(120,255,180,0.4)";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(bx, by, bw, bh);
-  ctx.restore();
+  hudCtx.save();
+  hudCtx.strokeStyle = "rgba(120,255,180,0.4)";
+  hudCtx.lineWidth = 1;
+  hudCtx.strokeRect(bx, by, bw, bh);
+  hudCtx.restore();
   // Filled portion.
   if (frac > 0) {
-    ctx.save();
+    hudCtx.save();
     const c = `hsl(${hue}, 100%, 55%)`;
-    ctx.fillStyle = c;
-    ctx.shadowColor = c;
-    ctx.shadowBlur = 10;
-    ctx.fillRect(bx + 1, by + 1, (bw - 2) * frac, bh - 2);
-    ctx.restore();
+    hudCtx.fillStyle = c;
+    hudCtx.shadowColor = c;
+    hudCtx.shadowBlur = 10;
+    hudCtx.fillRect(bx + 1, by + 1, (bw - 2) * frac, bh - 2);
+    hudCtx.restore();
   }
 
   // THE SELECTED DEPLOYABLE, below the hull bar rather than sharing a row with
@@ -1605,31 +1636,67 @@ function drawHud() {
   const deployable = loadout.deployable;
   if (deployable) {
     glowText(
-      ctx, `${deployable.type.label} ${deployable.ammoText}`,
+      hudCtx, `${deployable.type.label} ${deployable.ammoText}`,
       bx, by + bh + 6, GREEN_PALE, 13, "left", 8,
     );
   }
 
-  gameConsole.render(ctx, W, H);
+  gameConsole.render(hudCtx, W, H);
 }
 
+// THE CANVAS SPLIT (Phase 15c). Two 2D contexts feed render(): `ctx` (the
+// world canvas, uploaded to the GPU and bloomed — engine/present.js) and
+// `hudCtx` (the HUD canvas, a separate DOM layer painted on top, never
+// bloomed — see index.html and css/style.css's `#hud`). THE RULE FOR WHICH A
+// NEW DRAW GOES ON:
+//
+//   `ctx`     world geometry, and any display text with no live HUD to cover
+//             that gains from bloom — the menu's title/subtitle/rows, the
+//             shop's title and credit total, gameover's FINAL SCORE. Large,
+//             sparse, meant to glow.
+//   `hudCtx`  dense per-frame readouts (drawHud() and gameConsole's SYS LOG),
+//             the menu's test-row checkboxes and footer, the shop's entire
+//             price list — anything the same size class as HUD text, which
+//             is exactly what bridges letters together under a threshold
+//             tuned for the world (see README's "Rendering the halo"). ALSO
+//             anything that must GUARANTEE it covers the HUD during a
+//             transition (disconnect/jackin/hauler's renderOverlay calls,
+//             below) — once the HUD is a separate layer, only canvas order
+//             can guarantee that, not draw order within one canvas.
+//
+// sectors.renderGlitch and jackin.render are the one exception either way:
+// they `drawImage()` the frame so far back onto itself and MUST keep
+// pointing at the world canvas element regardless of this rule, since a
+// glitch tear sampling the (transparent, mostly-empty) HUD canvas instead
+// would draw nothing.
 function render(alpha) {
   // Reinstalled every frame, not once at startup: any assignment to
   // canvas.width/height (which a resize does) resets the context state
-  // wholesale, transform included.
+  // wholesale, transform included. Both contexts get this — the HUD canvas is
+  // a mirrored viewport surface (see its declaration above) and its backing
+  // store resizes exactly when the world canvas's does.
   applyTransform(ctx);
   clear(ctx);
+  applyTransform(hudCtx);
+  // Transparent, not opaque like clear() above — the HUD has to let the
+  // bloomed world canvas show through everywhere it isn't drawing a readout.
+  // Cleared unconditionally, before the state switch below, the same way the
+  // world canvas is: every branch populates it differently (or not at all),
+  // and a menu screen that left last frame's in-game HUD numbers on this
+  // layer would show them bleeding through the title screen.
+  clearHud(hudCtx);
 
   // "gameover" reuses the exact same full-screen menu as "menu"/"paused" (see
   // menu.js's header) — the frozen wreck behind it from "dying" is gone the
   // instant the screen takes over, the same way "paused" already covers the
   // world rather than showing it through the menu.
   if (state === "menu" || state === "paused" || state === "gameover") {
-    menu.render(ctx, W, H);
+    menu.render(ctx, hudCtx, W, H);
     // menu.js never touches the world (see its header) — the final score is
     // world state, so it's main.js's job to draw it, not menu.open()'s to
     // have been handed it. Placed above the RESTART row rather than fighting
-    // menu.js's own layout for space inside it.
+    // menu.js's own layout for space inside it. On `ctx`: same size class as
+    // the menu's own rows, and there is no live HUD on this screen to cover.
     if (state === "gameover") {
       glowText(ctx, `FINAL SCORE ${score.points}`, W / 2, 350, GREEN_BRIGHT, 18, "center", 10);
       // What the run was worth in CREDITS. Reads lastRunEarnings rather than
@@ -1656,7 +1723,7 @@ function render(alpha) {
     // WHICH STOP THIS IS. The counter behind it used to be hauler.js's own
     // `milestone`; it moved into the event director with the rest of the
     // scheduling, so the number is asked of game/events.js now.
-    shop.render(ctx, W, H, wallet, events.milestoneCount("shop"), garage, player, loadout);
+    shop.render(ctx, hudCtx, W, H, wallet, events.milestoneCount("shop"), garage, player, loadout);
     return;
   }
 
@@ -1685,10 +1752,13 @@ function render(alpha) {
   // While "dying", game/disconnect.js's shake() desyncs the WHOLE scene by a
   // screen-space offset — a feed losing sync, not a physical jolt (see its
   // header) — so everything from the floor grid to the glitching car itself
-  // is drawn inside this translate, and only this translate. drawHud() and
-  // disconnect's own CONNECTION LOST readout come after ctx.restore() below,
-  // deliberately outside it, so the two things reporting the desync don't
-  // themselves desync.
+  // is drawn inside this translate, and only this translate. drawHud() (on
+  // its own, separately-transformed canvas) and disconnect's own CONNECTION
+  // LOST readout are both outside this translate entirely — the readout was
+  // already on `ctx` after `ctx.restore()` before this phase, and is on
+  // `hudCtx` now, which was never inside this save/translate/restore block to
+  // begin with — so the two things reporting the desync don't themselves
+  // desync.
   ctx.save();
   if (state === "dying") {
     const [sx, sy] = disconnect.shake();
@@ -1828,15 +1898,27 @@ function render(alpha) {
   if (state === "connecting") jackin.render(ctx, canvas, W, H);
 
   drawHud();
-  if (state === "dying") disconnect.renderOverlay(ctx, W, H);
-  // Above the HUD, like disconnect's CONNECTION LOST — the readout reports on
-  // the feed, so it must not tear along with it.
-  if (state === "connecting") jackin.renderOverlay(ctx, W, H);
-  // The hand-over flash at each end of the shopping interlude, above the HUD
-  // for the same reason jackin's readout is: it is covering a CUT, and a cut
-  // the HUD shows straight through is not covered. Returns immediately when
-  // idle or mid-sequence — see hauler.js's renderOverlay.
-  hauler.renderOverlay(ctx, W, H);
+  // ALL THREE OVERLAYS BELOW DRAW ON `hudCtx`, ABOVE THE HUD LAYER ITSELF —
+  // re-derived for Phase 15c's split rather than carried over from the old
+  // single-canvas order. The original reason ("a cut the HUD shows straight
+  // through is not covered") used to hold by DRAW ORDER: these three ran
+  // after drawHud() on the one shared canvas. That ordering trick stops
+  // working once the HUD is a separate layer painted on top — a readout drawn
+  // on `ctx` (the world canvas, underneath) could never cover something on
+  // `hudCtx` however it is sequenced, so guaranteeing the cover now means
+  // being ON `hudCtx`, last. The trade is that these three lose bloom's halo;
+  // they keep glowText's own shadowBlur regardless of which canvas they're
+  // on, so none of them go dark — see drawHud()'s own header.
+  if (state === "dying") disconnect.renderOverlay(hudCtx, W, H);
+  // The readout reports on the feed, so it must not tear along with it — see
+  // the block comment above for why "above the HUD" is now a canvas choice.
+  if (state === "connecting") jackin.renderOverlay(hudCtx, W, H);
+  // The hand-over flash at each end of the shopping interlude. Its full-
+  // screen white rect is the one of the three where "must cover the HUD" was
+  // never a close call — a flash meant to cover a cut that left a corner of
+  // the HUD showing through would read as a bug, not a lighter touch. Returns
+  // immediately when idle or mid-sequence — see hauler.js's renderOverlay.
+  hauler.renderOverlay(hudCtx, W, H);
 }
 
 // THE PRESENT STEP (engine/present.js): the finished 2D frame uploaded as a

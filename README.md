@@ -237,8 +237,9 @@ Things about it worth knowing before touching the renderer:
   Phase 15d-i made WebGL2 REQUIRED (see `gl/context.js`'s header for the
   reversal and why), so a machine without it is told the game cannot run
   rather than being handed a haloless version of one, and a context lost
-  mid-run pauses the game — the world frozen, a DOM notice covering both
-  canvases — rather than dropping back to something lesser. Both failure paths
+  mid-run pauses the game — the world frozen, a DOM notice covering all three
+  canvases (see the HUD layer below) — rather than dropping back to something
+  lesser. Both failure paths
   are verified, context loss included — 15b re-verified the loss/restore path
   by hand with `WEBGL_lose_context` before 15d-i changed what restoring means
   to the player, since restoring rebuilds four programs and four render
@@ -260,6 +261,24 @@ Things about it worth knowing before touching the renderer:
 - **Both canvases are sized by `engine/viewport.js`** (`mirrorCanvas`), so the
   fit, the eighth-step quantisation, the `MAX_SCALE` cap and the resize settle
   have one implementation rather than two that can drift.
+
+**A THIRD CANVAS, AS OF PHASE 15C: `#hud`, plain 2D, never uploaded to the
+GPU.** `src/main.js`'s `drawHud()`, the menu's test-row checkboxes and the
+shop's entire price list draw there instead of on the canvas this chain
+bloom's, so the dense per-frame readouts that used to cap `BLOOM_THRESHOLD`/
+`BLOOM_EXPOSURE` (see *Rendering the halo*) are no longer in this chain at
+all. It is a DOM layer composited by the browser, not a second texture fed
+into `COMPOSITE_FS` — the second-texture path was measured and rejected: the
+per-frame frame-texture upload already dominates this chain at ~1047us (see
+Cost below), and a second full-size upload for the HUD would have added
+roughly that again, to buy back a compositor blend `will-change: transform`
+already makes close to free (the same trick this canvas already gets over
+`#game`). `present.js`'s "The HUD split" has the full argument and the
+measured numbers either way. It is registered as a third `mirrorCanvas`
+alongside `#present`, sits `pointer-events: none` without exception (the
+menu's mouse-only test rows sit directly under it — `src/testoptions.js`),
+and is covered by `#gl-notice` on both of its failure paths exactly as the
+other two canvases already were.
 
 **THE PIXEL-IDENTITY SELF-TEST, verified live.** With the bright-pass threshold
 raised to 1.5 (every frame channel is in [0, 1], so this forces the bloom
@@ -319,11 +338,11 @@ argument, including why a ring rather than a filled disc — a filled disc
 would wash out the wireframe under it exactly the way the gradient's dimmed
 centre stop was built to avoid).
 
-**BLOOM_THRESHOLD/BLOOM_EXPOSURE (`present.js`) ARE UNCHANGED AT 0.75/3.0 —
-BUT NOT BECAUSE THE FIRST PASS OF VERIFICATION CAUGHT EVERYTHING.** It didn't,
-and the honest record is worth keeping. The initial live check (menu,
-connecting boot, gameplay with traffic and buildings on screen) looked at
-FULL-ALPHA, OPAQUE elements — the car's own wireframe, road barriers — and
+**BLOOM_THRESHOLD/BLOOM_EXPOSURE (`present.js`) WERE HELD AT 0.75/3.0 THROUGH
+15D-II — BUT NOT BECAUSE THE FIRST PASS OF VERIFICATION CAUGHT EVERYTHING.**
+It didn't, and the honest record is worth keeping. The initial live check
+(menu, connecting boot, gameplay with traffic and buildings on screen) looked
+at FULL-ALPHA, OPAQUE elements — the car's own wireframe, road barriers — and
 concluded no retuning was needed. It missed the player's shield ring
 entirely, which is exactly the kind of element that check didn't cover: drawn
 at a fraction of full alpha as a STEADY STATE (not a fade), so its composited
@@ -337,22 +356,34 @@ themselves move, so a moderately-bright element like the OLD shield alpha
 would bloom without needing its own fix? Tried live (0.75→0.55,
 3.0→4.0) and measured two ways — a full-height bar's halo intensity roughly
 doubled, which is what "stronger" was asked for — but the SAME lower
-threshold also pulls HUD text into blooming, and text has nothing in common
+threshold also pulled HUD text into blooming, and text has nothing in common
 with a barrier: `glowText`'s glyphs are small, dense, and it is the SOLID FILL
 of each character (not its own `shadowBlur`) that crosses the threshold, so
 letters bloom into their neighbours before the AREA increase reads as "text
 glowing more" — measured directly (a horizontal scan through "SCORE 12345"):
 at 0.75/3.0 the gap between letters still dipped to ~30-40 against a ~250
 peak; at 0.55/4.0 the same gaps only reached ~45-90, visibly bridging words
-together. There is no way to give the world a stronger pass without also
+together. There was no way to give the world a stronger pass without also
 doing that to text through ONE global post-process over the whole composited
-frame — that split (HUD off the bloomed layer entirely) is what Phase 15c is
-for, and it is not built. Reverted to 0.75/3.0. World glow is real (the
-shield fix alone still blooms clearly here) but not as strong as the OLD,
-literally-doubled three-stroke-plus-bloom look through 15d-i — that comparison
-was always going to read as a step down in raw intensity even when it is
-correct; 15c is where "stronger without wrecking text" actually becomes
-available.
+frame — that split (HUD off the bloomed layer entirely) was what Phase 15c
+was for, and it was not built yet. Reverted to 0.75/3.0 at the time, pending
+that split.
+
+**PHASE 15C LANDS EXACTLY THAT SPLIT AND FINALISES 0.55/4.0.** With `drawHud()`,
+the menu's test rows and the shop's entire shelf moved onto their own
+unbloomed `#hud` canvas (see *The present path* below), the SAME pair 15d-ii
+tried and reverted has nothing left to bridge — there is no dense text sharing
+the bloomed canvas any more, only large display type (the menu's title and
+rows, the shop's header and credit total, `gameover`'s FINAL SCORE) that reads
+the same way `CYBERCRUISE`'s own 46px title always has. Confirmed live across
+a busy gameplay scene, the menu and the gameover screen: buildings and
+barriers gained a visibly thicker, richer halo without washing into flat
+blobs — internal wireframe detail stays legible — and every readout on
+`#hud` stayed crisp throughout. `present.js`'s header has the full account,
+including a readPixels scan through a barrier cross-section corroborating
+(not re-deriving, since the two scans were taken on different live runs)
+15d-ii's own "roughly doubled" finding. World glow is now real AND strong —
+the gap this section used to end on.
 
 **THE SIGNATURE BUG, found the same way — live, by a person looking at the
 game, not by review, and worse than it first looked.** `glowLine`/`glowPoly`
@@ -518,6 +549,15 @@ clock. These repaint only when their text changes, and the game loop never
 touches them. `gutter.js`'s header covers the recycled row pool, the CSS-mask age
 fade, and the out-of-flow positioning that keeps them from colliding with a
 canvas sized off `window.innerWidth`.
+
+**Phase 15c takes the trade this section declines, for a different surface.**
+The HUD layer (*The present path* above, `#hud`) is exactly "a second canvas
+repainted on the game's clock" — the thing a second canvas here would have
+been — but it is the right call there and not here: the gutters repaint at
+roughly one write a second and DOM diffing is cheap enough to do that with,
+where the HUD's numbers change every frame and need Canvas2D's text and blend
+primitives, which DOM has no equivalent of. Same question, opposite answer,
+because the update rate is different by two orders of magnitude.
 
 Three things about them are design rather than plumbing, and `telemetry.js` and
 `engine/console.js` carry the argument:
@@ -1190,15 +1230,72 @@ is on hold is everything that wants a SERVER behind it.
         (no forced sync) stayed low, ~0.3ms for the whole seven-draw chain. See
         The present path above for the full account and what needs re-taking
         on real hardware before the phase's cost is a settled number.
-  - [ ] **15c** — The text decision, taken by LOOKING at 15b rather than in
-        advance: either blooming text is right for a Courier-New deck HUD and
-        nothing changes, or the HUD splits onto its own transparent 2D canvas
-        over the bloomed world. The seam already exists — everything in
-        `main.js`'s `render()` before `drawHud()` is world, everything after is
-        chrome — so the split is a second context and a parameter swap. Costs a
-        second full-size canvas repainted on the game's clock, which is the
-        trade the gutters declined (see The gutters); measure before assuming
-        it is free
+  - [x] **15c** — DONE, AND NOT THE SUB-PHASE THE ROADMAP ABOVE DESCRIBES. The
+        text decision wasn't "does text want bloom" — that was answered between
+        15b and 15d (yes) — it was that `BLOOM_THRESHOLD`/`BLOOM_EXPOSURE` were
+        pinned at their 15b values BY TEXT, not by the world: 15d-ii tried
+        0.55/4.0 live, watched it roughly double a barrier's halo, and reverted
+        because the same drop bridged HUD letters together. The deliverable
+        here is the retune that reversal was blocking, not the split itself —
+        the split is only how the retune became possible.
+        THE SEAM WAS NOT WHERE THE ROADMAP ABOVE SAID EITHER. "Everything
+        before `drawHud()` is world, everything after is chrome" is wrong on
+        two counts: `render()` returns early for `menu`/`paused`/`gameover`/
+        `shopping` and never reaches `drawHud()` at all, so the busiest text
+        screens in the game (the shop's price list, the menu's rows) were
+        never touched by that seam; and the real split is LEGIBILITY, not
+        draw order — a screen's LARGE display type (the menu's title and rows,
+        the shop's header and credit total, `gameover`'s FINAL SCORE) wants
+        bloom exactly the way `CYBERCRUISE` always has, while its SMALL dense
+        readouts (the HUD proper, the menu's test-row checkboxes, the shop's
+        entire shelf) are the same size class as the HUD text that bridged and
+        move with it.
+        THE SPLIT: a third canvas (`#hud` — index.html, css/style.css), plain
+        2D, transparent, painted on top of the WebGL2 present canvas by the
+        browser — NOT a second texture composited in the GPU chain, which was
+        the real alternative on the table and lost on 15a's own numbers (a
+        second full-frame upload would have roughly doubled the present pass's
+        already-dominant cost to buy back a compositor blend `will-change:
+        transform` already makes close to free). See `present.js`'s "The HUD
+        split" for the full argument and the measured numbers on both sides,
+        including what the rejected path would have cost. Everything dense
+        (`drawHud()`, the menu's test rows, the shop's shelf) draws there now;
+        everything large-and-sparse stays on the bloomed canvas. Three
+        overlays that used to guarantee covering the HUD by DRAW ORDER on one
+        shared canvas (`disconnect`/`jackin`/`hauler`'s `renderOverlay`) had to
+        be re-derived for two canvases: only CANVAS ORDER can guarantee that
+        now, so all three moved to `#hud` too, trading their bloom halo for a
+        guarantee that was the actual point — `glowText`'s own `shadowBlur`
+        (never part of 15d-ii's ban, which was about canvas-spanning paths and
+        cached sprites) keeps them from going dark. `sectors.renderGlitch` and
+        `jackin.render` were left alone on purpose: both `drawImage()` the
+        frame back onto itself and must keep pointing at the canvas that is
+        actually bloomed.
+        THE RETUNE: `BLOOM_THRESHOLD`/`BLOOM_EXPOSURE` move to 0.55/4.0 — the
+        exact pair 15d-ii tried and reverted — now that nothing dense shares
+        the bloomed canvas to bridge. Confirmed live across a busy gameplay
+        scene, the menu and the gameover screen: buildings and barriers gained
+        a visibly thicker, richer halo without washing into flat blobs, and
+        every readout on `#hud` stayed crisp throughout. `present.js`'s header
+        has the full account, including a readPixels scan through a barrier
+        cross-section corroborating (not re-deriving) 15d-ii's own "roughly
+        doubled" finding.
+        MEASURED, NOT ASSUMED, per the trade the gutters declined (see The
+        gutters below, and `present.js`'s header): the HUD layer's own
+        clear-and-redraw cost ~0.72ms mean live (p95 ~1.1ms), and the dropped-
+        frame retake (one clean sample — a second attempt hit the project's own
+        documented "reloaded-tab rAF throttling" trap and was discarded) landed
+        inside 15a's own range with zero missed vsync. The bare-desktop GPU
+        re-measurement owed since 15b is STILL owed — this sandboxed pane
+        remains the wrong place to take it, and 15c does not pretend otherwise.
+        A line went into `present.js`'s header on the pixel-identity self-
+        test's own blind spot too: it is a same-frame diff, so it cannot see an
+        orientation bug (exactly the class 15b's own Y-flip bug was), which
+        matters more now that 15e is about to add further GPU-to-GPU passes.
+        `npm test`: 738 on `main`, plus two updated test files
+        (`test-options.test.js`, `shop-screen.test.js`) whose `render()` calls
+        now pass a second recording context for the HUD canvas — no assertion
+        logic changed, only the call signature
   - [x] **15d** — DONE (both sub-phases). Collapse the fake halo: `neonStroke` strokes every path THREE
         times — wide and faint, mid, bright core — purely because `shadowBlur`
         was unaffordable (865us shadowed against 217us layered for one

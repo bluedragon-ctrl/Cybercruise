@@ -85,10 +85,23 @@ function tick(s) {
   return s.screen.update(s.wallet, s.player, s.loadout, s.garage);
 }
 
+// shop.render() now takes TWO contexts (Phase 15c: the world canvas for the
+// backdrop/frame/title/credits, the HUD layer for the shelf itself — see
+// main.js's render() for the split). This suite asks "is this text/rect on
+// the screen somewhere", not which canvas drew it, so both recording
+// contexts feed one merged result shaped like the single one callers used to
+// get back.
 function draw(s, visit = 1) {
   const ctx = recordingCtx();
-  s.screen.render(ctx, 600, 800, s.wallet, visit, s.garage, s.player, s.loadout);
-  return ctx;
+  const hudCtx = recordingCtx();
+  s.screen.render(ctx, hudCtx, 600, 800, s.wallet, visit, s.garage, s.player, s.loadout);
+  return {
+    texts: [...ctx.texts, ...hudCtx.texts],
+    rects: {
+      fill: ctx.rects.fill + hudCtx.rects.fill,
+      stroke: ctx.rects.stroke + hudCtx.rects.stroke,
+    },
+  };
 }
 
 // --- The action string -------------------------------------------------------

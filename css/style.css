@@ -140,6 +140,36 @@ body {
   border-radius: 4px;
 }
 
+/* --- The HUD layer (Phase 15c) --------------------------------------------
+
+   src/main.js's drawHud(), the menu's test rows and the shop's price list —
+   a THIRD canvas, plain 2D, sitting on top of #present. See
+   src/engine/present.js's header for why this is a DOM layer rather than a
+   second WebGL texture (the cost argument), and README's "Rendering the
+   halo" for why keeping this content off #game is the point of the whole
+   phase: BLOOM_THRESHOLD/BLOOM_EXPOSURE are tuned for the world now, and
+   dense text bridges under those numbers.
+
+   SAME POSITIONING AS #present, for the same reason: #frame is
+   shrink-wrapped to #game, so a third canvas is stepped in by the bezel by
+   hand rather than measured. TRANSPARENT rather than the dark fill #present
+   and #game carry — this layer has to let the bloomed frame show through
+   everywhere it isn't drawing a readout.
+
+   `pointer-events: none` WITHOUT EXCEPTION, unlike #present's comment which
+   only notes it never happens to be a click target — this canvas sits
+   directly over the menu's mouse-only test rows (src/testoptions.js), so an
+   input leak here would silently disarm them and nothing under test/ can see
+   a DOM hit-test change. engine/mouse.js binds to #game alone. */
+#hud {
+  position: absolute;
+  left: var(--bezel);
+  top: var(--bezel);
+  display: none;
+  pointer-events: none;
+  background: transparent;
+}
+
 /* The swap, in one place: which canvas is on screen, and which one is promoted.
 
    THE PROMOTION MOVES WITH THE FRAME, and this was re-measured rather than
@@ -170,6 +200,18 @@ body {
    figure should be treated as a measurement of one machine and one browser
    version, not as a standing property of unpromoted canvases. */
 #frame.gl #present {
+  display: block;
+  will-change: transform;
+}
+
+/* The HUD layer follows #present's own visibility exactly — as of Phase
+   15d-i WebGL2 is required to run at all, so ".gl" is set for the whole
+   life of a live run and this is really just "show it while the game is
+   running." will-change here for the same reason #present carries it: this
+   repaints every frame the game does, and letting it fall back to an
+   unpromoted layer would reopen the per-frame re-raster cost #present's own
+   comment measures above. */
+#frame.gl #hud {
   display: block;
   will-change: transform;
 }

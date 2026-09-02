@@ -24,16 +24,31 @@
          Hidden until src/engine/present.js has a live WebGL2 context; css/
          style.css does the swap off a class on #frame. -->
     <canvas id="present" width="600" height="800" aria-hidden="true"></canvas>
+    <!-- The HUD layer (src/main.js's drawHud, src/engine/present.js's header,
+         README's Phase 15c): a THIRD canvas, plain 2D, transparent, sitting on
+         top of #present. Never uploaded to the GPU and never bloomed — the
+         instrument readouts, the menu's test rows and the shop's price list
+         all live here instead of on #game, which is what lets
+         BLOOM_THRESHOLD/BLOOM_EXPOSURE be tuned for the world alone rather
+         than for what dense text can survive. Composited onto #present by the
+         browser (the same "layer transform, no per-frame re-raster" trick
+         #present already gets over #game — see css/style.css), which is why
+         this is a DOM layer and not a second WebGL texture; present.js's
+         header has the cost argument. Mirrored 1:1 with the other two
+         canvases (src/engine/viewport.js's mirrorCanvas) and, like #present,
+         NEVER A CLICK TARGET — engine/mouse.js binds to #game alone. -->
+    <canvas id="hud" width="600" height="800" aria-hidden="true"></canvas>
     <!-- WebGL2 is REQUIRED as of Phase 15d-i (src/engine/gl/context.js's
          header has the reversal and why) — this is the whole of what a
          machine without it, or a context lost mid-run, gets instead of a
-         haloless game. Plain DOM, not drawn on either canvas above, because
+         haloless game. Plain DOM, not drawn on any canvas above, because
          the one case this exists for is the one where the thing that draws
          text is the thing that is missing. src/engine/present.js toggles
          `hidden`, writes the two lines of text, and adds `fatal` for the
          no-WebGL2-at-all case — see its showNotice(). Positioned to cover
-         both canvases entirely (css/style.css), so neither a stale 2D frame
-         nor an undefined WebGL drawing buffer is ever what is actually on
+         all three canvases entirely (css/style.css), so neither a stale 2D
+         frame, an undefined WebGL drawing buffer nor a stale HUD is ever
+         what is actually on
          screen while this is up. -->
     <div id="gl-notice" class="gl-notice" hidden>
       <div class="gl-notice-title"></div>
