@@ -2,22 +2,47 @@
 // of what this project knows about setting up a GPU, and none of what it draws
 // with one (that is `engine/present.js`).
 //
-// THE DECISION THIS FILE EMBODIES: a GPU is an OPTIONAL accessory here, never a
-// requirement. Phase 15a puts a WebGL2 canvas in front of the Canvas2D one to
-// present the finished frame; if there is no WebGL2, or the driver takes the
-// context away mid-run, the game shows the 2D canvas directly and carries on.
-// That fallback is today's game exactly (README, Phase 15a), so it costs
-// nothing to keep — but it only stays real if every failure funnels through one
-// place that can say "no". Hence: this module NEVER throws. It returns null, or
-// it reports a loss through a callback, and the caller has exactly one branch.
+// THE DECISION THIS FILE EMBODIES, AS OF PHASE 15D-I: WebGL2 is REQUIRED. A
+// machine without it is told it cannot run the game rather than being handed a
+// haloless version of one, and a context lost mid-run pauses the game rather
+// than dropping back to something lesser. present.js owns the whole of that
+// answer — the message, the pause, the resume — and nothing under src/game/
+// ever finds out either way.
 //
-// CONTEXT LOSS IS NOT A HYPOTHETICAL. A driver reset, a GPU switch on a laptop,
-// too many live contexts in one browser, or the machine coming back from sleep
-// all take the context away with no warning. The default browser behaviour on
-// `webglcontextlost` is to give up permanently unless the event is
-// preventDefault()ed, which is why that call is here and not left to a caller
-// who might forget it: without it `webglcontextrestored` never fires and the
-// game would spend the rest of the session on a dead canvas.
+// THIS REVERSES THE ORIGINAL DECISION, and per CLAUDE.md that reasoning is kept
+// rather than deleted. Through Phase 15a-15c, a GPU was genuinely an OPTIONAL
+// accessory: this module never threw, present.js funnelled every failure —
+// missing WebGL2, a lost context — into one `live` flag, and false meant the
+// 2D canvas, which was a complete game (README, Phase 15a). That was real and
+// it cost nothing to keep, because the 2D layer was doing all the actual
+// drawing regardless of whether the GPU pass ran: 15a's chain was a no-op
+// blit, and 15b's bloom was laid OVER a look (`neonStroke`'s three-pass
+// overdraw) that already stood on its own.
+//
+// WHAT ENDS IT is Phase 15d-ii's collapse of `neonStroke` from three strokes to
+// one — the three-pass overdraw exists only because `shadowBlur` was
+// unaffordable (present.js's header carries the numbers), and once bloom does
+// the halo per pixel that collapses. Past that point the Canvas2D frame ALONE
+// is not the shipped look; it is a thinner one bloom was always going to
+// finish. Keeping the fallback across that change would mean maintaining TWO
+// looks forever — the one-stroke art plus bloom that ships, and a three-stroke
+// path frozen in place for whichever fraction of machines has neither WebGL2
+// nor anyone testing on them. 15d-i makes the substrate change first, with
+// `neonStroke` untouched, so a regression during the switch has one possible
+// cause; 15d-ii is the sub-phase that actually thins the strokes.
+//
+// CONTEXT LOSS IS STILL NOT A HYPOTHETICAL — if anything it matters more now
+// that there is nothing to fall back to. A driver reset, a GPU switch on a
+// laptop, too many live contexts in one browser, or the machine coming back
+// from sleep all take the context away with no warning. The default browser
+// behaviour on `webglcontextlost` is to give up permanently unless the event
+// is preventDefault()ed, which is why that call is here and not left to a
+// caller who might forget it: without it `webglcontextrestored` never fires
+// and the game would spend the rest of the session on a dead canvas — now with
+// no 2D canvas behind it to show instead. Hence this module still NEVER
+// throws: it returns null, or it reports a loss through a callback, and the
+// caller (present.js) has exactly one branch either way — show the failure,
+// don't guess at a degraded frame.
 //
 // EVERY GL OBJECT DIES WITH THE CONTEXT. Programs, textures and their contents
 // are all gone after a loss, and the handles left pointing at them are invalid

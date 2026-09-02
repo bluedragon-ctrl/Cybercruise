@@ -4,12 +4,17 @@
 // THE PRESENT PATH (src/engine/present.js, src/engine/gl/): the GPU blit, and
 // the two claims it makes that nothing else can catch.
 //
-// FIRST, THE FALLBACK IS REAL. engine/present.js's header, css/style.css and
-// the README's Phase 15a entry all state that a machine without WebGL2 gets
-// today's game rather than a black canvas — and that claim is worth exactly as
-// much as the branch behind it. A machine WITH WebGL2 (every machine anyone
-// tests on) never takes that branch, so nothing else would notice it rotting.
-// Here it is taken deliberately, by handing init() a canvas that answers null.
+// FIRST, THE FAILURE PATH IS REAL. Phase 15d-i made WebGL2 required — no
+// WebGL2 no longer means the 2D canvas, it means the "WEBGL2 REQUIRED" DOM
+// notice (`#gl-notice`) and init() returning false so the caller never starts
+// the game loop (engine/present.js's header, engine/gl/context.js's header).
+// That claim is worth exactly as much as the branch behind it, and a machine
+// WITH WebGL2 (every machine anyone tests on) never takes that branch, so
+// nothing else would notice it rotting. Here it is taken deliberately, by
+// handing init() a canvas that answers null, and the notice text is asserted
+// along with the return value — the whole point of the redesign was that
+// failure is now something the player is TOLD, not something the game quietly
+// works around.
 //
 // SECOND, THE SAMPLER NAMES. Each fragment stage declares its own uniforms and
 // present.js looks each one up with getUniformLocation; the two are in
@@ -38,9 +43,29 @@ import { init, isLive, present } from "../src/engine/present.js";
 import { PRESENT_FS, PRESENT_VS, BRIGHT_FS, BLUR_FS, COMPOSITE_FS } from "../src/engine/gl/shaders.js";
 
 // The minimum of a canvas element that present.js reaches for on the path
-// where there is no context to be had.
+// where there is no context to be had — now including the `#gl-notice`
+// structure init() looks up off the cabinet (see present.js's `init()` and
+// `showNotice()`), so the fatal path's DOM writes are something a headless
+// test can actually observe.
 function fakeCanvas(getContext) {
   const classes = new Set();
+  const notice = {
+    hidden: true,
+    classes: new Set(),
+    classList: {
+      toggle(name, on) {
+        if (on) notice.classes.add(name); else notice.classes.delete(name);
+      },
+      has: (name) => notice.classes.has(name),
+    },
+    title: { textContent: "" },
+    body: { textContent: "" },
+    querySelector(sel) {
+      if (sel === ".gl-notice-title") return notice.title;
+      if (sel === ".gl-notice-body") return notice.body;
+      return null;
+    },
+  };
   return {
     width: 600,
     height: 800,
@@ -53,19 +78,27 @@ function fakeCanvas(getContext) {
         },
         has: (name) => classes.has(name),
       },
+      querySelector: (sel) => (sel === "#gl-notice" ? notice : null),
     },
+    notice,
   };
 }
 
-// --- 1. The fallback --------------------------------------------------------
+// --- 1. The failure path ------------------------------------------------
 
-test("no WebGL2 leaves the present path dead rather than half-built", () => {
+test("no WebGL2 leaves the present path dead and shows the WEBGL2 REQUIRED notice", () => {
   const target = fakeCanvas(() => null);
   assert.equal(init(fakeCanvas(() => null), target), false);
   assert.equal(isLive(), false);
-  // The cabinet never gets the class, so css/style.css keeps the 2D canvas
-  // visible and the present canvas display:none — which is the whole fallback.
+  // The cabinet never gets the class, so css/style.css keeps the present
+  // canvas display:none — there is no fallback left for it to hand off to.
   assert.equal(target.parentElement.classList.has("gl"), false);
+  // The notice is what answers "no WebGL2" now — see present.js's header and
+  // gl/context.js's for why a haloless game is no longer the alternative.
+  assert.equal(target.notice.hidden, false);
+  assert.equal(target.notice.classList.has("fatal"), true);
+  assert.match(target.notice.title.textContent, /WEBGL2/);
+  assert.ok(target.notice.body.textContent.length > 0);
 });
 
 test("a browser that throws from getContext is indistinguishable from one without WebGL2", () => {
@@ -75,6 +108,10 @@ test("a browser that throws from getContext is indistinguishable from one withou
   const target = fakeCanvas(() => { throw new Error("blocklisted"); });
   assert.doesNotThrow(() => init(fakeCanvas(() => null), target));
   assert.equal(isLive(), false);
+  // Indistinguishable all the way to the player, not just to the return value —
+  // the thrown path shows exactly the same notice the null path does.
+  assert.equal(target.notice.hidden, false);
+  assert.equal(target.notice.classList.has("fatal"), true);
 });
 
 test("present() on a dead path is a no-op, not a crash", () => {

@@ -218,13 +218,19 @@ Things about it worth knowing before touching the renderer:
   that function's tail, because `render()` returns early on the menu and the
   shop and a present those branches skip is a **black** screen, not a stale one.
   No module under `src/game/` knows the GPU path exists.
-- **`src/testoptions.js`'s `GL_PRESENT` A/Bs it**, and the same switch is thrown
-  automatically when there is no WebGL2 or the context is lost mid-run: the game
-  falls back to showing the 2D canvas, which is a complete game. Both paths are
-  verified, context loss included — 15b re-verified the loss/restore path by
-  hand with `WEBGL_lose_context`, since restoring now rebuilds four programs and
-  four render targets rather than one texture (present.js's header calls this
-  out as the PR's highest-risk area).
+- **`src/testoptions.js`'s `GL_PRESENT` A/Bs bloom against a plain blit** — both
+  through WebGL2. **It no longer A/Bs the GPU path against the 2D canvas**:
+  Phase 15d-i made WebGL2 REQUIRED (see `gl/context.js`'s header for the
+  reversal and why), so a machine without it is told the game cannot run
+  rather than being handed a haloless version of one, and a context lost
+  mid-run pauses the game — the world frozen, a DOM notice covering both
+  canvases — rather than dropping back to something lesser. Both failure paths
+  are verified, context loss included — 15b re-verified the loss/restore path
+  by hand with `WEBGL_lose_context` before 15d-i changed what restoring means
+  to the player, since restoring rebuilds four programs and four render
+  targets rather than one texture (present.js's header calls this out as a
+  high-risk area); 15d-i re-verified it again by hand afterward, this time for
+  the pause and resume rather than the rebuild.
   **THE Y-FLIP LIVES IN THE FRAGMENT STAGES THAT TOUCH THE CPU-UPLOADED FRAME
   TEXTURE, NOT IN THE SHARED VERTEX STAGE** — found live, not by inspection:
   a first draft baked 15a's flip into the vertex stage all seven draws share,
@@ -951,7 +957,9 @@ is on hold is everything that wants a SERVER behind it.
         fix. The fallback fell out for free as expected: no WebGL2, or a
         context lost mid-run, and the 2D canvas is shown directly, which is
         today's game exactly — both verified, the loss with
-        `WEBGL_lose_context` in a live run, restore included. See The present
+        `WEBGL_lose_context` in a live run, restore included. **THIS FALLBACK
+        WAS REAL AND UNCONDITIONAL THROUGH 15C, AND 15D-I RETIRES IT** — see
+        that entry below and `gl/context.js`'s header for why. See The present
         path above
   - [x] **15b** — DONE, PROVISIONALLY TUNED. Bloom: bright-pass threshold
         (per-channel subtractive, `BRIGHT_FS`), half- and quarter-res separable
@@ -993,17 +1001,72 @@ is on hold is everything that wants a SERVER behind it.
         second full-size canvas repainted on the game's clock, which is the
         trade the gutters declined (see The gutters); measure before assuming
         it is free
-  - [ ] **15d** — Collapse the fake halo, which is the payoff and the reason
-        the phase is worth doing twice over: `neonStroke` strokes every path
-        THREE times — wide and faint, mid, bright core — purely because
-        `shadowBlur` was unaffordable (865us shadowed against 217us layered for
-        one full-height barrier). With bloom doing the halo per-pixel that
-        collapses to ONE stroke, and the same argument retires the `shadowBlur`
-        baked into the sprite cache and `glowOrb`'s gradient. The 2D layer gets
-        CHEAPER while the game looks better. `spread` and `halo` stop being
-        per-call constants and become bloom parameters, so the whole catalogue
-        is re-tuned here — the one sub-phase that touches game modules, and the
-        one that can turn the invariant suite red for the right reason
+  - **15d** — Collapse the fake halo: `neonStroke` strokes every path THREE
+        times — wide and faint, mid, bright core — purely because `shadowBlur`
+        was unaffordable (865us shadowed against 217us layered for one
+        full-height barrier), and with bloom doing the halo per-pixel that
+        collapses to ONE stroke. Two PRs, in that order, with the same
+        argument 15a was built on behind the split — isolate the substrate
+        from the appearance, so a regression has one possible cause — mattering
+        more here, since 15d-ii alone touches 12 game modules and can move
+        gameplay numbers
+    - [x] **15d-i** — DONE. WebGL2 becomes a REQUIREMENT: the fallback that
+          carried the game through 15a-15c (a machine without WebGL2, or one
+          that loses its context mid-run, shown the 2D canvas directly) is
+          retired. A machine without WebGL2 is told it cannot run the game — a
+          `#gl-notice` DOM overlay (`index.html`/`css/style.css`), plain
+          markup rather than anything drawn, since the thing that would draw
+          it is exactly what is missing — and never starts the game loop
+          (`main.js`'s `glReady` gate). A context lost mid-run shows the same
+          overlay with a different message, freezes the run (a new `gpulost`
+          frozen state in `main.js`'s state machine, entered asynchronously
+          from `present.js`'s `onLost`/`onRestored` rather than from any
+          player action — see that state's own note in `main.js`'s header for
+          why it is the odd one out among the frozen states), and resumes on
+          its own the moment `webglcontextrestored` fires. `neonStroke` and
+          every other game module are UNCHANGED — this PR is pure substrate,
+          reasoned about at length in `gl/context.js`'s header (the reversal
+          and why 15d-ii's stroke collapse is what forces it) and
+          `present.js`'s (the notice, the pause, and `GL_PRESENT`'s narrowed
+          meaning — it now A/Bs bloom against a plain blit, both through
+          WebGL2, rather than A/Bing the GPU path against the 2D canvas — see
+          its own comment in `testoptions.js`). NO VISUAL CHANGE ON A MACHINE
+          WITH WEBGL2: the `GL_PRESENT`-on chain in `present()` is the same
+          code, executed the same way, as before this PR — the only new
+          branching is the `!GL_PRESENT` blit path and the failure handling
+          around it, neither of which the default configuration takes — so
+          this is pixel-identical BY CONSTRUCTION rather than by a fresh
+          `readPixels` diff against `main`; confirmed live end to end (menu,
+          boot, gameplay, screenshotted) rather than only by reading the diff.
+          BOTH FAILURE PATHS VERIFIED LIVE, not by reasoning: `WEBGL_lose_context`
+          forced mid-run showed the amber "GPU CONNECTION LOST" notice, froze
+          the world, and `restoreContext()` rebuilt all four programs and
+          targets and resumed exactly where the run left off. Simulating "no
+          WebGL2" by patching `getContext` and calling `present.js`'s real,
+          already-loaded `init()` against the live `#gl-notice` DOM showed the
+          red "WEBGL2 REQUIRED" notice and `init()` returning false. ONE BUG
+          FOUND AND FIXED BY THIS LIVE CHECK, not by review: `.gl-notice`'s
+          own `display: flex` is an AUTHOR rule and beat the browser's UA
+          `[hidden] { display: none }` regardless of source order, so the
+          notice was covering the cabinet at ALL times, hidden or not, until
+          an explicit `.gl-notice[hidden] { display: none }` was added —
+          without the live check this would have shipped as a permanently
+          blank cabinet on every machine, including ones with WebGL2.
+          `test/present.test.js`'s three fallback-era tests are now tests of
+          the failure behaviour instead — the notice text and the `fatal`
+          class, not a class-based 2D/GL swap
+    - [ ] **15d-ii** — The payoff, and the reason the phase is worth doing
+          twice over: `neonStroke`'s three strokes actually collapse to one,
+          and the same argument retires the `shadowBlur` baked into the sprite
+          cache and `glowOrb`'s gradient. The 2D layer gets CHEAPER while the
+          game looks better. `spread` and `halo` stop being per-call constants
+          and become bloom parameters, so the whole catalogue is re-tuned here
+          — the one sub-phase that touches game modules, and the one that can
+          turn the invariant suite red for the right reason. `obstacleshapes.js`'s
+          measured (not derived) `GLOW_BLEED` and `sprites.js`'s `GLOW_PAD`
+          both feed gameplay (hazard `extent`, lane fit) rather than only the
+          look, and both have to be re-measured by hand against the new art,
+          not guessed
   - [ ] **15e** — The rest of the full-screen effects, now that a fragment
         shader is a place things can live: chromatic aberration, vignette,
         heat shimmer, and Phase 8's scanlines moved off Canvas2D into the pass

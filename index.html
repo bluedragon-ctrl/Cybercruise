@@ -21,11 +21,24 @@
          shrink-wrapped to #game and the viewport measures #game to work out how
          much of the window the cabinet's chrome eats, so a second in-flow canvas
          would either double the cabinet's height or take a vote in its size.
-         Hidden until src/engine/present.js has a live WebGL2 context, so a
-         browser without one — or a context lost mid-run — simply keeps showing
-         the 2D canvas, which is the whole fallback. css/style.css does the swap
-         off a class on #frame. -->
+         Hidden until src/engine/present.js has a live WebGL2 context; css/
+         style.css does the swap off a class on #frame. -->
     <canvas id="present" width="600" height="800" aria-hidden="true"></canvas>
+    <!-- WebGL2 is REQUIRED as of Phase 15d-i (src/engine/gl/context.js's
+         header has the reversal and why) — this is the whole of what a
+         machine without it, or a context lost mid-run, gets instead of a
+         haloless game. Plain DOM, not drawn on either canvas above, because
+         the one case this exists for is the one where the thing that draws
+         text is the thing that is missing. src/engine/present.js toggles
+         `hidden`, writes the two lines of text, and adds `fatal` for the
+         no-WebGL2-at-all case — see its showNotice(). Positioned to cover
+         both canvases entirely (css/style.css), so neither a stale 2D frame
+         nor an undefined WebGL drawing buffer is ever what is actually on
+         screen while this is up. -->
+    <div id="gl-notice" class="gl-notice" hidden>
+      <div class="gl-notice-title"></div>
+      <div class="gl-notice-body"></div>
+    </div>
     <div id="hint">&uarr;/&darr; select &middot; &larr;/&rarr; adjust &middot; SPACE/ENTER confirm</div>
   </div>
 

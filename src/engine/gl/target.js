@@ -20,9 +20,8 @@
 // RGBA16F was considered for the dark-half banding a bloom accumulated in
 // 8-bit could show, and deliberately not built speculatively: it is a real
 // GPU capability dependency (EXT_color_buffer_float / _half_float) for a
-// problem that has to be seen to be worth paying for, per the "a GPU is an
-// optional accessory" rule in gl/context.js. If a later pass shows banding,
-// the fallback-safe form of that change is a format argument to createTarget
+// problem that has to be seen to be worth paying for. If a later pass shows
+// banding, the safe form of that change is a format argument to createTarget
 // and a capability probe in present.js's build(), not a rewrite of this file.
 export function createTarget(gl) {
   return { texture: null, framebuffer: gl.createFramebuffer(), width: 0, height: 0 };
