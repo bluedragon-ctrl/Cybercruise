@@ -1,6 +1,13 @@
 :root {
   --bg: #05060a;
   --frame: #0b0f1a;
+  /* The cabinet's bezel. A variable because TWO rules have to agree on it:
+     #frame's padding, and the offset that puts #present exactly on top of
+     #game. An absolutely positioned child is placed against the padding box, so
+     the present canvas has to step in by the bezel by hand — and a bezel
+     changed in one place and not the other would show as the GL frame sitting a
+     few pixels off the 2D one it is supposed to be identical to. */
+  --bezel: 14px;
 }
 
 * { box-sizing: border-box; }
@@ -47,12 +54,14 @@ body {
 
 /* The cabinet. Shrink-wrapped to the canvas, which engine/viewport.js sizes in
    CSS pixels every resize — so the bezel tracks the playfield instead of the
-   window, and the two never disagree about where the frame is. The 14px padding
-   is mirrored by BEZEL_PAD in main.js, which keeps it out of the fit
-   calculation so the frame can never be pushed off-screen. */
+   window, and the two never disagree about where the frame is. The padding is
+   not mirrored anywhere in JS: engine/viewport.js MEASURES the difference
+   between this box and the canvas inside it (chromeSize there) rather than
+   knowing the number, which is what keeps the frame from being pushed off-screen
+   when the bezel or the hint bar changes. */
 #frame {
   position: relative;
-  padding: 14px;
+  padding: var(--bezel);
   border-radius: 10px;
   background: var(--frame);
   box-shadow: 0 0 24px rgba(57, 255, 136, 0.18), inset 0 0 0 1px rgba(57, 255, 136, 0.25);
@@ -86,8 +95,86 @@ body {
      `transform: scale()` on a 1:1-sized box performs the same but needs a
      wrapper element to keep the cabinet's layout honest, and letterboxing to
      integer display sizes is cheapest of all but renders 1080p screens at 1x —
-     which is the "too small on a big screen" problem this all started with. */
+     which is the "too small on a big screen" problem this all started with.
+
+     RE-MEASURED IN PHASE 15a, when the present canvas below took the promotion
+     over — see the block on #frame.gl for what the numbers look like now, and
+     for how much of the figure above should be read as a property of the one
+     machine it was taken on. */
   will-change: transform;
+}
+
+/* --- The present surface -------------------------------------------------
+
+   src/engine/present.js's WebGL2 canvas, sitting exactly on top of #game and
+   showing the same frame — uploaded as a texture and blitted straight back out.
+   Phase 15a ships it as a no-op; 15b is what puts an effect in the middle.
+
+   ABSOLUTE, and stepped in by the bezel: #frame is shrink-wrapped to #game and
+   engine/viewport.js measures #game to find out how much of the window the
+   cabinet's chrome eats, so a second canvas in normal flow would either double
+   the cabinet's height or get a vote in its own size. Out of flow it can only
+   ever cover what #game already established. engine/viewport.js keeps both
+   canvases at the same CSS box AND the same backing store (mirrorCanvas there),
+   which is what makes "exactly on top" true at every scale.
+
+   NEVER A CLICK TARGET. engine/mouse.js binds to #game, and the menu's test
+   rows are mouse-only by design (src/testoptions.js) — a transparent-to-input
+   canvas laid over the playfield that swallowed the pointer would disarm them
+   and every other click in the game.
+
+   HIDDEN UNTIL THERE IS A CONTEXT. The `gl` class below is added by present.js
+   only once WebGL2 is live and removed again if the context is lost, so a
+   machine without WebGL2 and a machine that loses it mid-run both end up
+   showing the 2D canvas — which is the complete game. `display: none` rather
+   than transparency, so an inert present canvas is not a compositor layer. */
+#present {
+  position: absolute;
+  left: var(--bezel);
+  top: var(--bezel);
+  display: none;
+  pointer-events: none;
+  background: #05060a;
+  border-radius: 4px;
+}
+
+/* The swap, in one place: which canvas is on screen, and which one is promoted.
+
+   THE PROMOTION MOVES WITH THE FRAME, and this was re-measured rather than
+   assumed — the note above is about a canvas that is now hidden whenever the GL
+   path is live, so inheriting its conclusion would have been inheriting a
+   measurement of something else. Same method as above (frames over 17ms out of
+   600), three samples per configuration, in a live run:
+
+     GL canvas, will-change: transform      12 of 600
+     GL canvas, will-change: auto           12 of 600
+
+   IDENTICAL, and that is the expected answer rather than a surprising one: an
+   accelerated WebGL canvas already owns a compositor layer because its contents
+   ARE a GPU texture, so there is no per-frame re-raster for the hint to avoid.
+   It is declared anyway, for one reason — the CSS box and the drawing buffer
+   still disagree by up to 1/16 (see engine/viewport.js), so the frame is still
+   presented through a scale, and stating the hint keeps that scale a layer
+   transform by contract instead of by the browser's current judgement.
+
+   The 2D canvas was re-measured in the same sitting, since it is the one whose
+   promotion this rule takes away: 4, 3 and 9 frames of 600 unpromoted against
+   6, 6 and 6 promoted — i.e. no difference above the noise on this machine, at
+   this window size, on a browser three years newer than the one the 48-of-599
+   figure came from. That does NOT retire the original result and the property
+   is kept: dropping the layer had a visible one-off cost even here (an 883ms
+   stall as the layer was torn down, in a sample that averaged 18.9ms/frame),
+   and the rule costs nothing to keep. What it does mean is that the 48-of-599
+   figure should be treated as a measurement of one machine and one browser
+   version, not as a standing property of unpromoted canvases. */
+#frame.gl #present {
+  display: block;
+  will-change: transform;
+}
+
+#frame.gl #game {
+  visibility: hidden;
+  will-change: auto;
 }
 
 /* The control legend under the playfield.

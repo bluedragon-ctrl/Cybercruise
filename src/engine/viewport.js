@@ -64,6 +64,27 @@ export function renderScale() {
   return scale;
 }
 
+// Canvases that must be exactly the same size as the game canvas, in BOTH the
+// backing store and the CSS box.
+//
+// There is one today: the WebGL2 canvas the finished frame is presented through
+// (engine/present.js). It exists at all because a 2D and a WebGL context cannot
+// share one canvas element, and it has to agree with the 2D canvas to the pixel
+// — a drawing buffer even one device pixel out would rescale the frame on its
+// way to the screen, which is precisely the blur this module is built to avoid,
+// and a CSS box out by a pixel would show a sliver of the cabinet behind it.
+//
+// REGISTERED HERE RATHER THAN SIZED BY ITS OWNER, because the rules that decide
+// those numbers — the fit, the eighth-step quantisation, the MAX_SCALE cap and
+// the resize settle — are this module's and must have exactly one
+// implementation. A present path that computed its own size would be a second
+// copy of all four, free to drift.
+const mirrors = [];
+
+export function mirrorCanvas(el) {
+  if (el && !mirrors.includes(el)) mirrors.push(el);
+}
+
 // How much of the window the cabinet chrome eats: the bezel padding around the
 // canvas plus the control-hint bar beneath it.
 //
@@ -151,14 +172,27 @@ function applyRasterScale(canvas, fit) {
   const next = quantiseScale(fit * dpr);
   const w = Math.round(LOGICAL_W * next);
   const h = Math.round(LOGICAL_H * next);
-  if (canvas.width === w && canvas.height === h) return false;
 
-  scale = next;
-  // Assigning width/height RESETS the context (transform, fillStyle, the lot),
-  // which is why applyTransform runs per frame rather than once here.
-  canvas.width = w;
-  canvas.height = h;
-  return true;
+  let changed = false;
+  if (canvas.width !== w || canvas.height !== h) {
+    scale = next;
+    // Assigning width/height RESETS the context (transform, fillStyle, the lot),
+    // which is why applyTransform runs per frame rather than once here.
+    canvas.width = w;
+    canvas.height = h;
+    changed = true;
+  }
+  // Mirrors are sized whether or not the game canvas moved, so one registered
+  // after the first pass still gets a backing store — and each is guarded on
+  // its own, because assigning width/height to the value it already holds is
+  // not a no-op: it reallocates, and on a WebGL canvas it clears the frame.
+  for (const m of mirrors) {
+    if (m.width !== w || m.height !== h) {
+      m.width = w;
+      m.height = h;
+    }
+  }
+  return changed;
 }
 
 // Set the canvas's CSS box, and publish `--fit` for the DOM chrome around it.
@@ -171,6 +205,10 @@ function applyCssSize(canvas, fit) {
   // rather than a per-frame re-raster; see `will-change` in css/style.css.
   canvas.style.width = `${LOGICAL_W * fit}px`;
   canvas.style.height = `${LOGICAL_H * fit}px`;
+  for (const m of mirrors) {
+    m.style.width = canvas.style.width;
+    m.style.height = canvas.style.height;
+  }
   // Published for the CSS chrome around the canvas (the hint bar's type) so DOM
   // text grows with the playfield instead of shrinking against it on a big
   // screen. CSS-only — nothing in the render path reads this.
