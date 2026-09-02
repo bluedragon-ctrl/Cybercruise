@@ -81,8 +81,6 @@ function stripes(ctx, x, y, w, h, color, step = 9) {
   ctx.strokeStyle = color;
   ctx.lineWidth = 3;
   ctx.globalAlpha = 0.85;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 6;
   ctx.beginPath();
   for (let i = -h; i < w + h; i += step) {
     ctx.moveTo(x + i, y + h);
@@ -118,30 +116,41 @@ function stripes(ctx, x, y, w, h, color, step = 9) {
 // number that under-reports lets the test pass while the drawing crosses the
 // lane edge. That is exactly what the trestle did — declared 29, drew 33.
 //
-// MEASURED, not derived from lineWidth and shadowBlur by formula. Render a
-// shape to an offscreen canvas and scan for its alpha > 40 bounding box:
+// MEASURED, not derived from lineWidth by formula. Render a shape to an
+// offscreen canvas and scan for its alpha > 40 bounding box:
 //
 //   for (const shape of OBSTACLE_SHAPES) {
-//     const c = document.createElement("canvas"); c.width = c.height = 300;
-//     const ctx = c.getContext("2d"); shape.draw(ctx, 150, 150, 1);
-//     const d = ctx.getImageData(0, 0, 300, 300).data;   // ...bounding box of
+//     const c = document.createElement("canvas"); c.width = c.height = 400;
+//     const ctx = c.getContext("2d"); shape.draw(ctx, 200, 200, 1);
+//     const d = ctx.getImageData(0, 0, 400, 400).data;   // ...bounding box of
 //   }                                                    // pixels with a > 40
 //
 // (Node has no canvas, which is why this cannot be a unit test; the test can
 // only check that the extents are still DERIVED. Re-run the scan by hand after
 // touching any draw().)
 //
-// A 1.5–2px stroke with shadowBlur 7–10 — nearly every part in this file —
-// lands 5–6px past the edge it is stroked on. The trestle's beam is the one
-// outlier: a 2px stroke with shadowBlur 11, reaching 7.
-const GLOW_BLEED = 6;
-const BEAM_GLOW_BLEED = 7;
+// RE-MEASURED FOR PHASE 15D-II, AND IT SHRANK. Through 15d-i every part here
+// carried its own ctx.shadowBlur (7-11, see gl/context.js's header and this
+// file's own history for why that was affordable baked into a cached sprite
+// even though neonStroke's equivalent overdraw was not) and the bleed it
+// bought was blur-driven: 5-7px past the stroked edge. 15d-ii retires that
+// shadowBlur — bloom (engine/present.js) supplies the halo now, and a second
+// hand-authored one baked into the sprite would double up with it (same trap
+// as neonStroke's own overdraw). What is left to bleed is only ever HALF A
+// STROKE'S WIDTH, at a join or a cap poking past the nominal edge — the scan
+// above, re-run against every entry post-shadowBlur, measured 0.8-1.8px
+// everywhere, TETRA's end-cap strokes the widest at 1.8. GLOW_BLEED is 3, not
+// 2, for margin against antialiasing rounding a shape's true edge up by a
+// fraction of a pixel on a different machine — TETRA's is still the tightest
+// entry at that value, ~1.2px of headroom over its measured reach.
+const GLOW_BLEED = 3;
 
 // Some parts fade under the alpha threshold before the full bleed shows up —
-// the caltrop's spikes taper to a needle, so their tips measure only 2px of
-// bleed. Those extents therefore over-declare by a few px. That is the right
-// direction to be wrong in: it costs a slightly larger cached sprite and
-// nothing else, where under-declaring clips artwork and lies to the test.
+// the caltrop's spikes taper to a needle, so their tips measure less bleed
+// than the flat edges elsewhere in the same shape. Those extents therefore
+// over-declare by a few px. That is the right direction to be wrong in: it
+// costs a slightly larger cached sprite and nothing else, where
+// under-declaring clips artwork and lies to the test.
 
 // THE TRESTLE MUST FIT INSIDE A LANE, artwork and all.
 //
@@ -153,11 +162,13 @@ const BEAM_GLOW_BLEED = 7;
 // than as a lane closure.
 //
 // The bound is on the ARTWORK, not just the collision box: extent.x below is
-// half this plus BEAM_GLOW_BLEED, and that is what has to stay inside
-// LANE_WIDTH / 2 (32.5). At 0.8 lanes the beam was 52px and the artwork
-// measured 33 — half a pixel over the edge the whole time, hidden because the
-// declared extent said 29. At 0.775 the beam is 50.4px and the artwork reaches
-// 32.2. Anything past LANE_WIDTH * 0.784 puts it back outside.
+// half this plus GLOW_BLEED, and that is what has to stay inside LANE_WIDTH /
+// 2 (32.5). At 0.8 lanes the beam was 52px and the artwork measured 33 — half
+// a pixel over the edge the whole time, hidden because the declared extent
+// said 29 (that was against the old, shadowBlur-driven bleed of 7 on this
+// part; see GLOW_BLEED's own header for why it is smaller now). At 0.775 the
+// beam is 50.4px; the scan there now measures the artwork reaching 29, well
+// inside the 32.5 bound with room to spare.
 const TRESTLE_WIDTH = LANE_WIDTH * 0.775;
 const TRESTLE_FOOT_HALF = 13; // the folding feet run cy ± this, past the beam
 
@@ -234,9 +245,9 @@ export const OBSTACLE_SHAPES = [
     family: BLOCK,
     size: [TRESTLE_WIDTH, 14],
     // The beam is the widest part and the feet are the tallest, so x comes off
-    // the beam (with the wide blur it carries) and up/down off the feet.
+    // the beam and up/down off the feet.
     extent: {
-      x: TRESTLE_WIDTH / 2 + BEAM_GLOW_BLEED,
+      x: TRESTLE_WIDTH / 2 + GLOW_BLEED,
       up: TRESTLE_FOOT_HALF + GLOW_BLEED,
       down: TRESTLE_FOOT_HALF + GLOW_BLEED,
     },
@@ -251,20 +262,20 @@ export const OBSTACLE_SHAPES = [
         glowPoly(ctx, [
           [cx + fx - 3, cy - fh], [cx + fx + 3, cy - fh],
           [cx + fx + 3, cy + fh], [cx + fx - 3, cy + fh],
-        ], NEUTRAL_DEEP, 1.5, 7, CAR_FILL);
-        glowLine(ctx, cx + fx - 3, cy, cx + fx + 3, cy, NEUTRAL_DEEP, 1, 4);
+        ], NEUTRAL_DEEP, 1.5, CAR_FILL);
+        glowLine(ctx, cx + fx - 3, cy, cx + fx + 3, cy, NEUTRAL_DEEP, 1);
       }
 
       // The beam: opaque and raised, so it hides the feet behind it.
       const top = cy - 7;
       glowPoly(ctx, [
         [cx - hw, top], [cx + hw, top], [cx + hw, top + 14], [cx - hw, top + 14],
-      ], NEUTRAL, 2, 11, CAR_FILL_RAISED);
+      ], NEUTRAL, 2, CAR_FILL_RAISED);
       stripes(ctx, cx - hw, top, hw * 2, 14, NEUTRAL);
 
       // Bright lip along the LEADING edge: the face the player is driving at is
       // the one that should catch the eye first.
-      glowLine(ctx, cx - hw, top, cx + hw, top, NEUTRAL_PALE, 2, 9);
+      glowLine(ctx, cx - hw, top, cx + hw, top, NEUTRAL_PALE, 2);
     },
   },
 
@@ -299,11 +310,11 @@ export const OBSTACLE_SHAPES = [
       // hole". The full-circle rings are what make it read as a drum standing
       // upright rather than a painted disc.
       const barrel = (x, y, r) => {
-        glowPoly(ctx, circle(x, y, r), NEUTRAL_DEEP, 1.5, 7, CAR_FILL);
-        glowPoly(ctx, circle(x, y, r * 0.85), NEUTRAL, 2, 10, CAR_FILL_RAISED);
-        glowPoly(ctx, circle(x, y, r * 0.62), NEUTRAL_PALE, 1.5, 8, CAR_FILL_RAISED);
-        glowPoly(ctx, circle(x, y, r * 0.38, 12), NEUTRAL_PALE, 1.5, 10, CAR_FILL_HIGH);
-        glowLine(ctx, x - r * 0.3, y, x + r * 0.3, y, NEUTRAL_DEEP, 1.5, 5); // lid rib
+        glowPoly(ctx, circle(x, y, r), NEUTRAL_DEEP, 1.5, CAR_FILL);
+        glowPoly(ctx, circle(x, y, r * 0.85), NEUTRAL, 2, CAR_FILL_RAISED);
+        glowPoly(ctx, circle(x, y, r * 0.62), NEUTRAL_PALE, 1.5, CAR_FILL_RAISED);
+        glowPoly(ctx, circle(x, y, r * 0.38, 12), NEUTRAL_PALE, 1.5, CAR_FILL_HIGH);
+        glowLine(ctx, x - r * 0.3, y, x + r * 0.3, y, NEUTRAL_DEEP, 1.5); // lid rib
       };
 
       // Offset on BOTH axes, so the pair reads as a diagonal rather than as a
@@ -341,17 +352,17 @@ export const OBSTACLE_SHAPES = [
         glowPoly(ctx, [
           [cx - dx * R + nx, cy - dy * R + ny], [cx + dx * R + nx, cy + dy * R + ny],
           [cx + dx * R - nx, cy + dy * R - ny], [cx - dx * R - nx, cy - dy * R - ny],
-        ], NEUTRAL, 1.5, 9, CAR_FILL_RAISED);
+        ], NEUTRAL, 1.5, CAR_FILL_RAISED);
         // Bright end caps — what sells the arms as sharpened steel.
         glowLine(ctx, cx + dx * R * 0.86, cy + dy * R * 0.86, cx + dx * R, cy + dy * R,
-          NEUTRAL_PALE, 3, 9);
+          NEUTRAL_PALE, 3);
         glowLine(ctx, cx - dx * R * 0.86, cy - dy * R * 0.86, cx - dx * R, cy - dy * R,
-          NEUTRAL_PALE, 3, 9);
+          NEUTRAL_PALE, 3);
       }
 
       // Hub plate: highest part, hiding all three crossings at once.
-      glowPoly(ctx, ngon(cx, cy, 9, 6, Math.PI / 6), NEUTRAL_PALE, 1.5, 10, CAR_FILL_HIGH);
-      glowPoly(ctx, ngon(cx, cy, 4, 6, Math.PI / 6), NEUTRAL_DEEP, 1, 6);
+      glowPoly(ctx, ngon(cx, cy, 9, 6, Math.PI / 6), NEUTRAL_PALE, 1.5, CAR_FILL_HIGH);
+      glowPoly(ctx, ngon(cx, cy, 4, 6, Math.PI / 6), NEUTRAL_DEEP, 1);
     },
   },
 
@@ -388,16 +399,16 @@ export const OBSTACLE_SHAPES = [
       // unfilled (unlike the glyph's own ENEMY stroke, matched here) so the
       // wedge reads as a wire prong rather than a solid tooth.
       for (const tri of caltropSpikes(cx, cy, r, spike, CALTROP_SPIKE_HALFWIDTH)) {
-        glowPoly(ctx, tri, ENEMY, 1.2, 7);
+        glowPoly(ctx, tri, ENEMY, 1.2);
       }
 
-      glowPoly(ctx, ngon(cx, cy, r, 6), ENEMY_PALE, 1.3, 8, MINE_CORE_FILL);
+      glowPoly(ctx, ngon(cx, cy, r, 6), ENEMY_PALE, 1.3, MINE_CORE_FILL);
 
       // Pulsing core, in ALPHA rather than size: a mine that visibly grew would
       // read as already detonating.
       ctx.save();
       ctx.globalAlpha = 0.3 + 0.7 * pulse;
-      glowPoly(ctx, ngon(cx, cy, r * 0.42, 6), CRITICAL_FLASH, 1.5, 10, HAZARD);
+      glowPoly(ctx, ngon(cx, cy, r * 0.42, 6), CRITICAL_FLASH, 1.5, HAZARD);
       ctx.restore();
     },
   },
@@ -435,7 +446,7 @@ export const OBSTACLE_SHAPES = [
       // The spine: one wire the teeth are strung from, always visible so the
       // strip still reads at the dim end of the pulse — the CRITICAL_FLASH
       // line below is the live TELL, not the strip's only visible structure.
-      glowLine(ctx, cx - half, cy, cx + half, cy, ENEMY, 1.2, 7);
+      glowLine(ctx, cx - half, cy, cx + half, cy, ENEMY, 1.2);
 
       // Teeth, alternating up-road and down-road so the strip bites whichever
       // way it is crossed — and so the silhouette is a saw rather than a comb.
@@ -447,14 +458,14 @@ export const OBSTACLE_SHAPES = [
           [x, base + dy * tooth],
           [x - SPIKES_TOOTH_HALFWIDTH, base],
           [x + SPIKES_TOOTH_HALFWIDTH, base],
-        ], ENEMY_PALE, 1, 6);
+        ], ENEMY_PALE, 1);
       }
 
       // The live tell, in ALPHA like the caltrop's core and for the same
       // reason: a strip that visibly grew would read as already going off.
       ctx.save();
       ctx.globalAlpha = 0.25 + 0.75 * pulse;
-      glowLine(ctx, cx - half, cy, cx + half, cy, CRITICAL_FLASH, 1.3, 8);
+      glowLine(ctx, cx - half, cy, cx + half, cy, CRITICAL_FLASH, 1.3);
       ctx.restore();
     },
   },

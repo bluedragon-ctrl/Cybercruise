@@ -391,7 +391,7 @@ function drawSection(ctx, cx, cy, s, o, eye) {
   for (let i = 0; i < n; i++) {
     if (!visible[i]) continue;
     const j = (i + 1) % n;
-    glowLine(ctx, bot[i][0], bot[i][1], bot[j][0], bot[j][1], BUILDING_EDGE_DIM, 1, 5);
+    glowLine(ctx, bot[i][0], bot[i][1], bot[j][0], bot[j][1], BUILDING_EDGE_DIM, 1);
   }
 
   // Vertical (or, on a taper, sloping) edges. A sharp shape wants every edge
@@ -404,28 +404,26 @@ function drawSection(ctx, cx, cy, s, o, eye) {
     if (!onVisibleWall) continue;
     const silhouette = visible[i] !== visible[prev];
     if (s.smooth && !silhouette) continue;
-    glowLine(ctx, bot[i][0], bot[i][1], top[i][0], top[i][1], o.color, 1.5, 8);
+    glowLine(ctx, bot[i][0], bot[i][1], top[i][0], top[i][1], o.color, 1.5);
   }
 
   // Dim ribs down a curved wall, so a drum isn't a featureless slab.
   if (s.ribEvery > 0) {
     for (let i = 0; i < n; i += s.ribEvery) {
       if (!visible[i]) continue;
-      glowLine(ctx, bot[i][0], bot[i][1], top[i][0], top[i][1], BUILDING_EDGE_DIM, 1, 4);
+      glowLine(ctx, bot[i][0], bot[i][1], top[i][0], top[i][1], BUILDING_EDGE_DIM, 1);
     }
   }
 
   // Roof outline (brightest — it's the top, furthest from the ground). An apex
   // has none: its wall edges already meet at the point.
-  if (!pointed) glowPoly(ctx, top, o.color, 1.5, 10);
+  if (!pointed) glowPoly(ctx, top, o.color, 1.5);
 }
 
 // A small glowing point — the aircraft-warning light on a spire or apex.
 function drawBeacon(ctx, p, color) {
   ctx.save();
   ctx.fillStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 12;
   ctx.beginPath();
   ctx.arc(p[0], p[1], 2, 0, TAU);
   ctx.fill();

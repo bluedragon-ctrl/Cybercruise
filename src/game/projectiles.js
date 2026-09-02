@@ -159,7 +159,7 @@ export function drawDart(ctx, cx, cy, angle, opts = {}) {
       c.moveTo(x1, y1);
       c.lineTo(x2, y2);
     }
-  }, color, 1.6, 4.5, 0.15, 1);
+  }, color, 1.6, 1);
 
   neonStroke(ctx, (c) => {
     for (const [from, to] of DART_BURNER) {
@@ -169,14 +169,14 @@ export function drawDart(ctx, cx, cy, angle, opts = {}) {
       c.moveTo(x1, y1);
       c.lineTo(x2, y2);
     }
-  }, glow, 1.3, 4, 0.14, 1);
+  }, glow, 1.3, 1);
 
   const [nx, ny] = dartPoint([0, -9], cx, cy, angle, sxScale, syScale);
   neonStroke(ctx, (c) => {
     const r = Math.max(1, sxScale * 1.1);
     c.moveTo(nx + r, ny);
     c.arc(nx, ny, r, 0, Math.PI * 2);
-  }, "#ffffff", 1.2, 4, 0.15, 1);
+  }, "#ffffff", 1.2, 1);
 }
 
 export class Projectiles {
@@ -645,8 +645,6 @@ export class Projectiles {
         },
         color,
         sample.width,
-        3.5,
-        0.16,
         1,
       );
     }
@@ -700,8 +698,6 @@ export class Projectiles {
         ),
         color,
         1.6,
-        4.5,
-        0.15,
         1,
       );
     }
@@ -727,8 +723,6 @@ export class Projectiles {
         ),
         glow,
         1.3,
-        4,
-        0.14,
         1,
       );
     }
@@ -747,8 +741,6 @@ export class Projectiles {
         ),
         "#ffffff",
         1.2,
-        4,
-        0.15,
         1,
       );
     }
@@ -777,8 +769,6 @@ export class Projectiles {
         },
         p.color,
         2,
-        4,
-        0.15,
         1 - t,
       );
     }

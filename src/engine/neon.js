@@ -21,13 +21,23 @@ export function clear(ctx, color = "#05060a") {
 }
 
 // A single glowing line segment.
-export function glowLine(ctx, x1, y1, x2, y2, color, width = 2, blur = 12) {
+//
+// THROUGH PHASE 15D-I THIS CARRIED ITS OWN ctx.shadowBlur — a small, bounded
+// bounding box (a panel line, a building strip), so unlike neonStroke's
+// canvas-spanning paths the shadow was never expensive; carshapes.js's header
+// and sprites.js's GLOW_PAD both used to cite "max shadowBlur used here is 13"
+// against exactly this. 15d-ii drops it anyway: this draw is almost always
+// baked into a CACHED sprite (spritecache.js), and bloom now runs over the
+// WHOLE finished frame regardless of how a pixel got bright — a shadow baked
+// into the sprite bitmap and bloom's own halo over the same bright pixels
+// double up, the identical "doubled halo" trap present.js's header already
+// warns about for neonStroke plus bloom. One glow, from one place, is what
+// keeps that provable rather than merely tuned to look right today.
+export function glowLine(ctx, x1, y1, x2, y2, color, width = 2) {
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
   ctx.lineCap = "round";
-  ctx.shadowColor = color;
-  ctx.shadowBlur = blur;
   ctx.beginPath();
   ctx.moveTo(x1, y1);
   ctx.lineTo(x2, y2);
@@ -35,15 +45,14 @@ export function glowLine(ctx, x1, y1, x2, y2, color, width = 2, blur = 12) {
   ctx.restore();
 }
 
-// A glowing closed polygon from an array of [x, y] points.
-export function glowPoly(ctx, points, color, width = 2, blur = 12, fill = null) {
+// A glowing closed polygon from an array of [x, y] points. See glowLine's
+// header for why this no longer carries its own shadowBlur either.
+export function glowPoly(ctx, points, color, width = 2, fill = null) {
   if (points.length < 2) return;
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
   ctx.lineJoin = "round";
-  ctx.shadowColor = color;
-  ctx.shadowBlur = blur;
   ctx.beginPath();
   ctx.moveTo(points[0][0], points[0][1]);
   for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
@@ -56,23 +65,36 @@ export function glowPoly(ctx, points, color, width = 2, blur = 12, fill = null) 
   ctx.restore();
 }
 
-// A glowing OPEN polyline, drawn WITHOUT ctx.shadowBlur: the path is built once
-// and then stroked a few times — wide and faint, then narrower and brighter — so
-// the halo comes from overdraw instead of a blur filter.
+// A glowing OPEN polyline, drawn WITHOUT ctx.shadowBlur.
 //
-// Why not shadowBlur: its cost scales with the shadow's BOUNDING-BOX AREA, not
-// with the shape, so one canvas-spanning path (a road barrier) is brutally
-// expensive. Measured on a 600x800 canvas, net of the frame clear: ~865us for a
-// single full-height shadowed barrier vs ~90us for the same stroke unshadowed.
-// The three overdraw passes below come to ~215us — 4x cheaper than the shadow,
-// and they read closer to real neon anyway.
+// THROUGH PHASE 15D-I, THIS STROKED THE PATH THREE TIMES — wide and faint,
+// narrower and brighter, then the bright core — because a real blur filter's
+// cost scales with the shadow's BOUNDING-BOX AREA, not the shape: one
+// canvas-spanning path (a road barrier) was brutally expensive under
+// `shadowBlur` (~865us on a 600x800 canvas, net of the clear, against ~90us
+// unshadowed), and the three overdraw passes bought a halo for ~215us instead
+// — 4x cheaper, and closer to real neon than a Gaussian blur reads anyway.
+// `spread` and `halo` were the two knobs that shaped that overdraw: how much
+// wider the faint outer pass ran, and how faint it was.
+//
+// PHASE 15D-II RETIRES THE OVERDRAW. Bloom (`engine/present.js`) now supplies
+// the halo, PER PIXEL, over the whole finished frame — so a second, hand-tuned
+// halo baked into the 2D layer would double up with it (see present.js's
+// header on why the two were kept apart through 15b/15d-i). What is left is
+// exactly the old bright-core pass: one stroke, full width, full alpha, colour
+// bright enough that bloom's threshold catches it. `spread` and `halo` are
+// GONE from the signature — there is no longer an overdraw for them to shape —
+// and moved into what bloom itself owns: `present.js`'s BLOOM_THRESHOLD/
+// BLOOM_EXPOSURE and the half/quarter blur mix, tuned once for the whole frame
+// rather than once per call site. See README's Phase 15d-ii entry for the
+// before/after cost.
 //
 // `build(ctx)` issues the moveTo/lineTo calls and must NOT call beginPath, so a
 // caller can batch many disjoint segments (e.g. all the centre dashes) into one
-// path and pay for the three strokes only once.
-// `alpha` scales all three passes together, which is what lets a transient effect
-// (an explosion fragment) fade out without losing the halo's relative weighting.
-export function neonStroke(ctx, build, color, width = 2, spread = 4, halo = 0.13, alpha = 1) {
+// path and pay for the one stroke only once.
+// `alpha` scales the stroke, which is what lets a transient effect (an
+// explosion fragment) fade out.
+export function neonStroke(ctx, build, color, width = 2, alpha = 1) {
   if (alpha <= 0) return;
   ctx.save();
   ctx.strokeStyle = color;
@@ -80,55 +102,10 @@ export function neonStroke(ctx, build, color, width = 2, spread = 4, halo = 0.13
   ctx.lineCap = "round";
   ctx.beginPath();
   build(ctx);
-
-  // Outer halo: widest and faintest.
-  ctx.globalAlpha = halo * alpha;
-  ctx.lineWidth = width * spread;
-  ctx.stroke();
-
-  // Inner halo.
-  ctx.globalAlpha = halo * 2.1 * alpha;
-  ctx.lineWidth = width * (1 + (spread - 1) * 0.45);
-  ctx.stroke();
-
-  // The bright core line itself.
   ctx.globalAlpha = alpha;
   ctx.lineWidth = width;
   ctx.stroke();
   ctx.restore();
-}
-
-// A soft, blurred ball of light: a radial gradient from a bright middle out
-// to nothing at `r`. Drawn ADDITIVELY ("lighter"), which is what keeps it
-// reading as light around an object rather than as a translucent grey disc
-// laid over it — the player's shield (game/player.js) wraps the whole car in
-// one of these and breathes it in and out.
-//
-// `color` must be a "#rrggbb" hex, since the gradient needs the same colour at
-// two different alphas; `alpha` scales the whole orb, so a caller can pulse or
-// fade it without rewriting the stops.
-export function glowOrb(ctx, cx, cy, r, color, alpha = 1) {
-  if (alpha <= 0 || r <= 0) return;
-  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-  // Dimmer in the very middle than at 0.6: the car itself sits in the middle,
-  // and a hot core there would wash the wireframe out instead of haloing it.
-  g.addColorStop(0, rgba(color, alpha * 0.45));
-  g.addColorStop(0.6, rgba(color, alpha));
-  g.addColorStop(1, rgba(color, 0));
-  ctx.save();
-  ctx.globalCompositeOperation = "lighter";
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-// "#rrggbb" + alpha -> "rgba(...)". Gradient stops cannot carry a separate
-// globalAlpha, so the alpha has to live inside the colour string itself.
-function rgba(hex, a) {
-  const n = parseInt(hex.slice(1), 16);
-  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
 // Glowing text. `bold` only changes the font weight — every other knob

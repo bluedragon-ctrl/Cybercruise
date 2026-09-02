@@ -315,7 +315,7 @@ export function createMenu() {
     // the one thing that tells all three modes apart at a glance.
     const subtitle = mode === "pause" ? "PAUSED" : mode === "gameover" ? "CONNECTION LOST" : "NEON HIGHWAY COMBAT";
     glowText(ctx, subtitle, W / 2, 268, GREEN_PALE, 14, "center", 8);
-    glowLine(ctx, W / 2 - 120, 302, W / 2 + 120, 302, GREEN_DIM, 1, 6);
+    glowLine(ctx, W / 2 - 120, 302, W / 2 + 120, 302, GREEN_DIM, 1);
 
     // The three REAL rows only — the test checkboxes are a different size, in
     // a different place, on purpose (see CHECK_Y above), so they are drawn in

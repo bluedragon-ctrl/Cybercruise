@@ -305,9 +305,9 @@ export class JackIn {
       // The scan edge itself: a hot line with a brighter core, plus a short
       // gradientless "wake" of two dimmer lines just above it, so the sweep
       // reads as something travelling rather than a rectangle shrinking.
-      glowLine(ctx, 0, line, W, line, "#ffffff", 2, 14);
-      glowLine(ctx, 0, line - 4, W, line - 4, GREEN_BRIGHT, 1, 8);
-      glowLine(ctx, 0, line - 9, W, line - 9, PLAYER, 1, 6);
+      glowLine(ctx, 0, line, W, line, "#ffffff", 2);
+      glowLine(ctx, 0, line - 4, W, line - 4, GREEN_BRIGHT, 1);
+      glowLine(ctx, 0, line - 9, W, line - 9, PLAYER, 1);
     }
 
     // 2. THE RESOLVED REGION IS STILL TEARING. Horizontal band shifts, biggest

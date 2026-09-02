@@ -395,6 +395,21 @@ export const BOSS_SHAPES = [
     // ground-contact note for why that distinction is written down rather than
     // assumed.
     hover: { blot: false },
+    // hauler.js's HAULER colour is chosen to sit well below the player's own
+    // cyan in value — see that file's render() comment for why — which means
+    // it never crosses bloom's threshold no matter how this hull draws it.
+    // Through Phase 15d-i that was still fine: shadowBlur gives ANY colour a
+    // halo in proportion to its own brightness, however dim, so "dim" meant
+    // "a quieter glow" rather than "no glow at all". Bloom is all-or-nothing
+    // against an absolute threshold, so retiring shadowBlur here would have
+    // made the ONE hull deliberately drawn muted the one hull that reads as
+    // completely unlit — found live, the same way the rotor blade flicker
+    // was. `localGlow` (drawShapeObject's own header explains the mechanism)
+    // opts this hull back into a modest local shadowBlur for its whole draw,
+    // which is a bounded exception rather than a reason to doubt the rest of
+    // the catalogue: every other shape's colours were chosen to clear
+    // threshold on their own, and only this one was chosen not to.
+    localGlow: true,
     parts: [
       [[0, -0.98], [0.86, -0.92], [0.90, -0.62], [0.80, -0.52], [0, -0.50]],
       [[0, 0.50], [0.80, 0.52], [0.90, 0.62], [0.86, 0.92], [0, 0.98]],

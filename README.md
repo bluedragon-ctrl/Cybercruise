@@ -162,10 +162,17 @@ Three rules keep that from coming back:
    `drawCarCached` / `drawBuildingVariant` (`src/game/sprites.js`), or a wrapper
    on `src/engine/spritecache.js`. Cache keys must be bounded: quantise
    continuous parameters, never key on a raw float.
-2. **Never put `shadowBlur` on a path that spans much of the canvas.** Use
-   `neonStroke` (`src/engine/neon.js`), which strokes a path several times at
-   decreasing width instead — 865µs shadowed against 217µs layered for one
-   full-height barrier.
+2. **Never put `shadowBlur` on a path that spans much of the canvas, and
+   (since Phase 15d-ii) not on a cached sprite either.** Use `neonStroke`
+   (`src/engine/neon.js`) for anything live and per-frame; bloom
+   (`engine/present.js`) supplies the halo over the whole finished frame, so
+   nothing drawn into the 2D layer needs a glow of its own any more —
+   `neonStroke` is a single plain stroke, and `carshapes.js`/`buildingshapes.js`/
+   `obstacleshapes.js` draw plain lines and fills into the sprite cache the
+   same way. Through 15d-i, `neonStroke` faked its halo with a three-pass
+   overdraw instead (865µs shadowed against 217µs layered for one full-height
+   barrier) precisely because a real blur was unaffordable on a canvas-spanning
+   path; 15d-ii's *Rendering the halo* below has the retuned numbers.
 3. **Anything that only SCROLLS is pre-rendered and blitted, not re-stroked.**
    The road is a rolling cache of 128px strips (`road.js`), the city floor a
    single tile (`scenery.js`) — together ~4.3ms/frame down to ~60µs. A new
@@ -192,13 +199,20 @@ it. The full per-sub-phase numbers, the 7e result that briefly made culling look
 like a prerequisite, and the rejected half-res glow downsample are all in
 `docs/superpowers/specs/2026-08-07-city-map-layer-design.md`.
 
-Two profiling traps, both of which cost time to rediscover: `getImageData` used
+Profiling traps, each of which cost time to rediscover: `getImageData` used
 to "force a flush" demotes the canvas out of GPU acceleration and changes what is
 being compared, and measuring throughput inside `requestAnimationFrame` silently
 floors at vsync and reports a ratio of ~1. Two plausible-looking methods
 disagreed by 5x. A third, found in Phase 15a: rAF is throttled to a standstill
 in a hidden tab, so anything counting frames has to be measured with the page
-actually on screen.
+actually on screen. A fourth, found re-measuring in Phase 15d-ii: "on screen"
+is not the same claim as `document.hidden === false`, and in this project's own
+sandboxed browser tooling the two disagree — a tab opened with a plain
+navigate reported `hidden: false` and *also* throttled rAF to ~1-2Hz, silently
+turning an 8-second sample into 15 frames. The tab opened by `preview_start`
+did not, and sustained ~90-150Hz. When a frame-rate-dependent measurement in
+that tooling looks too quiet, check which call opened the tab before trusting
+the number.
 
 ### The present path
 
@@ -282,6 +296,191 @@ carried over from 15a unchanged for the same reason: retaking it through the
 same remoted pipeline would not produce a comparable number, and re-doing it in
 a properly diagnosed environment is next session's job, not a settled result of
 this one.
+
+### Rendering the halo
+
+Through Phase 15d-i, bloom ran ALONGSIDE `neonStroke`'s own three-pass overdraw
+and every cached sprite's own `shadowBlur` — real per-pixel bloom laid over a
+hand-tuned fake one, deliberately not reconciled yet (present.js's header:
+"this PR does not try to make a doubled halo... look right"). Phase 15d-ii is
+that reconciliation: bloom is now the ONLY source of halo in the game.
+`neonStroke` (`engine/neon.js`) collapsed from three strokes to one at all 59
+call sites across `effects.js`, `projectiles.js`, `road.js`, `exhaust.js`,
+`nodeshapes.js`, `scenery.js`, `links.js`, `shells.js`, `walletrender.js` and
+`disconnect.js`; `glowLine`/`glowPoly` (the same file) dropped their own
+`shadowBlur` too, which reaches every mark in `carshapes.js`,
+`buildingshapes.js`, `obstacleshapes.js` and `pickupshapes.js` — the shape
+catalogues the sprite cache rasterises once and blits thereafter (`pickupshapes.js`
+crates are the one exception drawn live rather than cached, and stayed in that
+list anyway once the signature bug below made it moot — see THE SIGNATURE BUG
+below); and `player.js`'s shield swapped `glowOrb`'s radial gradient for a
+single additive ring, for the same reason (its own header carries the
+argument, including why a ring rather than a filled disc — a filled disc
+would wash out the wireframe under it exactly the way the gradient's dimmed
+centre stop was built to avoid).
+
+**BLOOM_THRESHOLD/BLOOM_EXPOSURE (`present.js`) ARE UNCHANGED AT 0.75/3.0 —
+BUT NOT BECAUSE THE FIRST PASS OF VERIFICATION CAUGHT EVERYTHING.** It didn't,
+and the honest record is worth keeping. The initial live check (menu,
+connecting boot, gameplay with traffic and buildings on screen) looked at
+FULL-ALPHA, OPAQUE elements — the car's own wireframe, road barriers — and
+concluded no retuning was needed. It missed the player's shield ring
+entirely, which is exactly the kind of element that check didn't cover: drawn
+at a fraction of full alpha as a STEADY STATE (not a fade), so its composited
+brightness never got near the threshold regardless of geometry. Found live,
+by the person actually looking at the running game, not by this project's own
+verification pass — see player.js's `SHIELD_ORB_ALPHA` header for the
+per-channel arithmetic and the fix (0.3 → 0.85).
+
+That opened the real question: should `BLOOM_THRESHOLD`/`BLOOM_EXPOSURE`
+themselves move, so a moderately-bright element like the OLD shield alpha
+would bloom without needing its own fix? Tried live (0.75→0.55,
+3.0→4.0) and measured two ways — a full-height bar's halo intensity roughly
+doubled, which is what "stronger" was asked for — but the SAME lower
+threshold also pulls HUD text into blooming, and text has nothing in common
+with a barrier: `glowText`'s glyphs are small, dense, and it is the SOLID FILL
+of each character (not its own `shadowBlur`) that crosses the threshold, so
+letters bloom into their neighbours before the AREA increase reads as "text
+glowing more" — measured directly (a horizontal scan through "SCORE 12345"):
+at 0.75/3.0 the gap between letters still dipped to ~30-40 against a ~250
+peak; at 0.55/4.0 the same gaps only reached ~45-90, visibly bridging words
+together. There is no way to give the world a stronger pass without also
+doing that to text through ONE global post-process over the whole composited
+frame — that split (HUD off the bloomed layer entirely) is what Phase 15c is
+for, and it is not built. Reverted to 0.75/3.0. World glow is real (the
+shield fix alone still blooms clearly here) but not as strong as the OLD,
+literally-doubled three-stroke-plus-bloom look through 15d-i — that comparison
+was always going to read as a step down in raw intensity even when it is
+correct; 15c is where "stronger without wrecking text" actually becomes
+available.
+
+**THE SIGNATURE BUG, found the same way — live, by a person looking at the
+game, not by review, and worse than it first looked.** `glowLine`/`glowPoly`
+lost their `blur` PARAMETER in this phase (not just its effect), and every
+caller had to be found, not just the three files this sub-phase set out to
+touch. First found in `pickupshapes.js`, missed entirely: its calls like
+`glowPoly(ctx, outer, PICKUP_FRAME, 1.5, 9)` kept passing a positional `9`
+that used to be `blur` and is now `fill`, so a crate's reticle and glyphs
+started calling `ctx.fill()` with a fill style of the NUMBER 9 wherever that
+path used to be stroke-only — read live as pickups "oscillating toward white"
+as whatever `fillStyle` happened to be left over from a previous draw call
+bled into shapes that were never meant to be filled at all. All 15 sites in
+`pickupshapes.js` were wrong the same way.
+
+THAT FIX PROMPTED A RE-READ OF `carshapes.js`'s OWN `drawShapeObject`, AND IT
+HAD THE IDENTICAL BUG ON THE CHASSIS FILL OF EVERY CAR IN THE GAME —
+`glowPoly(ctx, fracLoop(p, cx, cy, hw, hh), color, 2, 13, CAR_FILL)`, the main
+body fill step every single car and traffic type runs through, plus the rear
+wing bar. `13` (the old blur) landed in `fill`, and `CAR_FILL`/`CAR_FILL_HIGH`
+became silently-discarded sixth arguments. This one had NOT been caught by
+the file-by-file review that fixed `carshapes.js`'s other call sites, because
+that review worked through `drawTread`/`drawRotor`/`drawHoverShadow`/
+`makeTools` and never re-read `drawShapeObject`'s OWN two direct calls — the
+exact kind of gap a targeted read-and-fix pass leaves and a mechanical scan
+does not. **After this, every remaining `glowLine`/`glowPoly` call site in the
+whole tree was re-verified with a script, not by re-reading source by eye**:
+walk every call, parse its balanced argument list (bracket-and-brace-aware,
+so array-literal points and object arguments do not miscount as extra
+arguments), and flag any `glowPoly` call whose 5th (`fill`) slot is a bare
+numeric literal — the exact fingerprint of this bug class, since `fill` is
+always either absent or a colour. Zero remained. `disconnect.js`, `menu.js`
+and `jackin.js`'s five `glowLine` calls carried the same stale trailing
+argument but were always harmless (`glowLine` has no `fill` slot for it to
+land in) — cleaned up anyway, since a dead argument that used to mean
+something is exactly the kind of thing worth not leaving behind.
+
+**THE CARGO DRONE'S ROTORS — AND THEN ITS WHOLE HULL — THE ONE PLACE
+`shadowBlur` CAME BACK.** `carshapes.js`'s `drawRotor` (shared by the
+gunship, cached, and hauler.js's CLAW LIFTER, drawn LIVE every frame of the
+lift/lower sequence) draws its spinning blades in `HAULER` — a colour
+deliberately kept dim enough that it can never cross `BLOOM_THRESHOLD` even
+at alpha 1, because the drone is supposed to read as visibly dimmer than the
+car it is rescuing (see hauler.js's own render() comment). With no local
+blur and no bloom substitute possible for a colour that dim, a thin
+single-alpha spoke re-rasterised at a new angle every live frame had nothing
+softening it between angles and read as blinking rather than turning — found
+live. Restored a small `shadowBlur` (4) on just the blade stroke first: the
+bounding box is a ~22-74px disc regardless of which hull calls it, nowhere
+near the canvas-spanning paths this whole phase exists to keep unshadowed.
+
+That fix was too narrow. `HAULER` being unable to cross threshold is a
+property of the WHOLE hull, not just its rotor blades — every fill and
+stroke on the CLAW LIFTER (the claws, the avionics boxes, the cross-beams)
+was drawn in the same colour and lost its glow the same way, which read live
+as flat, dark, unshaded fills rather than blinking (a different symptom of
+the identical cause). `drawShapeObject` now takes a `shape.localGlow` flag:
+when a hull sets it, the WHOLE draw is wrapped in one ambient
+`ctx.shadowColor`/`shadowBlur`, set once and left live for every nested
+`tools.line`/`tools.solid`/`glowPoly`/`glowLine` call underneath it, because
+none of those touch shadow state any more — the same "set it once, let it
+ride" trick `scenery.js`'s `neonDashedStroke` already uses for a dash
+pattern. Only the CLAW LIFTER opts in (`bossshapes.js`'s own comment on the
+entry carries the argument); this is a bounded exception for the one hull
+whose colour was chosen NOT to clear threshold, not a reopening of
+shadowBlur for the catalogue generally — every other shape's colours were
+chosen to bloom on their own.
+
+**GLOW_BLEED (`obstacleshapes.js`), measured**, the same offscreen-canvas/
+alpha>40 scan the file's own header has always specified, re-run after every
+`shadowBlur` in the file was removed:
+
+| shape | axis | measured reach (px) | old declared (bleed 6/7) | new declared (bleed 3) |
+| --- | --- | --- | --- | --- |
+| TRESTLE | x (beam) | 29 | 34.7 (bleed 7) | 30.7 |
+| TRESTLE | up/down (feet) | 14 | 19 | 16 |
+| BARRELS | x | 28 | 33.0 | 30.0 |
+| BARRELS | up/down | 22 | 27 | 24 |
+| TETRA | x | 39 | 43.2 | 40.2 |
+| TETRA | up/down | 35 | 40.2 | 37.2 |
+| CALTROP | x | 20 | 25 | 22 |
+| SPIKES | x | 87 | 91.8 | 88.8 |
+| SPIKES | up/down | 12 | 17 | 14 |
+
+What used to bleed 5-7px past a stroked edge (blur-driven) now bleeds under 2px
+everywhere (stroke-width-driven — a join or a cap poking past the nominal
+line). `GLOW_BLEED` drops from 6 to 3 and `BEAM_GLOW_BLEED` (7, the trestle's
+own outlier under the old blur-driven regime) is retired entirely — folded
+into the same constant, since the trestle is no longer the outlier: TETRA's
+end-cap strokes are, at 1.8px measured against GLOW_BLEED=3's 1.2px of margin.
+The trestle's own lane-fit bound (LANE_WIDTH/2 = 32.5px, see that entry's own
+comment) now has ~3.5px of headroom where it once had ~0.3.
+
+**GLOW_PAD (`sprites.js`), measured the same way** across every car shape,
+every building shape at a spread of variant parameters, and every node
+variant: the worst car (GLIDE) bled 3.3px past its `carShapeExtent`, the worst
+building 1.6px, every node exactly 1px (half of `neonStroke`'s own 1.5-2px
+line width, which is all a node ever carried). `GLOW_PAD` drops from 18 to 6 —
+a real reduction in every cached sprite's canvas size, not just a cosmetic
+number: a car sprite's backing store shrinks by (36-12)² relative to its
+artwork on each axis, i.e. every sprite canvas is smaller by 24px on both
+width and height than before.
+
+**The 2D cost.** Two measurement attempts here, reported honestly because the
+first one didn't work. A whole-`render()` before/after comparison (a second
+worktree checked out at pre-15d-ii `main`, `performance.now()` wrapped around
+the same `render(alpha)` call in both, `preview_start` used for both tabs —
+see the profiling-trap note above) came back statistically inconclusive:
+random per-run differences in how much traffic and how many buildings a given
+run happened to have on screen dominated the sub-millisecond total, which
+this project's own `Rendering performance` section already documents as
+"flat in object count" and under 1ms — too small a total, and too noisy a
+comparison, to resolve a few hundred microseconds of savings inside it.
+
+The isolated, reproducible number instead replicates the EXACT experiment
+`neonStroke`'s own header has always cited (a full-height barrier path,
+`performance.now()` around the draw, batched enough draws per sample to clear
+this environment's coarsened timer resolution): **one plain stroke measured
+~89us, matching the historical "~90us for the same stroke unshadowed" almost
+exactly; the old three-pass overdraw measured ~248us**, close to the
+historical ~215-217us. `shadowBlur` itself did NOT reproduce its historical
+~865us in this environment (measured ~89us, indistinguishable from the
+unshadowed stroke) — consistent with this project's standing finding that
+GPU/compositor-accelerated effects are not trustworthy to measure through this
+sandbox's remoted browser pane, joining `gl.readPixels`-forced-sync in that
+category rather than the "CPU side is trustworthy" one. The three-pass number
+matching history closely is what makes the one-stroke number trustworthy too:
+**~89us against ~248us is a ~64% reduction per `neonStroke` call**, and that
+saving now lands on every one of the 59 call sites this phase collapsed.
 
 ### Display scaling
 
@@ -1001,7 +1200,7 @@ is on hold is everything that wants a SERVER behind it.
         second full-size canvas repainted on the game's clock, which is the
         trade the gutters declined (see The gutters); measure before assuming
         it is free
-  - **15d** — Collapse the fake halo: `neonStroke` strokes every path THREE
+  - [x] **15d** — DONE (both sub-phases). Collapse the fake halo: `neonStroke` strokes every path THREE
         times — wide and faint, mid, bright core — purely because `shadowBlur`
         was unaffordable (865us shadowed against 217us layered for one
         full-height barrier), and with bloom doing the halo per-pixel that
@@ -1055,18 +1254,61 @@ is on hold is everything that wants a SERVER behind it.
           `test/present.test.js`'s three fallback-era tests are now tests of
           the failure behaviour instead — the notice text and the `fatal`
           class, not a class-based 2D/GL swap
-    - [ ] **15d-ii** — The payoff, and the reason the phase is worth doing
-          twice over: `neonStroke`'s three strokes actually collapse to one,
-          and the same argument retires the `shadowBlur` baked into the sprite
-          cache and `glowOrb`'s gradient. The 2D layer gets CHEAPER while the
-          game looks better. `spread` and `halo` stop being per-call constants
-          and become bloom parameters, so the whole catalogue is re-tuned here
-          — the one sub-phase that touches game modules, and the one that can
-          turn the invariant suite red for the right reason. `obstacleshapes.js`'s
-          measured (not derived) `GLOW_BLEED` and `sprites.js`'s `GLOW_PAD`
-          both feed gameplay (hazard `extent`, lane fit) rather than only the
-          look, and both have to be re-measured by hand against the new art,
-          not guessed
+    - [x] **15d-ii** — DONE. The payoff: `neonStroke`'s three strokes collapse
+          to one at all 59 call sites (`engine/neon.js`), and the same argument
+          retires the `shadowBlur` baked into the sprite cache
+          (`carshapes.js`/`buildingshapes.js`/`obstacleshapes.js`/
+          `pickupshapes.js`'s `glowLine`/`glowPoly` calls, now shadow-free —
+          see neon.js's header — bar ONE deliberate exception: the cargo
+          drone's hull opts back into a local shadowBlur via a new
+          `shape.localGlow` flag, because its colour is chosen to sit below
+          bloom's reach on purpose — see *Rendering the halo* below) and
+          `glowOrb`'s radial gradient (`player.js`'s shield, now a single
+          additive ring — see its own header for why a ring rather than a
+          filled disc, which would wash the wireframe out under it exactly the
+          way the gradient's dimmed centre stop existed to avoid). `spread` and
+          `halo` are GONE from `neonStroke`'s signature rather than becoming
+          bloom parameters under a different name — there is no longer an
+          overdraw for them to shape. `BLOOM_THRESHOLD`/`BLOOM_EXPOSURE` end
+          this PR AT their 15b values (0.75/3.0), but not because the first
+          pass of verification caught everything — it didn't, and *Rendering
+          the halo* above tells that part straight, in full: FOUR real bugs
+          shipped past this PR's own review and were found only by a person
+          actually driving the running game — the shield ring bloomless (a
+          low-alpha steady-state element the "does full-alpha geometry look
+          right" check never exercised, fixed in `player.js`); a
+          `glowLine`/`glowPoly` signature bug in `pickupshapes.js` (crates
+          flickering toward white, `ctx.fill()` called with a stray number as
+          `fillStyle`); the IDENTICAL signature bug on `carshapes.js`'s OWN
+          chassis-fill call — every car and traffic type's main body fill,
+          found only by re-reading the file after the pickup fix, not by the
+          original review; and the cargo drone's whole hull losing its glow,
+          not just its rotor blades, once its deliberately-sub-threshold
+          colour met a shadowBlur-free `drawShapeObject`. Every
+          `glowLine`/`glowPoly` call site in the tree was re-verified by
+          script afterward (parse the argument list, flag any `glowPoly`
+          whose `fill` slot is a bare number) rather than trusted by eye a
+          second time. Pushing `BLOOM_THRESHOLD`/`BLOOM_EXPOSURE` stronger
+          was also tried, live, and found to trade text legibility for world
+          intensity with no way to have both through one global pass over the
+          whole frame — that split is Phase 15c, not built; reverted.
+          MEASURED, NOT GUESSED, per the
+          file's own standing rule: `obstacleshapes.js`'s `GLOW_BLEED` (which
+          feeds hazard `extent` and therefore lane fit) shrank from 6 (a 7px
+          outlier for the trestle) to a single 3, and `sprites.js`'s `GLOW_PAD`
+          from 18 to 6 — both re-run through the offscreen-canvas/alpha>40 scan
+          the two files have always specified, with the before/after table in
+          *Rendering the halo* above. The 2D-layer cost measurement is there
+          too, including the one that didn't work (a noisy whole-`render()`
+          A/B) and the one that did (the same isolated `neonStroke` experiment
+          the module's own header has always cited: ~89us for one stroke
+          against ~248us for the old three-pass overdraw, a ~64% reduction per
+          call, `shadowBlur` itself unmeasurable in this environment for the
+          same GPU-side reason `gl.readPixels` already was). `npm test`:
+          738/738, no invariant needed weakening — the new constants were
+          chosen with enough margin (TETRA's ~1.2px being the tightest) that
+          nothing the suite already asserted about derived extents or lane fit
+          came anywhere near breaking
   - [ ] **15e** — The rest of the full-screen effects, now that a fragment
         shader is a place things can live: chromatic aberration, vignette,
         heat shimmer, and Phase 8's scanlines moved off Canvas2D into the pass

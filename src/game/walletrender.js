@@ -139,7 +139,7 @@ export function renderUplink(ctx, clockValue, link) {
         c.moveTo(link.ax + link.ux * (start + from), link.ay + link.uy * (start + from));
         c.lineTo(link.ax + link.ux * (start + d), link.ay + link.uy * (start + d));
       }
-    }, GREEN_BRIGHT, 1.5, 3.5, 0.12, alpha * 0.8);
+    }, GREEN_BRIGHT, 1.5, alpha * 0.8);
   }
 
   // THE DISH: a mast off the flank, a half-circle whose OPEN side faces the
@@ -154,5 +154,5 @@ export function renderUplink(ctx, clockValue, link) {
     c.arc(link.dx, link.dy, DISH_R, theta + Math.PI / 2, theta + Math.PI * 1.5);
     c.moveTo(link.dx, link.dy);
     c.lineTo(link.dx + link.ux * DISH_R * 0.8, link.dy + link.uy * DISH_R * 0.8);
-  }, GREEN_BRIGHT, 1.5, 3.5, 0.14, alpha);
+  }, GREEN_BRIGHT, 1.5, alpha);
 }

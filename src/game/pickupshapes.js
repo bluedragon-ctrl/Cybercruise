@@ -71,8 +71,8 @@ function drawReticle(ctx, cx, cy, pulse) {
 
   const outer = ngon(cx, cy, RET_R, 4);       // vertices at 0/90/180/270deg — a diamond
   const inner = ngon(cx, cy, RET_R * 0.58, 4);
-  glowPoly(ctx, outer, PICKUP_FRAME, 1.5, 9);
-  glowPoly(ctx, inner, PICKUP_FRAME_DIM, 1, 7, "#0b1118");
+  glowPoly(ctx, outer, PICKUP_FRAME, 1.5);
+  glowPoly(ctx, inner, PICKUP_FRAME_DIM, 1, "#0b1118");
 
   // Corner brackets: a short radial tick past each vertex, capped by a
   // perpendicular stroke — a camera/reticle corner mark aimed outward from
@@ -87,11 +87,11 @@ function drawReticle(ctx, cx, cy, pulse) {
     const r2 = RET_R + 7;
     glowLine(
       ctx, cx + dx * r1, cy + dy * r1,
-      cx + dx * r2, cy + dy * r2, PICKUP_FRAME_BRIGHT, 1.3, 7,
+      cx + dx * r2, cy + dy * r2, PICKUP_FRAME_BRIGHT, 1.3,
     );
     glowLine(
       ctx, cx + dx * r2 - px * 3, cy + dy * r2 - py * 3,
-      cx + dx * r2 + px * 3, cy + dy * r2 + py * 3, PICKUP_FRAME_BRIGHT, 1.3, 7,
+      cx + dx * r2 + px * 3, cy + dy * r2 + py * 3, PICKUP_FRAME_BRIGHT, 1.3,
     );
   }
 
@@ -115,7 +115,7 @@ function drawRocketGlyph(ctx, cx, cy) {
     [cy - 2, ROCKET_HOT],
   ];
   for (const [y, color] of rows) {
-    glowPoly(ctx, [[cx - 5, y + 4], [cx, y - 3], [cx + 5, y + 4]], color, 1.5, 8);
+    glowPoly(ctx, [[cx - 5, y + 4], [cx, y - 3], [cx + 5, y + 4]], color, 1.5);
   }
 }
 
@@ -133,7 +133,7 @@ function drawTracerGlyph(ctx, cx, cy) {
   ctx.arc(cx + 2, cy + 2, 9, Math.PI * 1.15, Math.PI * 1.85);
   ctx.stroke();
   ctx.restore();
-  glowPoly(ctx, ngon(cx - 6, cy - 7, 1.8, 8), PLAYER, 1, 9, PLAYER);
+  glowPoly(ctx, ngon(cx - 6, cy - 7, 1.8, 8), PLAYER, 1, PLAYER);
 }
 
 // Mine ammo: a miniature caltrop — the same six-spike silhouette the road
@@ -144,16 +144,16 @@ function drawMineGlyph(ctx, cx, cy) {
   const r = 3.2;
   const spike = 4.2;
   for (const tri of caltropSpikes(cx, cy, r, spike, 1.6)) {
-    glowPoly(ctx, tri, ENEMY, 1.2, 7);
+    glowPoly(ctx, tri, ENEMY, 1.2);
   }
-  glowPoly(ctx, ngon(cx, cy, r, 6), ENEMY_PALE, 1, 8, "#2a0a0a");
+  glowPoly(ctx, ngon(cx, cy, r, 6), ENEMY_PALE, 1, "#2a0a0a");
 }
 
 // Fix: a bright cross, a step brighter than world green so it reads as a
 // signal rather than as scenery.
 function drawFixGlyph(ctx, cx, cy) {
-  glowLine(ctx, cx, cy - 8, cx, cy + 8, GREEN_BRIGHT, 3, 9);
-  glowLine(ctx, cx - 8, cy, cx + 8, cy, GREEN_BRIGHT, 3, 9);
+  glowLine(ctx, cx, cy - 8, cx, cy + 8, GREEN_BRIGHT, 3);
+  glowLine(ctx, cx - 8, cy, cx + 8, cy, GREEN_BRIGHT, 3);
 }
 
 // Shield: a ring with a spinning tick — the one glyph that previews the
@@ -162,13 +162,13 @@ function drawFixGlyph(ctx, cx, cy) {
 // `phase` drives the tick; pickups.js passes seconds elapsed since spawn so
 // several live shield crates don't spin in lockstep.
 function drawShieldGlyph(ctx, cx, cy, phase) {
-  glowPoly(ctx, ngon(cx, cy, 8, 20), PLAYER, 1.6, 10);
+  glowPoly(ctx, ngon(cx, cy, 8, 20), PLAYER, 1.6);
   const spin = phase * 2.4;
   glowLine(
     ctx, cx + Math.cos(spin) * 8, cy + Math.sin(spin) * 8,
-    cx + Math.cos(spin + 0.9) * 8, cy + Math.sin(spin + 0.9) * 8, SHIELD_FLICKER, 2, 9,
+    cx + Math.cos(spin + 0.9) * 8, cy + Math.sin(spin + 0.9) * 8, SHIELD_FLICKER, 2,
   );
-  glowPoly(ctx, ngon(cx, cy, 3, 10), SHIELD_FLICKER, 1, 7, "#0d2830");
+  glowPoly(ctx, ngon(cx, cy, 3, 10), SHIELD_FLICKER, 1, "#0d2830");
 }
 
 // Boost: a single WIDE chevron with two speed streaks running back from it —
@@ -187,11 +187,11 @@ function drawBoostGlyph(ctx, cx, cy) {
   glowPoly(ctx, [
     [cx - half, cy + 3], [cx, cy - 6], [cx + half, cy + 3],
     [cx, cy - 1],
-  ], PLAYER_THRUST, 1.8, 9);
+  ], PLAYER_THRUST, 1.8);
   // Streaks trailing the chevron — shorter toward the outside, so they read as
   // draught coming off the tips rather than as a second, smaller chevron.
   for (const [dx, len] of [[-5, 7], [0, 9], [5, 7]]) {
-    glowLine(ctx, cx + dx, cy + 5, cx + dx, cy + 5 + len, PLAYER, 1.4, 8);
+    glowLine(ctx, cx + dx, cy + 5, cx + dx, cy + 5 + len, PLAYER, 1.4);
   }
 }
 
