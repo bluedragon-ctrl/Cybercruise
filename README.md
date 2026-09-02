@@ -173,6 +173,10 @@ Three rules keep that from coming back:
    overdraw instead (865µs shadowed against 217µs layered for one full-height
    barrier) precisely because a real blur was unaffordable on a canvas-spanning
    path; 15d-ii's *Rendering the halo* below has the retuned numbers.
+   **This covers TEXT ON THE BLOOMED CANVAS too, as of the vector type below**:
+   `vectorText` (`src/engine/neon.js`) carries no `shadowBlur` for exactly this
+   reason. `glowText` still does, and is still right to — it draws on `#hud`,
+   which bloom never reads.
 3. **Anything that only SCROLLS is pre-rendered and blitted, not re-stroked.**
    The road is a rolling cache of 128px strips (`road.js`), the city floor a
    single tile (`scenery.js`) — together ~4.3ms/frame down to ~60µs. A new
@@ -264,19 +268,19 @@ Things about it worth knowing before touching the renderer:
 - **THE BRIGHT PASS TAKES FOUR TAPS AND THRESHOLDS EACH ONE BEFORE AVERAGING
   THEM**, and that is a bug fix, not a quality knob. It shipped in 15b as a
   single NEAREST tap into a half-res target, which works out to sampling only
-  the frame's ODD ROWS - so a one-pixel-tall bright horizontal line (a
+  the frame's ODD ROWS — so a one-pixel-tall bright horizontal line (a
   building's roof outline is exactly that) had a halo on the frames where it
   landed on an odd row and NO halo on the others, and flickered at up to 30Hz
   as the city floor scrolled it between them. Reported as building edges
   flickering at speed after 15c; measured on a 64x64 probe as total green
   16320 (bare core, zero bloom) on an even row against 65792 on an odd one,
-  and 41088 flat across every row afterwards - which is also, to within 0.08%,
+  and 41088 flat across every row afterwards — which is also, to within 0.08%,
   the mean of the two states it used to alternate between, so the halo is now
   steady at the brightness the eye was already integrating. **A LINEAR fetch
   was tried first and is the trap here**: one bilinear tap at the quad corner
   is the same 2x2 average for no extra fetch, but it averages BEFORE the
-  threshold, which puts a 1px line at exactly 0.5 - under `BLOOM_THRESHOLD`'s
-  0.55 - and deletes thin lines' halos outright (the same probe read 16320 on
+  threshold, which puts a 1px line at exactly 0.5 — under `BLOOM_THRESHOLD`'s
+  0.55 — and deletes thin lines' halos outright (the same probe read 16320 on
   every row: no flicker, because no bloom). Thresholding per tap is not
   expressible as a filter mode. `BRIGHT_FS`'s header has the derivation.
 
@@ -1298,6 +1302,23 @@ is on hold is everything that wants a SERVER behind it.
         has the full account, including a readPixels scan through a barrier
         cross-section corroborating (not re-deriving) 15d-ii's own "roughly
         doubled" finding.
+  - [x] **15c-i** — DONE. THE BRIGHT PASS SAMPLED HALF THE FRAME'S ROWS, and
+        the retune above is what made it visible: reported as building edges
+        flickering at speed. One NEAREST tap into a half-res target works out
+        to reading only the ODD rows, so a 1px bright horizontal line — a
+        building's roof outline — had a halo on the frames where it landed on
+        an odd row and none on the others, alternating at up to 30Hz as the
+        floor scrolled. Not a 15c regression and not a 2D-layer problem: the
+        aliasing shipped in 15b, 15d-ii made the edges 1px by collapsing
+        `neonStroke`'s overdraw, and 15c's stronger halo is what raised the
+        blink out of the noise. Only HORIZONTAL features show it, because only
+        y scrolls. Fixed by taking FOUR taps and thresholding each BEFORE
+        averaging — parity-invariant by construction. See The present path
+        above for the measurements, including why the cheaper LINEAR fetch
+        looks equivalent, is not, and silently deletes thin lines' halos
+        instead. Pixel-identity re-verified (0 differing channels with the
+        threshold forced to 1.0); 2 frames over 17ms in 600, mean 16.69ms, so
+        the three extra fetches cost nothing measurable.
         MEASURED, NOT ASSUMED, per the trade the gutters declined (see The
         gutters below, and `present.js`'s header): the HUD layer's own
         clear-and-redraw cost ~0.72ms mean live (p95 ~1.1ms), and the dropped-
@@ -1423,23 +1444,42 @@ is on hold is everything that wants a SERVER behind it.
           chosen with enough margin (TETRA's ~1.2px being the tightest) that
           nothing the suite already asserted about derived extents or lane fit
           came anywhere near breaking
-  - [x] **15c-i** — DONE. THE BRIGHT PASS SAMPLED HALF THE FRAME'S ROWS, and
-        the retune in 15c is what made it visible: reported as building edges
-        flickering at speed. One NEAREST tap into a half-res target works out
-        to reading only the ODD rows, so a 1px bright horizontal line — a
-        building's roof outline — had a halo on the frames where it landed on
-        an odd row and none on the others, alternating at up to 30Hz as the
-        floor scrolled. Not a 15c regression and not a 2D-layer problem: the
-        aliasing shipped in 15b, 15d-ii made the edges 1px by collapsing
-        `neonStroke`'s overdraw, and 15c's stronger halo is what raised the
-        blink out of the noise. Only HORIZONTAL features show it, because only
-        y scrolls. Fixed by taking FOUR taps and thresholding each BEFORE
-        averaging — parity-invariant by construction. See The present path
-        above for the measurements, including why the cheaper LINEAR fetch
-        looks equivalent, is not, and silently deletes thin lines' halos
-        instead. Pixel-identity re-verified (0 differing channels with the
-        threshold forced to 1.0); 2 frames over 17ms in 600, mean 16.69ms, so
-        the three extra fetches cost nothing measurable.
+  - [x] **16a** — DONE. THE DISPLAY TYPE BECOMES LINE ART. Every other thing
+        this game draws is a stroked polyline; its type was `Courier New`, a
+        1955 typewriter face and the one element on screen that could not have
+        come off the same machine as the rest. `src/engine/vectorfont.js` is
+        the alphabet — polylines on a 0..0.72 x 0..1 cell, chamfered rather
+        than curved, the letterform a vector arcade machine could actually
+        trace — and `vectorText`/`segmentMeter` in `engine/neon.js` draw from
+        it. Data in a catalogue, no font file, no build step, no dependency.
+        THE MENU IS THE WHOLE SCREEN, in all three of its modes (start, pause,
+        gameover share one render — menu.js's header): title and subtitle in
+        vector type, a perspective floor behind them, and `gameover`'s FINAL
+        SCORE / CREDITS EARNED converted with them, since those two sit
+        between the subtitle and the rows and would otherwise have been the
+        one place the two faces are read against each other.
+        THREE THINGS CHANGED BEYOND THE FACE, each because the new type
+        exposed them. **Row 0 is CONNECT / RECONNECT**, not START GAME /
+        RESTART: the game's own fiction is an uplink to a car (`jackin.js`,
+        the HUD's UPLINK STABLE, and `CONNECTION LOST` as the gameover
+        subtitle), so RECONNECT is the line that subtitle asks for. Pause
+        keeps CONTINUE — nothing was dropped there. **Row 0 sits apart from
+        SOUND/MUSIC and is set larger**, because it is the only row that
+        leaves the screen; even spacing and one size read as "pick one of
+        three". `rowY()` is now the single place row geometry is derived, so
+        what is drawn cannot drift from what `barRect` hit-tests. **The volume
+        rows lost their percentages** for segment meters whose segment count
+        is derived from `VOLUME_STEP` — one segment per keypress, so the meter
+        is the level counted out rather than an approximation of it.
+        SELECTION IS A PAIR OF CHEVRONS rather than a `"> "` prefix: a prefix
+        inside a centred string shifts the label sideways when the cursor
+        lands on it, so every row twitched as the cursor passed.
+        `test/vectorfont.test.js` pins the parts that fail silently — coverage
+        of every string `menu.js` actually renders (it exports them, so a
+        renamed row is checked rather than a second copy drifting), the cell
+        bounds every metric assumes, and the meter's one-segment-per-keypress
+        arithmetic. A missing glyph draws NOTHING by design; the test is what
+        makes that safe.
   - [ ] **15e** — The rest of the full-screen effects, now that a fragment
         shader is a place things can live: chromatic aberration, vignette,
         heat shimmer, and Phase 8's scanlines moved off Canvas2D into the pass
