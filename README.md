@@ -202,14 +202,17 @@ actually on screen.
 
 ### The present path
 
-The finished 2D frame is uploaded as a texture and blitted back out through a
-WebGL2 canvas sitting on top of the 2D one. As of Phase 15a that pass does
-**nothing** — the frame is pixel-identical either way — and that is the point:
-it isolates the plumbing from the look, so 15b's bloom lands with one possible
-cause for any regression. `src/engine/present.js` is the whole of it, with
-`src/engine/gl/` holding the WebGL2 setup and the shaders.
+The finished 2D frame is uploaded as a texture and run through a WebGL2 chain
+on a canvas sitting on top of the 2D one. Phase 15a shipped that chain as a
+single no-op blit — pixel-identical either way — to isolate the plumbing from
+the look; Phase 15b puts the first real effect in it: bright-pass threshold,
+half- and quarter-res separable Gaussian blur, additive recombine with a tone
+knee. `src/engine/present.js` is the whole chain, `src/engine/gl/shaders.js`
+the GLSL for each stage, `src/engine/gl/target.js` the renderable-texture
+helper the four bloom targets share, `src/engine/gl/context.js` the WebGL2
+setup underneath all of it.
 
-Three things about it are worth knowing before touching the renderer:
+Things about it worth knowing before touching the renderer:
 
 - **It is one call, wrapped around `render()` in `main.js`** — not written at
   that function's tail, because `render()` returns early on the menu and the
@@ -218,16 +221,61 @@ Three things about it are worth knowing before touching the renderer:
 - **`src/testoptions.js`'s `GL_PRESENT` A/Bs it**, and the same switch is thrown
   automatically when there is no WebGL2 or the context is lost mid-run: the game
   falls back to showing the 2D canvas, which is a complete game. Both paths are
-  verified, context loss included.
+  verified, context loss included — 15b re-verified the loss/restore path by
+  hand with `WEBGL_lose_context`, since restoring now rebuilds four programs and
+  four render targets rather than one texture (present.js's header calls this
+  out as the PR's highest-risk area).
+  **THE Y-FLIP LIVES IN THE FRAGMENT STAGES THAT TOUCH THE CPU-UPLOADED FRAME
+  TEXTURE, NOT IN THE SHARED VERTEX STAGE** — found live, not by inspection:
+  a first draft baked 15a's flip into the vertex stage all seven draws share,
+  which is correct for the one CPU-uploaded texture but silently double-flips
+  every GPU-to-GPU pass in the chain, so bloom rendered mirrored vertically
+  against whatever cast it (obvious on the menu, where the title sits near the
+  top and the mirrored glow lands in the empty space near the bottom with
+  nothing nearby to explain it — much harder to spot in gameplay, where a busy,
+  fairly repetitive scene made a full-frame vertical mirror look "roughly
+  plausible" at a glance). `gl/shaders.js`'s `PRESENT_VS` header carries the
+  full reasoning; the fix is structural rather than a constant to get right by
+  trial and error.
 - **Both canvases are sized by `engine/viewport.js`** (`mirrorCanvas`), so the
   fit, the eighth-step quantisation, the `MAX_SCALE` cap and the resize settle
   have one implementation rather than two that can drift.
 
-Costs, measured: ~259us per frame for the upload plus draw at scale 1 and
-~1047us at 1200x1600 on an Intel Iris Xe, of which only ~15us is CPU submit
-time — and **no dropped frames the 2D path does not also drop**. `present.js`'s
-header carries the three-configuration comparison and the reason its headline
-column is noise rather than signal.
+**THE PIXEL-IDENTITY SELF-TEST, verified live.** With the bright-pass threshold
+raised to 1.5 (every frame channel is in [0, 1], so this forces the bloom
+contribution to exactly zero at every stage — see `BRIGHT_FS`'s header for why
+that's provable by inspection rather than merely likely) and the composite's
+frame read compared against the source Canvas2D frame via a synchronous
+`gl.readPixels` immediately after the draw: **0 mismatches across 2,430,000
+bytes** (675x900x4, the drawing buffer at this machine's window size). The
+composite reproduces the source frame bit for bit when bloom is zero, which is
+the 15a pixel-identity property carried into 15b rather than lost to it.
+
+**Cost.** 15a's baseline (~259us at scale 1, ~1047us at 1200x1600 on an Intel
+Iris Xe, ~15us of it CPU submit) does not have a directly comparable 15b
+number yet. Measuring inside this project's own development sandbox (a
+remoted/virtualized browser pane, not a bare desktop Chrome) turned up what
+looks like a SIXTH profiling trap to add to the five the rendering-performance
+section above already lists: forcing a GPU sync with `gl.readPixels`
+immediately after the draw — the exact technique 15a used to get past
+`gl.finish()` not being a sync point on ANGLE/D3D11 — measured ~7-8ms just for
+the ORIGINAL 15a one-draw blit in this environment, nearly 10x its historical
+1047us on the same reported GPU (`ANGLE (Intel, Iris Xe Graphics, D3D11)`, so
+this is not a software-rendering fallback). The full 15b chain measured
+~11.4ms by the same method — a real, small, incremental cost over the
+single-draw figure taken the same way, but neither absolute number is safe to
+compare against 15a's desktop-Chrome baseline; something about syncing a
+remoted display pipeline dominates both. What DID measure consistently low in
+this environment: CPU submit time (wall-clock with no forced sync), ~0.3ms
+mean for the full seven-draw chain against 15a's ~15us for one draw — higher,
+plausibly consistent with a virtualized driver's higher per-call overhead, but
+still a small fraction of the 16.7ms budget and not competing with `update()`.
+**This section needs re-taking on a bare desktop browser before its numbers can
+be read as the phase's real GPU cost** — the dropped-frame table below is
+carried over from 15a unchanged for the same reason: retaking it through the
+same remoted pipeline would not produce a comparable number, and re-doing it in
+a properly diagnosed environment is next session's job, not a settled result of
+this one.
 
 ### Display scaling
 
@@ -905,12 +953,37 @@ is on hold is everything that wants a SERVER behind it.
         today's game exactly — both verified, the loss with
         `WEBGL_lose_context` in a live run, restore included. See The present
         path above
-  - [ ] **15b** — Bloom: bright-pass threshold, half- and quarter-res separable
-        blur, additive recombine with a tone knee. The whole frame, text
-        included, and the flag from Phase 15 is what A/Bs it. Blurring at
-        reduced resolution is what makes this affordable, and is not the
-        rejected Canvas2D downsample above — there the intermediate composite
-        was the cost; here it is a texture bind
+  - [x] **15b** — DONE, PROVISIONALLY TUNED. Bloom: bright-pass threshold
+        (per-channel subtractive, `BRIGHT_FS`), half- and quarter-res separable
+        Gaussian blur (five taps each, the standard linear-sampled fold of a
+        9-tap kernel), additive recombine with a tone knee applied to the bloom
+        term alone (`1 - exp(-bloom)`, not to the whole scene — see COMPOSITE_FS's
+        header for why that split is what keeps 15a's pixel-identity property
+        provable rather than merely likely). The whole frame, text included,
+        and `GL_PRESENT` is still what A/Bs it. Blurring at reduced resolution
+        is what makes this affordable, and is not the rejected Canvas2D
+        downsample above — there the intermediate composite was the cost; here
+        it is a texture bind. THRESHOLD, EXPOSURE AND THE HALF/QUARTER MIX ARE
+        PROVISIONAL — 15d re-tunes them together with `neonStroke`'s halo; see
+        The present path above and CLAUDE.md.
+        THE SELF-TEST PASSED BIT FOR BIT: with the threshold forced above 1.0,
+        the composite reproduced the source frame across all 2,430,000 bytes
+        with zero mismatches, verified live via a synchronous `readPixels`.
+        ONE REAL BUG FOUND AND FIXED DURING THE WORK: an early draft baked
+        15a's CPU-upload Y-flip into the vertex stage all seven draws share,
+        which double-flipped every GPU-to-GPU pass in the chain and rendered
+        bloom mirrored vertically against its source — obvious on the menu,
+        much less so in busy gameplay. Fixed by moving the flip into only the
+        two fragment stages that read the CPU-uploaded frame texture; see The
+        present path above and `gl/shaders.js`'s `PRESENT_VS` header.
+        COST IS UNSETTLED, NOT UNMEASURED: this session's environment (a
+        remoted browser pane) showed the readPixels-sync timing method itself
+        costing ~7-8ms for 15a's ORIGINAL one-draw blit — a new profiling trap,
+        not a regression — so the 15b chain's ~11.4ms by the same method is not
+        comparable to 15a's ~1047us desktop-Chrome baseline. CPU submit time
+        (no forced sync) stayed low, ~0.3ms for the whole seven-draw chain. See
+        The present path above for the full account and what needs re-taking
+        on real hardware before the phase's cost is a settled number.
   - [ ] **15c** — The text decision, taken by LOOKING at 15b rather than in
         advance: either blooming text is right for a Courier-New deck HUD and
         nothing changes, or the HUD splits onto its own transparent 2D canvas

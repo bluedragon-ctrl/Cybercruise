@@ -1,16 +1,42 @@
 // PRESENT — how the finished frame gets from the Canvas2D backing store onto
-// the screen. Today that is: upload it as a texture and blit it straight back
-// out through WebGL2, unchanged.
+// the screen. Phase 15a (README) shipped this as a no-op: upload the frame as
+// a texture, blit it straight back out through WebGL2, unchanged. Phase 15b
+// puts the first real effect in that pass — bloom — and this module now runs
+// a seven-draw chain instead of one.
 //
-// WHY A NO-OP IS THE WHOLE POINT. This is Phase 15a (README), the first step of
-// a GPU post-processing path whose payoff is 15b's real bloom and 15d's
-// collapse of `neonStroke`'s three-pass fake halo. Shipping the PLUMBING first,
-// with no effect on it at all, is what makes the rest debuggable: the frame is
-// pixel-identical with the path on and off, so when bloom arrives and something
-// regresses — a colour shift, a dropped frame, a soft edge — the upload, the
-// sizing, the compositor layer and the fallback have all already been proved
-// innocent. Do not add an effect here. 15b and 15e are separate passes and
-// separate PRs.
+// THE CHAIN, in the order present() runs it (see gl/shaders.js for what each
+// fragment stage does and why):
+//
+//   frame (full-res, NEAREST)
+//     -> BRIGHT_FS   -> halfA    (threshold, and a decimating downsample —
+//                                 the frame texture is NEAREST, so this tap
+//                                 is a point sample, not a box filter; the
+//                                 threshold is what matters here, not the
+//                                 resampling quality of a mostly-zero image)
+//     -> BLUR_FS  (H) -> halfB
+//     -> BLUR_FS  (V) -> halfA   (half-res bloom, done)
+//     -> PRESENT_FS   -> quarterA (downsample: halfA is LINEAR, so this same
+//                                  blit shader's one tap lands between four
+//                                  half-res texels and returns their bilinear
+//                                  average — a correct box filter, reusing the
+//                                  15a shader rather than adding a fifth one)
+//     -> BLUR_FS  (H) -> quarterB
+//     -> BLUR_FS  (V) -> quarterA (quarter-res bloom, done)
+//     -> COMPOSITE_FS(frame, halfA, quarterA) -> the drawing buffer
+//
+// WHY TWO RESOLUTIONS RATHER THAN ONE. A single blur radius is a choice
+// between a tight halo (misses broad glow) and a soft one (loses the bright
+// core to a wash) — see CLAUDE.md's phase notes on 15b/15d. Blurring the same
+// 5-tap kernel at half-res AND at quarter-res and summing both gives a tight
+// contribution and a broad one for the price of one extra downsample and one
+// extra blur pass, which is cheap because both run on a quarter of the pixels
+// or fewer.
+//
+// 15B'S NUMBERS ARE PROVISIONAL. BLOOM_THRESHOLD and BLOOM_EXPOSURE below, and
+// the half/quarter mix in COMPOSITE_FS, are a first pass, not a tuned look —
+// see CLAUDE.md and gl/shaders.js's header for why 15d owns the final numbers
+// and this PR does not try to make a doubled halo (three-pass neonStroke plus
+// bloom) look right.
 //
 // WHAT WOULD GO WRONG WITHOUT THIS MODULE: nothing, immediately, which is the
 // unusual thing about it. The 2D canvas below is a complete game on its own,
@@ -21,21 +47,19 @@
 //
 // TWO CANVASES, WHICH IS NOT A CHOICE. A 2D and a WebGL context cannot share a
 // canvas element, so the frame has to cross from one to the other as a texture
-// upload every frame. That cost was the phase's open risk and it was measured
+// upload every frame. That cost was Phase 15's open risk and it was measured
 // before any of this was written: on an Intel Iris Xe (the weak integrated GPU
 // engine/viewport.js's MAX_SCALE is written for) a 1200x1600 RGBA upload plus
-// the fullscreen draw is ~1047us sustained, ~259us at scale 1, of which only
-// ~15us is CPU submit time — the rest is GPU-side and does not compete with
-// update() on the main thread. Against a 16.7ms budget it clears. The README's
-// 15a entry carries the derivation and the two traps that gave impossible
-// answers first.
+// the fullscreen draw was ~1047us sustained in 15a, ~259us at scale 1, of
+// which only ~15us was CPU submit time. See "Per-frame cost" below for 15b's
+// re-measurement of the whole chain.
 //
 // --- Dropped frames under a live compositor ---------------------------------
 //
-// THE NUMBER THIS SUB-PHASE EXISTED TO OBTAIN. It could not come from a spike,
-// because requestAnimationFrame is throttled to a standstill in a hidden tab —
-// which is a fifth profiling trap on top of the four the README lists, and it
-// is the reason this had to ship to be measured at all.
+// THE NUMBER THIS SUB-PHASE EXISTED TO OBTAIN, in 15a. It could not come from
+// a spike, because requestAnimationFrame is throttled to a standstill in a
+// hidden tab — which is a fifth profiling trap on top of the four the README
+// lists, and it is the reason this had to ship to be measured at all.
 //
 // Method as in css/style.css: frames over 17ms out of 600, counted from a bare
 // rAF loop running beside the game. Three samples per configuration, all taken
@@ -47,6 +71,7 @@
 //   the build before 15a       1, 2, 8        0, 0, 0                16.67ms
 //   15a, GL_PRESENT off        6, 6, 6        0, 0, 0                16.67ms
 //   15a, GL_PRESENT on         6, 19, 20      0, 0, 1                16.67ms
+//   15b, GL_PRESENT on         see README's Phase 15b entry for the re-take
 //
 // READ THE SECOND COLUMN, NOT THE FIRST. Every sample holds a 16.67ms mean —
 // dead-on 60Hz — and every frame counted in the first column landed between
@@ -56,46 +81,98 @@
 // configurations, so it cannot carry a comparison on its own; it is here
 // because it is what the earlier measurement used. What a genuinely dropped
 // frame looks like at 60Hz is ~33ms, and there was exactly one over the whole
-// exercise: a 116ms stall on a GL_PRESENT-on sample, unreproduced in five other
-// samples of that configuration and the shape of a GC pause or a track load
-// rather than of a present path.
+// 15a exercise: a 116ms stall on a GL_PRESENT-on sample, unreproduced in five
+// other samples of that configuration and the shape of a GC pause or a track
+// load rather than of a present path.
 //
-// So: THE GPU PATH DROPS NO FRAMES THE 2D PATH DOES NOT, and the plumbing costs
-// nothing measurable when the flag is off. The upload's ~259us at this scale is
-// GPU-side work inside a 16.7ms budget that was already ~1ms full, which is
-// what the numbers say back. Anyone re-taking this on weaker hardware should
-// expect the first column to stay noise and should watch the second.
+// So, as of 15a: THE GPU PATH DROPS NO FRAMES THE 2D PATH DOES NOT, and the
+// plumbing cost nothing measurable when the flag was off. 15b adds real
+// fragment work on top of that baseline; the README's Phase 15b entry carries
+// the re-taken table.
 //
 // --- Per-frame cost ---------------------------------------------------------
 //
-// TWO GL CALLS PER FRAME, and everything else is set up once. The program, the
-// texture, the sampler uniform and the unpack state are all bound in build()
-// and nothing else in the game touches this context, so they stay bound; the
-// viewport is set only when the drawing buffer resizes. What remains on the hot
-// path is the upload and the draw. This matters more than it looks: the CPU
-// half of the cost above is submit time, and submit time is call count.
+// FORTY-TWO GL CALLS PER FRAME as of 15b, not two — one texture upload plus
+// seven draw passes (bright-pass, four blur passes, one downsample, one
+// composite), each wrapped in the bindFramebuffer/viewport/useProgram/bind
+// calls its target and its source demand. `build()` sets every uniform that
+// does not change frame to frame (which texture unit each sampler reads, the
+// blend and depth state) once, so what is left on the hot path is genuinely
+// per-frame: the upload, and each pass's framebuffer bind, its texture bind,
+// and (for the four passes whose target size differs from the previous pass)
+// a viewport call. This still matters for the reason it did in 15a: the CPU
+// half of the cost is submit time, and submit time is call count — but at 42
+// calls of mostly tiny, fixed-size fullscreen draws, none of them anywhere
+// near the geometry-heavy calls a real scene would submit, submit time stayed
+// far under budget (see the measurement below).
 //
-// NO VERTEX BUFFER AT ALL — the fullscreen triangle derives its own corners
-// from gl_VertexID. See gl/shaders.js for why a triangle rather than a quad,
-// and why the Y flip lives in the vertex shader rather than in the upload.
+// NO VERTEX BUFFER AT ALL, IN ANY OF THE SEVEN PASSES — every stage reuses
+// PRESENT_VS, whose fullscreen triangle derives its own corners from
+// gl_VertexID (gl/shaders.js). One vertex shader, several fragment shaders,
+// zero buffers, zero attributes, zero VAOs — which is what keeps trap #1 below
+// a four-target problem instead of a four-target-plus-four-buffers one.
 
 import { GL_PRESENT } from "../testoptions.js";
 import { mirrorCanvas } from "./viewport.js";
 import { createContext, buildProgram } from "./gl/context.js";
-import { PRESENT_VS, PRESENT_FS } from "./gl/shaders.js";
+import { PRESENT_VS, PRESENT_FS, BRIGHT_FS, BLUR_FS, COMPOSITE_FS } from "./gl/shaders.js";
+import { createTarget, resizeTarget } from "./gl/target.js";
+
+// PROVISIONAL — see the file header and gl/shaders.js. Per-channel: a pixel
+// below this on every channel contributes no bloom at all, so most of a dark
+// road contributes nothing and the cost stays where the fullscreen passes are
+// cheapest (a near-empty bright-pass target). Raised to >= 1.0 for the
+// pixel-identity self-test below, since every frame channel is in [0, 1].
+const BLOOM_THRESHOLD = 0.75;
+
+// PROVISIONAL — multiplies the bright-pass contribution before COMPOSITE_FS's
+// `1 - exp(-x)` knee (gl/shaders.js). Higher pushes more of the knee's curve
+// into its steep early region, which reads as a stronger glow for the same
+// threshold.
+const BLOOM_EXPOSURE = 3.0;
 
 // The 2D canvas the game draws into, and the WebGL2 canvas in front of it.
 let source = null;
 let frameEl = null;
 
 let gl = null;
-let program = null;
+
+// The four programs in the chain. bright and the reused `present` (the 15a
+// blit, doing the half-to-quarter downsample here) each read one texture at
+// unit 0; blur reads its source at unit 0 too, four times over with a
+// different target and a different uStep each time; composite is the one
+// program that reads more than one unit at once (frame at 0, the two bloom
+// targets at 1 and 2).
+let presentProgram = null;
+let brightProgram = null;
+let blurProgram = null;
+let compositeProgram = null;
+
+// Uniform locations that change every frame. Everything that does NOT change
+// (which texture unit each sampler reads) is set once in build() and never
+// looked up again.
+let uBrightThreshold = null;
+let uBlurStep = null;
+let uCompExposure = null;
+
 let texture = null;
-// The size the texture was allocated at. Zero means "not allocated", which is
-// also the state a context loss leaves behind — so the size check on the hot
-// path doubles as the rebuild trigger and there is no second flag to keep true.
+// The size the frame texture was allocated at. Zero means "not allocated",
+// which is also the state a context loss leaves behind — so the size check on
+// the hot path doubles as the rebuild trigger for the WHOLE chain (the bloom
+// targets are resized alongside it in allocate()) and there is no second flag
+// to keep true.
 let texW = 0;
 let texH = 0;
+
+// Half- and quarter-resolution render targets, each a texture plus the
+// framebuffer that makes it a draw destination (gl/target.js). Two per
+// resolution for the separable blur's ping-pong: the H pass reads A and
+// writes B, the V pass reads B and writes back into A, so A is the one that
+// holds the finished blur at each resolution and B is pure scratch.
+let halfA = null;
+let halfB = null;
+let quarterA = null;
+let quarterB = null;
 
 // The single branch every failure funnels into: no WebGL2, a shader that would
 // not compile, a lost context. False means present() does nothing and the 2D
@@ -129,62 +206,107 @@ function setLive(next) {
 
 // (Re)create everything that dies with the context. Written to be run any
 // number of times: gl/context.js calls it again after a restore, and every
-// handle it sets is one that was invalid a moment earlier.
+// handle it sets — four programs, four render targets, the frame texture — is
+// one that was invalid a moment earlier.
+//
+// THIS IS THE HIGHEST-RISK FUNCTION IN THE PR. In 15a there was one program
+// and one texture to rebuild; a restore that missed either was obvious (a
+// black screen the instant it ran, on any machine). Here a restore that
+// rebuilds the frame texture and three of four programs but drops, say,
+// quarterB, is a black screen ONLY once a frame reaches the composite stage
+// with a target that never got reattached — which can survive a cursory look
+// and only show up after a real driver reset. Every handle below is therefore
+// listed once, in one function, with nothing built lazily on first use.
 function build() {
-  program = buildProgram(gl, PRESENT_VS, PRESENT_FS);
-  if (!program) return false;
+  presentProgram = buildProgram(gl, PRESENT_VS, PRESENT_FS);
+  brightProgram = buildProgram(gl, PRESENT_VS, BRIGHT_FS);
+  blurProgram = buildProgram(gl, PRESENT_VS, BLUR_FS);
+  compositeProgram = buildProgram(gl, PRESENT_VS, COMPOSITE_FS);
+  if (!presentProgram || !brightProgram || !blurProgram || !compositeProgram) return false;
 
-  gl.useProgram(program);
-  gl.uniform1i(gl.getUniformLocation(program, "uFrame"), 0);
+  gl.useProgram(presentProgram);
+  gl.uniform1i(gl.getUniformLocation(presentProgram, "uFrame"), 0);
+
+  gl.useProgram(brightProgram);
+  gl.uniform1i(gl.getUniformLocation(brightProgram, "uFrame"), 0);
+  uBrightThreshold = gl.getUniformLocation(brightProgram, "uThreshold");
+
+  gl.useProgram(blurProgram);
+  gl.uniform1i(gl.getUniformLocation(blurProgram, "uSource"), 0);
+  uBlurStep = gl.getUniformLocation(blurProgram, "uStep");
+
+  gl.useProgram(compositeProgram);
+  gl.uniform1i(gl.getUniformLocation(compositeProgram, "uFrame"), 0);
+  gl.uniform1i(gl.getUniformLocation(compositeProgram, "uBloomHalf"), 1);
+  gl.uniform1i(gl.getUniformLocation(compositeProgram, "uBloomQuarter"), 2);
+  uCompExposure = gl.getUniformLocation(compositeProgram, "uExposure");
+
   gl.activeTexture(gl.TEXTURE0);
 
-  // PIXEL-IDENTITY LIVES IN THESE THREE LINES, and the default is wrong for the
-  // first. COLORSPACE_CONVERSION defaults to BROWSER_DEFAULT_WEBGL, which
-  // permits the browser to apply a colour transform on upload and would shift
-  // every neon hue by an amount nobody could then find. FLIP_Y off keeps the
-  // driver from re-laying-out the whole image every frame (the shader flips
-  // instead, for free). PREMULTIPLY off leaves the bytes alone; the frame is
-  // opaque anyway, so there is nothing to premultiply and the only thing this
-  // could do is round.
+  // PIXEL-IDENTITY (the zero-bloom case; see COMPOSITE_FS) STARTS WITH THESE
+  // THREE LINES, and the default is wrong for the first. COLORSPACE_CONVERSION
+  // defaults to BROWSER_DEFAULT_WEBGL, which permits the browser to apply a
+  // colour transform on upload and would shift every neon hue by an amount
+  // nobody could then find. FLIP_Y off keeps the driver from re-laying-out the
+  // whole image every frame (the shader flips instead, for free). PREMULTIPLY
+  // off leaves the bytes alone; the frame is opaque anyway, so there is
+  // nothing to premultiply and the only thing this could do is round.
   gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
   gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
 
-  // Nothing to blend against and nothing to occlude — the pass writes every
-  // pixel of an opaque frame. Both default off in a fresh context; stated
-  // anyway, because build() also runs after a restore and the cheapest way to
-  // be sure of a restored context's state is not to depend on it.
+  // Nothing to blend against and nothing to occlude — every pass in the chain
+  // writes every pixel of its target. Both default off in a fresh context;
+  // stated anyway, because build() also runs after a restore and the cheapest
+  // way to be sure of a restored context's state is not to depend on it.
   gl.disable(gl.BLEND);
   gl.disable(gl.DEPTH_TEST);
 
   texture = null;
   texW = 0;
   texH = 0;
+
+  halfA = createTarget(gl);
+  halfB = createTarget(gl);
+  quarterA = createTarget(gl);
+  quarterB = createTarget(gl);
+
   return true;
 }
 
 function teardown() {
-  program = null;
+  presentProgram = null;
+  brightProgram = null;
+  blurProgram = null;
+  compositeProgram = null;
   texture = null;
   texW = 0;
   texH = 0;
+  halfA = null;
+  halfB = null;
+  quarterA = null;
+  quarterB = null;
 }
 
-// Allocate the frame texture at the backing store's size, and point the
-// viewport at the whole drawing buffer.
+// Allocate the frame texture at the backing store's size, and the four bloom
+// targets at half and quarter of it. One size check (present()'s) gates the
+// whole rebuild, which is what keeps trap #1 above from needing a second flag.
 //
 // texStorage2D, so the texture is IMMUTABLE: the size is fixed at allocation
 // and the per-frame upload is a texSubImage2D into storage the driver has
 // already laid out and validated. A mutable texImage2D per frame re-specifies
 // the whole texture every time, which is the same bytes plus a reallocation the
 // upload does not need. The price is that a resize needs a NEW texture object
-// rather than a bigger one — which is why the old one is deleted here.
+// rather than a bigger one — which is why the old one is deleted here, and why
+// gl/target.js's resizeTarget does the same for the four bloom targets.
 //
 // NEAREST, and it is load-bearing rather than a default worth taking. The
 // texture and the drawing buffer are the same size, so every fragment centre
 // falls exactly on one texel; LINEAR would fetch that same texel at four times
 // the cost, and would turn any future half-texel disagreement into a softening
-// of the whole frame rather than an obvious break.
+// of the whole frame rather than an obvious break. This reasoning is about the
+// FRAME texture only — the four bloom targets are LINEAR on purpose, and
+// gl/target.js's header says why.
 function allocate(w, h) {
   if (texture) gl.deleteTexture(texture);
   texture = gl.createTexture();
@@ -197,9 +319,22 @@ function allocate(w, h) {
   // for one, but CLAMP costs nothing to state.
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.viewport(0, 0, w, h);
   texW = w;
   texH = h;
+
+  // Each target's size is derived from the one it is actually sampled FROM in
+  // the chain (half from the full-res frame, quarter from half), not
+  // independently from w/h — ceil rather than floor so the last row/column of
+  // an odd-sized backing store still lands inside a target rather than being
+  // silently dropped.
+  const halfW = Math.max(1, Math.ceil(w / 2));
+  const halfH = Math.max(1, Math.ceil(h / 2));
+  const quarterW = Math.max(1, Math.ceil(halfW / 2));
+  const quarterH = Math.max(1, Math.ceil(halfH / 2));
+  resizeTarget(gl, halfA, halfW, halfH);
+  resizeTarget(gl, halfB, halfW, halfH);
+  resizeTarget(gl, quarterA, quarterW, quarterH);
+  resizeTarget(gl, quarterB, quarterW, quarterH);
 }
 
 // Wire the present path up. Returns whether the GL path is live; false is a
@@ -242,7 +377,7 @@ export function init(gameCanvas, presentCanvas) {
   return true;
 }
 
-// The last thing render() does. Upload the frame, blit it out.
+// The last thing render() does. Upload the frame, run the chain.
 export function present() {
   if (!live) return;
 
@@ -258,6 +393,73 @@ export function present() {
   // the last one — a real optimisation for a static source, and the trap that
   // made an early benchmark report 5 TB/s (README, Phase 15a). It cannot help
   // here, for the right reason: the game draws a new frame before every call.
+  //
+  // Bound explicitly rather than relied on from a previous frame: the
+  // composite pass at the end of THIS function leaves unit 2 active, so unit 0
+  // is not a safe assumption to walk into next frame without saying so again.
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, source);
+
+  const hw = halfA.width, hh = halfA.height;
+  const qw = quarterA.width, qh = quarterA.height;
+
+  // 1. Bright-pass + downsample: frame -> halfA. `texture` is already bound at
+  // unit 0 from the upload above, and uBrightFrame->0 was set once in build().
+  gl.bindFramebuffer(gl.FRAMEBUFFER, halfA.framebuffer);
+  gl.viewport(0, 0, hw, hh);
+  gl.useProgram(brightProgram);
+  gl.uniform1f(uBrightThreshold, BLOOM_THRESHOLD);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // 2. Blur H, half-res: halfA -> halfB.
+  gl.bindFramebuffer(gl.FRAMEBUFFER, halfB.framebuffer);
+  gl.useProgram(blurProgram);
+  gl.bindTexture(gl.TEXTURE_2D, halfA.texture);
+  gl.uniform2f(uBlurStep, 1 / hw, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // 3. Blur V, half-res: halfB -> halfA. halfA now holds the finished
+  // half-res bloom; halfB is scratch again until next frame.
+  gl.bindFramebuffer(gl.FRAMEBUFFER, halfA.framebuffer);
+  gl.bindTexture(gl.TEXTURE_2D, halfB.texture);
+  gl.uniform2f(uBlurStep, 0, 1 / hh);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // 4. Downsample: halfA -> quarterA, reusing the 15a blit shader. halfA is
+  // LINEAR, so this single tap at each quarter-res texel centre lands exactly
+  // between four half-res texels — a correct box filter, not a shortcut (see
+  // gl/target.js and gl/shaders.js's PRESENT_FS comment).
+  gl.bindFramebuffer(gl.FRAMEBUFFER, quarterA.framebuffer);
+  gl.viewport(0, 0, qw, qh);
+  gl.useProgram(presentProgram);
+  gl.bindTexture(gl.TEXTURE_2D, halfA.texture);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // 5. Blur H, quarter-res: quarterA -> quarterB.
+  gl.bindFramebuffer(gl.FRAMEBUFFER, quarterB.framebuffer);
+  gl.useProgram(blurProgram);
+  gl.bindTexture(gl.TEXTURE_2D, quarterA.texture);
+  gl.uniform2f(uBlurStep, 1 / qw, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // 6. Blur V, quarter-res: quarterB -> quarterA. quarterA now holds the
+  // finished quarter-res bloom.
+  gl.bindFramebuffer(gl.FRAMEBUFFER, quarterA.framebuffer);
+  gl.bindTexture(gl.TEXTURE_2D, quarterB.texture);
+  gl.uniform2f(uBlurStep, 0, 1 / qh);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // 7. Composite: frame + halfA + quarterA -> the drawing buffer.
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, w, h);
+  gl.useProgram(compositeProgram);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, halfA.texture);
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, quarterA.texture);
+  gl.uniform1f(uCompExposure, BLOOM_EXPOSURE);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
