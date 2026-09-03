@@ -181,7 +181,8 @@ initMouse(canvas);
 // starts there (START GAME from "menu", RESTART from "gameover" after
 // newGame() has rebuilt the world it is about to reveal); only the AUDIO half
 // of the jack-in is once-per-page, see the two call sites below. "dying" runs
-// game/disconnect.js under the glitching car. "lifting"/"lowering" are
+// game/disconnect.js over the frozen frame the player died on. "lifting"/
+// "lowering" are
 // game/hauler.js's drone carrying the car off the road and back, with
 // "shopping" (game/shop.js) between them, covering the world as "paused" does.
 //
@@ -915,7 +916,7 @@ function updateMenu() {
     // scheduler timed to land its first downbeat as the riser ends. ONCE PER
     // PAGE, unlike the visual sequence below, which RESTART runs again.
     music.jackIn();
-    jackin.trigger(player.x, player.y, player.w, player.h);
+    jackin.trigger();
   }
   // The MUSIC/SOUND rows can only have moved on the tick just above.
   syncVolumes();
@@ -987,7 +988,7 @@ function updateGameOver() {
     // straight to a moving road would leave that sentence unanswered.
     state = "connecting";
     hint.innerHTML = "";
-    jackin.trigger(player.x, player.y, player.w, player.h);
+    jackin.trigger();
     // Plain confirm tone, as CONTINUE gets: the scheduler is already running,
     // so the boot plays over music that never stopped, with no riser. The
     // riser and the backend start are once-per-page (synth.js's jackIn()).
@@ -1664,11 +1665,20 @@ function drawHud() {
 //             below) — once the HUD is a separate layer, only canvas order
 //             can guarantee that, not draw order within one canvas.
 //
-// sectors.renderGlitch and jackin.render are the one exception either way:
-// they `drawImage()` the frame so far back onto itself and MUST keep
-// pointing at the world canvas element regardless of this rule, since a
-// glitch tear sampling the (transparent, mostly-empty) HUD canvas instead
-// would draw nothing.
+// sectors.renderGlitch is the one exception either way: it `drawImage()`s the
+// frame so far back onto itself and MUST keep pointing at the world canvas
+// element regardless of this rule, since a glitch tear sampling the
+// (transparent, mostly-empty) HUD canvas instead would draw nothing.
+// game/jackin.js's boot used to be a second such exception and is not any more
+// — it draws nothing on either canvas but its readout now (Phase 15e-i).
+//
+// AND THERE IS NOW A THIRD SURFACE THAT IS NOT A CANVAS AT ALL: the feed block
+// (engine/present.js's `feed`, filled by describeFeed() at the bottom of this
+// file). The jack-in and the disconnect are drawn by a fragment pass over the
+// finished world canvas, so they are neither of the two rows above — they are
+// described rather than drawn, and what they describe cannot touch `hudCtx` by
+// construction, which is what keeps their readouts sharp while everything else
+// fails.
 function render(alpha) {
   // Reinstalled every frame, not once at startup: any assignment to
   // canvas.width/height (which a resize does) resets the context state
@@ -1753,21 +1763,15 @@ function render(alpha) {
   // See engine/viewport.js's SCALE_STEP. At scale 1 this IS Math.round.
   const camY = snapToDevice(distance);
 
-  // While "dying", game/disconnect.js's shake() desyncs the WHOLE scene by a
-  // screen-space offset — a feed losing sync, not a physical jolt (see its
-  // header) — so everything from the floor grid to the glitching car itself
-  // is drawn inside this translate, and only this translate. drawHud() (on
-  // its own, separately-transformed canvas) and disconnect's own CONNECTION
-  // LOST readout are both outside this translate entirely — the readout was
-  // already on `ctx` after `ctx.restore()` before this phase, and is on
-  // `hudCtx` now, which was never inside this save/translate/restore block to
-  // begin with — so the two things reporting the desync don't themselves
-  // desync.
+  // THE DESYNC SHAKE IS NOT APPLIED HERE ANY MORE, as of Phase 15e-i. While
+  // "dying", game/disconnect.js's shake() offsets the WHOLE feed — a feed
+  // losing sync, not a physical jolt (see its header) — and this block used to
+  // be a ctx.translate by it, carefully placed so the HUD and the CONNECTION
+  // LOST readout stayed outside. It is a UV offset in the present pass now
+  // (engine/present.js's `feed`), which gets the same exclusion structurally:
+  // the pass cannot reach the HUD canvas at all. The save/restore pair stays,
+  // because hauler.js's lift and the layers below still nest inside it.
   ctx.save();
-  if (state === "dying") {
-    const [sx, sy] = disconnect.shake();
-    ctx.translate(sx, sy);
-  }
 
   // Lower city floor first (parallax, behind everything), then the elevated road
   // ribbon paints an opaque surface over it, then the player on top. The floor
@@ -1832,8 +1836,11 @@ function render(alpha) {
   // like everything else drawn this frame, so the car's lean matches the bend of
   // the road actually on screen. While "dying", the disconnect sequence draws
   // in the player's place instead — see game/disconnect.js's render().
-  if (state === "dying") disconnect.render(ctx, W, H);
-  else if (state === "connecting" && !jackin.carSolid) jackin.renderCar(ctx);
+  // While "dying", disconnect.js draws the hit core in the player's place —
+  // all that is left of that sequence on this canvas (its own render()). The
+  // car itself is not drawn during a death: the frame it died in is what the
+  // present pass is pulling apart.
+  if (state === "dying") disconnect.render(ctx);
   else {
     // THE CAR RIDES THE DRONE, and this one translate is the whole of how. The
     // hauler owns the motion but not the car (see its header on why): it hands
@@ -1887,19 +1894,29 @@ function render(alpha) {
 
   // Phase 7f's rescan glitch: a full-screen tear over the just-composited
   // world (road, traffic, the player's own car), UNDER the HUD — the deck's
-  // video feed hiccups, its chrome doesn't, the same split "dying"'s shake
-  // above already draws on (world inside the translate, HUD outside it).
-  // Costs one comparison and returns when no crossing is currently live —
-  // see sectors.js's own renderGlitch header.
+  // video feed hiccups, its chrome doesn't, the same world/chrome split every
+  // transition in this file draws on. Costs one comparison and returns when no
+  // crossing is currently live — see sectors.js's own renderGlitch header.
+  //
+  // STILL CANVAS2D, DELIBERATELY, now that the two connection sequences are
+  // not. A sector crossing is an event in the WORLD — the deck retuning to a
+  // different part of the city — not a change in the connection itself, and
+  // moving it into the feed pass would say the opposite. It draws before the
+  // pass runs, so during a boot or a death (which can overlap: the crossing
+  // fires on distance, the sequences on player state) its torn bands are
+  // content the feed pass then resolves or drops like any other pixels, which
+  // is the right nesting of the two fictions rather than two glitches arguing.
   sectors.renderGlitch(ctx, canvas, W, H);
 
-  // Phase 8's START GAME boot (game/jackin.js): the raster sweep, the tearing
-  // and the chromatic split, over the just-composited world and the car
-  // assembling inside it, UNDER the HUD — the same world/chrome split
-  // sectors.renderGlitch above and "dying"'s shake already draw on. Takes the
-  // canvas element as well as the context because, like the rescan glitch, it
-  // draws the frame so far back onto itself.
-  if (state === "connecting") jackin.render(ctx, canvas, W, H);
+  // PHASE 8'S START GAME BOOT NO LONGER DRAWS ANYTHING HERE. game/jackin.js
+  // used to own a raster sweep, a band-tear loop and a whole-scene chromatic
+  // split on this canvas, all of them drawImage()s of the frame back onto
+  // itself; 15e-i moved every one of them into the present pass, which does the
+  // same job per-pixel and does it to a frame this function has finished with.
+  // What is left of the boot is a beat table (jackin.js) and a readout on
+  // `hudCtx` (below). The world/chrome split sectors.renderGlitch above still
+  // draws on is unchanged and still 2D — a sector crossing is an event in the
+  // world, not a change in the connection, and it stays where it is.
 
   drawHud();
   // ALL THREE OVERLAYS BELOW DRAW ON `hudCtx`, ABOVE THE HUD LAYER ITSELF —
@@ -1926,10 +1943,11 @@ function render(alpha) {
 }
 
 // THE PRESENT STEP (engine/present.js): the finished 2D frame uploaded as a
-// texture and blitted back out through the WebGL2 canvas in front of it. One
-// call, after everything, which is the layering claim Phase 15 rests on — no
-// game module knows the GPU path exists, and 15b's bloom lands inside
-// present.js without touching a line above. It returns immediately while
+// texture, run through the chain, and blitted out through the WebGL2 canvas in
+// front of it. Two calls now rather than one — see describeFeed() below for the
+// rule that replaced Phase 15's original "no game module knows the GPU path
+// exists", which 15e-i had to break and which is still true of everything under
+// src/game/. present() returns immediately while
 // `state === "gpulost"` (present.js's own `live` flag is what makes this a
 // no-op, not a branch here) — the drawing buffer simply is not touched for as
 // long as the outage lasts, which is fine, because the #gl-notice overlay
@@ -1943,8 +1961,37 @@ function render(alpha) {
 // but a BLACK one: the GL drawing buffer is cleared after every composite, so a
 // frame that does not redraw it shows nothing at all. Here there is no branch it
 // can fall out of.
+// DESCRIBE THE FEED, then present. This is the ONE place in the codebase that
+// knows a shader is being driven by a game sequence, and it is here for the
+// reason every other cross-module wiring decision in this file is: main.js
+// already owns both sequence instances and already owns the state machine that
+// says which of them is running, so nothing has to be invented to answer the
+// question. game/jackin.js and game/disconnect.js import nothing from the
+// engine's GL side and never will — see engine/present.js's `feed` for the full
+// rule, which replaced Phase 15's original "no module under src/game/ knows the
+// GPU path exists".
+//
+// EXACTLY ONE OF THE TWO CAN BE RUNNING, because "connecting" and "dying" are
+// different states (see `state` above), so there is no combining to do here —
+// the first one that reports work wins and the other is not asked. 15e-ii adds
+// a hull-driven source on the same fields, and THAT one does combine; when it
+// lands, this is where the max is taken.
+//
+// `level` 0 IS THE COMMON CASE AND MEANS THE PASS IS NOT RUN AT ALL — not run
+// with zeroed uniforms. Every frame outside these two sequences (the road, the
+// menu, the shop, the game-over screen, and the held beat after a death) leaves
+// present() doing exactly what it did before this phase, byte for byte.
+function describeFeed() {
+  present.feed.level =
+    (state === "connecting" && jackin.feed(present.feed)) ||
+    (state === "dying" && disconnect.feed(present.feed))
+      ? 1
+      : 0;
+}
+
 const loop = createLoop(update, (alpha) => {
   render(alpha);
+  describeFeed();
   present.present();
 });
 // GLREADY FALSE MEANS NO WEBGL2 AT ALL — present.js has already shown the
@@ -1956,4 +2003,5 @@ const loop = createLoop(update, (alpha) => {
 // anything left idle and skipping construction here would be a second "is GL
 // up" branch to keep in sync with this one.
 if (glReady) loop.start();
+
 

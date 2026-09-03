@@ -4,24 +4,42 @@
 // fractions of a duration constant, a frozen-but-still-drawn world), run
 // BACKWARDS. Death is a feed collapsing; this is a feed resolving.
 //
-// THREE THINGS HAPPEN AT ONCE, and they finish in this order:
+// SINCE PHASE 15E-I THIS MODULE DRAWS ALMOST NOTHING. The boot's picture is a
+// fragment shader now — engine/gl/shaders.js's GLITCH_FS, run by
+// engine/present.js over the finished frame — and what is left here is the
+// TIMELINE that drives it plus the two things the pass cannot do. Read
+// GLITCH_FS's header for what the effect IS; read this one for when.
 //
-//   1. RASTER BOOT. A resolve line sweeps top-to-bottom. Below it the screen
-//      is still black (nothing has been rendered yet, as far as the fiction is
-//      concerned); above it the real world is on screen but still tearing —
-//      band shifts and scanline noise that decay as the line moves on. Then a
-//      whole-scene chromatic split (cyan/magenta ghosts of the composited
-//      frame) collapses to zero: the picture stops disagreeing with itself.
-//      That last beat is disconnect.js's own car-breakup trick applied to the
-//      WHOLE screen and run in reverse.
-//   2. VEHICLE UPLOAD. The player's car assembles out of three offset
-//      wireframe copies of its own silhouette — literally disconnect.js's
-//      LOCAL breakup with its progress term inverted — arriving solid just
-//      before the sweep's own flash.
-//   3. THE DECK REPORTING ON ITSELF. Boot lines into the SYS LOG (this module
+// TWO THINGS HAPPEN AT ONCE:
+//
+//   1. THE FEED RESOLVES. feed() below describes it to the renderer, beat by
+//      beat: blocks arriving on a top-to-bottom wavefront, the arrived region
+//      still reordering and refining behind it, the colour channels stopping
+//      disagreeing, and a white hand-over flash at the end.
+//   2. THE DECK REPORTS ON ITSELF. Boot lines into the SYS LOG (this module
 //      pushes them itself, the way links.js and sectors.js push theirs — see
 //      BEATS below), plus a centred percentage readout sitting in the exact
 //      spot disconnect.js's CONNECTION LOST occupies.
+//
+// THE READOUT IS ON THE HUD CANVAS AND THAT IS THE WHOLE POINT OF IT. `hudCtx`
+// is a separate DOM layer that is never uploaded to the GPU (Phase 15c), so the
+// pass CANNOT REACH IT — physically, not by draw order. The world tears, drops
+// blocks and flattens to three colours while the percentage stays pin-sharp on
+// top of it. That is the right fiction and it costs nothing: the instruments
+// work, the feed does not. disconnect.js's readout gets the same for free.
+//
+// THE CAR HAS NO SEQUENCE OF ITS OWN ANY MORE. It used to assemble out of three
+// offset wireframe copies of its own silhouette (effects.js's
+// drawChromaticSplit, run backwards) across a CAR_START..CAR_END window, with
+// main.js swapping to the real car at the end of it. 15e-i deleted all of that,
+// on the project owner's call, because it does not read under the pass: a
+// wireframe easing together inside a block-corrupted feed is mush. The car is
+// now simply drawn, from frame one, and RESOLVES WITH THE REST OF THE FRAME —
+// which is the more honest version of the fiction anyway, since the car was
+// never meant to be a special object. CAR_START, CAR_END and `carSolid` went
+// with it; FLASH_START used to be pinned to CAR_END to hide the draw-ownership
+// swap, and there is no swap left to hide, so it keeps only its other reason
+// (below).
 //
 // RUNS ON EVERY START, NOT JUST THE FIRST. main.js triggers this from START
 // GAME and from the game-over screen's RESTART alike — a run always begins
@@ -33,23 +51,22 @@
 //
 // ON THE DURATION. 2.2s, against the audio riser's own 1.5s
 // (audio/sfx.js's JACK_IN_DURATION), so the music's first downbeat lands at
-// ~68% of this — under the vehicle upload rather than at the cut to gameplay.
-// That is deliberate: the beat arriving while the car is still assembling is
-// what makes the world feel like it comes up UNDERNEATH the music, and it buys
-// the SYS LOG boot log (BEATS below) enough room to step a line at a time
-// instead of dumping a block. The two numbers are independent on purpose —
-// neither ceremony is trying to end on the other.
+// ~68% of this — while the feed is still resolving rather than at the cut to
+// gameplay. That is deliberate: the beat arriving while the picture is still
+// coming together is what makes the world feel like it comes up UNDERNEATH the
+// music, and it buys the SYS LOG boot log (BEATS below) enough room to step a
+// line at a time instead of dumping a block. The two numbers are independent on
+// purpose — neither ceremony is trying to end on the other.
 //
 // A PURE FUNCTION OF PROGRESS, same discipline as disconnect.js and
-// effects.js: every frame recomputes its jitter from `elapsed` plus the seed
-// captured at trigger(), so nothing here allocates per frame. The one
-// exception is the ghost canvas the chromatic split needs (see ghostCanvas
-// below), which is allocated once and reused.
+// effects.js: feed() recomputes every field from `elapsed` and the seed
+// captured at trigger(), and writes them into a block the renderer owns, so
+// nothing here allocates per frame. Through 15d this module ALSO owned the
+// codebase's only device-sized scratch canvas (the chromatic split's tinted
+// copies needed one); the pass needs no scratch surface at all, and it is gone.
 
-import { renderScale, blitScreenBand } from "../engine/viewport.js";
-import { neonStroke, glowLine, glowText } from "../engine/neon.js";
-import { rng, drawChromaticSplit } from "./effects.js";
-import { PLAYER, PLAYER_THRUST, GREEN_PALE, GREEN_BRIGHT } from "../engine/palette.js";
+import { glowText } from "../engine/neon.js";
+import { GREEN_PALE, GREEN_BRIGHT } from "../engine/palette.js";
 import * as gameConsole from "../engine/console.js";
 import { HINT } from "../engine/console.js";
 
@@ -60,39 +77,25 @@ export const CONNECT_DURATION = 2.2;
 // Fractions of CONNECT_DURATION (not seconds), kept as fractions so retuning
 // the total reshapes every beat with it — exactly how disconnect.js's own
 // timeline is written. Read top to bottom, this IS the sequence:
-//   raster sweeps down -> car assembles -> tearing settles -> scene split
-//   collapses -> flash -> live.
-const SWEEP_END = 0.40;    // the resolve line reaches the bottom of the screen
-const TEAR_END = 0.72;     // band shifts and scanline noise run out
-const CAR_START = 0.30;    // the car's wireframe copies appear, far apart —
-                           // just after the sweep line has passed the row it
-                           // sits on (H*0.62), so it is uncovered and already
-                           // assembling rather than waiting in the open
-const CAR_END = 0.90;      // ...and have converged into the real car. THE SAME
-                           // instant as FLASH_START below, deliberately: what
-                           // this module draws is the car's OUTLINE, and what
-                           // main.js takes over drawing is the full car
-                           // (fills, thruster, detail — see sprites.js), so
-                           // the swap is a visible pop unless it happens
-                           // underneath the flash that is already covering the
-                           // screen for its own reasons
-const SPLIT_START = 0.45;  // whole-scene chromatic ghosts, at their widest...
-const SPLIT_END = 0.93;    // ...collapsed onto the picture they came from
+//   blocks sweep in -> the arrived picture settles and refines -> the colour
+//   channels stop disagreeing -> flash -> live.
+const SWEEP_END = 0.40;    // the arrival wavefront reaches the bottom of the
+                           // screen; every block has been received
+const TEAR_END = 0.72;     // block reordering, line dropout and the bit-depth
+                           // refinement all run out together — one beat,
+                           // because "the picture stops being wrong" is one
+                           // idea however many terms express it
+const SPLIT_START = 0.45;  // per-block-row channel desync, at its widest...
+const SPLIT_END = 0.93;    // ...collapsed onto the picture it came from
 const FLASH_START = 0.90;  // white hand-over flash (disconnect.js opens with
-                           // one; this one closes)
+                           // one; this one closes, so the two ceremonies
+                           // bracket a run with the same punctuation mark)
 const TEXT_LOCK = 0.90;    // the percentage hits 100 and the readout swaps
 
-// How dark the unresolved region below the sweep line is. Matches neon.js's
-// clear() colour rather than pure black, so the mask is indistinguishable from
-// "nothing has been drawn here yet".
-const VOID = "#05060a";
-
-// Widest chromatic ghost offset, px. Generous on purpose — this is the beat
-// that has to read as a picture not agreeing with itself from across the room.
-const SPLIT_MAX = 10;
-// Widest band-tear shift, px, at the top of the sweep.
-const TEAR_MAX = 26;
-const TEAR_BANDS = 7;
+// Peak alpha of the hand-over flash. Carried over unchanged from the 2D
+// fillRect this replaced; it is an add in the pass now (GLITCH_FS's uFlash)
+// rather than a rect over the frame, so it whitens the corruption too.
+const FLASH_MAX = 0.30;
 
 // SYS LOG boot lines: [progress, text]. Owned here rather than in main.js
 // because the whole timeline is here — a beat table split across two files is
@@ -116,6 +119,12 @@ const TEAR_BANDS = 7;
 // There are more lines here than the panel's MAX_MESSAGES can hold, which is
 // the point: the earliest ones scroll off the top while the boot is still
 // running, which is exactly what a machine coming up looks like.
+//
+// VEHICLE UPLOAD // 01 SURVIVED 15E-I'S DELETION OF THE CAR SEQUENCE, on
+// purpose: the deck reporting that it has loaded the vehicle is true whether or
+// not the player watches it assemble, and these lines were never captions on
+// what is happening on screen — HULL // NOMINAL and WEAPONS // ARMED never had
+// a visual either.
 const BEATS = [
   [0.00, "RIG ONLINE"],
   [0.10, "NEURAL LINK // OPEN"],
@@ -128,73 +137,21 @@ const BEATS = [
   [0.92, "UPLINK STABLE"],
 ];
 
-// The scratch canvas the chromatic split builds its tinted copies in. ONE,
-// module-level, reused for both the cyan and the magenta pass of every frame
-// (build cyan, draw it, then overwrite it with magenta and draw that) and
-// across runs — a full-screen canvas is not something to allocate per frame,
-// and there is never more than one jack-in on screen at a time.
-let ghost = null;
-let ghostCtx = null;
-
-// Sized in DEVICE pixels and left UNTRANSFORMED, unlike every other offscreen
-// canvas in the codebase. It is a pixel-for-pixel copy of the display canvas,
-// never a surface something draws logical geometry into, so matching the backing
-// store exactly is what keeps the copy 1:1 and unresampled. Its callers hand the
-// logical size back at blit time instead (see the two drawImage calls in render).
-function ghostCanvas(W, H) {
-  const dw = Math.round(W * renderScale());
-  const dh = Math.round(H * renderScale());
-  if (!ghost || ghost.width !== dw || ghost.height !== dh) {
-    ghost = document.createElement("canvas");
-    ghost.width = dw;
-    ghost.height = dh;
-    ghostCtx = ghost.getContext("2d");
-  }
-  return ghost;
-}
-
-// A copy of `source` with everything but `color`'s own channels multiplied
-// away — i.e. the cyan-only or magenta-only version of the frame. "multiply"
-// against a flat fill is the cheap way to get a real channel split rather than
-// a plain offset ghost: black stays black (so the masked region below the
-// sweep contributes nothing when this is composited back with "lighter"), and
-// the neon lines keep only the part of themselves that colour admits.
-function tintedCopy(source, color, W, H) {
-  const g = ghostCanvas(W, H);
-  ghostCtx.globalCompositeOperation = "source-over";
-  ghostCtx.clearRect(0, 0, g.width, g.height);
-  ghostCtx.drawImage(source, 0, 0);
-  ghostCtx.globalCompositeOperation = "multiply";
-  ghostCtx.fillStyle = color;
-  ghostCtx.fillRect(0, 0, g.width, g.height);
-  ghostCtx.globalCompositeOperation = "source-over";
-  return g;
-}
-
 export class JackIn {
   constructor() {
     this.active = false;
     this.elapsed = 0;
-    this.x = 0;
-    this.y = 0;
-    this.w = 34;
-    this.h = 60;
     this.seed = 1;
     this.beat = 0; // index of the next BEATS entry still to be pushed
   }
 
-  // `x, y, w, h` are the player's fields at the moment START GAME (or RESTART)
-  // was confirmed — copied, not held by reference, the same way
-  // disconnect.js's trigger() takes a freeze-frame: main.js doesn't run
-  // player.update() while this is playing, so they wouldn't move anyway, but
-  // nothing here depends on that.
-  trigger(x, y, w, h) {
+  // NO LONGER TAKES THE PLAYER'S FREEZE-FRAME. Through 15d this copied
+  // `x, y, w, h` so renderCar() could draw the assembling wireframe where the
+  // car was about to be; with that sequence gone the car is drawn by
+  // player.render() like any other frame and nothing here needs its position.
+  trigger() {
     this.active = true;
     this.elapsed = 0;
-    this.x = x;
-    this.y = y;
-    this.w = w;
-    this.h = h;
     this.seed = (Math.random() * 0x7fffffff) | 0;
     this.beat = 0;
   }
@@ -229,154 +186,69 @@ export class JackIn {
     return this.progress >= 1;
   }
 
-  // Has the car finished assembling? Once true, main.js draws the REAL car
-  // (player.render) instead of asking for renderCar() below — so the handover
-  // into gameplay is a car that was already solid a beat before the world
-  // started moving, not a wireframe that pops.
-  get carSolid() {
-    return this.progress >= CAR_END;
-  }
-
-  // The car assembling, drawn INSTEAD of player.render() while
-  // `carSolid` is false — inside the same block the frozen world draws in, so
-  // it lands in the space it is about to start driving in. The exact inverse
-  // of disconnect.js's LOCAL breakup: three copies of the same silhouette,
-  // offset along their own radius and jittered, easing back together. The
-  // CENTRE copy is the player's own cyan (not white, as it is on the way out)
-  // so the moment it hands over to the real car there is no colour pop; the
-  // two side copies fade out as they arrive, leaving exactly the one outline
-  // player.render is about to take over drawing.
-  renderCar(ctx) {
-    if (!this.active) return;
-    const t = this.progress;
-    if (t < CAR_START || t >= CAR_END) return;
-
-    const p = (t - CAR_START) / (CAR_END - CAR_START); // 0 scattered -> 1 assembled
-    const k = 1 - p;                                    // breakup strength
-    const { x: cx, y: cy, w, h, seed } = this;
-    // Reseeded per frame off elapsed, like disconnect.js's own, so the jitter
-    // animates rather than freezing into one fixed distortion.
-    const rand = rng((seed + Math.floor(this.elapsed * 60)) >>> 0);
-    const jitter = 7 * k;
-    const drift = 14 * k;
-
-    // Assembling IN, so this is disconnect.js's split run backwards: the centre
-    // copy (the player's own cyan, not white — see the header) rises 0.35 -> 1
-    // as the car arrives while the side copies fade to nothing, and the offset
-    // itself closes with k so the three converge rather than merely dimming.
-    ctx.save();
-    drawChromaticSplit(ctx, cx, cy, w, h, {
-      drift,
-      jitter,
-      spreadPx: 3 * k,
-      rand,
-      layers: [
-        ["#ffffff", -1, 0.75 * k],
-        [PLAYER, 0, 0.35 + 0.65 * p],
-        [PLAYER_THRUST, 1, 0.75 * k],
-      ],
-    });
-    ctx.restore();
-  }
-
-  // The raster boot, drawn OVER the composited world (and over the assembling
-  // car) but UNDER the HUD — the same split disconnect.js and sectors.js's
-  // rescan glitch already draw on: the deck's video feed is what's booting,
-  // its chrome is not.
+  // THE SEQUENCE ITSELF, as numbers rather than as pixels. `out` is the block
+  // engine/present.js owns and main.js hands over each frame; this writes every
+  // field it cares about and reads nothing back. See present.js's `feed` for
+  // the rule that replaced "no module under src/game/ knows the GPU path
+  // exists", and why this module still imports nothing from the engine's GL
+  // side.
   //
-  // `canvasEl` is the game canvas itself: the band tears and the chromatic
-  // ghosts are drawImage()s of the frame so far back onto itself, exactly the
-  // technique sectors.js's renderGlitch uses, which is why this has to run
-  // after every world layer and needs the element rather than just the context.
-  render(ctx, canvasEl, W, H) {
-    if (!this.active) return;
+  // Returns whether the pass has anything to do, which is what main.js turns
+  // into `level` — a jack-in is never at rest while it is active, so this is
+  // simply `active`, but disconnect.js's answer is not (its held beat is
+  // genuinely idle) and the two are written to the same shape.
+  feed(out) {
+    if (!this.active) return false;
     const t = this.progress;
-    const rand = rng((this.seed + Math.floor(this.elapsed * 60)) >>> 0);
 
-    ctx.save();
+    out.time = this.elapsed;
+    // Reduced to a fraction: the shader adds this to block indices in a
+    // 32-bit float, where a raw seed of this size would swallow them whole.
+    // See present.js's `feed`.
+    out.seed = (this.seed & 0x3ff) / 1024;
+    // A WAVEFRONT, not scattered: the boot's oldest and most load-bearing
+    // visual idea is a raster resolving top to bottom, and `order` 0 is what
+    // keeps it. disconnect.js uses the other end of the same field.
+    out.order = 0;
 
-    // 1. THE UNRESOLVED REGION. Everything below the sweep line is simply not
-    // there yet. Opaque, not translucent — a frame buffer that hasn't been
-    // written to is black, it isn't dim.
-    if (t < SWEEP_END) {
-      const line = (t / SWEEP_END) * H;
-      ctx.fillStyle = VOID;
-      ctx.fillRect(0, line, W, H - line);
-      // The scan edge itself: a hot line with a brighter core, plus a short
-      // gradientless "wake" of two dimmer lines just above it, so the sweep
-      // reads as something travelling rather than a rectangle shrinking.
-      glowLine(ctx, 0, line, W, line, "#ffffff", 2);
-      glowLine(ctx, 0, line - 4, W, line - 4, GREEN_BRIGHT, 1);
-      glowLine(ctx, 0, line - 9, W, line - 9, PLAYER, 1);
-    }
+    // THE UNRESOLVED REGION. Below the wavefront nothing has been received, so
+    // there is nothing to draw — the pass leaves those blocks black, which is
+    // what a frame buffer that has not been written to looks like. Through 15d
+    // this was an opaque VOID-coloured rect under a drawn scan line; the
+    // frontier is the shape of the arrival now, and its own leading blocks run
+    // hot, which is what the three glowLine calls used to fake.
+    out.resolve = Math.min(1, t / SWEEP_END);
 
-    // 2. THE RESOLVED REGION IS STILL TEARING. Horizontal band shifts, biggest
-    // right behind the scan edge and settling as it moves on — the picture is
-    // there, it just hasn't stopped moving around yet. Bands are clipped to
-    // the resolved region (above the line) so nothing tears out of the void
-    // below it.
-    if (t < TEAR_END) {
-      const k = 1 - t / TEAR_END;
-      const line = t < SWEEP_END ? (t / SWEEP_END) * H : H;
-      for (let i = 0; i < TEAR_BANDS; i++) {
-        const y = rand() * line;
-        const bandH = Math.min(3 + rand() * 22, line - y);
-        if (bandH <= 0) continue;
-        const dx = Math.round((rand() - 0.5) * 2 * TEAR_MAX * k);
-        if (dx === 0) continue;
-        blitScreenBand(ctx, canvasEl, y, bandH, dx, W);
-      }
-      // Scanline wash over the resolved region: alternating dark rows, fading
-      // out with the tearing. Cheap, and it's what stops a torn-but-otherwise-
-      // clean picture from reading as a rendering bug.
-      ctx.save();
-      ctx.globalAlpha = 0.22 * k;
-      ctx.fillStyle = "#000000";
-      for (let y = 0; y < line; y += 4) ctx.fillRect(0, y, W, 2);
-      ctx.restore();
-    }
+    // THE RESOLVED REGION IS STILL SETTLING. Block rows arrive out of order and
+    // some are missing outright, and the picture arrives coarse and refines —
+    // both decaying together to TEAR_END. `corrupt` was the band-tear loop and
+    // the scanline wash; `quant` is new and has no 2D ancestor.
+    const k = t < TEAR_END ? 1 - t / TEAR_END : 0;
+    out.corrupt = k;
+    out.quant = k;
 
-    // 3. THE SCENE STOPS DISAGREEING WITH ITSELF. Cyan and magenta copies of
-    // the whole composited frame, offset in opposite directions and converging
-    // to zero — the same chromatic split disconnect.js pulls the car apart
-    // with, here applied to everything and run backwards. Composited with
-    // "lighter" because these are additive ghosts of a neon picture: where
-    // they land on top of the real frame they brighten it, and where the frame
-    // is black (the void below the sweep) they contribute nothing at all.
-    if (t > SPLIT_START && t < SPLIT_END) {
-      const k = 1 - (t - SPLIT_START) / (SPLIT_END - SPLIT_START);
-      const dx = SPLIT_MAX * k;
-      ctx.save();
-      ctx.globalCompositeOperation = "lighter";
-      ctx.globalAlpha = 0.55 * k;
-      // Explicit destination size: the ghost is device-sized (see ghostCanvas)
-      // and this context is in logical units.
-      ctx.drawImage(tintedCopy(canvasEl, PLAYER, W, H), -dx, 0, W, H);
-      ctx.drawImage(tintedCopy(canvasEl, PLAYER_THRUST, W, H), dx, 0, W, H);
-      ctx.restore();
-    }
+    // THE PICTURE STOPS DISAGREEING WITH ITSELF. Per-block-row channel desync
+    // closing to zero — the beat that used to be two tinted full-frame copies
+    // at one global offset.
+    out.split = t > SPLIT_START && t < SPLIT_END
+      ? 1 - (t - SPLIT_START) / (SPLIT_END - SPLIT_START)
+      : 0;
 
-    // 4. THE HAND-OVER FLASH. disconnect.js opens with a white core on the
-    // killing hit; this closes with one on the moment the feed goes live, so
-    // the two ceremonies bracket a run with the same punctuation mark.
-    if (t > FLASH_START) {
-      const k = 1 - (t - FLASH_START) / (1 - FLASH_START);
-      ctx.save();
-      ctx.globalAlpha = 0.30 * k;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, W, H);
-      ctx.restore();
-    }
+    out.flash = t > FLASH_START
+      ? FLASH_MAX * (1 - (t - FLASH_START) / (1 - FLASH_START))
+      : 0;
 
-    ctx.restore();
+    // Not this sequence's: a boot never dims or shakes.
+    out.fade = 0;
+    out.shakeX = 0;
+    out.shakeY = 0;
+    return true;
   }
 
   // The centred readout, in the exact screen position (and at the exact type
   // sizes) disconnect.js's CONNECTION LOST uses — the two are the same voice
-  // reporting opposite events, so they should occupy the same spot. Call this
-  // OUTSIDE render()'s own work, above the HUD: it is the one thing on screen
-  // that is NOT part of the booting feed and so never tears, ghosts or dims
-  // with it.
+  // reporting opposite events, so they should occupy the same spot. Drawn on
+  // `hudCtx`, which is the layer the pass cannot reach; see the header.
   renderOverlay(ctx, W, H) {
     if (!this.active) return;
     const t = this.progress;

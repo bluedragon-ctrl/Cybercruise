@@ -6,14 +6,21 @@
 // otherwise repeat four times by hand, which is exactly the kind of drift
 // gl/context.js's header warns about.
 //
-// LINEAR, ALWAYS — the frame texture (present.js) is the one texture in this
-// codebase that must stay NEAREST, for the reason its own comment gives at
-// length: it is sampled at the same resolution it was written, so every
+// LINEAR BY DEFAULT, AND THE DEFAULT IS THE INTERESTING CASE. The frame texture
+// (present.js) is sampled at the same resolution it was written, so every
 // fragment centre lands on one texel and any filtering would only soften a
-// copy. Every target in THIS module is sampled at a DIFFERENT resolution than
-// it was written — that is the downsample and the blur both — so a NEAREST
-// tap would either alias (downsample) or narrow the Gaussian to whatever one
-// texel happens to fall under each sample (blur, see gl/shaders.js's BLUR_FS).
+// copy — its own comment gives that argument at length. The four BLOOM targets
+// are each sampled at a DIFFERENT resolution than they were written — that is
+// the downsample and the blur both — so a NEAREST tap would either alias
+// (downsample) or narrow the Gaussian to whatever one texel happens to fall
+// under each sample (blur, see gl/shaders.js's BLUR_FS). Hence LINEAR.
+//
+// `filter` EXISTS FOR THE ONE TARGET THAT IS NOT A BLOOM TARGET: 15e-i's feed
+// target (present.js), which is a full-resolution stand-in for the frame
+// texture and is read at 1:1 by the same stages that used to read it. It wants
+// the frame texture's NEAREST for the frame texture's reason, and passing that
+// in is a smaller change than a second copy of this file. The blur and
+// downsample callers pass nothing and keep LINEAR.
 //
 // RGBA8, the same format and the same texStorage2D-is-immutable trade the
 // frame texture makes (present.js's `allocate` explains the trade itself).
@@ -23,8 +30,11 @@
 // problem that has to be seen to be worth paying for. If a later pass shows
 // banding, the safe form of that change is a format argument to createTarget
 // and a capability probe in present.js's build(), not a rewrite of this file.
-export function createTarget(gl) {
-  return { texture: null, framebuffer: gl.createFramebuffer(), width: 0, height: 0 };
+// `filter` is captured on the target itself rather than passed to every
+// resizeTarget call: a target's filter mode is a property of what it IS, and a
+// resize is the one moment it could silently be given a different one.
+export function createTarget(gl, filter = gl.LINEAR) {
+  return { texture: null, framebuffer: gl.createFramebuffer(), width: 0, height: 0, filter };
 }
 
 // (Re)allocate a target's texture at w x h and reattach it to the framebuffer.
@@ -42,8 +52,8 @@ export function resizeTarget(gl, target, w, h) {
   const texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, target.filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, target.filter);
   // Same reasoning as the frame texture's wrap mode (present.js's `allocate`):
   // one mip level, and the fullscreen triangle never samples outside [0,1],
   // but CLAMP costs nothing to state and rules out an undefined edge texel.

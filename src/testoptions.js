@@ -55,6 +55,16 @@ export const SHOW_TEST_OPTIONS = true;
 // look with bloom against without it — just no longer a comparison against a
 // renderer that does not require a GPU at all.
 //
+// WHAT "OFF" DOES *NOT* REMOVE, AS OF PHASE 15E-I, and this is the third time
+// this comment has had to be rewritten. The present chain now carries GAME
+// VISUALS as well as bloom: the jack-in and the disconnect are a fragment pass
+// in it (src/engine/gl/shaders.js's GLITCH_FS), not Canvas2D any more. That
+// pass runs whatever this flag says, because the flag's whole job is to A/B a
+// HALO — and a switch that also deleted the boot and the death would be useless
+// during exactly the two moments it was flipped to look at. So "off" is still
+// precisely "skip bright-pass/blur/composite"; everything else the chain does
+// is unaffected.
+//
 // A context lost mid-run, or no WebGL2 at boot, are not states this flag ever
 // controlled and still are not: present.js answers both on its own now,
 // with a message rather than a fallback — see its header.

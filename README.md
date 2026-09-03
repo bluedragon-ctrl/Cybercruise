@@ -225,19 +225,38 @@ on a canvas sitting on top of the 2D one. Phase 15a shipped that chain as a
 single no-op blit — pixel-identical either way — to isolate the plumbing from
 the look; Phase 15b puts the first real effect in it: bright-pass threshold,
 half- and quarter-res separable Gaussian blur, additive recombine with a tone
-knee. `src/engine/present.js` is the whole chain, `src/engine/gl/shaders.js`
-the GLSL for each stage, `src/engine/gl/target.js` the renderable-texture
-helper the four bloom targets share, `src/engine/gl/context.js` the WebGL2
-setup underneath all of it.
+knee. **Phase 15e-i adds the second, and it is the first one that is not a
+filter over the picture but part of the GAME** — the jack-in and the disconnect
+(*The feed pass* below). `src/engine/present.js` is the whole chain,
+`src/engine/gl/shaders.js` the GLSL for each stage, `src/engine/gl/target.js`
+the renderable-texture helper its targets share, `src/engine/gl/context.js` the
+WebGL2 setup underneath all of it.
 
 Things about it worth knowing before touching the renderer:
 
 - **It is one call, wrapped around `render()` in `main.js`** — not written at
   that function's tail, because `render()` returns early on the menu and the
   shop and a present those branches skip is a **black** screen, not a stale one.
-  No module under `src/game/` knows the GPU path exists.
+- **`present()` TAKES GAME STATE, AS OF 15E-I, AND THE OLD RULE IS REWRITTEN
+  RATHER THAN QUIETLY DROPPED.** Through 15d this section and `main.js` both
+  said "no module under `src/game/` knows the GPU path exists". The jack-in and
+  the disconnect are now drawn by a fragment pass, and a sequence driven by a
+  progress value cannot be rendered by a pass that is told nothing. **The
+  second half of that claim is still true and is the point**: `jackin.js` and
+  `disconnect.js` import nothing from `present.js` or `gl/`. Each grows a
+  `feed(out)` method that writes plain numbers into one frozen-shape object
+  `present.js` owns, and `main.js` — which already owns both instances and the
+  state machine — is the only place that knows those numbers reach a shader.
+  **The game computes, `main.js` describes, `present.js` renders**, one
+  direction only, nothing read back. The fields name the SIGNAL rather than
+  either sequence (`resolve`, `corrupt`, `split`, `quant`, `fade`, `flash`,
+  `order`, `shakeX/Y`, `time`, `seed`), which is what lets 15e-ii's hull-driven
+  corruption write the same fields without widening anything.
 - **`src/testoptions.js`'s `GL_PRESENT` A/Bs bloom against a plain blit** — both
-  through WebGL2. **It no longer A/Bs the GPU path against the 2D canvas**:
+  through WebGL2, and **as of 15e-i the feed pass sits OUTSIDE it**: the flag's
+  job is to compare a halo, and a switch that also deleted the boot and the
+  death would be useless during exactly the two moments it would be flipped to
+  look at. Off still means precisely "skip bright-pass/blur/composite". **It no longer A/Bs the GPU path against the 2D canvas**:
   Phase 15d-i made WebGL2 REQUIRED (see `gl/context.js`'s header for the
   reversal and why), so a machine without it is told the game cannot run
   rather than being handed a haloless version of one, and a context lost
@@ -312,6 +331,98 @@ bytes** (675x900x4, the drawing buffer at this machine's window size). The
 composite reproduces the source frame bit for bit when bloom is zero, which is
 the 15a pixel-identity property carried into 15b rather than lost to it.
 
+**RE-RUN FOR 15E-I, IN TWO CONFIGURATIONS, ON A MENU FRAME AND A GAMEPLAY
+FRAME — 0 mismatches across 2,430,000 bytes in all four.** The first is the
+one that matters: with the feed idle (`feed.level` 0) the pass **is not drawn
+at all**, so ~99% of the frames the game ever shows go through exactly the
+chain they went through in 15d. The second is stronger and was worth taking
+anyway: forcing the pass to RUN with every field at rest is *also* byte-
+identical, which makes the skip an optimisation rather than something
+correctness depends on. (`GLITCH_FS` is written to be the exact identity at
+rest — at `quant` 0 its level count is exactly 255.0, so the round trip
+through `floor(c * 255 + 0.5) / 255` returns an 8-bit channel unchanged, and
+every other term is multiplied or added by zero.)
+
+**AND IT EARNED ITS KEEP.** The first 15e-i run came back **10,975 bytes off**,
+every one of them in the bottom block row: the arrival frontier is a band, and
+a caller's `resolve` of exactly 1 parks it ON the last blocks rather than past
+them, so that row flared permanently — live, a bright strip along the bottom of
+the screen from `SWEEP_END` to the end of every jack-in. The fix is a margin
+that lets the frontier travel slightly beyond both ends of the field
+(`FRONT_MARGIN`, `GLITCH_FS`).
+
+**THE FEED PASS (Phase 15e-i).** The jack-in and the disconnect used to be
+Canvas2D: `jackin.js` masked, tore and channel-split the frame by drawing it
+back onto itself; `disconnect.js` swept and dimmed it. Both are now one
+fragment stage, `GLITCH_FS` (`gl/shaders.js`), which runs **before the bright
+pass** so bloom reads the corrupted frame — a displaced block takes its halo
+with it, and corruption that did not glow would read as a compositing bug on a
+game whose whole look is that bright things glow. Its header carries the
+design; the short version is that the screen is a grid of macroblocks with
+per-block arrival times, and **one scalar swept up gives a feed arriving and
+swept down gives one collapsing** — which is what those two modules' headers
+have always claimed about each other without ever sharing an implementation.
+The vocabulary is deliberately the DATA one (packet arrival, block loss, line
+dropout, reordering, channel desync, bandwidth collapse): **CRT simulation was
+rejected outright by the project owner** — no phosphor, no barrel distortion,
+no standing scanline overlay, no vignette-as-tube-falloff.
+
+Three things worth knowing before touching it:
+
+- **The readouts stay sharp because the pass physically cannot reach them.**
+  The boot percentage and CONNECTION LOST live on `#hud` (Phase 15c above),
+  which is never uploaded to the GPU. The world fails and the instruments keep
+  working — the right fiction, and free.
+- **THE SEED IS A FRACTION IN [0, 1), NOT THE CALLER'S RAW SEED, AND THAT IS A
+  BUG THAT NEARLY SHIPPED LOOKING FINE.** `GLITCH_FS` adds the seed to block
+  indices in a 32-bit float; above 2^24 consecutive integers are not
+  representable, so a raw `Math.random() * 0x7fffffff` seed — where the gap
+  between floats is 128 — **swallows the block index entirely** and every block
+  hashes the same. The arrival frontier collapses to a straight horizontal line
+  and every torn row tears together. It was invisible for a whole round of
+  captures because those were taken on an instance whose `trigger()` had never
+  run, so its seed was the constructor's 1; the bug only appears once a real
+  run has seeded it, which is every run. Found by looking at a frame, not by
+  reasoning. The callers reduce their own seed, and
+  `test/present.test.js` range-checks the field.
+- **No history texture, on purpose.** Frame-to-frame persistence was the
+  obvious way to get real feedback and is rejected: it would make a render
+  target's CONTENTS matter across frames, and target contents are the one thing
+  `build()` cannot restore after a context loss. As written the pass is a pure
+  function of its uniforms, so the first frame after a restore mid-sequence is
+  simply correct — verified by hand with `WEBGL_lose_context` during a
+  sequence, comparing the frame either side (identical lit-pixel count, byte
+  diff on the same order as two no-loss renders of the same beat).
+
+**THE 2D WORK IT REMOVED WAS MEASURED BEFORE AND AFTER**, rather than
+asserted — `main` timed in a throwaway worktree of its own, with the same
+harness. `render()`'s own CPU time, 400 frames per sample, three samples,
+675x900, the same frame-stepping harness in each build:
+
+| beat | on `main` | 15e-i |
+| --- | --- | --- |
+| jack-in 0.50 (mid chromatic split) | 0.489 / 1.743 / 2.145 ms | 0.282 / 0.232 / 0.247 ms |
+| jack-in 0.80 | 1.114 / 1.124 / 1.694 ms | 0.227 / 0.289 / 0.253 ms |
+| disconnect 0.50 | 0.436 / 0.384 / 0.223 ms | 0.254 / 0.188 / 0.208 ms |
+
+The jack-in rows are the ones with something to remove: the split phase ran
+`tintedCopy` twice per frame — a full-device-resolution `clearRect` +
+`drawImage` + `multiply` `fillRect` each — then drew both back, six full-frame
+operations plus a `blitScreenBand` per tear band. On `main` that is not only
+expensive but WILDLY VARIABLE (0.489 to 2.145 across three samples of one
+beat), which is what full-frame composited drawImage work looks like; on 15e-i
+those frames are tight around 0.25ms and indistinguishable from an ordinary
+one. The disconnect barely moves, correctly — its 2D side was only a
+`fillRect` and two `glowLine`s.
+
+**The GPU side of that trade could not be measured here.** `present()`'s
+wall-clock came back between 0.04 and 1.7ms on BOTH builds with no relation to
+whether the pass ran — the highest single reading was a disconnect frame on
+which the feed is idle and the pass is not drawn at all — so the figure is
+driver-queue backpressure in this sandboxed pane, not per-call cost. The GL
+call count is unchanged on every frame outside the two sequences; inside them
+it is one extra draw and eleven uniform calls, for a couple of seconds per run.
+
 **Cost.** 15a's baseline (~259us at scale 1, ~1047us at 1200x1600 on an Intel
 Iris Xe, ~15us of it CPU submit) does not have a directly comparable 15b
 number yet. Measuring inside this project's own development sandbox (a
@@ -331,6 +442,10 @@ this environment: CPU submit time (wall-clock with no forced sync), ~0.3ms
 mean for the full seven-draw chain against 15a's ~15us for one draw — higher,
 plausibly consistent with a virtualized driver's higher per-call overhead, but
 still a small fraction of the 16.7ms budget and not competing with `update()`.
+**THE BARE-DESKTOP RE-MEASUREMENT OWED SINCE 15B IS STILL OWED, and 15e-i did
+not take it either** — this is still the same sandboxed/remoted pane, and the
+paragraph below is unchanged for the same reason it was unchanged in 15c. It is
+named here rather than papered over with a number that could not be measured.
 **This section needs re-taking on a bare desktop browser before its numbers can
 be read as the phase's real GPU cost** — the dropped-frame table below is
 carried over from 15a unchanged for the same reason: retaking it through the
@@ -339,6 +454,11 @@ a properly diagnosed environment is next session's job, not a settled result of
 this one.
 
 ### Rendering the halo
+
+**Bloom is not the only thing in the chain any more.** Phase 15e-i's feed pass
+runs BEFORE the bright pass, so everything below describes what happens to a
+frame the boot or the death may already have corrupted — deliberately, so a
+displaced block carries its own halo. See *The present path* above.
 
 Through Phase 15d-i, bloom ran ALONGSIDE `neonStroke`'s own three-pass overdraw
 and every cached sprite's own `shadowBlur` — real per-pixel bloom laid over a
@@ -1292,7 +1412,9 @@ is on hold is everything that wants a SERVER behind it.
         cached sprites) keeps them from going dark. `sectors.renderGlitch` and
         `jackin.render` were left alone on purpose: both `drawImage()` the
         frame back onto itself and must keep pointing at the canvas that is
-        actually bloomed.
+        actually bloomed. (`jackin.render` no longer exists — 15e-i moved the
+        whole of it into the present pass. `sectors.renderGlitch` still does
+        exactly what this paragraph says.)
         THE RETUNE: `BLOOM_THRESHOLD`/`BLOOM_EXPOSURE` move to 0.55/4.0 — the
         exact pair 15d-ii tried and reverted — now that nothing dense shares
         the bloomed canvas to bridge. Confirmed live across a busy gameplay
@@ -1480,12 +1602,46 @@ is on hold is everything that wants a SERVER behind it.
         bounds every metric assumes, and the meter's one-segment-per-keypress
         arithmetic. A missing glyph draws NOTHING by design; the test is what
         makes that safe.
-  - [ ] **15e** — The rest of the full-screen effects, now that a fragment
-        shader is a place things can live: chromatic aberration, vignette,
-        heat shimmer, and Phase 8's scanlines moved off Canvas2D into the pass
-        that should always have owned them. Each is a few lines of GLSL against
-        a texture that is already bound, which is the whole argument for having
-        built 15a
+  - [x] **15e-i** — DONE. The jack-in and the disconnect re-authored as ONE
+        fragment pass (`GLITCH_FS`), replacing the Canvas2D machinery both
+        modules used to fake it with — `jackin.js`'s VOID mask, band-tear loop,
+        scanline wash and whole-scene chromatic split (and with them the
+        codebase's only device-sized scratch canvas), `disconnect.js`'s
+        full-width tears and dim-to-black. **Both timelines are unchanged to
+        the number**; only what draws them moved. See *The present path* for
+        the design, the uniform channel that replaced "no module under
+        `src/game/` knows the GPU path exists", the idle no-op proof and the
+        two bugs the self-test and a live capture caught.
+        **CRT SIMULATION WAS PROPOSED BY THIS ROADMAP AND REJECTED BY THE
+        PROJECT OWNER** — the line above used to read "chromatic aberration,
+        vignette, heat shimmer, scanlines", which are all one idea (a screen
+        being photographed) and the wrong one: the game's fiction is a SIGNAL
+        you are jacked into, so the vocabulary is packet loss, block
+        corruption, quantisation collapse and desync. Recorded here because
+        the rejected list is the sort of thing that gets re-proposed by
+        somebody reading an old roadmap.
+        ALSO GONE, on the same call and for the same reason: the car's own
+        assembly and breakup stages (`effects.js`'s `drawChromaticSplit`, both
+        call sites and the function). They do not read under the pass, and
+        giving the car its own region in it was built and rejected on sight —
+        a hole around the car reads as a cutout, not as data loss. `CAR_START`,
+        `CAR_END`, `CAR_GLITCH_END` and `carSolid` went with them; every other
+        beat kept its name and its number
+  - [ ] **15e-ii** — Hull-driven data corruption on the same axis: a damaged
+        car degrades the FEED rather than flashing a red vignette, writing the
+        same `corrupt`/`quant` fields 15e-i already carries, with `main.js`
+        taking the larger of the two sources. No new channel needed — that is
+        what the field naming in *The present path* was for
+  - [ ] **15e-iii** — A background pass: something behind the world rather
+        than over it, which is the one shape the current chain has no slot for
+        (every stage so far reads the finished frame)
+  - [ ] **15e-iv** — Reconsider `sectors.js`'s rescan glitch, the last
+        full-screen 2D tear left. Deliberately OUT of 15e-i's scope: a sector
+        crossing reads as an event in the world, not a change in your
+        connection, so it is not obvious it should share the feed pass's
+        vocabulary at all. Verified in 15e-i that a crossing overlapping a
+        boot or a death is coherent — the tear is content the feed pass then
+        resolves or drops — so this is a look question, not a bug
   - [ ] **15f** — Only if 15a-15e land and the look is worth it: migrate
         effects and particles into the GPU path incrementally, HUD and menus
         staying on Canvas2D. Sprites would become a texture atlas rather than a

@@ -62,11 +62,19 @@ import { CONSOLE_SOUND, CONSOLE_PITCH } from "./consolesfx.js";
 //      dead air, so "the set is off" reads against a bare trace of residual
 //      hum instead of nothing at all
 //
-// STILL 1.35s total — load-bearing, unchanged from the earlier design: it
-// has to trail out to roughly disconnect.js's CAR_GLITCH_END (~1.4s into its
-// 2.6s sequence), not a generic short "hit" length, so the voice limiter
-// frees this slot right as the visual sequence's own glitch beat ends, even
-// though almost all of the AUDIBLE content now sits in the first 200ms.
+// STILL 1.35s total — load-bearing, unchanged from the earlier design: it has
+// to trail out to roughly the middle of disconnect.js's 2.6s sequence (~1.4s
+// in), not a generic short "hit" length, so the voice limiter frees this slot
+// while the picture is still coming apart rather than at the hit, even though
+// almost all of the AUDIBLE content now sits in the first 200ms.
+//
+// THAT 1.4s USED TO BE NAMED: it was disconnect.js's CAR_GLITCH_END, the end of
+// the car's own local breakup. Phase 15e-i deleted that beat with the breakup
+// (see disconnect.js's header), so the number here is unchanged and is now
+// anchored to the sequence's duration rather than to a constant that no longer
+// exists. It was never tuned tightly enough for the distinction to matter —
+// but a comment pointing at a deleted constant is worse than one pointing at
+// nothing.
 function generateDisconnect(ctx, dest, t) {
   // 1. The relay click.
   const click = ctx.createBufferSource();

@@ -1,13 +1,19 @@
 // PRESENT — how the finished frame gets from the Canvas2D backing store onto
 // the screen. Phase 15a (README) shipped this as a no-op: upload the frame as
 // a texture, blit it straight back out through WebGL2, unchanged. Phase 15b
-// puts the first real effect in that pass — bloom — and this module now runs
-// a seven-draw chain instead of one.
+// puts the first real effect in that pass — bloom. Phase 15e-i adds a second,
+// which is the first one that is not a filter over the picture but part of the
+// GAME: the jack-in and the disconnect (gl/shaders.js's GLITCH_FS).
 //
 // THE CHAIN, in the order present() runs it (see gl/shaders.js for what each
 // fragment stage does and why):
 //
 //   frame (full-res, NEAREST)
+//     -> GLITCH_FS   -> feedTarget  (15e-i, and ONLY while a sequence is
+//                                    running — see `feed.level`. Idle, this
+//                                    draw does not happen at all and every
+//                                    stage below reads the frame texture
+//                                    directly, exactly as it did in 15d)
 //     -> BRIGHT_FS   -> halfA    (threshold, and a downsample — FOUR taps, each
 //                                 thresholded before they are averaged, which
 //                                 is a 2x2 box filter that a thin bright line
@@ -25,11 +31,32 @@
 //     -> BLUR_FS  (V) -> quarterA (quarter-res bloom, done)
 //     -> COMPOSITE_FS(frame, halfA, quarterA) -> the drawing buffer
 //
+// "frame" IN THAT DIAGRAM IS `frameTex`, which is the uploaded frame texture
+// when the feed is idle and the feed target when it is not. The bright pass and
+// the composite do not know which, and neither needed editing for 15e-i —
+// GLITCH_FS writes its target in the same row convention it read the frame in,
+// so the y-flip those two stages apply is still exactly right. That is
+// deliberate; see GLITCH_FS's header for the 15b bug it is avoiding.
+//
+// WHERE THE FEED PASS SITS IS A LOOK DECISION, NOT AN ORDERING DETAIL. It runs
+// BEFORE the bright pass, so bloom reads the CORRUPTED frame: a displaced block
+// takes its halo with it, an arriving block's flare glows, and the fragments
+// still alive at the end of a death keep their neon. Run after the composite
+// instead and the corruption would be sharp-edged, sitting over a halo cast by
+// pixels that had since moved — which on a game whose whole look is that bright
+// things glow reads as a compositing bug rather than as a signal failing.
+//
 // THAT IS THE CHAIN WITH testoptions.js's GL_PRESENT ON, which is the default
 // and the only path this file's pixel-identity claims are about. Off, present()
-// stops after the upload and reuses PRESENT_FS for a single frame -> drawing
-// buffer blit — 15a's original no-op, with none of the seven passes above. See
-// GL_PRESENT's own comment for why "off" no longer means "no GPU pass at all".
+// reuses PRESENT_FS for a single frame -> drawing buffer blit — 15a's original
+// no-op, with none of the seven bloom passes above. See GL_PRESENT's own
+// comment for why "off" no longer means "no GPU pass at all".
+//
+// THE FEED PASS IS OUTSIDE THAT FLAG, as of 15e-i, and that is the third time
+// GL_PRESENT's meaning has had to be pinned down. It A/Bs BLOOM. The feed pass
+// is not bloom — it is the boot and the death — and a switch that deleted them
+// would be useless as a bloom comparison during exactly the two moments this
+// module now owns. So off still runs the feed pass and then blits its result.
 //
 // WHY TWO RESOLUTIONS RATHER THAN ONE. A single blur radius is a choice
 // between a tight halo (misses broad glow) and a soft one (loses the bright
@@ -118,11 +145,14 @@
 // copy of an all-zero contribution is still all zeros, and the test would
 // pass either way. That blind spot is exactly what 15b's own PRESENT_VS
 // Y-flip bug went through undetected (see that shader's header) — found live,
-// not by this test. Phase 15e adds more GPU-to-GPU passes over the same
-// targets, which is more surface for the identical mistake; a future self-
-// test that wants to catch an orientation bug needs content with an
-// asymmetric feature in it (e.g. a single bright corner pixel), not a
-// uniform field.
+// not by this test. 15e-i adds another GPU-to-GPU pass over the same targets,
+// which is more surface for the identical mistake; a future self-test that
+// wants to catch an orientation bug needs content with an asymmetric feature in
+// it (e.g. a single bright corner pixel), not a uniform field. WHAT 15E-I DID
+// INSTEAD, being cheaper and stronger than a better self-test: it does not move
+// the flip at all. GLITCH_FS reads the frame in the frame's own row convention
+// and writes its target in the same one, so BRIGHT_FS and COMPOSITE_FS were not
+// edited and cannot have been edited wrongly.
 //
 // WHAT WOULD GO WRONG WITHOUT THIS MODULE, AS OF 15D-I: the game does not run.
 // WebGL2 is required (see gl/context.js's header for the reversal and why),
@@ -214,7 +244,11 @@
 // FORTY-TWO GL CALLS PER FRAME as of 15b, not two — one texture upload plus
 // seven draw passes (bright-pass, four blur passes, one downsample, one
 // composite), each wrapped in the bindFramebuffer/viewport/useProgram/bind
-// calls its target and its source demand. `build()` sets every uniform that
+// calls its target and its source demand. UNCHANGED BY 15E-I on the frames
+// that matter: the feed pass adds a draw plus eleven uniform calls, and adds
+// them only while a boot or a death is on screen — which is a couple of seconds
+// per run against every other frame the game draws. Gameplay, the menu and the
+// shop submit exactly the forty-two they did before. `build()` sets every uniform that
 // does not change frame to frame (which texture unit each sampler reads, the
 // blend and depth state) once, so what is left on the hot path is genuinely
 // per-frame: the upload, and each pass's framebuffer bind, its texture bind,
@@ -232,10 +266,101 @@
 // a four-target problem instead of a four-target-plus-four-buffers one.
 
 import { GL_PRESENT } from "../testoptions.js";
-import { mirrorCanvas } from "./viewport.js";
+import { mirrorCanvas, LOGICAL_W, LOGICAL_H } from "./viewport.js";
 import { createContext, buildProgram } from "./gl/context.js";
-import { PRESENT_VS, PRESENT_FS, BRIGHT_FS, BLUR_FS, COMPOSITE_FS } from "./gl/shaders.js";
+import { PRESENT_VS, PRESENT_FS, BRIGHT_FS, BLUR_FS, COMPOSITE_FS, GLITCH_FS } from "./gl/shaders.js";
 import { createTarget, resizeTarget } from "./gl/target.js";
+
+// --- THE FEED CHANNEL (Phase 15e-i) -----------------------------------------
+//
+// THE RULE THIS BREAKS, AND WHAT THE RULE IS NOW. Through Phase 15d this file's
+// header and the README both said present() takes no game state — "no module
+// under src/game/ knows the GPU path exists". The first half of that is what
+// changed: the jack-in and the disconnect are now drawn by GLITCH_FS
+// (gl/shaders.js), and a sequence driven by a progress value cannot be rendered
+// by a pass that is told nothing. THE SECOND HALF IS STILL TRUE AND IS THE
+// POINT: game/jackin.js and game/disconnect.js import nothing from here or from
+// gl/. Each writes plain numbers into this object through a feed() method, and
+// main.js — which already owns both instances and already knows the state
+// machine — is the only place that knows those numbers reach a shader.
+//
+//   THE GAME COMPUTES, main.js DESCRIBES, present.js RENDERS.
+//
+// ONE-DIRECTIONAL: nothing reads this object back out, and nothing in src/game/
+// may. It is a description of the FEED handed forward once per frame, not a
+// channel.
+//
+// THE FIELDS NAME THE SIGNAL, NOT EITHER SEQUENCE. Nothing here says "jack-in"
+// or "death", deliberately: 15e-ii is hull-driven corruption on this same axis,
+// and when it lands it writes `corrupt`/`quant` from the hull and main.js takes
+// the larger of the two. A channel whose fields were named after the sequences
+// that first filled them would need widening for that; this one does not.
+//
+// ONE FROZEN-SHAPE OBJECT, allocated once at module scope and mutated in place.
+// Not a per-frame object literal (that is an allocation on the hot path, which
+// this codebase does not do — see game/effects.js's "a pure function of
+// progress"), and not an index-named Float32Array, which costs the same and
+// reads worse. Every field is written every frame by main.js, so there is no
+// stale-value case to reason about.
+export const feed = {
+  // 0 SKIPS THE PASS ENTIRELY. Not "run it with zeroed uniforms" — the draw
+  // does not happen and the rest of the chain reads the uploaded frame exactly
+  // as it did before this phase existed. That is what makes idle a bit-for-bit
+  // no-op by construction rather than by arithmetic, and it is ~99% of the time
+  // the game is on screen. GLITCH_FS is written to be the identity at rest
+  // anyway (its header), which makes this an optimisation rather than a
+  // correctness requirement — but it is the reason there is nothing to measure.
+  level: 0,
+  // 0..1. Which blocks exist: the frontier through GLITCH_FS's arrival field.
+  // 1 is a whole frame, 0 is nothing received.
+  resolve: 1,
+  // 0..1. How ordered that arrival is — 0 a top-to-bottom wavefront, 1 no order
+  // at all.
+  order: 0,
+  // 0..1. Block-row reordering and line dropout.
+  corrupt: 0,
+  // 0..1. Per-block-row colour channel desync.
+  split: 0,
+  // 0..1. Bandwidth: 0 is full depth, 1 is two levels per channel.
+  quant: 0,
+  // 0..1 toward black, and 0..1 toward white. The two ends' punctuation.
+  fade: 0,
+  flash: 0,
+  // LOGICAL pixels, converted to a UV offset at the uniform call below — the
+  // callers deal in the 600x800 playfield and know nothing about the backing
+  // store's size or the texture's.
+  shakeX: 0,
+  shakeY: 0,
+  // Seconds. The animated jitter is reseeded from this every frame rather than
+  // stored, so nothing in the pass persists across frames.
+  time: 0,
+  // A FRACTION IN [0, 1), NOT THE CALLER'S RAW SEED, and that is a hard
+  // requirement rather than a convention. GLITCH_FS adds this to block indices
+  // before hashing, in a 32-bit float: above 2^24 (16,777,216) consecutive
+  // integers are no longer representable, so a raw seed of the size
+  // Math.random() * 0x7fffffff produces — up to ~2.1e9, where the gap between
+  // floats is 128 — SWALLOWS the block index entirely. Every block then hashes
+  // to the same value, and the whole per-block character of the pass silently
+  // collapses: the arrival frontier becomes a straight horizontal line and the
+  // torn rows all tear together.
+  //
+  // FOUND LIVE, NOT BY INSPECTION, and it very nearly shipped looking fine: the
+  // first captures were taken with a JackIn that had never had trigger() called
+  // on it, so its seed was the constructor's 1 and everything was correctly
+  // ragged. The bug only appears once a real run has seeded it — which is every
+  // run. The callers reduce their own seed (jackin.js, disconnect.js); doing it
+  // here instead would hide a constraint that belongs where the number is
+  // chosen.
+  seed: 0,
+};
+
+// The macroblock grid, in blocks across and down the playfield. 24x32 over
+// 600x800 is 25 logical pixels square — big enough to read as a transport
+// artifact rather than as noise, small enough that a car (34x60) spans two or
+// three of them and comes apart rather than blinking out whole. Chosen by
+// scrubbing both sequences over a captured frame with the grid on a slider.
+const FEED_BLOCKS_X = 24;
+const FEED_BLOCKS_Y = 32;
 
 // FINAL AS OF PHASE 15C — see the file header's "The HUD split" for the A/B
 // this retune rests on. Per-channel: a pixel below this on every channel
@@ -267,6 +392,9 @@ let presentProgram = null;
 let brightProgram = null;
 let blurProgram = null;
 let compositeProgram = null;
+// 15e-i's feed pass, which runs BEFORE all four of those when the feed is not
+// idle and not at all when it is.
+let glitchProgram = null;
 
 // Uniform locations that change every frame. Everything that does NOT change
 // (which texture unit each sampler reads) is set once in build() and never
@@ -277,6 +405,20 @@ let uBrightThreshold = null;
 let uBrightTexel = null;
 let uBlurStep = null;
 let uCompExposure = null;
+// GLITCH_FS's uniforms. Every one of them changes on every frame a sequence is
+// running, so unlike the rest of the chain there is nothing here that build()
+// could set once — only the sampler binding, which it does.
+let uGlitchBlocks = null;
+let uGlitchShake = null;
+let uGlitchResolve = null;
+let uGlitchCorrupt = null;
+let uGlitchSplit = null;
+let uGlitchQuant = null;
+let uGlitchFade = null;
+let uGlitchFlash = null;
+let uGlitchOrder = null;
+let uGlitchTime = null;
+let uGlitchSeed = null;
 
 let texture = null;
 // The size the frame texture was allocated at. Zero means "not allocated",
@@ -296,6 +438,17 @@ let halfA = null;
 let halfB = null;
 let quarterA = null;
 let quarterB = null;
+
+// 15e-i's feed target: FULL resolution, and NEAREST where the four above are
+// LINEAR. It is a texel-for-texel stand-in for the frame texture — the bright
+// pass and the composite read it exactly as they read the frame — so it wants
+// the frame texture's filter mode for the frame texture's reason (see
+// allocate()). Its CONTENTS never matter across frames: GLITCH_FS writes every
+// pixel of it on every frame it runs, which is what makes a context restore
+// mid-sequence correct on its very first frame instead of showing whatever
+// survived. See gl/shaders.js's GLITCH_FS header on why there is no history
+// texture here.
+let feedTarget = null;
 
 // False before init() has run, and again for as long as a lost context stays
 // lost — the single branch every RUNTIME failure funnels into. present()
@@ -391,17 +544,26 @@ const GPU_LOST_BODY =
 // THIS IS THE HIGHEST-RISK FUNCTION IN THE PR. In 15a there was one program
 // and one texture to rebuild; a restore that missed either was obvious (a
 // black screen the instant it ran, on any machine). Here a restore that
-// rebuilds the frame texture and three of four programs but drops, say,
+// rebuilds the frame texture and four of five programs but drops, say,
 // quarterB, is a black screen ONLY once a frame reaches the composite stage
 // with a target that never got reattached — which can survive a cursory look
 // and only show up after a real driver reset. Every handle below is therefore
 // listed once, in one function, with nothing built lazily on first use.
+//
+// 15E-I'S TWO NEW HANDLES ARE THE WORST OF THAT KIND YET, and are worth naming:
+// glitchProgram and feedTarget are only ever touched while a jack-in or a death
+// is on screen, so a restore that dropped either would leave a game that looks
+// perfectly fine until the next time the player dies. They are listed here with
+// the rest for exactly that reason, and the loss/restore path was re-verified
+// by hand with WEBGL_lose_context DURING a sequence, not only at rest.
 function build() {
   presentProgram = buildProgram(gl, PRESENT_VS, PRESENT_FS);
   brightProgram = buildProgram(gl, PRESENT_VS, BRIGHT_FS);
   blurProgram = buildProgram(gl, PRESENT_VS, BLUR_FS);
   compositeProgram = buildProgram(gl, PRESENT_VS, COMPOSITE_FS);
-  if (!presentProgram || !brightProgram || !blurProgram || !compositeProgram) return false;
+  glitchProgram = buildProgram(gl, PRESENT_VS, GLITCH_FS);
+  if (!presentProgram || !brightProgram || !blurProgram || !compositeProgram ||
+      !glitchProgram) return false;
 
   gl.useProgram(presentProgram);
   gl.uniform1i(gl.getUniformLocation(presentProgram, "uFrame"), 0);
@@ -414,6 +576,20 @@ function build() {
   gl.useProgram(blurProgram);
   gl.uniform1i(gl.getUniformLocation(blurProgram, "uSource"), 0);
   uBlurStep = gl.getUniformLocation(blurProgram, "uStep");
+
+  gl.useProgram(glitchProgram);
+  gl.uniform1i(gl.getUniformLocation(glitchProgram, "uFrame"), 0);
+  uGlitchBlocks = gl.getUniformLocation(glitchProgram, "uBlocks");
+  uGlitchShake = gl.getUniformLocation(glitchProgram, "uShake");
+  uGlitchResolve = gl.getUniformLocation(glitchProgram, "uResolve");
+  uGlitchCorrupt = gl.getUniformLocation(glitchProgram, "uCorrupt");
+  uGlitchSplit = gl.getUniformLocation(glitchProgram, "uSplit");
+  uGlitchQuant = gl.getUniformLocation(glitchProgram, "uQuant");
+  uGlitchFade = gl.getUniformLocation(glitchProgram, "uFade");
+  uGlitchFlash = gl.getUniformLocation(glitchProgram, "uFlash");
+  uGlitchOrder = gl.getUniformLocation(glitchProgram, "uOrder");
+  uGlitchTime = gl.getUniformLocation(glitchProgram, "uTime");
+  uGlitchSeed = gl.getUniformLocation(glitchProgram, "uSeed");
 
   gl.useProgram(compositeProgram);
   gl.uniform1i(gl.getUniformLocation(compositeProgram, "uFrame"), 0);
@@ -450,6 +626,7 @@ function build() {
   halfB = createTarget(gl);
   quarterA = createTarget(gl);
   quarterB = createTarget(gl);
+  feedTarget = createTarget(gl, gl.NEAREST);
 
   return true;
 }
@@ -459,6 +636,7 @@ function teardown() {
   brightProgram = null;
   blurProgram = null;
   compositeProgram = null;
+  glitchProgram = null;
   texture = null;
   texW = 0;
   texH = 0;
@@ -466,6 +644,7 @@ function teardown() {
   halfB = null;
   quarterA = null;
   quarterB = null;
+  feedTarget = null;
 }
 
 // Allocate the frame texture at the backing store's size, and the four bloom
@@ -520,6 +699,9 @@ function allocate(w, h) {
   resizeTarget(gl, halfB, halfW, halfH);
   resizeTarget(gl, quarterA, quarterW, quarterH);
   resizeTarget(gl, quarterB, quarterW, quarterH);
+  // The feed target is the one that is NOT derived from the pass above it: it
+  // stands in for the frame texture, so it is the frame texture's size exactly.
+  resizeTarget(gl, feedTarget, w, h);
 }
 
 // Wire the present path up. Returns whether WebGL2 is live; false is now a
@@ -609,19 +791,68 @@ export function present() {
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, source);
 
-  // THE DEVELOPER SWITCH, off: skip bloom and blit the just-uploaded frame
-  // straight to the drawing buffer — the 15a no-op path, kept for exactly the
-  // reason 15a built it, comparing the look with and without bloom. What
-  // changed in 15d-i is what "off" is being compared AGAINST: before, off
-  // meant no GPU pass at all (the 2D canvas, shown directly); that machine no
-  // longer exists (gl/context.js's header), so off now means "this GPU pass,
-  // minus bloom" — still through present, still through the upload above,
-  // just without the seven-draw chain below it. See testoptions.js's own
-  // comment on GL_PRESENT.
+  // 0. THE FEED PASS (15e-i): the jack-in and the disconnect. Everything after
+  // this point reads `frameTex` rather than `texture`, and when the feed is
+  // idle those are the same object — so the whole rest of this function is
+  // byte-for-byte what it was before this phase, with no branch of its own.
+  //
+  // ABOVE THE GL_PRESENT BRANCH, DELIBERATELY. That flag A/Bs BLOOM (see its
+  // comment in testoptions.js); this is not bloom, it is the game's own
+  // visuals, and a bloom comparison that deleted the boot and the death would
+  // be useless during exactly the moments this pass exists for. So the flag
+  // still removes the seven bloom draws and nothing else — the no-bloom blit
+  // below just reads the feed target instead of the frame.
+  //
+  // BEFORE THE COMPOSITE RATHER THAN AFTER IT, and that decides the look. Run
+  // after, the corruption would be sharp-edged and sitting on top of a halo
+  // cast by pixels that have since moved — a displaced block leaving its own
+  // glow behind. Run here, bloom reads the corrupted frame, so the halo travels
+  // with the block, the freshly-arrived blocks' flare glows, and the surviving
+  // fragments at the end of a death keep the neon they had. On a game whose
+  // whole look is that bright things glow, corruption that does not is a
+  // compositing bug.
+  //
+  // THE COST IS ONE FULL-RES DRAW AND ONE FULL-RES TARGET, paid only while a
+  // sequence is running — see `feed.level`.
+  let frameTex = texture;
+  if (feed.level > 0) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, feedTarget.framebuffer);
+    gl.viewport(0, 0, w, h);
+    gl.useProgram(glitchProgram);
+    gl.uniform2f(uGlitchBlocks, FEED_BLOCKS_X, FEED_BLOCKS_Y);
+    // Logical pixels in, UV out. The playfield is LOGICAL_W x LOGICAL_H
+    // whatever the backing store is doing (engine/viewport.js), so the render
+    // scale cancels and the callers never have to know it exists.
+    gl.uniform2f(uGlitchShake, feed.shakeX / LOGICAL_W, feed.shakeY / LOGICAL_H);
+    gl.uniform1f(uGlitchResolve, feed.resolve);
+    gl.uniform1f(uGlitchCorrupt, feed.corrupt);
+    gl.uniform1f(uGlitchSplit, feed.split);
+    gl.uniform1f(uGlitchQuant, feed.quant);
+    gl.uniform1f(uGlitchFade, feed.fade);
+    gl.uniform1f(uGlitchFlash, feed.flash);
+    gl.uniform1f(uGlitchOrder, feed.order);
+    gl.uniform1f(uGlitchTime, feed.time);
+    gl.uniform1f(uGlitchSeed, feed.seed);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    frameTex = feedTarget.texture;
+    // The bright pass below expects unit 0 to hold what it is about to read,
+    // and this pass just left the FRAME there instead.
+    gl.bindTexture(gl.TEXTURE_2D, frameTex);
+  }
+
+  // THE DEVELOPER SWITCH, off: skip bloom and blit the frame straight to the
+  // drawing buffer — the 15a no-op path, kept for exactly the reason 15a built
+  // it, comparing the look with and without bloom. What changed in 15d-i is
+  // what "off" is being compared AGAINST: before, off meant no GPU pass at all
+  // (the 2D canvas, shown directly); that machine no longer exists
+  // (gl/context.js's header), so off means "this GPU pass, minus bloom" —
+  // still through present, still through the upload above, just without the
+  // seven-draw chain below it. See testoptions.js's own comment on GL_PRESENT.
   if (!GL_PRESENT) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, w, h);
     gl.useProgram(presentProgram);
+    gl.bindTexture(gl.TEXTURE_2D, frameTex);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     return;
   }
@@ -629,8 +860,9 @@ export function present() {
   const hw = halfA.width, hh = halfA.height;
   const qw = quarterA.width, qh = quarterA.height;
 
-  // 1. Bright-pass + downsample: frame -> halfA. `texture` is already bound at
-  // unit 0 from the upload above, and uBrightFrame->0 was set once in build().
+  // 1. Bright-pass + downsample: frame -> halfA. `frameTex` is already bound at
+  // unit 0 (from the upload above, or from the feed pass that just replaced
+  // it), and uBrightFrame->0 was set once in build().
   //
   // uTexel is the SOURCE frame's texel size, not this target's: the four taps
   // BRIGHT_FS makes are half a FRAME texel either side of the quad corner they
@@ -686,7 +918,7 @@ export function present() {
   gl.viewport(0, 0, w, h);
   gl.useProgram(compositeProgram);
   gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.bindTexture(gl.TEXTURE_2D, frameTex);
   gl.activeTexture(gl.TEXTURE1);
   gl.bindTexture(gl.TEXTURE_2D, halfA.texture);
   gl.activeTexture(gl.TEXTURE2);
