@@ -250,7 +250,7 @@ Things about it worth knowing before touching the renderer:
   **The game computes, `main.js` describes, `present.js` renders**, one
   direction only, nothing read back. The fields name the SIGNAL rather than
   either sequence (`resolve`, `corrupt`, `split`, `quant`, `fade`, `flash`,
-  `order`, `shakeX/Y`, `time`, `seed`), which is what lets 15e-ii's hull-driven
+  `order`, `shakeX/Y`, `time`, `seed`), which is what lets 15e-iv's hull-driven
   corruption write the same fields without widening anything.
 - **`src/testoptions.js`'s `GL_PRESENT` A/Bs bloom against a plain blit** — both
   through WebGL2, and **as of 15e-i the feed pass sits OUTSIDE it**: the flag's
@@ -454,10 +454,20 @@ this environment: CPU submit time (wall-clock with no forced sync), ~0.3ms
 mean for the full seven-draw chain against 15a's ~15us for one draw — higher,
 plausibly consistent with a virtualized driver's higher per-call overhead, but
 still a small fraction of the 16.7ms budget and not competing with `update()`.
-**THE BARE-DESKTOP RE-MEASUREMENT OWED SINCE 15B IS STILL OWED, and 15e-i did
-not take it either** — this is still the same sandboxed/remoted pane, and the
-paragraph below is unchanged for the same reason it was unchanged in 15c. It is
-named here rather than papered over with a number that could not be measured.
+**THE BARE-DESKTOP RE-MEASUREMENT OWED SINCE 15B IS STILL OWED — 15e-i did not
+take it, and 15e-ii-a did not either** — this is still the same
+sandboxed/remoted pane, and the paragraph below is unchanged for the same
+reason it was unchanged in 15c. It is named here rather than papered over with
+a number that could not be measured. The soft knee's own added cost (one
+`clamp`, one `max`, one multiply and one divide per tap, per channel, on top of
+what `max(c - uThreshold, 0.0)` already cost) is the same class of change
+15c-i's own three extra fetches were measured against and found free relative
+to the ~1047us frame-texture upload that dominates this chain — no new texture
+fetch, no new draw call, just a few more ALU ops inside a fragment shader
+already bound by the upload rather than by its own arithmetic. Not
+independently re-measured for the same reason the paragraph above names: the
+CPU-side number this environment CAN measure would not show a GPU-bound
+shader's real cost either way.
 **This section needs re-taking on a bare desktop browser before its numbers can
 be read as the phase's real GPU cost** — the dropped-frame table below is
 carried over from 15a unchanged for the same reason: retaking it through the
@@ -665,6 +675,62 @@ category rather than the "CPU side is trustworthy" one. The three-pass number
 matching history closely is what makes the one-stroke number trustworthy too:
 **~89us against ~248us is a ~64% reduction per `neonStroke` call**, and that
 saving now lands on every one of the 59 call sites this phase collapsed.
+
+**PHASE 15E-II-A: THE FADE-HALO DEFECT, AND THE SOFT KNEE THAT ANSWERS IT.**
+15d-ii's collapse (above) lost a property the three-pass overdraw used to give
+for free — an `alpha` fade kept the halo's relative weighting the whole way
+down, because every pass scaled together. Bloom's threshold does not have one
+to give: glow/core ratio is `1 - uThreshold/(alpha*c)`, which is EXACTLY ZERO
+the instant `alpha*c` crosses `uThreshold` (0.55) from above, so a
+full-saturation fragment loses its ENTIRE halo at 55% alpha and spends the
+rest of its fade as a bare stroke — on `drawWreck`'s shell (0.75s), the ratio
+is 0.45 at t=0, 0.21 at t=0.5 and exactly 0 by t=0.625, so the last ~38% of
+the shell's life is glow-free. Four options were weighed (soften the
+threshold's knee; lower `BLOOM_THRESHOLD`; fade by GEOMETRY instead of alpha,
+which is the real fix but is inherently per-effect; accept it) — the full
+argument, costs and the algebra live in `engine/neon.js`'s `neonStroke`
+header, next to the sentence 15d-ii's collapse orphaned. **A soft knee
+shipped**: `BRIGHT_FS`'s subtractive threshold (`gl/shaders.js`) gained
+`softKnee`, a quadratic ramp of width `BLOOM_KNEE` (0.08) that meets the old
+linear shape continuously in value and slope, entirely ABOVE `uThreshold`
+rather than straddling it — the self-test's `uThreshold >= 1.0` forces every
+tap to exactly 0 for ANY knee width (the proof only needs the floor to sit at
+`uThreshold`, never below it), and 15c-i's four-taps-before-the-average parity
+argument is untouched, since it only requires identical per-tap treatment, not
+any particular shape of it (re-verified: a saturated channel's four-tap value
+moved from 0.225 to 0.205, flat across both row parities either way). **This
+does not fix proportionality** — the ratio still reaches exactly zero at
+`alpha = uThreshold/c`, so a saturated fragment still goes fully bloomless at
+the same 55% alpha it always did. What it buys is narrower: the last sliver of
+glow above that line now fades IN gently instead of snapping to full linear
+contribution the moment it clears the line, so there is no visible "pop" at
+the edge of the halo, even though the edge itself has not moved. The real fix
+— proportional fade by geometry — is **15e-ii-b**'s job once this baseline is
+in (see the roadmap below). `BLOOM_EXPOSURE` moved 4.0 -> 4.4 alongside it,
+solved rather than eyeballed: the knee costs a flat `BLOOM_KNEE/2` (0.04) off
+every saturated channel's bright-pass contribution, and 4.4 is the exposure
+that restores the OLD peak composited halo intensity for a saturated thin line
+almost exactly (0.5934 old vs 0.5942 new, computed) — confirmed live against a
+busy gameplay scene, where buildings and barriers read the same thickness of
+halo as before the knee.
+
+**TWO BLOOMLESS GAPS CLOSED IN THE SAME PASS**, found by checking every
+palette entry's peak channel against 0.55: `game/exhaust.js`'s outer wisp
+(`WISP_ALPHA` 0.35 -> 0.65 — `PLAYER_THRUST`'s peak channel, R at 1.0, never
+composited past 0.35, so the plume's soft outer edge never bloomed at all;
+0.65 clears it with the same margin `SHIELD_ORB_ALPHA` was given, and goes
+briefly bloomless at the bottom of its own flicker the same way the shield
+ring does at the bottom of its breath) and `HAULER` (`#197c88`, peak channel
+0.5333, 0.0167 under 0.55 at this threshold) — re-examined and left alone:
+`bossshapes.js`'s `localGlow` exception exists because the CLAW LIFTER's hull
+colour is chosen NOT to clear bloom, on purpose, so it can close around the
+car it rescues without the two cyans merging (`hauler.js`'s own `render()`
+comment). Closing a 0.0167 gap would mean spending exactly the margin the
+colour was chosen for. `player.js`'s `SHIELD_ORB_ALPHA` comment — the one
+place in `src/game/` that still quoted bloom's OLD 0.75 threshold — is
+corrected to 0.55; the constant itself (0.85) is unchanged, since it already
+clears the new threshold with room to spare and nothing about this phase gives
+a reason to retune an already-shipped, already-verified look.
 
 ### Display scaling
 
@@ -1645,15 +1711,76 @@ is on hold is everything that wants a SERVER behind it.
         and a HUD readout. **Every beat that still describes something kept its
         name and its number** — the four that went are exactly the four whose
         effects were removed
-  - [ ] **15e-ii** — Hull-driven data corruption on the same axis: a damaged
-        car degrades the FEED rather than flashing a red vignette, writing the
+  - [x] **15e-ii-a** — DONE. **THIS RENAMES THE SLOT**: through 15e-i, "15e-ii"
+        meant hull-driven data corruption (still true of its own entry below,
+        renumbered **15e-iv** to make room) — this PR claims the `-a` under it
+        instead, because the defect it fixes sits directly under 15e-ii-b's
+        per-effect pass and had to be settled first or the baseline would move
+        under it. **THE DEFECT**: `neonStroke`'s `alpha` fade used to keep the
+        halo's relative weighting through the old three-pass overdraw; 15d-ii
+        collapsed that to one pass and bloom took the halo over, but never
+        re-established the property — `BRIGHT_FS`'s threshold means glow/core
+        ratio is `1 - uThreshold/(alpha*c)`, constant nowhere and EXACTLY ZERO
+        the instant `alpha*c` crosses `uThreshold`. A full-saturation fragment
+        (`drawWreck`'s shell, say) loses its ENTIRE halo at 55% alpha and
+        spends the rest of its fade as a bare line — worked through on
+        `drawWreck`: ratio 0.45 at t=0, 0.21 at t=0.5, exactly 0 by t=0.625,
+        the last ~38% of the shell's 0.75s life glow-free. **FOUR OPTIONS
+        WEIGHED** (soften the knee; lower `BLOOM_THRESHOLD`; fade by geometry
+        instead of alpha; accept it) — full argument and costs in
+        `engine/neon.js`'s `neonStroke` header, next to the sentence 15d-ii's
+        collapse orphaned. **A SOFT KNEE SHIPPED** (`gl/shaders.js`'s
+        `softKnee`, `BRIGHT_FS`): the subtractive threshold's corner at
+        `c == uThreshold` becomes a short quadratic ramp (`BLOOM_KNEE = 0.08`)
+        entirely ABOVE `uThreshold` rather than straddling it, so the
+        self-test's exact-zero proof (`uThreshold >= 1.0` forces every tap to
+        0, for ANY knee width) survives untouched, and 15c-i's parity argument
+        survives too — the per-tap value moved (0.225 -> 0.205 for a
+        saturated channel) but nothing about WHICH four texels are sampled or
+        WHEN they are averaged did. **DOES NOT FIX PROPORTIONALITY** — a
+        saturated fragment still goes fully bloomless at exactly 55% alpha;
+        what changed is that the last sliver of glow above that line now fades
+        IN gently instead of snapping to full linear contribution, so there is
+        no visible "pop" at the edge of the halo even though the edge itself
+        did not move. The real fix (fade by geometry) is **15e-ii-b**, below.
+        `BLOOM_EXPOSURE` moved 4.0 -> 4.4 alongside it, solved rather than
+        eyeballed, to buy back the knee's flat ~9% peak-brightness cost so
+        established halos (buildings, barriers) read the same thickness they
+        did through Phase 15c (`present.js`'s own header has the derivation).
+        Two other defects closed in the same pass, both bloom-per-channel
+        gaps found by computing every palette entry against 0.55:
+        `exhaust.js`'s outer wisp (`WISP_ALPHA` 0.35 -> 0.65, PLAYER_THRUST's
+        peak channel never used to clear 0.55 at all) and `HAULER`
+        (0.0167 under 0.55 — re-examined and left alone: `bossshapes.js`'s
+        `localGlow` exception exists because the hull's colour is chosen NOT
+        to bloom, on purpose, so it could clear the car it rescues — closing
+        that gap would mean spending the exact margin the colour was chosen
+        for). `player.js`'s `SHIELD_ORB_ALPHA` comment, the one place in
+        `src/game/` that quoted the OLD 0.75 threshold, corrected to 0.55.
+  - [ ] **15e-ii-b** — The per-effect pass 15e-ii-a's baseline exists to be
+        judged against: fade `drawWreck`, `drawMineBlast`, `drawFireballBurst`,
+        the obstacle wrecks, `drawCollectBurst`, the shield arc and the target
+        reticle by GEOMETRY (shrinking, thinning, travelling out of frame)
+        rather than by alpha alone, so a fragment stays above bloom's
+        threshold until it is gone instead of dimming through it. Option 3 in
+        `neonStroke`'s header has the argument; deferred here because changing
+        the baseline and the effects it will be judged against in one PR is
+        exactly what splitting 15d into two was for
+  - [ ] **15e-iii** — Map visuals: a later step than the effects/fade work
+        above, and an earlier one than hull-driven corruption below — not
+        further specified yet
+  - [ ] **15e-iv** — Hull-driven data corruption on the same axis (renamed
+        from **15e-ii**, which 15e-ii-a above now claims): a damaged car
+        degrades the FEED rather than flashing a red vignette, writing the
         same `corrupt`/`quant` fields 15e-i already carries, with `main.js`
         taking the larger of the two sources. No new channel needed — that is
-        what the field naming in *The present path* was for
-  - [ ] **15e-iii** — A background pass: something behind the world rather
+        what the field naming in *The present path* was for. Deliberately
+        LAST of the visual sub-phases: it runs over whatever the effects/fade
+        work and the map visuals above produce
+  - [ ] **15e-v** — A background pass: something behind the world rather
         than over it, which is the one shape the current chain has no slot for
         (every stage so far reads the finished frame)
-  - [ ] **15e-iv** — Reconsider `sectors.js`'s rescan glitch, the last
+  - [ ] **15e-vi** — Reconsider `sectors.js`'s rescan glitch, the last
         full-screen 2D tear left. Deliberately OUT of 15e-i's scope: a sector
         crossing reads as an event in the world, not a change in your
         connection, so it is not obvious it should share the feed pass's

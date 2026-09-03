@@ -1971,7 +1971,7 @@ function render(alpha) {
 //
 // EXACTLY ONE OF THE TWO CAN BE RUNNING, because "connecting" and "dying" are
 // different states (see `state` above), so there is no combining to do here —
-// the first one that reports work wins and the other is not asked. 15e-ii adds
+// the first one that reports work wins and the other is not asked. 15e-iv adds
 // a hull-driven source on the same fields, and THAT one does combine; when it
 // lands, this is where the max is taken.
 //

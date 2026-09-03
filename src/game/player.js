@@ -116,19 +116,29 @@ const SHIELD_ORB_WIDTH = 2.5; // stroke width — bloom supplies the spread now,
                                // this only has to be thick enough to bloom
 const SHIELD_PULSE_RATE = 4.2; // rad/sec — roughly a breath every 1.5s
 // PEAK ALPHA, AND WHY IT IS 0.85 NOT 0.3. Bloom (engine/present.js) thresholds
-// PER CHANNEL at 0.75 of an 8-bit channel — see BRIGHT_FS's `max(c -
-// uThreshold, 0.0)` — so a stroke's COMPOSITED brightness has to clear that on
-// at least one channel or it contributes nothing at all, gradient or no
-// gradient. glowOrb's old alpha of 0.3 was tuned for a HAND-DRAWN falloff that
-// never needed to cross any threshold; carried over unchanged when this became
-// a plain bloomed stroke, it measured as a ring with literally zero bloom —
-// `PLAYER` (#39f6ff) at alpha 0.3 composites to (0.07, 0.29, 0.30), nowhere
-// near 0.75 on any channel. 0.85 clears it on both G (0.82) and B (0.85), with
-// enough margin to survive rounding. The trade this makes ON PURPOSE: at the
-// bottom of the breath (0.5x this, still under 0.75) the ring goes briefly
-// bloomless rather than merely dimmer — the glow now pulses with the breath
-// instead of just the radius, which reads as MORE alive than the old orb did,
-// not less.
+// PER CHANNEL — see BRIGHT_FS's softKnee — so a stroke's COMPOSITED brightness
+// has to clear that on at least one channel or it contributes nothing at all,
+// gradient or no gradient. glowOrb's old alpha of 0.3 was tuned for a
+// HAND-DRAWN falloff that never needed to cross any threshold; carried over
+// unchanged when this became a plain bloomed stroke, it measured as a ring
+// with literally zero bloom — `PLAYER` (#39f6ff) at alpha 0.3 composites to
+// (0.07, 0.29, 0.30), nowhere near a threshold at either 0.75 (this ring's
+// original figure) or 0.55 (BLOOM_THRESHOLD, FINAL as of Phase 15c) on any
+// channel. 0.85 clears 0.55 on both G (0.82) and B (0.85), with far more
+// margin than it was chosen for — it was picked against the OLDER 0.75 figure
+// (0.82/0.85 cleared that by 0.07/0.10), and the threshold has since moved
+// down without this constant being revisited. RE-EXAMINED AT 0.55 (Phase
+// 15e-ii-a): the extra headroom (0.27/0.30 of margin now, versus the
+// 0.07/0.10 this was tuned for) means a noticeably lower alpha would still
+// clear — but 0.85 is also the shipped, already-verified-live look, and nothing
+// about the fade-halo defect this phase otherwise addresses (see neon.js's
+// neonStroke header) is about the SHIELD specifically, which is a steady-state
+// glow, not a fade. Left unchanged rather than re-tuned on spec; a future pass
+// with a reason to dim the ring can spend the new margin then. The trade this
+// makes ON PURPOSE: at the bottom of the breath (0.5x this = 0.425, still
+// under 0.55) the ring goes briefly bloomless rather than merely dimmer — the
+// glow now pulses with the breath instead of just the radius, which reads as
+// MORE alive than the old orb did, not less.
 const SHIELD_ORB_ALPHA = 0.85;
 // The last stretch of the window flickers toward SHIELD_FLICKER — the same
 // "about to lose it" tell CRITICAL_FLASH gives a dying car (traffic.js),

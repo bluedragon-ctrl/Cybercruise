@@ -50,9 +50,25 @@ const ROOT_FRAC = 0.42; // how much of the plume's length the root covers
 // ports the whole thing reads as a magenta slab with a chopped-off bottom
 // edge. The wisp has no core of its own to speak of (WISP_ALPHA is low), so
 // what it contributes is a gradient out to nothing.
+//
+// WISP_ALPHA IS PICKED TO CROSS BLOOM (Phase 15e-ii-a), which it never did
+// before. PLAYER_THRUST (#ff36c8) peaks on R at 1.0; against BLOOM_THRESHOLD's
+// 0.55, the old 0.35 composited to R 0.35 — no channel anywhere near the line,
+// so this whole layer contributed nothing to the halo and the plume's soft
+// outer edge was simply absent (only the tip, root and core, drawn at
+// `flicker`'s ~0.72-1.0, ever glowed). The draw is `flicker * WISP_ALPHA`, and
+// `flicker` (this file's own comment above) runs roughly 0.58-1.0, so the new
+// value is chosen the way SHIELD_ORB_ALPHA was (player.js): clear the peak
+// with margin, and accept the wisp going briefly bloomless at the bottom of
+// its own flicker rather than raising it enough to bloom at every point in the
+// cycle, which would stop reading as faint at all. At 0.65: peak flicker (1.0)
+// composites to R 0.65 (0.10 of margin over 0.55, matching SHIELD_ORB_ALPHA's
+// own margin); mean flicker (~0.86) to R ~0.56 (still just clearing); the
+// bottom of the flicker (~0.58) to R ~0.38 (bloomless, same trade the shield
+// ring makes at the bottom of its breath).
 const WISP_FRAC = 1.35;  // length as a multiple of the plume's own
 const WISP_WIDTH = 1.8;
-const WISP_ALPHA = 0.35;
+const WISP_ALPHA = 0.65;
 
 // The white-hot core: a stub of PLAYER cyan laid over the magenta root once the
 // car is genuinely fast, so the flame changes COLOUR near the top of the band
