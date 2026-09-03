@@ -42,7 +42,7 @@ import { CRITICAL_FLASH } from "../engine/palette.js";
 // Exported so game/events.js can scale it rather than keep a second figure —
 // see setDensity(). It remains the AMBIENT baseline: staged cars are counted
 // separately and are not bounded by it.
-export const MAX_CARS = 7;   // cars simulated at once
+export const MAX_CARS = 8;   // cars simulated at once
 const SPAWN_INTERVAL = 1.1;  // seconds between spawn attempts
 // Exported alongside RETIRE_MARGIN below because game/events.js stages cars at
 // the same two entry points the spawner uses — a gang has to arrive from off
@@ -84,7 +84,7 @@ export const STAGED_RETIRE_MARGIN = 620;
 // Exported for the same reason ACCEL below is: events.js sizes a staged rank as
 // this plus a hull length, and test/events.test.js asserts that relation rather
 // than restating the number in a second file.
-export const SPAWN_GAP = 150; // min world-units of CLEAR ROAD between the boxes of
+export const SPAWN_GAP = 110; // min world-units of CLEAR ROAD between the boxes of
                              // two cars in the same lane at spawn time, so traffic
                              // never pops in on top of itself. Measured between
                              // box edges, not centres: the rig is 124 units long,

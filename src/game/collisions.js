@@ -54,8 +54,13 @@ const RESTITUTION = 0.25;
 
 // Damage is linear in closing speed above a floor, so parking against a car
 // costs nothing and a full-speed ram is lethal. At equal mass, a 300 unit/sec
-// rear-end costs each car (300-40) * 0.15 = 39 hull.
-const DAMAGE_FLOOR = 40; // closing speed that does no harm at all
+// rear-end costs each car (300-25) * 0.15 = 41.25 hull.
+//
+// TUNED DOWN FROM 40 — still under playtesting, so treat this as a live knob
+// rather than a fixed constant. Dropping it moved the rig's own steerSpeed
+// (35, cartypes.js) from under the floor to over it, ending its free lane
+// changes; see the rig's own comment for the current numbers.
+const DAMAGE_FLOOR = 25; // closing speed that does no harm at all
 const IMPACT_DAMAGE = 0.15; // hull per unit of closing speed above the floor
 // Side-swipes hurt this much of a head-on for the same speed. Exported because
 // behaviours.js prices a lane change as a side-swipe — see impactCost.
@@ -343,8 +348,8 @@ export function ramSpeed(speed, moverMass, blockerMass) {
 // they are collision-solver tuning exactly like DAMAGE_FLOOR and PUSH_GAIN
 // above, just gated on a flag instead of always-on.
 //
-// ATTACK_FLOOR trades DAMAGE_FLOOR's 40 for 20 on the player's OWN hits (see
-// impactCost's `floor` param) — half the closing speed needed before contact
+// ATTACK_FLOOR trades DAMAGE_FLOOR's 25 for 20 on the player's OWN hits (see
+// impactCost's `floor` param) — a lower closing speed needed before contact
 // starts to hurt, so ordinary driving contact starts to cost something, not
 // just a full-speed charge lined up in advance.
 const RAM_MAXED_ATTACK_FLOOR = 20;

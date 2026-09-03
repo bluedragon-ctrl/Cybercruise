@@ -125,13 +125,13 @@ export const EVENT_TYPES = [
     // hull of drum at half a lane's width, still bargeable but no longer free.
     // One cheap piece of information, offered early enough to act on.
     //
-    // GATED 200 PAST THE BARREL'S OWN 800, not level with it. Both types are
-    // ambient furniture by 1000, so this introduces neither — it arranges two
+    // GATED 200 PAST THE BARREL'S OWN 1200, not level with it. Both types are
+    // ambient furniture by 1400, so this introduces neither — it arranges two
     // things the player already reads into a sentence.
     id: "roadworks",
     label: "ROAD CREW AHEAD — LANE CLOSED",
     weight: 2,
-    minDistance: 1000, // past the barrel's own gate — see above
+    minDistance: 1400, // past the barrel's own gate — see above
     maxDistance: Infinity,
     cooldown: 35,
     duration: 30,
@@ -167,9 +167,9 @@ export const EVENT_TYPES = [
     // the eye into the slot before it is close enough to read, which at 620
     // units a second is the difference between a corridor and an ambush.
     //
-    // GATED AT 2000, eight hundred past the tetra's own 1200: the block is
-    // thoroughly familiar as a single centre-line obstacle before it is reused
-    // as architecture, the move `minefield` makes with the caltrop.
+    // GATED AT 2000, past the tetra's own 1800: the block is thoroughly
+    // familiar as a single centre-line obstacle before it is reused as
+    // architecture, the move `minefield` makes with the caltrop.
     id: "chokepoint",
     label: "ROAD NARROWS — TANK TRAPS",
     weight: 1.2,
@@ -239,14 +239,14 @@ export const EVENT_TYPES = [
     // encounter that teaches what a tetra costs is the one that then asks the
     // player to thread four of them.
     //
-    // It also puts the weave against the siege battery's own 1200 rather than
-    // after it — the boss holds the director for its whole duration and this is
-    // rolled, so in practice the player meets the fight first and the chicane
-    // once the road is theirs again.
+    // It now lands well after the siege battery's own 1200 rather than
+    // against it — the boss holds the director for its whole duration and this
+    // is rolled, so in practice the player meets the fight first and the
+    // chicane once the road is theirs again either way.
     //
     // See src/testoptions.js's EVENT_GATE_OVERRIDES for pulling a rolled entry
     // forward by hand. The number here is the SHIPPING one and stays that way.
-    minDistance: 1200,
+    minDistance: 1800,
     maxDistance: Infinity,
     cooldown: 70,
     // The gates span 3 * 420 = 1260 units of road, and the encounter has to

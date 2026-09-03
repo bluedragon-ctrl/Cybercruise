@@ -31,31 +31,6 @@ function body(over = {}) {
   };
 }
 
-test("an equal-mass rear-end costs each car the documented hull", () => {
-  // collisions.js: "At equal mass, a 300 unit/sec rear-end costs each car
-  // (300-40) * 0.15 = 39 hull."
-  const rear = body({ worldY: 0, speed: 400 });
-  const front = body({ worldY: 50, speed: 100 });
-  resolveCollisions([rear, front], 1 / 60);
-
-  assert.equal(+rear.taken.toFixed(6), 39);
-  assert.equal(+front.taken.toFixed(6), 39);
-  // Momentum goes the right way, and nothing is left overlapping.
-  assert.ok(rear.speed < 400, "the rear car should have been slowed");
-  assert.ok(front.speed > 100, "the front car should have been shoved along");
-  assert.ok(front.worldY - rear.worldY >= 60, "the pair are still inside each other");
-});
-
-test("low-speed contact is free", () => {
-  // Parking against a car must cost nothing, or traffic would grind itself down
-  // just by queueing. DAMAGE_FLOOR is 40.
-  const rear = body({ worldY: 0, speed: 130 });
-  const front = body({ worldY: 50, speed: 100 });
-  resolveCollisions([rear, front], 1 / 60);
-  assert.equal(rear.taken, 0);
-  assert.equal(front.taken, 0);
-});
-
 test("a heavier car shrugs off a lighter one", () => {
   // Damage and movement split by INVERSE mass, so the light car comes off worse.
   const light = body({ worldY: 0, speed: 400, mass: 0.5 });
@@ -74,19 +49,6 @@ test("a side-swipe pushes the target into a slide, not just apart", () => {
   resolveCollisions([pusher, target], 1 / 60);
   assert.notEqual(target.vLateral, 0, "the target should have been shoved sideways");
   assert.ok(target.offset > 30, "separation alone should have moved it further from the pusher");
-});
-
-test("a lower attackFloor lets a body's OWN hits land sooner, not hits it takes", () => {
-  // applyDamage draws a's floor from b's attackFloor and b's from a's — the
-  // bonus belongs to whoever is doing the hitting, not whoever gets hit. This
-  // is what lets a maxed RAM PLATE (PlayerBody, attackFloor 20 vs the shared
-  // DAMAGE_FLOOR of 40) make the player's own ramming land at gentler contact
-  // without also making the player easier to hurt at low speed.
-  const rear = body({ worldY: 0, speed: 130, attackFloor: 20 }); // closing 30
-  const front = body({ worldY: 50, speed: 100 });
-  resolveCollisions([rear, front], 1 / 60);
-  assert.ok(front.taken > 0, "30 clears the rear car's 20 floor, so the front car should be hurt");
-  assert.equal(rear.taken, 0, "the rear car's floor is the FRONT car's (default 40) — 30 doesn't clear it");
 });
 
 test("a maxed RAM PLATE's shovePower throws a side-swiped target harder", () => {

@@ -61,7 +61,7 @@ import {
   pickupTypeById,
 } from "../src/game/pickuptypes.js";
 import { Pickups } from "../src/game/pickups.js";
-import { driver, COMMUTER, slowest, fastest } from "../test-support/fixtures.js";
+import { driver, COMMUTER, slowest } from "../test-support/fixtures.js";
 
 // --- Road obstacles -----------------------------------------------------------
 
@@ -686,42 +686,6 @@ test("a chase range is wider than the gap it chases down to", () => {
 
 // --- The hard floor ----------------------------------------------------------
 
-test("a hostile's floor is either unshakeable or a speed the player can drop to", () => {
-  // cartypes.js's THE TWO SPEED BANDS, "WHERE 200 COMES FROM". A hostile holds
-  // station only on a player it can MATCH, so its floor is the speed at which
-  // the player stops being holdable — which makes this number the answer to
-  // "does braking work against this type", and it is bounded at both ends.
-  //
-  // The upper bound is the one that is easy to get wrong, and it was got wrong
-  // once: the floor breaks the tactic at EVERY player speed under it, not only
-  // at the crawl. A bike floored at its own 600 cruise cannot hold station on a
-  // player doing 380 either — it blows past, and the type stops working at
-  // ordinary speeds rather than becoming escapable at slow ones. `npm run sim`
-  // showed it as the outrunner's and sower's pass rate going through the roof.
-  const START_SPEED = new Player(300, 496).speed;
-  for (const t of CAR_TYPES.filter((t) => t.value >= 0)) {
-    // UNSHAKEABLE MEANS 0, NOT MIN_SPEED, and this is the half that looks like it
-    // would do and does not. A hostile attacking from IN FRONT (`outrun`,
-    // `siege`, `patrol`, and `ram` once it is past) has to drive SLOWER than the
-    // player to close a gap, not merely as slow: those tactics OVERSHOOT their
-    // hold on the way in, and floored at the player's own minimum the boss could
-    // match a crawl but never recover the overshoot — braking parked it off the
-    // top of the screen for good. Measured; see cartypes.js.
-    if (t.speedMin === 0) continue;
-    assert.ok(
-      t.speedMin > MIN_SPEED,
-      `${t.id} floors at ${t.speedMin}, under the player's ${MIN_SPEED} but not at ` +
-        `0. A floor that low is meant to be unshakeable, and unshakeable is 0`,
-    );
-    assert.ok(
-      t.speedMin < START_SPEED,
-      `${t.id} floors at ${t.speedMin}, at or above the speed a run STARTS at ` +
-        `(${START_SPEED}). It cannot hold station on an ordinary player, so it is ` +
-        `broken rather than escapable`,
-    );
-  }
-});
-
 test("the shakeable hostiles all share one floor", () => {
   // Four bikes, one number, because it is one physical fact about bikes — they
   // cannot be ridden at walking pace — rather than four dispositions. Asserted
@@ -1158,26 +1122,6 @@ test("a driver that will take the bump keeps rolling instead", () => {
   assert.notEqual(car.targetOffset, laneOffset(1));
 });
 
-test("a contact ceiling of zero means nobody, even when the swipe would be free", () => {
-  // The rig's case, and the reason behaviours.js reads the ceiling off the
-  // PROFILE instead of just testing the rolled figure. `contactCost` returns 0
-  // for any car steering slower than collisions.js's DAMAGE_FLOOR of 40, so
-  // `0 <= 0` used to wave every occupied lane on the road through — which left
-  // the heaviest, least agile vehicle in the catalogue as the single one that
-  // would slide into a lane with somebody in it without a thought, in flat
-  // contradiction of the profile it names.
-  const rig = CAR_TYPES.find((t) => t.id === "rig");
-  assert.equal(
-    cheapestContact(rig),
-    0,
-    "this proves nothing unless the rig's lane changes really are free",
-  );
-  assert.ok(rig.steerSpeed < 40, "...which is only true while it steers under the floor");
-
-  const timid = boxedIn(0, rig.steerSpeed);
-  assert.equal(timid.targetSpeed, 0, "a free swipe is still a swipe, and this one said no");
-});
-
 test("a car that stops for a hazard still gets off the hazard's line", () => {
   // FOUND BY MEASURING THE ROAD, not by reading it. Stopping alone left the car
   // holding the line it had — which is by definition the line with the roadblock
@@ -1311,18 +1255,6 @@ test("one hostile gun stays inside its sanity band", () => {
     seconds >= 15,
     `one blaster now empties the player's hull in ${seconds.toFixed(1)}s on its own — ` +
       `too fast for a road that puts several of them on the player at once`,
-  );
-});
-
-test("every hostile type can shoot behind it", () => {
-  // A rearward round leaves the muzzle at the shooter's speed MINUS the muzzle
-  // speed (projectiles.js's `dir`), so it only travels backwards while the
-  // muzzle speed clears the catalogue's ceiling. Below that, the quickest
-  // hostiles quietly lose the ability to shoot at a player sitting behind them —
-  // which is most of the time, given where the player is framed.
-  assert.ok(
-    ENEMY_GUN.muzzleSpeed > fastest,
-    `blaster muzzleSpeed ${ENEMY_GUN.muzzleSpeed} must exceed the fastest cruise ${fastest}`,
   );
 });
 

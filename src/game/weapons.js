@@ -508,13 +508,15 @@ export const ENEMY_WEAPON_TYPES = [
     // band, not as the design target.
     damage: 5,
     interval: 1.5,
-    // FASTER THAN ANYTHING ON THE ROAD CAN DRIVE (the cycle tops out at 730 —
-    // cartypes.js). A bullet's absolute speed is the shooter's plus this, or
-    // MINUS this when it is fired rearward at a player sitting behind
-    // (projectiles.js's `dir`), and a rearward shot only travels backwards while
-    // this exceeds the shooter's own speed. Drop it below the catalogue's
-    // ceiling and the quickest hostiles quietly stop being able to shoot behind
-    // them at all. Asserted in test/combat.test.js.
+    // FASTER THAN ANYTHING ON THE ROAD CAN DRIVE, WITH ONE DELIBERATE
+    // EXCEPTION (the cycle tops out at 730 — cartypes.js). A bullet's
+    // absolute speed is the shooter's plus this, or MINUS this when it is
+    // fired rearward at a player sitting behind (projectiles.js's `dir`), and
+    // a rearward shot only travels backwards while this exceeds the
+    // shooter's own speed. THE OUTRIDER (800, cartypes.js) clears it and so
+    // cannot be shot in the back — see its own entry for why that's the
+    // design, not a gap: it sweeps past rather than chasing, so the player's
+    // window is alongside or ahead, same as any other pass.
     muzzleSpeed: 760,
     // TRACKING, unlike the player's default gun. Two reasons, both about the
     // player rather than about the enemy: a hostile round that drifted into the
@@ -549,9 +551,8 @@ export const ENEMY_WEAPON_TYPES = [
     interval: 1.3,       // rest between bursts
     burstCount: 5,        // rounds per burst
     burstInterval: 0.09,  // seconds between rounds within a burst
-    // SAME CEILING AS THE BLASTER, for the same reason — see its own note:
-    // has to clear the fastest cruise on the road (the cycle's 730) or the
-    // quickest hostiles lose the ability to fire behind them.
+    // SAME CEILING AS THE BLASTER, for the same reason — see its own note,
+    // outrider included.
     muzzleSpeed: 760,
     // STRAIGHT, not tracking, like the player's own default gun — the
     // stocker aims exactly where it's pointed rather than curving its rounds
