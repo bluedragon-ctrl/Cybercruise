@@ -715,16 +715,16 @@ export const CAR_SHAPES = [
   },
 
   // =========================================================================
-  // THE MOTORCYCLE FLEET — three hulls moved across from cycleshapes.js in one
-  // piece, unedited, on the day cartypes.js gave each of them a record (the
-  // outrider, the outrunner and the sower). That file's header describes the
-  // grammar they are written in and why a bike's profile stops well short of
-  // +/-1.0 with its wheels parked outside it; the only thing that changed here
-  // is which array they live in.
+  // THE MOTORCYCLE FLEET — four hulls moved across from cycleshapes.js in one
+  // piece, unedited, each on the day cartypes.js gave it a record (the
+  // outrider, the outrunner, the sower, and — separately, later — the delta).
+  // That file's header describes the grammar they are written in and why a
+  // bike's profile stops well short of +/-1.0 with its wheels parked outside
+  // it; the only thing that changed here is which array they live in.
   //
   // `family` and `pitch` came with them. Nothing in this catalogue reads
   // either — they are the staging catalogue's own fields — and they are kept
-  // rather than stripped so a hull that goes back, or a fourth that comes
+  // rather than stripped so a hull that goes back, or a fifth that comes
   // across, is a move and not a rewrite.
   // =========================================================================
 
@@ -828,6 +828,42 @@ export const CAR_SHAPES = [
       line(-1.10, -0.54, -1.10, -0.36, c, 1.5, 7);
       line(1.10, -0.54, 1.10, -0.36, c, 1.5, 7);
       line(-0.62, 0.59, 0.62, 0.59, c);
+    },
+  },
+
+  // THE LAST OF THE FOUR TO GRADUATE, and cycleshapes.js's TRICYCLE section is
+  // empty behind it now — see that file's own header. GLIDE's twin axle sits
+  // over the REAR pair; this is the other half of the contrast the staging
+  // catalogue built the two against, its odd wheel solo and the twin axle
+  // OUTBOARD at the front instead.
+  {
+    family: "TRICYCLE",
+    name: "DELTA",
+    pitch: "widest at the NOSE — the one hull that tapers backwards",
+    size: [36, 62],
+    profile: [
+      [0, -0.70], [0.30, -0.64], [0.62, -0.48], [0.72, -0.22],
+      [0.56, 0.04], [0.38, 0.26], [0.22, 0.42], [0, 0.46],
+    ],
+    // Fronts stand outboard of a wide shoulder AND reach past the nose; the
+    // rear is solo and almost entirely behind the body.
+    wheels: [[-0.50, 5, 10, 10], [0.68, 6, 10, 0, true]],
+    exhaust: [0.18, 0.34, 0.54],
+    overhang: { x: 1.24 },
+    flat({ line }, c, thrust, headlight) {
+      line(-0.56, -0.52, -0.26, -0.52, headlight, 1.5, 8);
+      line(0.26, -0.52, 0.56, -0.52, headlight, 1.5, 8);
+      line(0, -0.64, 0, -0.16, c);
+      line(-0.14, 0.44, -0.09, 0.72, c); // swingarm out to the rear tyre
+      line(0.14, 0.44, 0.09, 0.72, c);
+    },
+    raised({ solid }, c) {
+      // Aero shrouds INBOARD of the front tyres — they sit between wheel and
+      // cockpit, so neither tyre is covered.
+      solid([[-0.54, -0.56], [-0.28, -0.46], [-0.30, -0.16], [-0.58, -0.26]], c);
+      solid([[0.54, -0.56], [0.28, -0.46], [0.30, -0.16], [0.58, -0.26]], c);
+      solid([[0, -0.30], [0.26, -0.10], [0.22, 0.18], [0, 0.28], [-0.22, 0.18], [-0.26, -0.10]], c);
+      solid([[0.14, 0.28], [0.30, 0.36], [0.24, 0.50], [-0.24, 0.50], [-0.30, 0.36], [-0.14, 0.28]], c, CAR_FILL_HIGH);
     },
   },
 

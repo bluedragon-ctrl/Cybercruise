@@ -701,12 +701,18 @@ newGame();
 // which is what keeps traffic.js from ever knowing what a point is.
 
 // A round leaves `car`'s muzzle: its nose when firing up the road, its tail when
-// firing back down it at a player who is behind.
-function fireShot(car, type, dir) {
-  enemyShots.spawn(car.worldY + dir * (car.h / 2), car.offset, car.speed, type, W, dir);
+// firing back down it at a player who is behind. `dx` is a lateral offset from
+// the car's own centreline — 0 for an ordinary gun, one call each at +/-half a
+// spread for a paired one (armament.js's shoot(), weapons.js's muzzleOffsets).
+function fireShot(car, type, dir, dx = 0) {
+  enemyShots.spawn(car.worldY + dir * (car.h / 2), car.offset + dx, car.speed, type, W, dir);
   // Every hostile gun collapses onto one sound id — see audio/weaponsfx.js's
   // ENEMY_FIRE_SOUND for why (timbre tells player fire from enemy fire; it
-  // doesn't need to tell one hostile gun from another).
+  // doesn't need to tell one hostile gun from another). Called once PER ROUND,
+  // same as the player's own single fireShot-equivalent call site — but a
+  // paired shot's two calls land in the same tick, and soundtypes.js's own
+  // minInterval on "fire_enemy" (0.03s) is what collapses them to one report,
+  // not a check here. See that entry's own comment.
   music.play(ENEMY_FIRE_SOUND[type.id]);
 }
 

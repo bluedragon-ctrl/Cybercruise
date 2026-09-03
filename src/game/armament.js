@@ -38,13 +38,14 @@
 // projectile pool (the tests, the gallery) leaves them off and armed cars go
 // through the motions without firing.
 
-import { Weapon, ENEMY_WEAPON_TYPES } from "./weapons.js";
+import { Weapon, ENEMY_WEAPON_TYPES, muzzleOffsets } from "./weapons.js";
 import { ENEMY_FACTION } from "./cartypes.js";
 import { obstacleTypeById } from "./obstacletypes.js";
 
 const ENEMY_GUN = ENEMY_WEAPON_TYPES[0];
 const ENEMY_SMG = ENEMY_WEAPON_TYPES[1];
 const ENEMY_MISSILE = ENEMY_WEAPON_TYPES[2];
+const ENEMY_TWIN_MISSILE = ENEMY_WEAPON_TYPES[3];
 
 // The mine layer, expressed as a WEAPON — because from the carrier's point of
 // view that is exactly what it is: a rate of fire and a magazine. `Weapon`
@@ -125,6 +126,15 @@ const GUNNER = { gun: ENEMY_SMG, layer: null };
 // that keeps building rather than chip damage. Gun only, for the same reason
 // as the stocker's: `pursue` holds station behind the player too.
 const ROCKETEER = { gun: ENEMY_MISSILE, layer: null };
+
+// The delta's kit: the SAME missile, fired in a pair every reload — see
+// weapons.js's `twinMissile` for why this is a distinct weapon type rather
+// than a flag on the interceptor's own `ENEMY_MISSILE` (that object is shared
+// by reference with ROCKETEER above, and mutating it would pair the
+// interceptor and the gunship too). Gun only, for the same reason as
+// ROCKETEER: `pursue` holds station behind the player for the whole
+// engagement.
+const TWIN_ROCKETEER = { gun: ENEMY_TWIN_MISSILE, layer: null };
 
 // The outrunner's kit (cartypes.js), and the first profile chosen for what a
 // gun can do BACKWARDS. Its tactic (behaviours.js's `outrun`) holds station
@@ -233,6 +243,7 @@ const ARMAMENTS = {
   raider: RAIDER,
   gunner: GUNNER,
   rocketeer: ROCKETEER,
+  twinRocketeer: TWIN_ROCKETEER,
   rearguard: REARGUARD,
   spiker: SPIKER,
   battery: BATTERY_KIT,
@@ -482,7 +493,13 @@ function shoot(car, arms, target, world) {
   if (dir * (bulletSpeed - target.speed) < GUN_CLOSING) return false;
 
   if (!arms.gun.tryFire()) return false;
-  world.fireShot(car, type, dir);
+  // ONE tryFire, ONE OR MORE ROUNDS — the same trick main.js's own fire branch
+  // uses for the player's TWIN CANNON/TWIN RACK (weapons.js's muzzleOffsets):
+  // a stock gun gets back a single [0] and this loop costs one call; the
+  // delta's `twinRocketeer` gets a symmetric pair back and both rounds share
+  // the one cooldown the tryFire above already spent — that IS the kit, not a
+  // second cost on top of it.
+  for (const dx of muzzleOffsets(type)) world.fireShot(car, type, dir, dx);
   return true;
 }
 

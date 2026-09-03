@@ -164,7 +164,7 @@
 //
 // SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) is a cache
 // key in sprites.js, times WHEEL_FRAMES (8), plus one colour for the
-// critical-hull blink: 17 types * 8 * 2 = 272 sprites at worst, built lazily. A
+// critical-hull blink: 18 types * 8 * 2 = 288 sprites at worst, built lazily. A
 // `staged` type costs what any other does — the cache is keyed on artwork, and
 // the gunship's is built the first time its encounter rolls.
 // Keeping the catalogue a small FIXED list is what bounds this: vary cars by
@@ -710,6 +710,73 @@ export const CAR_TYPES = [
     arms: "rocketeer",
     driving: "pursuer", // nerve 12: through a trestle a third of the time
     weight: 2, // the standard hostile: whatever else is out, one of these is too
+  },
+  {
+    // THE INTERCEPTOR'S GLASS-CANNON COUSIN. Same shape of threat — `pursue`,
+    // never gives up — with the two numbers that describe it both pushed
+    // further: nimbler, and carrying a heavier trigger pull. What pays for
+    // both is hull: DELTA dies in about two thirds of an interceptor's hits,
+    // which is the whole trade — kill it fast and the extra output never
+    // lands, let it linger and it hits twice as hard for it.
+    id: "delta",
+    label: "DELTA",
+    shape: carShapeIndex("DELTA"),
+    faction: ENEMY_FACTION,
+    w: 36,
+    h: 62,
+    // BELOW THE INTERCEPTOR'S 70, NOT AT THE CYCLE'S 25 — a trike hull, not a
+    // bike one, and still a heavy in everything but hull. FIRST PASS, same
+    // caveat as the interceptor's own numbers: retune once `pursue` carrying
+    // this kit has been measured over real road time (tools/drivesim.js).
+    health: 45,
+    mass: 1.0,
+    // SAME FLOOR AS THE INTERCEPTOR (100, not the bike floor 200) — see that
+    // entry's own note on why 100 exactly is what keeps a type out of
+    // hazards.test.js's "shakeable hostiles share one floor" invariant.
+    speedMin: 100,
+    // EVERY ONE OF THESE ABOVE THE INTERCEPTOR'S OWN — cruiseMin/cruiseMax/
+    // speedMax all +20, steerSpeed +20 — which is the whole of "higher
+    // mobility" spelled out in the one place a car's mobility actually lives
+    // (per-type fields, not the shared `pursuer` driving profile below; see
+    // driving.js's own header on why a profile is a disposition, not a speed).
+    cruiseMin: 420,
+    cruiseMax: 640,
+    speedMax: 670,
+    steerSpeed: 270,
+    // SAME AS THE INTERCEPTOR'S OWN DEATH BLAST — the lower hull above already
+    // makes this car easier to kill; there is no reason to also make dying
+    // less dangerous to whatever is standing next to it when it goes.
+    blastRadius: 38,
+    blastDamage: 16,
+    value: 100,
+    // ABOVE THE INTERCEPTOR'S 25 — the extra output is worth more dead, same
+    // logic as the gunship/rival sitting above the standard hostile tier.
+    bounty: 30,
+    minDistance: 1500,
+    behaviour: "pursue", // real: chases the player down and never gives up —
+                         // see behaviours.js's `pursue`. Identical to the
+                         // interceptor's own; nothing about the TACTIC needed
+                         // to change for this car to read as meaningfully
+                         // different, only the kit underneath it
+    // TWO ROCKETS A RELOAD INSTEAD OF ONE — see armament.js's `twinRocketeer`
+    // profile and weapons.js's `twinMissile`. Same per-round weight as the
+    // interceptor's own missile, paired rather than weakened (that entry's
+    // own note explains why); no mine layer, for the identical reason the
+    // interceptor carries none — `pursue` holds station behind its whole
+    // engagement.
+    arms: "twinRocketeer",
+    // REUSES THE INTERCEPTOR'S OWN PROFILE rather than earning a new one:
+    // `pursuer` is a DISPOSITION (nerve, contact — driving.js) and nothing
+    // about this car's disposition differs, only its raw numbers above. Today
+    // interceptor is the only other type naming it, so this is safe without
+    // checking every caller — but a future retune of `pursuer` itself moves
+    // both cars at once (CLAUDE.md's own rule on shared driving profiles).
+    driving: "pursuer",
+    // LIGHTER THAN THE INTERCEPTOR'S 2 — a first pass at rationing a car with
+    // meaningfully higher output than the standard hostile tier, mirroring
+    // the sower's own "uncommon: three at once would be weather" reasoning.
+    // Retune with tools/drivesim.js once this has road time behind it.
+    weight: 1.5,
   },
   {
     id: "stocker",

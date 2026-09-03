@@ -628,6 +628,45 @@ export const ENEMY_WEAPON_TYPES = [
     render: "dart",
     impact: "fireball",
   },
+  {
+    id: "twinMissile",
+    label: "TWIN MISSILE",
+    // The delta's gun (armament.js's `twinRocketeer` profile) — the SAME round
+    // as MISSILE above, fired in a pair every reload rather than one at a
+    // time. A SEPARATE entry rather than `twin: true` bolted onto `missile`
+    // itself, because that field is shared BY REFERENCE with the interceptor
+    // and the gunship (both name `rocketeer`, armament.js's `ROCKETEER`) —
+    // pairing it there would quietly double their fire too.
+    //
+    // SAME PER-ROUND WEIGHT, NOT A WEAKER ROUND SPLIT IN TWO — the same
+    // reasoning as the player's own TWIN RACK (see `rocket` above's `twin`
+    // note): a pairing that halved the damage to keep the total the same
+    // would sell nothing, it would just be one missile with a wider hitbox.
+    // The delta's own `cartypes.js` entry pays for this in hull instead —
+    // lower than the interceptor's, so the extra output comes with the car
+    // being faster to kill, not with each round pulling its punch.
+    damage: 24,
+    interval: 4,
+    muzzleSpeed: 680,
+    flight: FLIGHT_TRACKING,
+    ammo: Infinity,
+    color: ENEMY,
+    glow: ENEMY_THRUST,
+    length: 15,
+    width: 5,
+    render: "dart",
+    impact: "fireball",
+    // UNCONDITIONAL — see muzzleOffsets' own header for why `true` (rather
+    // than a string naming a shop special) is what makes an enemy weapon
+    // always fire paired.
+    twin: true,
+    // NARROWER THAN THE PLAYER'S OWN 34: these hold their lane rather than
+    // hunting (TRACKING, not SEEKING — see the FLIGHT_* constants above), so
+    // there is no "two seekers splitting a pack" to buy room for, only "read
+    // as two rounds, not one fat one" — the same floor the cannon's 20 sets
+    // for a lighter pair. Comfortably under a lane (65px, road.js) either way.
+    twinSpread: 26,
+  },
 ];
 
 // --- What the shop's SPECIALS do to a trigger pull ---------------------------
@@ -644,8 +683,16 @@ export const ENEMY_WEAPON_TYPES = [
 // accidentally pair the rocket, and neither function needs to know a weapon id.
 
 // The lateral offsets, relative to the muzzle, this trigger pull puts a round
-// at: one dead centre ordinarily, a symmetric PAIR when the weapon names a
-// `twin` special and the player owns it.
+// at: one dead centre ordinarily, a symmetric PAIR when the weapon fires two.
+//
+// `type.twin` is TWO DIFFERENT THINGS depending on its type, and both read
+// through this one function so armament.js's `shoot()` never has to know
+// which: a STRING names a shop SPECIAL (upgrades.js) and the pair is gated on
+// the player owning it (`specials[type.twin]`) — the player's TWIN CANNON and
+// TWIN RACK. `true` is unconditional — a fixed part of the kit, nothing to
+// buy — which is how an enemy weapon pairs (armament.js's `twinRocketeer`):
+// there is no player-specials block to gate an enemy round against, and there
+// should not be one, since a hostile's loadout is not a purchase.
 //
 // Returns a SHARED, FROZEN array rather than building one — the trigger is
 // pulled several times a second forever, and projectiles.js's own "NO
@@ -655,7 +702,8 @@ const SINGLE_MUZZLE = Object.freeze([0]);
 const twinMuzzles = new Map(); // spread -> frozen [-spread/2, +spread/2]
 
 export function muzzleOffsets(type, specials = null) {
-  if (!type.twin || !specials || !specials[type.twin]) return SINGLE_MUZZLE;
+  if (!type.twin) return SINGLE_MUZZLE;
+  if (typeof type.twin === "string" && !specials?.[type.twin]) return SINGLE_MUZZLE;
   const spread = type.twinSpread ?? 20;
   let pair = twinMuzzles.get(spread);
   if (!pair) {

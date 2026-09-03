@@ -24,8 +24,14 @@
 // THE TWO EXCEPTIONS — the only things a behaviour may DO rather than intend —
 // are the world's own hooks, because putting a bullet or a mine into the world
 // is not something the car's own physics can integrate later:
-//     world.fireShot(car, weaponType, dir)  a round leaves the muzzle, +1 up the
-//                                           road or -1 back down it
+//     world.fireShot(car, weaponType, dir, dx)  a round leaves the muzzle, +1
+//                                           up the road or -1 back down it;
+//                                           dx (optional, 0 by default) is a
+//                                           lateral offset — armament.js's
+//                                           shoot() calls this once per
+//                                           muzzleOffsets() entry, so a paired
+//                                           weapon (weapons.js's `twin`) is
+//                                           two calls, not a second hook
 //     world.dropMine(car, obstacleType)     a mine is laid behind the car;
 //                                           returns whether there was room
 // Both are wired up in main.js and are OPTIONAL: they keep this file and

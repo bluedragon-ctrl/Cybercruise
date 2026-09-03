@@ -37,4 +37,5 @@ export const ENEMY_FIRE_SOUND = {
   blaster: "fire_enemy",
   smg: "fire_enemy",
   missile: "fire_enemy",
+  twinMissile: "fire_enemy",
 };

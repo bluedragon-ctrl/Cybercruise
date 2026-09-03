@@ -34,7 +34,7 @@ import {
 } from "../src/game/road.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import { resolveCollisions, impactCost, ramSpeed, SIDE_DAMAGE } from "../src/game/collisions.js";
-import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES, laidPayloads } from "../src/game/weapons.js";
+import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES, laidPayloads, muzzleOffsets } from "../src/game/weapons.js";
 import {
   OBSTACLE_TYPES,
   obstacleTypeById,
@@ -1473,6 +1473,40 @@ test("a hostile shoots at a player in front of it, up the road", () => {
   // `rocketeer`), not the shared blaster, so this checks the round matches
   // the car's own kit rather than assuming which kit that is.
   assert.equal(fired[0].type, car.arms.gun.type);
+});
+
+test("an enemy weapon's boolean twin pairs unconditionally, with no specials block needed at all", () => {
+  // The other half of weapons.js's muzzleOffsets: `type.twin === true` (an
+  // enemy kit) rather than a string (a shop special the player must own —
+  // see specials.test.js for that half). No `specials` argument passed at
+  // all, which a hostile car never has one of.
+  const twinMissile = ENEMY_WEAPON_TYPES.find((t) => t.id === "twinMissile");
+  const missile = ENEMY_WEAPON_TYPES.find((t) => t.id === "missile");
+  assert.equal(twinMissile.twin, true, "twinMissile should be an unconditional pair, not a special-gated one");
+  const pair = muzzleOffsets(twinMissile);
+  assert.equal(pair.length, 2, "twinMissile did not pair with no specials block at all");
+  assert.equal(pair[0] + pair[1], 0, "twinMissile's pair is off-centre");
+  assert.equal(pair[1] - pair[0], twinMissile.twinSpread, "twinMissile ignores its own spread");
+  // AND THE ORDINARY MISSILE MUST NOT HAVE MOVED — this is the whole reason
+  // twinMissile is a separate catalogue entry rather than a flag bolted onto
+  // the interceptor's own shared ENEMY_MISSILE object (armament.js's
+  // ROCKETEER and gunship both point at it).
+  assert.equal(missile.twin, undefined, "the shared interceptor/gunship missile must not have paired");
+  assert.deepEqual(muzzleOffsets(missile), [0]);
+});
+
+test("the delta fires two rockets from one reload, unconditionally — no player specials block to gate it", () => {
+  // muzzleOffsets' own boolean-`twin` branch, exercised through a real car and
+  // a real tactic rather than called directly — see weapons.js's own unit
+  // test below for the offsets themselves. This is the wiring: armament.js's
+  // shoot() must actually loop over them.
+  const delta = CAR_TYPES.find((t) => t.id === "delta");
+  const { car, fired } = hostileScenario({ type: delta, arms: armFor(delta) });
+  assert.equal(fired.length, 2, "the delta's twinRocketeer kit should fire a pair per reload");
+  for (const shot of fired) {
+    assert.equal(shot.dir, 1, "a player ahead must be shot at up the road");
+    assert.equal(shot.type, car.arms.gun.type, "both rounds must be the delta's own twinMissile");
+  }
 });
 
 test("a hostile ahead of the player shoots back down the road", () => {
