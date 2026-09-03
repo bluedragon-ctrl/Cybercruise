@@ -43,9 +43,20 @@ const MAX_NAME_LEN = 3;
 const NAME_CHARS = /[^A-Z0-9 ]/g;
 // Not derived from cartypes.js/score.js's tuning — this is a garbage filter,
 // not a balance number, and tying it to the catalogues would make a tuning
-// pass silently change what the leaderboard accepts. Comfortably above
-// anything a real run can reach today; revisit only if that stops being true.
+// pass silently change what the leaderboard accepts. Comfortably past
+// anything a real run can reach today in either direction; revisit only if
+// that stops being true.
+//
+// MIN_SCORE IS NEGATIVE, deliberately: src/game/score.js's own header says
+// the total is NOT clamped at zero — a run that massacres civilians early can
+// sit in the red until the distance term digs it back out — so a leaderboard
+// that only accepted non-negative scores would reject a run the game itself
+// considers a valid, if bad, result. (Caught by a submission from a real
+// negative-scoring run getting silently 400'd — src/game/leaderboard.js's
+// submit() only surfaces network failures, not rejected ones, so this needs
+// to actually accept what the client can legitimately send.)
 const MAX_SCORE = 10_000_000;
+const MIN_SCORE = -10_000_000;
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -85,7 +96,7 @@ function sanitize(body) {
   const name = body.name.toUpperCase().replace(NAME_CHARS, "").slice(0, MAX_NAME_LEN);
   if (name.length === 0) return null;
   const score = Math.floor(Number(body.score));
-  if (!Number.isFinite(score) || score < 0 || score > MAX_SCORE) return null;
+  if (!Number.isFinite(score) || score < MIN_SCORE || score > MAX_SCORE) return null;
   return { name, score };
 }
 
