@@ -64,23 +64,37 @@
 //                         would not give. HOW FAST A TYPE CHASES IS THIS
 //                         NUMBER — there is nowhere else to look, which is the
 //                         point of it living here. Opening the gap also
-//                         un-clips `passEffort` for that type alone.
+//                         un-clips `passEffort` for that type alone. THE
+//                         OUTRIDER now opens it too (see its own entry), past
+//                         the two numbers ("fastest thing on the road") that
+//                         used to size themselves off whichever type had the
+//                         widest open gap — deliberately: it is low health,
+//                         low damage, and SWEEPS PAST rather than chasing, so
+//                         being unshootable from behind while it does costs
+//                         nothing the player needed.
 //
 // WHAT THE FLOOR BUYS, and it is ONE design decision with one number behind it.
 // A hostile holds station only on a player it can MATCH, so its floor is the
 // speed at which the player stops being holdable — which makes this field the
 // answer to "does braking work against this type".
 //
-//   floor 200   cycle, outrider, outrunner, sower — the motorcycle fleet, and
-//               the ONLY types with a floor at all. One number for all four,
-//               because it is one physical fact about bikes rather than four
-//               dispositions: A BIKE CANNOT BE RIDDEN AT WALKING PACE. Drop
-//               under 200 and none of them can hold station on you.
+//   floor 200   cycle, outrider, outrunner, sower — the motorcycle fleet. One
+//               number for all four, because it is one physical fact about
+//               bikes rather than four dispositions: A BIKE CANNOT BE RIDDEN
+//               AT WALKING PACE. Drop under 200 and none of them can hold
+//               station on you.
+//   floor 100   the interceptor, EXPERIMENTALLY, as of this tuning pass —
+//               see its own entry. Sits exactly on the player's own MIN_SPEED
+//               rather than clear of it, which the invariant the rest of this
+//               table used to enforce (hazards.test.js) would have flagged as
+//               a dead value: neither an escape (0) nor cleanly holdable-past
+//               (>100). Left as a live question for playtesting rather than
+//               forced back to one answer or the other.
 //   floor 0     EVERYTHING ELSE, hostile and civilian alike. Braking is not an
-//               answer to the interceptor, the stocker, the rival, the bruiser,
-//               the boss or the gunship, which is what stops "slow down" being
-//               the answer to everything. A civilian at 0 stops dead for a
-//               roadblock and brakes behind a rig.
+//               answer to the stocker, the rival, the bruiser, the boss or the
+//               gunship, which is what stops "slow down" being the answer to
+//               everything. A civilian at 0 stops dead for a roadblock and
+//               brakes behind a rig.
 //
 // WHY THE SECOND GROUP IS 0 RATHER THAN THE PLAYER'S OWN 100, which looks like
 // it would do and does not: a hostile that attacks from IN FRONT must be able to
@@ -395,10 +409,11 @@ export const CAR_TYPES = [
     cruiseMax: 265,
     speedMax: 265,
     // LOAD-BEARING, and not only for how it corners. behaviours.js prices a lane
-    // change from this figure against collisions.js's DAMAGE_FLOOR of 40, so 60
-    // is what puts the van's contacts in a 0.7-1.5 hull band and gives the
-    // `hauler` profile the only finely-graded `contact` dial in the file. Drop it
-    // near 40 and that dial goes binary, as the rig's already is.
+    // change from this figure against collisions.js's DAMAGE_FLOOR (25, and
+    // still being tuned — the van's contact band moves with it; re-measure via
+    // `npm run sim` after retuning either number), which is what gives the
+    // `hauler` profile the only finely-graded `contact` dial in the file. Drop
+    // it near the floor and that dial goes binary, as the rig's now nearly is.
     steerSpeed: 60,
     blastRadius: 42,
     blastDamage: 18,
@@ -468,18 +483,16 @@ export const CAR_TYPES = [
     cruiseMin: 180,
     cruiseMax: 215,
     speedMax: 215,
-    // UNDER collisions.js's DAMAGE_FLOOR of 40, and left there on purpose. It
-    // means every lane change a rig makes is priced at zero against ordinary
-    // traffic, so its `contact` dial has only two settings rather than a range
-    // — see driving.js's `juggernaut`, whose contact ceiling of 0 is what
-    // actually makes the rig's driving "never", independent of that price. A
-    // maxed RAM PLATE (PlayerBody, collisions.js) is the one body that prices
-    // above zero against the rig's 35 — juggernaut's own ceiling means this
-    // changes no driving decision today, but it is why the price and the
-    // decision are two different things and not one number wearing two hats.
-    // Raising steerSpeed to clear the floor would also shrink dodgeDistance,
-    // which is the figure obstacles.js sizes its whole spawn margin against,
-    // so this number is not the rig's alone to change.
+    // USED TO SIT under collisions.js's DAMAGE_FLOOR — that floor has since
+    // come down to 25 (still being tuned) and now sits UNDER this 35, so an
+    // ordinary lane change prices at a small non-zero cost rather than free.
+    // It changes no driving DECISION today regardless — see driving.js's
+    // `juggernaut`, whose contact ceiling of 0 is what actually makes the
+    // rig's driving "never", independent of price — but the price and the
+    // decision remain two different things, not one number wearing two hats.
+    // Raising steerSpeed would also shrink dodgeDistance, which is the figure
+    // obstacles.js sizes its whole spawn margin against, so this number is
+    // not the rig's alone to change.
     steerSpeed: 35,
     // It is carrying something. Killing a rig in traffic is the biggest event on
     // the road — the blast covers most of the tarmac around it and will take a
@@ -534,10 +547,10 @@ export const CAR_TYPES = [
     speedMax: 230,
     // Matches the van's exactly, and not by accident: it drives the SAME
     // `hauler` profile below, and that profile's `contact` ceiling is priced
-    // off the van's own steerSpeed against collisions.js's DAMAGE_FLOOR of
-    // 40 (see driving.js's comment on `hauler`). Sharing the figure keeps
-    // that pricing true for the bus too, instead of quietly drifting once a
-    // second type points at the same table.
+    // off the van's own steerSpeed against collisions.js's DAMAGE_FLOOR (see
+    // driving.js's comment on `hauler`). Sharing the figure keeps that pricing
+    // true for the bus too, instead of quietly drifting once a second type
+    // points at the same table.
     steerSpeed: 60,
     // Big, but deliberately short of the rig's 72/46 — the rig stays the
     // single biggest explosion on the road (see its own comment above); the
@@ -666,9 +679,14 @@ export const CAR_TYPES = [
     // profile, since removed — and slipped 20 a second against a flat-out
     // player. driving.js has the reasoning; the encounters built on that slip
     // are the battery escort and the swarm, in eventtypes.js.)
-    // NO FLOOR. Four wheels and a heavy body: it can crawl, and it is the reason
-    // the road keeps a standing pressure braking does not switch off — a player
-    // who slows to shed the bikes finds this still in their mirror.
+    // FLOORED AT 100, LEVEL WITH THE PLAYER'S OWN MINIMUM — still under
+    // playtesting. Used to be 0 (no floor at all, so it could crawl and
+    // remained the standing pressure braking never switched off); the floor
+    // is meant to give a player who slows all the way down one more type to
+    // reason about rather than none, though at exactly the player's own
+    // minimum it is a hairline case rather than a clean escape. Revisit this
+    // number together with the invariant in hazards.test.js that used to
+    // pin every hostile floor to either 0 or strictly above MIN_SPEED.
     speedMin: 100,
     cruiseMin: 400,
     cruiseMax: 620,
@@ -958,12 +976,20 @@ export const CAR_TYPES = [
     // player was always fighting to shed speed it wasn't allowed to roll under.
     // The ceiling rises to 660, past the cycle's new 620 floor, for the same
     // reason the interceptor's did: a boosted player leaves a stock 620 behind
-    // for good, and `strafe` needs a band that can still catch one. It stays
-    // under the cycle's own 730, so the cycle remains the one thing that
-    // reliably passes.
+    // for good, and `strafe` needs a band that can still catch one.
     // The bike floor, and the reason "slow down" is a real answer to this type:
     // under it the weave cannot hold station and sweeps past, taking the SMG's
     // firing line with it. See THE TWO SPEED BANDS.
+    //
+    // speedMax OPENS THE cruiseMax..660 GAP TO 800, past the cycle's own 730 —
+    // the catalogue's fastest thing is now this, not the cycle, and also past
+    // ENEMY_GUN's muzzleSpeed (760, weapons.js) and a maxed engine (740,
+    // upgrades.js), both of which used to be sized to "clear the fastest
+    // thing on the road" and no longer do against this one type. DELIBERATE:
+    // low health, low damage, and it SWEEPS PAST rather than sitting behind
+    // the player (`strafe`), so a rearward shot never needing to catch it
+    // costs nothing — the player's window is while it's alongside or ahead,
+    // same as any other pass. Not being outrunnable is the point, not a gap.
     speedMin: 200,
     cruiseMin: 400,
     cruiseMax: 660,

@@ -33,10 +33,6 @@ import { AMMO, HEAL, SHIELD, PICKUP_TYPES } from "../src/game/pickuptypes.js";
 import { WEAPON_TYPES, Loadout } from "../src/game/weapons.js";
 import { Player, MAX_SPEED, PLAYER_MASS, BASE_MAX_HEALTH } from "../src/game/player.js";
 import { CAR_TYPES } from "../src/game/cartypes.js";
-// The fastest cruise on the road, shared with the speed-band assertions in
-// road-and-caches.test.js rather than re-derived here — the ENGINE ceiling and
-// the traffic band are the same claim seen from two ends.
-import { fastest } from "../test-support/fixtures.js";
 import { OBSTACLE_TYPES } from "../src/game/obstacletypes.js";
 import { Wallet } from "../src/game/wallet.js";
 import { PlayerBody } from "../src/game/collisions.js";
@@ -219,19 +215,6 @@ test("the tier ladder rises, and the top tier costs four times the first", () =>
     // as a price nobody can meet.
     assert.equal(tierPrice(stat, TIER_COUNT), null, `${stat.id} is still for sale when maxed`);
   }
-});
-
-test("a fully upgraded engine passes the fastest thing on the road, but only just", () => {
-  // ENGINE's own comment claims 740 clears the cycle's 730. The claim that
-  // matters is the RELATION: a ladder stopping short of the fastest cruise would
-  // never let the player escape anything, and one clearing it by a wide margin
-  // would delete the road behind them.
-  const engine = statById("engine");
-  const top = statValue(engine, TIER_COUNT);
-  assert.ok(top > fastest,
-    `a maxed engine (${top}) must out-run the fastest cruise (${fastest})`);
-  assert.ok(top < fastest * 1.1,
-    `a maxed engine (${top}) clears the fastest cruise (${fastest}) by too much`);
 });
 
 test("a fully upgraded ram plate never out-masses the rig", () => {

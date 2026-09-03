@@ -205,10 +205,13 @@ export const STATS = [
     note: "RAISES THE CAR'S TOP SPEED",
     base: MAX_SPEED,
     // +40 a tier, so a fully upgraded car tops out at 740 — past the roadster
-    // (700) and past the cycle's 730, the fastest thing on the road
-    // (cartypes.js), but only just. The traffic band is pinned to the CONSTANT
-    // MAX_SPEED rather than to this, so buying speed moves the player through
-    // the field instead of dragging the field along with them.
+    // (700) and the cycle's 730, but only just. NOT past the outrider's 800
+    // (cartypes.js), deliberately: that type is built to outrun a maxed
+    // player by design (low health, low damage, sweeps past rather than
+    // chasing — see its own entry), so it is the one type this ceiling isn't
+    // sized against. The traffic band is pinned to the CONSTANT MAX_SPEED
+    // rather than to this, so buying speed moves the player through the
+    // field instead of dragging the field along with them.
     step: 40,
     price: 100,
     unit: "",

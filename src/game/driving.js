@@ -263,11 +263,12 @@ export const DRIVING_PROFILES = {
     hazardClearance: 14, // the widest berth in the catalogue
     nerve: 0,            // amber, and the type most likely to be standing near a
                          // hazard the player wanted left alone
-    // A binary switch for this type. The rig steers at 35, under collisions.js's
-    // DAMAGE_FLOOR of 40, so every lane change it could make prices at exactly
-    // zero hull: there is no middle setting available to it, only never and
-    // always. (`tolerated` reads the profile ceiling rather than the price, so
-    // that zero means never.)
+    // `contact: 0` makes this a binary switch regardless of price: `tolerated`
+    // reads the profile ceiling rather than the price, so nobody clears it and
+    // the rig never takes an occupied lane. (The rig steers at 35, which used
+    // to sit under collisions.js's DAMAGE_FLOOR and price every lane change at
+    // zero hull outright — the floor has since come down to 25, so that is no
+    // longer true on its own, but the ceiling here still means never.)
     //
     // Never is the setting, and it was measured: contacts fall from 7.0-8.8 per
     // minute to 3.9-5.9, hazard strikes are indistinguishable either way, and
