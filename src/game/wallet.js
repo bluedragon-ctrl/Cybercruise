@@ -167,7 +167,7 @@ const SIPHON_HINT = "SIGNAL NODE IN REACH // HOLD THE SHOULDER TO SIPHON";
 // element is read as part of the next one. Index === player.siphonLevel.
 const SIPHON_RANGES = [LINK_RADIUS, 330, 360, 390];
 const SIPHON_FAR_TIMES = [LINK_FAR_TIME, 3.0, 2.0, 1.0];
-const SIPHON_YIELDS = [1.00, 1.20, 1.40, 1.60];
+const SIPHON_YIELDS = [1.00, 1.5, 2, 3];
 
 // `player` is read defensively (`?.`) — the test suite and tools/econsim.js
 // both drive this module with plain `{x, y, speed}` stand-ins that carry no

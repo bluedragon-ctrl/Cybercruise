@@ -55,7 +55,7 @@ const RESTITUTION = 0.25;
 // Damage is linear in closing speed above a floor, so parking against a car
 // costs nothing and a full-speed ram is lethal. At equal mass, a 300 unit/sec
 // rear-end costs each car (300-40) * 0.15 = 39 hull.
-const DAMAGE_FLOOR = 40; // closing speed that does no harm at all
+const DAMAGE_FLOOR = 25; // closing speed that does no harm at all
 const IMPACT_DAMAGE = 0.15; // hull per unit of closing speed above the floor
 // Side-swipes hurt this much of a head-on for the same speed. Exported because
 // behaviours.js prices a lane change as a side-swipe — see impactCost.
