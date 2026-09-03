@@ -18,7 +18,7 @@
 
 // Filled in after `npx wrangler deploy` (worker/README.md) — the one line
 // this file needs edited per deployment.
-const WORKER_URL = "https://cybercruise-leaderboard.cybercruise.workers.dev";
+const WORKER_URL = "https://cybercruise-leaderboard.bluedragoncz.workers.dev";
 
 let cached = null;
 let fetching = false;
