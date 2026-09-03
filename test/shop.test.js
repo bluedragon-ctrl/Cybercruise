@@ -34,7 +34,7 @@ import { WEAPON_TYPES, Loadout } from "../src/game/weapons.js";
 import { Player, MAX_SPEED, PLAYER_MASS, BASE_MAX_HEALTH } from "../src/game/player.js";
 import { CAR_TYPES } from "../src/game/cartypes.js";
 import { OBSTACLE_TYPES } from "../src/game/obstacletypes.js";
-import { Wallet } from "../src/game/wallet.js";
+import { Wallet, SIPHON_YIELDS } from "../src/game/wallet.js";
 import { PlayerBody } from "../src/game/collisions.js";
 
 // A player and a full wallet, which is what nearly every purchase test needs.
@@ -179,7 +179,18 @@ test("nothing on any shelf is free, and no two rows share an id", () => {
   assert.equal(new Set(ids).size, ids.length, "duplicate catalogue id");
   for (const stat of STATS) {
     assert.ok(stat.price > 0, `${stat.id} is free`);
-    assert.ok(stat.step > 0, `${stat.id} buys nothing`);
+    // A `values`-shaped stat (siphon) has no single `step` — it is read off a
+    // table instead (upgrades.js's own field-table comment) — so the "buys
+    // something" check is that every tier reads higher than the one before,
+    // the property `step > 0` was standing in for on the base+step stats.
+    if (stat.values) {
+      for (let level = 1; level <= TIER_COUNT; level++) {
+        assert.ok(statValue(stat, level) > statValue(stat, level - 1),
+          `${stat.id} tier ${level} buys nothing over tier ${level - 1}`);
+      }
+    } else {
+      assert.ok(stat.step > 0, `${stat.id} buys nothing`);
+    }
     assert.ok(stat.note, `${stat.id} has no line to show under the cursor`);
   }
 });
@@ -197,6 +208,21 @@ test("every stat's base is the stock car's own figure, not a restated copy", () 
   // The deflector is a BONUS on whatever a shield source offered, so its base is
   // zero by definition — a stock car adds nothing (player.js's activateShield).
   assert.equal(statById("deflector").base, 0);
+});
+
+test("the SIPHON RIG shelf reads the payout table by reference, not a restated ladder", () => {
+  // This is the invariant that broke once already: the shelf used to print a
+  // hand-set base+step ladder that only a COMMENT kept in step with wallet.js's
+  // SIPHON_YIELDS (the table hints()/collect() actually pay from), and a
+  // tuning pass moved one without the other. Asserting object IDENTITY — not
+  // just equal numbers — is what makes that class of drift impossible to
+  // reintroduce silently: statValue reads this array's own elements, so there
+  // is no second copy anywhere left to fall out of step.
+  assert.equal(statById("siphon").values, SIPHON_YIELDS);
+  for (let level = 0; level <= TIER_COUNT; level++) {
+    assert.equal(statValue(statById("siphon"), level), SIPHON_YIELDS[level],
+      `siphon tier ${level} shelf reading drifted from what a node actually pays`);
+  }
 });
 
 test("the tier ladder rises, and the top tier costs four times the first", () => {
