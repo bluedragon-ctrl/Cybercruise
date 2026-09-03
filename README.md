@@ -367,6 +367,18 @@ dropout, reordering, channel desync, bandwidth collapse): **CRT simulation was
 rejected outright by the project owner** — no phosphor, no barrel distortion,
 no standing scanline overlay, no vignette-as-tube-falloff.
 
+**NEITHER MODULE DRAWS ON THE WORLD CANVAS ANY MORE.** `jackin.js` and
+`disconnect.js` are a beat table, an offset and a HUD readout each; everything
+that used to be ink is a number now. The last 2D draw to go was the death's
+hit core — a white ring at the car's centre, shrinking to nothing over the
+killing frame — which 15e-i initially kept, since it is geometry at a position
+and the pass has the frame but not the car. It was dropped on the project
+owner's call once everything around it had changed: it read as a circle closing
+in rather than as a hit, and it was a lone Canvas2D artifact firing inside the
+one beat where the pass is deliberately idle. `FLASH_END` went with it, and the
+death now opens on the car simply being gone — the punctuation on the hit is
+the sound and the absence.
+
 Three things worth knowing before touching it:
 
 - **The readouts stay sharp because the pass physically cannot reach them.**
@@ -1625,8 +1637,14 @@ is on hold is everything that wants a SERVER behind it.
         call sites and the function). They do not read under the pass, and
         giving the car its own region in it was built and rejected on sight —
         a hole around the car reads as a cutout, not as data loss. `CAR_START`,
-        `CAR_END`, `CAR_GLITCH_END` and `carSolid` went with them; every other
-        beat kept its name and its number
+        `CAR_END` and `carSolid` went with them.
+        AND THEN THE DEATH'S HIT CORE, once it was the only 2D draw left in
+        either sequence and read as a circle closing in rather than as an
+        impact — `CAR_GLITCH_END` and `FLASH_END` with it. Neither module
+        draws on the world canvas at all now; both are a beat table, an offset
+        and a HUD readout. **Every beat that still describes something kept its
+        name and its number** — the four that went are exactly the four whose
+        effects were removed
   - [ ] **15e-ii** — Hull-driven data corruption on the same axis: a damaged
         car degrades the FEED rather than flashing a red vignette, writing the
         same `corrupt`/`quant` fields 15e-i already carries, with `main.js`

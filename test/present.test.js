@@ -222,7 +222,7 @@ test("no feed field the shader reads as a fraction ever leaves 0..1", () => {
     ["jackin", new JackIn(), CONNECT_DURATION],
     ["disconnect", new Disconnect(), DISCONNECT_DURATION],
   ]) {
-    seq.trigger(300, 500, 34, 60);
+    seq.trigger();
     walk(seq, duration, (t, live, block) => {
       if (!live) return;
       for (const f of UNIT_FIELDS) {
@@ -258,7 +258,7 @@ test("the disconnect holds still after the hit, then only ever loses ground", ()
   // "The present path"). A retune that let the collapse start at the hit would
   // quietly take both the pacing and the no-op.
   const disconnect = new Disconnect();
-  disconnect.trigger(300, 500, 34, 60);
+  disconnect.trigger();
   let sawHold = false;
   let last = Infinity;
   walk(disconnect, DISCONNECT_DURATION, (t, live, block) => {
@@ -291,7 +291,7 @@ test("the two sequences run one arrival field from opposite ends", () => {
   });
 
   const disconnect = new Disconnect();
-  disconnect.trigger(300, 500, 34, 60);
+  disconnect.trigger();
   let discFirst = null;
   let discLast = null;
   walk(disconnect, DISCONNECT_DURATION, (t, live, block) => {
@@ -323,7 +323,7 @@ test("an inactive sequence describes nothing, so a stale instance cannot draw", 
 
   const disconnect = new Disconnect();
   assert.equal(disconnect.feed(block), false);
-  disconnect.trigger(300, 500, 34, 60);
+  disconnect.trigger();
   disconnect.update(DISCONNECT_DURATION * 0.5);
   assert.equal(disconnect.feed(block), true);
   disconnect.reset();

@@ -1420,7 +1420,7 @@ function updatePlaying(dt) {
     // still keep what they earned. Idempotent, and nothing under "playing"
     // runs again to earn more (see the branch this sits in).
     wallet.bank();
-    disconnect.trigger(player.x, player.y, player.w, player.h);
+    disconnect.trigger();
     // UNCONDITIONAL, deliberately — this call does TWO things (see synth.js's
     // playDisconnect()): it plays the static AND fades the music bus into the
     // hole the static is supposed to land in. Gating it on soundVolume used to
@@ -1834,14 +1834,12 @@ function render(alpha) {
   // The player sits at worldY === distance, so that is where its heading comes
   // from — it leans into a bend along with the traffic around it. Read at camY,
   // like everything else drawn this frame, so the car's lean matches the bend of
-  // the road actually on screen. While "dying", the disconnect sequence draws
-  // in the player's place instead — see game/disconnect.js's render().
-  // While "dying", disconnect.js draws the hit core in the player's place —
-  // all that is left of that sequence on this canvas (its own render()). The
-  // car itself is not drawn during a death: the frame it died in is what the
-  // present pass is pulling apart.
-  if (state === "dying") disconnect.render(ctx);
-  else {
+  // the road actually on screen. WHILE "DYING" THE CAR IS NOT DRAWN AT ALL,
+  // and as of 15e-i nothing is drawn in its place either: game/disconnect.js
+  // has no world-canvas draw left (see its header). The car vanishing on the
+  // killing frame IS the hit, and what the present pass then pulls apart is
+  // the frozen world it left behind.
+  if (state !== "dying") {
     // THE CAR RIDES THE DRONE, and this one translate is the whole of how. The
     // hauler owns the motion but not the car (see its header on why): it hands
     // back a screen-space y offset, and player.render() below draws exactly the

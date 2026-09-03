@@ -4,12 +4,28 @@
 // no shrapnel, nothing tumbles — it looks like the FEED failing, and the game
 // reports CONNECTION LOST rather than showing a wreck.
 //
-// SINCE PHASE 15E-I THIS MODULE DRAWS ALMOST NOTHING. The collapse is a
-// fragment shader — engine/gl/shaders.js's GLITCH_FS, run by
-// engine/present.js over the finished frame — and what is left here is the
-// TIMELINE that drives it plus the one thing the pass cannot do (the hit
-// core, below). Read GLITCH_FS's header for what the effect IS; read this one
-// for when.
+// SINCE PHASE 15E-I THIS MODULE DRAWS NOTHING ON THE WORLD CANVAS. The
+// collapse is a fragment shader — engine/gl/shaders.js's GLITCH_FS, run by
+// engine/present.js over the finished frame — so what is left here is the
+// TIMELINE that drives it, the desync offset, and the CONNECTION LOST readout
+// on the HUD layer. Read GLITCH_FS's header for what the effect IS; read this
+// one for when.
+//
+// THE HIT CORE WENT TOO, and it was the last 2D draw in here: a white ring at
+// the car's centre, shrinking from 24px to nothing across FLASH_END, struck on
+// the killing frame so the instant read as an impact. 15e-i kept it at first —
+// it is geometry at a position, which the pass cannot do, so it had a real
+// claim to stay — and the project owner dropped it on sight once everything
+// around it had changed. It read as a circle closing in rather than as a hit,
+// and it was a lone Canvas2D artifact firing inside the one beat where the
+// pass is deliberately doing nothing. FLASH_END went with it.
+//
+// SO THE DEATH NOW OPENS ON THE CAR SIMPLY BEING GONE. main.js stops drawing
+// the player the instant this fires (it always did — the car was never drawn
+// during a death, only whatever this module put in its place), and for the
+// held beat that follows, the frame is the frozen world with a hole where the
+// car was. The punctuation on the hit is the SOUND (audio/sfx.js's
+// generateDisconnect) and the absence itself.
 //
 // WHAT THE COLLAPSE IS MADE OF, in the data vocabulary the whole game is
 // written in: blocks of the picture stop arriving, in no particular order, and
@@ -51,7 +67,7 @@
 // and render() all recompute from `elapsed` and the seed captured at trigger()
 // rather than storing any state, so nothing here allocates per frame.
 
-import { neonStroke, glowText } from "../engine/neon.js";
+import { glowText } from "../engine/neon.js";
 import { rng } from "./effects.js";
 import { GREEN_PALE } from "../engine/palette.js";
 
@@ -61,10 +77,13 @@ export const DISCONNECT_DURATION = 2.6;
 // Fractions of DISCONNECT_DURATION (not seconds) each beat runs for, kept as
 // fractions so retuning the total duration reshapes every beat with it. Read
 // top to bottom, this IS the sequence's timeline:
-//   flash -> held silence -> the feed starts losing sync -> blocks stop
-//   arriving and the colour depth goes with them -> readout resolves and holds
-//   -> game-over takes over.
-const FLASH_END = 0.05;      // white hit-core
+//   held silence -> the feed starts losing sync -> blocks stop arriving and
+//   the colour depth goes with them -> readout resolves and holds -> game-over
+//   takes over.
+//
+// THE TIMELINE OPENS ON A HELD BEAT, with no visual event of its own — see the
+// header on the hit core 15e-i removed, and why FLASH_END is not in this table
+// any more.
 const HOLD_END = 0.17;       // frozen beat: nothing glitches or moves yet, so
                              // the hit has a moment to register. The desync
                              // (shake) starts here
@@ -103,25 +122,16 @@ export class Disconnect {
   constructor() {
     this.active = false;
     this.elapsed = 0;
-    this.x = 0;
-    this.y = 0;
-    this.w = 34;
-    this.h = 60;
     this.seed = 1;
   }
 
-  // Freeze-frame the car where it died. `x, y, w, h` are the player's own
-  // fields at the moment its hull hit zero — main.js stops calling
-  // player.update() once this fires, so they stay put on their own; this just
-  // takes a copy rather than depending on that. Still needed after 15e-i: the
-  // hit core in render() is drawn at the car's centre.
-  trigger(x, y, w, h) {
+  // NO LONGER TAKES THE CAR'S FREEZE-FRAME. Through 15d this copied
+  // `x, y, w, h` so the local breakup and the hit core could be drawn where the
+  // car was; with both gone nothing in this module knows or needs a position,
+  // and jackin.js's trigger() lost the same four arguments for the same reason.
+  trigger() {
     this.active = true;
     this.elapsed = 0;
-    this.x = x;
-    this.y = y;
-    this.w = w;
-    this.h = h;
     this.seed = (Math.random() * 0x7fffffff) | 0;
   }
 
@@ -215,33 +225,6 @@ export class Disconnect {
     out.corrupt = Math.sin(this.elapsed * 22) > 0.1 ? scan : 0;
     out.split = scan * SPLIT_MAX;
     return true;
-  }
-
-  // ALL THAT IS LEFT ON THE 2D CANVAS: the hit flash. A brief white core at the
-  // car's own centre, so the instant still reads as an impact. It stays here,
-  // and did not move into the pass with everything else, because it is not a
-  // screen effect — it is GEOMETRY at a position, and the pass has the frame
-  // but not the car. (jackin.js's closing flash DID move, because that one is
-  // a full-screen fill and has to whiten what the pass produced.)
-  //
-  // Drawn INSTEAD of player.render() while active, in the same block the frozen
-  // world draws in. Done well before HOLD_END, so it never overlaps anything
-  // the pass is doing.
-  //
-  // NO `W, H` ANY MORE: the two beats that spanned the whole screen (the
-  // full-width scanline tears and the dim toward black) are feed() fields now,
-  // and nothing left in here knows or needs the canvas size.
-  render(ctx) {
-    if (!this.active) return;
-    const t = this.progress;
-    if (t >= FLASH_END) return;
-    const { x: cx, y: cy, h } = this;
-    const k = 1 - t / FLASH_END;
-    const r = h * 0.4 * k;
-    neonStroke(ctx, (c) => {
-      c.moveTo(cx + r, cy);
-      c.arc(cx, cy, r, 0, Math.PI * 2);
-    }, "#ffffff", 3, k);
   }
 
   // The HUD readout: CONNECTION LOST, fixed in screen space, on the layer the
