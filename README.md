@@ -1193,6 +1193,19 @@ player who hugs the shoulders, one who hunts nodes, one who eases off to stay
 beside them longer, and one who never leaves the middle (that last should always
 read zero).
 
+## Leaderboard
+
+A shared top-10 board — the thing Phase 13 below was on hold for. Three
+`src/game/` modules split it the way `wallet.js`/`walletrender.js` already
+split state from ink: `leaderboard.js` fetches/caches/submits and draws
+nothing, `leaderboardrender.js` draws the cached list and touches no network,
+`nameentry.js` is the three-letter initials screen a qualifying death drops
+into (own render path, not a fourth `menu.js` mode — see its header for why).
+The board itself is `worker/` — a single Cloudflare Worker over one KV key
+holding the whole top-10 array; that module's own header has the shape (one
+record per name, no real anti-cheat) and `worker/README.md` has the deploy
+steps.
+
 ## The upgrade shop
 
 Every 400 DIST a cargo drone lifts the car to a dock (`game/hauler.js`, scheduled
@@ -1301,10 +1314,13 @@ catalogue, which IS visual polish, so doing 12 first means tuning numbers 15d
 then invalidates), and both before the bosses that would be drawn against them.
 Phase 12 keeps the gameplay-balance half; 15d owns the visual half.
 
-**11d, 13 and 14 are ON HOLD**, together, because all three need a hosting
-decision that has not been made. The game is published to GitHub Pages today,
-which is the static half of 13 and all a no-build ES-module layout needs; what
-is on hold is everything that wants a SERVER behind it.
+**11d and 14 are still ON HOLD; 13 has partly shipped.** All three were
+waiting on the same hosting decision, which is now made — Cloudflare Workers +
+KV — and Phase 13's first piece, the shared leaderboard, is live on it (see
+Leaderboard above). That is not the same as 11d and 14 being unblocked: a
+public, account-free KV worker is enough for a leaderboard's write-and-read,
+not for per-player persistence (11d needs accounts) or serving ads (14 needs
+its own decision regardless of hosting).
 
 - [x] **Phase 0** — Skeleton: neon car steering over a scrolling grid
 - [x] **Phase 1** — Road: infinite curving highway + barriers
@@ -1362,15 +1378,17 @@ is on hold is everything that wants a SERVER behind it.
       tuning glow constants the renderer swap then discards. High scores were
       the third item here and have moved to 13, since a board worth having is
       a shared one
-- [ ] **Phase 13** — ON HOLD pending a hosting decision. Online server. The
-      STATIC half is DONE: the game is published to GitHub Pages, which the
-      no-build ES-module layout reached with no special handling — the
-      standing proof that the zero-dependency rule pays for itself. On hold is
-      anything wanting a server behind it — a shared high-score board being
-      the obvious first thing, which also means score submission has to be
-      something a server can sanity-check, i.e. the game stops being the only
-      thing that knows how a score was earned. That constraint is the real
-      content of this phase, and it is why 11d waits on it
+- [ ] **Phase 13** — Online server. The hosting decision is made: Cloudflare
+      Workers + KV. The STATIC half was already DONE — the game is published
+      to GitHub Pages, which the no-build ES-module layout reached with no
+      special handling, the standing proof that the zero-dependency rule pays
+      for itself. The SERVER half's first piece is the shared leaderboard
+      (`worker/`, see Leaderboard above): one public, account-free Worker over
+      one KV key. That closes the constraint this phase was written around —
+      score submission going through something that can sanity-check it, so
+      the game is no longer the only thing that knows how a score was earned
+      — but a public write endpoint is not accounts, so it does not unblock
+      11d's per-player persistence on its own
 - [ ] **Phase 14** — ON HOLD with 13 and 11d. Advertisement: consider
       monetising via ads. Decide the
       format first (an interstitial between runs and a rewarded spot in the

@@ -40,6 +40,12 @@ import { Loadout, laidPayloads, muzzleOffsets, lockSeconds, lockRange, lockLead 
 import { ShieldStorm } from "./game/shieldstorm.js";
 import { Lock } from "./game/targeting.js";
 import { createMenu } from "./game/menu.js";
+// The shared top-10 board — see leaderboard.js's header for the cache/qualify/
+// submit split, nameentry.js's for why initials rather than menu.js's own row
+// abstraction, and leaderboardrender.js's for where its column sits on screen.
+import { createNameEntry } from "./game/nameentry.js";
+import * as leaderboard from "./game/leaderboard.js";
+import { draw as drawLeaderboard } from "./game/leaderboardrender.js";
 // What an armed test row is WORTH — the rows themselves live on menu.js, this
 // is only the figure EXTRA CASH pays out. See that file for the switch that
 // removes both rows from a shipping build.
@@ -200,8 +206,15 @@ initMouse(canvas);
 // with the world still live — see hauler.js's phase list. Only the grab
 // freezes anything.
 const menu = createMenu();
+const nameEntry = createNameEntry();
 let state = "menu"; // "menu" | "connecting" | "playing" | "paused" | "dying" | "gameover"
-                    //   | "lifting" | "shopping" | "lowering" | "gpulost"
+                    //   | "lifting" | "shopping" | "lowering" | "gpulost" | "highscore"
+
+// Fired once, here rather than in newGame(): the cache only ever needs the
+// CURRENT board, never a per-run reset, and a run rarely lasts less than the
+// one round-trip this takes — see leaderboard.js's header for why a run that
+// somehow outraces it just doesn't get prompted rather than guessing.
+leaderboard.refresh();
 
 // Which state to resume once the GPU context is restored — see
 // onGpuContextLost/onGpuContextRestored below. Only meaningful while
@@ -870,6 +883,7 @@ function update(dt) {
     case "paused": return updatePaused();
     case "connecting": return updateConnecting(dt);
     case "dying": return updateDying(dt);
+    case "highscore": return updateHighscore();
     case "gameover": return updateGameOver();
     case "lifting": return updateLifting(dt);
     case "shopping": return updateShopping();
@@ -969,9 +983,34 @@ function updateDying(dt) {
   // RESTART before they had seen the screen.
   consumePress("fire");
   if (disconnect.done) {
+    // "highscore" ONLY when the cache actually knows this qualifies — see
+    // leaderboard.js's qualifies() for why a not-yet-resolved fetch reads as
+    // "no" rather than a guess. Everything else about ending a run (banking,
+    // the hint bar) is identical either way.
+    if (leaderboard.qualifies(score.points)) {
+      state = "highscore";
+      nameEntry.open();
+    } else {
+      state = "gameover";
+      menu.open("gameover");
+    }
+    hint.innerHTML = MENU_HINT;
+  }
+}
+
+// The initials screen — entered only from updateDying() above, once
+// disconnect.done and leaderboard.qualifies() have both said yes. Confirming
+// hands the name off to leaderboard.submit() (not awaited: the loop is sync,
+// and a failed submit is leaderboard.js's problem, not this run's) and moves
+// straight on to the same "gameover" screen a non-qualifying death reaches
+// directly — the initials prompt is purely an extra step in front of it, not
+// a fork in what gameover itself does.
+function updateHighscore() {
+  const result = nameEntry.update();
+  if (result.confirmed) {
+    leaderboard.submit(result.name, score.points);
     state = "gameover";
     menu.open("gameover");
-    hint.innerHTML = MENU_HINT;
   }
 }
 
@@ -1696,12 +1735,29 @@ function render(alpha) {
   // layer would show them bleeding through the title screen.
   clearHud(hudCtx);
 
+  // The initials screen — its own render path, not a menu.js mode (see
+  // nameentry.js's header for why). Nothing behind it is worth drawing for
+  // the same reason "gameover" below covers the wreck: the run is over.
+  if (state === "highscore") {
+    nameEntry.render(ctx, hudCtx, W, H);
+    vectorText(ctx, `FINAL SCORE ${score.points}`, W / 2, 296, GREEN_BRIGHT, 17, "center", 1.8, 0.22);
+    return;
+  }
+
   // "gameover" reuses the exact same full-screen menu as "menu"/"paused" (see
   // menu.js's header) — the frozen wreck behind it from "dying" is gone the
   // instant the screen takes over, the same way "paused" already covers the
   // world rather than showing it through the menu.
   if (state === "menu" || state === "paused" || state === "gameover") {
     menu.render(ctx, hudCtx, W, H);
+    // The shared board's side column — leaderboardrender.js's own header has
+    // the coordinates and why they clear everything else on this screen.
+    // "menu"/"gameover" only, matching where the user actually asked for it;
+    // "paused" already has the live game to get back to and no run of its
+    // own to compare against the board.
+    if (state === "menu" || state === "gameover") {
+      drawLeaderboard(hudCtx, W, H, leaderboard.getCached());
+    }
     // menu.js never touches the world (see its header) — the final score is
     // world state, so it's main.js's job to draw it, not menu.open()'s to
     // have been handed it. Placed above the RECONNECT row rather than fighting
