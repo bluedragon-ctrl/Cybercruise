@@ -165,9 +165,14 @@ const SIPHON_HINT = "SIGNAL NODE IN REACH // HOLD THE SHOULDER TO SIPHON";
 // `const NAME = [a, b, c];` (patcher.js's patchArrayConstantElement), and that
 // patcher splits on commas with no comment-awareness, so a comment after an
 // element is read as part of the next one. Index === player.siphonLevel.
+//
+// SIPHON_YIELDS IS EXPORTED because upgrades.js's `siphon` STATS entry reads
+// it directly for what the shop shelf prints — see that file's own comment.
+// A retune here is what the shelf quotes; there is no second figure to keep
+// in step.
 const SIPHON_RANGES = [LINK_RADIUS, 330, 360, 390];
 const SIPHON_FAR_TIMES = [LINK_FAR_TIME, 3.0, 2.0, 1.0];
-const SIPHON_YIELDS = [1.00, 1.5, 2, 3];
+export const SIPHON_YIELDS = [1.00, 1.5, 2, 3];
 
 // `player` is read defensively (`?.`) — the test suite and tools/econsim.js
 // both drive this module with plain `{x, y, speed}` stand-ins that carry no

@@ -1233,7 +1233,7 @@ for the rest of the run:
 | CHASSIS | +50 max hull, and it repairs by the same | 200 → 350; three tiers is about one mine |
 | DEFLECTOR | +12s on *every* shield the car is handed | a 5s crate becomes a 41s one |
 | RAM PLATE | +0.8 mass | 1.5 → 3.9: past the bruiser, past the bus, never past the rig |
-| SIPHON RIG | +20% off every node, plus reach and drain to match | 100% → 160% |
+| SIPHON RIG | more off every node, plus reach and drain to match | 100% → 300% |
 
 Two of those are one row for opposite reasons. The **ram plate** is one row
 because mass is one number that buys three things — `collisions.js` splits damage
@@ -1248,8 +1248,12 @@ carrying a hit into a second car. See `collisions.js`'s `PlayerBody` for both.
 The **siphon rig** is one row because two of its three numbers
 would not sell: `npm run econ` found reach and drain both saturate almost at once,
 so yield is the only figure the shelf advertises and the other two ride the same
-tier. `wallet.js`'s `SIPHON_TIERS` header has that argument in full, including why
-tier 0 must be exactly the stock car.
+tier. `wallet.js`'s `SIPHON_YIELDS` header has that argument in full, including why
+tier 0 must be exactly the stock car. Its ladder also isn't a flat step like the
+four rows above it — `upgrades.js`'s `siphon` entry holds `values: SIPHON_YIELDS`,
+the SAME array `wallet.js` pays out of, rather than a restated `base`/`step`; a
+retune of one is a retune of both, structurally, after a build once shipped
+quoting a shelf figure the wallet no longer paid.
 
 **Specials** — one-off hardware, bought once and owned for the run, so a bought
 row reads `SOLD` rather than `MAX`. Each changes a *verb* rather than moving a

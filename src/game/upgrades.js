@@ -38,6 +38,7 @@
 
 import { AMMO, HEAL, SHIELD, applyPickup } from "./pickuptypes.js";
 import { MAX_SPEED, PLAYER_MASS, BASE_MAX_HEALTH } from "./player.js";
+import { SIPHON_YIELDS } from "./wallet.js";
 import { ROCKET, PLAYER_THRUST, ENEMY, GREEN_BRIGHT, PLAYER } from "../engine/palette.js";
 
 // --- Consumables -------------------------------------------------------------
@@ -190,7 +191,23 @@ export const TIER_COUNT = TIER_PRICES.length;
 //   step       what ONE tier adds. Every tier adds the same amount; the PRICE
 //              is what escalates, not diminishing returns. A flat step against
 //              a rising price is already a curve, and it is the one a player
-//              can do arithmetic on mid-run
+//              can do arithmetic on mid-run. Mutually exclusive with `values`
+//              below — a stat has one or the other, never both
+//   values     OPTIONAL. [stock, tier1, tier2, tier3] — THE SAME ARRAY (by
+//              reference) that some other system pays the effect out of, for
+//              a stat whose ladder isn't a flat step (siphon's
+//              `values: SIPHON_YIELDS` is the only user). By reference, not a
+//              restated copy: that is what makes the shelf and the payout
+//              structurally unable to disagree, rather than agreeing only as
+//              long as somebody remembers to retune both. `base`/`step` don't
+//              apply to a `values` stat — statValue reads `values[level]`
+//              instead of computing one. See the siphon entry for why an even
+//              step couldn't do this job even by hand
+//   scale      OPTIONAL, only alongside `values`. `values` holds whatever
+//              units the OTHER system uses (siphon's table is a raw
+//              multiplier, 1.5 not "150"); `scale` is what the shelf
+//              multiplies by to print its own unit (100, for "%") — see
+//              format() in game/shop.js
 //   price      credits for tier 1; tiers 2 and 3 are this times TIER_PRICES
 //   unit       suffix for the readout ("" for a bare number)
 //   prefix     OPTIONAL leading character for the readout. Only the deflector
@@ -303,19 +320,25 @@ export const STATS = [
     note: "PULLS MORE FROM EVERY NODE — AND REACHES FURTHER",
     // A PERCENTAGE OF NOTHING BUT ITSELF, unlike every stat above it — there
     // is no `base` figure to import because there is no stock component this
-    // upgrades; 100 is "exactly what the floor already pays" and every tier
-    // is a straight multiplier on top. See game/wallet.js's SIPHON_TIERS for
-    // why yield is the ONE number sold here: reach and drain time both ride
-    // along on the same tier (330px/3s, 360px/2s, 390px/1s) but neither is
-    // printed on the shelf, because tools/econsim.js showed both stop paying
-    // for themselves within a tier or two of the stock car — a row that
-    // promised more of either alone would be lying by tier 2.
+    // upgrades. See game/wallet.js's SIPHON_YIELDS for why yield is the ONE
+    // number sold here: reach and drain time both ride along on the same tier
+    // (330px/3s, 360px/2s, 390px/1s) but neither is printed on the shelf,
+    // because tools/econsim.js showed both stop paying for themselves within
+    // a tier or two of the stock car — a row that promised more of either
+    // alone would be lying by tier 2.
     //
-    // 100 -> 120 -> 140 -> 160: MUST match SIPHON_TIERS' own `yield` column
-    // exactly (1.00/1.20/1.40/1.60) — retuning one without the other leaves
-    // the shelf quoting a number the wallet doesn't pay.
-    base: 100,
-    step: 20,
+    // READ DIRECTLY OFF SIPHON_YIELDS, not a base+step ladder — the multiplier
+    // isn't evenly spaced (1.00/1.5/2/3), so a flat step could never print
+    // what tier 3 actually pays without also lying about tier 1 or 2. `values`
+    // holds the SAME array wallet.js's hints()/collect() pay from (by
+    // reference — see STATS's own field table), and `scale: 100` is only
+    // about printing it as a percent; there is no separate figure left to
+    // retune out of step. This replaces a base+step ladder that WAS an
+    // independent number, kept in step with SIPHON_YIELDS by a comment only —
+    // one tuning pass moved the yields without moving the ladder, and the
+    // shelf quoted stale numbers until this shape closed the gap structurally.
+    values: SIPHON_YIELDS,
+    scale: 100,
     price: 100,
     unit: "%",
     decimals: 0,
@@ -497,8 +520,10 @@ export function statById(id) {
   return STATS.find((s) => s.id === id) ?? null;
 }
 
-// What `stat` reads at `level` tiers owned.
+// What `stat` reads at `level` tiers owned. `values`-shaped stats (siphon) are
+// looked up rather than computed — see STATS's own field table for why.
 export function statValue(stat, level) {
+  if (stat.values) return stat.values[level];
   return stat.base + stat.step * level;
 }
 

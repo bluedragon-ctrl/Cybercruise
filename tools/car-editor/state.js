@@ -495,14 +495,20 @@ export function buildUpgradeStatState(id) {
   if (!stat) {
     throw new Error(`buildUpgradeStatState: unknown stat id "${id}"`);
   }
+  // `step` is only on the editable-fields map for a base+step stat — a
+  // `values`-shaped stat (siphon) has no single step to patch, and its
+  // ladder is retuned from the constant TABLE it reads instead (World →
+  // Siphon rig), not from this shelf. See upgrades.js's own field table.
+  const editable = { price: stat.price };
+  if (stat.step !== undefined) editable.step = stat.step;
   return {
     id: stat.id,
     label: stat.label,
-    values: { price: stat.price, step: stat.step },
+    values: editable,
     // Read-only context so the editor can show what tier 1 actually buys
     // (base -> base + step) without the caller re-importing upgrades.js's own
-    // formatting rules.
-    base: stat.base,
+    // formatting rules. Absent for a `values`-shaped stat, same reason.
+    base: stat.step !== undefined ? stat.base : null,
     unit: stat.unit,
     decimals: stat.decimals,
   };

@@ -346,14 +346,22 @@ const KINDS = {
     entries: () => data.upgradeStats,
     requestKey: "upgradeStatChanges",
     groups: () => [{ heading: "Car systems", entries: data.upgradeStats }],
+    // The siphon rig has no `step` in its editable fields (state.js) — its
+    // ladder is read off SIPHON_YIELDS rather than computed, so there is
+    // nothing to preview here and the field is left off the form entirely.
+    // The note says where the real dial is instead of leaving it looking
+    // unfinished.
+    subtitle(stat) {
+      return "step" in stat.values
+        ? null
+        : "Yield ladder is read live from World → Siphon rig — edit it there, not here.";
+    },
     sections(stat) {
-      return [{
-        legend: "Price & tier increase",
-        fields: [
-          { field: "price", description: UPGRADE_STAT_DESCRIPTIONS.price },
-          { field: "step", description: UPGRADE_STAT_DESCRIPTIONS.step, preview: statStepPreview(stat) },
-        ],
-      }];
+      const fields = [{ field: "price", description: UPGRADE_STAT_DESCRIPTIONS.price }];
+      if ("step" in stat.values) {
+        fields.push({ field: "step", description: UPGRADE_STAT_DESCRIPTIONS.step, preview: statStepPreview(stat) });
+      }
+      return [{ legend: "Price & tier increase", fields }];
     },
   },
 

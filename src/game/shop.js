@@ -419,9 +419,12 @@ function statusFor(entry, player, loadout) {
 
 // A stat's reading, in the units its catalogue entry names — and behind the
 // sign it names, if it is a bonus on somebody else's figure rather than a figure
-// of its own (see the deflector's `prefix`).
+// of its own (see the deflector's `prefix`). `scale` converts a `values`-shaped
+// stat's own units (siphon's table is a raw multiplier) into the shelf's
+// (upgrades.js's own field table) — absent for every base+step stat, where the
+// catalogue value already IS the printed one.
 function format(stat, value) {
-  return `${stat.prefix ?? ""}${value.toFixed(stat.decimals)}${stat.unit}`;
+  return `${stat.prefix ?? ""}${(value * (stat.scale ?? 1)).toFixed(stat.decimals)}${stat.unit}`;
 }
 
 // The line under the shelves for whatever the cursor is on, as { text, urgent }
