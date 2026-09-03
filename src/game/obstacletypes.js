@@ -143,7 +143,7 @@ export const OBSTACLE_TYPES = [
     // free points collected on the racing line.
     placement: PLACE_SIDE,
     weight: 1,
-    minDistance: 800,
+    minDistance: 1200,
   },
   {
     id: "tetra",
@@ -161,7 +161,7 @@ export const OBSTACLE_TYPES = [
     // which is the most interesting thing a static object can ask of a driver.
     placement: PLACE_CENTRE,
     weight: 1,
-    minDistance: 1200,
+    minDistance: 1800,
   },
   {
     id: "caltrop",

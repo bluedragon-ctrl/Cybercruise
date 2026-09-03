@@ -413,7 +413,7 @@ export const DRIVING_PROFILES = {
   // reference figures — 40px either side at 1.6s a sweep, which its 200px/sec
   // steering covers three times over.
   outrider: profile({
-    laneDiscipline: 0.4, // it is never settled in a lane; saying so here keeps
+    laneDiscipline: 0.1, // it is never settled in a lane; saying so here keeps
                          // the approach as loose as the attack
     patience: 0.3,       // it wants to be behind the player, not behind a bus
     pursueHold: 150,

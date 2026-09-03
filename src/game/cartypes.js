@@ -669,16 +669,16 @@ export const CAR_TYPES = [
     // NO FLOOR. Four wheels and a heavy body: it can crawl, and it is the reason
     // the road keeps a standing pressure braking does not switch off — a player
     // who slows to shed the bikes finds this still in their mirror.
-    speedMin: 0,
+    speedMin: 100,
     cruiseMin: 400,
     cruiseMax: 620,
-    speedMax: 620,
-    steerSpeed: 130,
+    speedMax: 650,
+    steerSpeed: 250,
     blastRadius: 38,
     blastDamage: 16,
     value: 100,
     bounty: 25,
-    minDistance: 450,
+    minDistance: 1500,
     behaviour: "pursue", // real: chases the player down and never gives up —
                          // see behaviours.js's `pursue`
     // A ROCKET INSTEAD OF THE SHARED BLASTER, AND NO MINE LAYER — see
@@ -734,7 +734,7 @@ export const CAR_TYPES = [
     blastDamage: 20,
     value: 100,
     bounty: 15,
-    minDistance: 250,
+    minDistance: 600,
     behaviour: "trail",    // hangs off your back bumper and fires forward — see
                            // behaviours.js's `trail`. It never tries to get
                            // past, unlike the interceptor and rival's `pursue`
@@ -780,7 +780,7 @@ export const CAR_TYPES = [
     cruiseMin: 620,
     cruiseMax: 730,
     speedMax: 730,
-    steerSpeed: 180, // the nimblest thing on the road, by a wide margin
+    steerSpeed: 250, // the nimblest thing on the road, by a wide margin
     blastRadius: 10,
     blastDamage: 5,
     value: 50,
@@ -818,7 +818,7 @@ export const CAR_TYPES = [
     // at walking pace, and a floor over it would be a second, quieter answer to
     // the same question.
     speedMin: 0,
-    cruiseMin: 280,
+    cruiseMin: 200,
     cruiseMax: 330,
     // OPENED TO 560 — the speed `ram` closes at from behind or alongside,
     // which its 330 cruise top would otherwise cap. WELL UNDER THE PLAYER'S
@@ -837,12 +837,12 @@ export const CAR_TYPES = [
     // to ~1041, under the rig's own 1142 and comfortably inside both budgets —
     // the rig remains the worst dodger in the fleet, same as before this entry
     // opened its ceiling.
-    steerSpeed: 100,
+    steerSpeed: 150,
     blastRadius: 52,
     blastDamage: 32,
     value: 100,
-    bounty: 25,
-    minDistance: 500,
+    bounty: 20,
+    minDistance: 800,
     // REAL: closes on the player from behind or alongside to hit them, or
     // sits in their lane going deliberately slower once it's past — see
     // behaviours.js's `ram`. Its whole job is making contact, not shooting,
@@ -886,11 +886,11 @@ export const CAR_TYPES = [
     cruiseMin: 580,
     cruiseMax: 650,
     speedMax: 650,
-    steerSpeed: 150,
+    steerSpeed: 200,
     blastRadius: 40,
     blastDamage: 20,
     value: 300,
-    bounty: 100,
+    bounty: 50,
     // PUSHED OUT FROM 1000. The rival is being tuned up into a proper
     // mini-boss, and the further it goes in that direction the worse it reads
     // as ordinary traffic: at 1000 the ambient road could produce a second one
@@ -949,7 +949,7 @@ export const CAR_TYPES = [
     // overrode `size` here would have to redraw the tyres to match.
     w: 28,
     h: 64,
-    health: 30, // one burst, one shove, or one clipped barrel
+    health: 15, // one burst, one shove, or one clipped barrel
     mass: 0.5,
     // WIDENED BOTH ENDS. The floor drops to 400, level with the interceptor's
     // own, so `strafe` still has a car under it to roll when the player has
@@ -967,14 +967,14 @@ export const CAR_TYPES = [
     speedMin: 200,
     cruiseMin: 400,
     cruiseMax: 660,
-    speedMax: 660,
-    steerSpeed: 200, // the widest sweep on the road needs the quickest hands;
+    speedMax: 800,
+    steerSpeed: 250, // the widest sweep on the road needs the quickest hands;
                      // this is the nimblest thing in the catalogue, past the
                      // cycle's own 180
     blastRadius: 12,
     blastDamage: 6,
     value: 100,
-    bounty: 25,
+    bounty: 10,
     minDistance: 300,
     behaviour: "strafe", // holds the interceptor's gap astern, but sweeping
                          // across the player's line rather than parked on it —
@@ -987,7 +987,7 @@ export const CAR_TYPES = [
     // car spends its whole life behind the player.
     arms: "gunner",
     driving: "outrider",
-    weight: 1.2,
+    weight: 2,
   },
   {
     id: "outrunner",
@@ -996,7 +996,7 @@ export const CAR_TYPES = [
     faction: ENEMY_FACTION,
     w: 32,
     h: 66,
-    health: 45, // the toughest of the three, and still under a single mine
+    health: 35, // the toughest of the three, and still under a single mine
     mass: 0.6,
     // MUST be able to get past a player at their own ceiling (620, player.js),
     // or the tactic never starts: everything this car does happens in front.
@@ -1006,17 +1006,17 @@ export const CAR_TYPES = [
     speedMin: 200,
     cruiseMin: 600,
     cruiseMax: 670,
-    speedMax: 670,
-    steerSpeed: 160,
+    speedMax: 700,
+    steerSpeed: 200,
     blastRadius: 16,
     blastDamage: 8,
     value: 100,
-    bounty: 25,
+    bounty: 20,
     // The latest gate on the road bar the rival's. Being shot at from in front
     // is a genuinely different problem from everything the opening hour
     // teaches, and it lands better as a late surprise than as one more thing
     // in the mirror.
-    minDistance: 600,
+    minDistance: 900,
     behaviour: "outrun", // gets past, holds station up the road and fires back
                          // down it — see behaviours.js's `outrun`
     // The plain blaster, and the reason is the direction: the SMG is
@@ -1024,7 +1024,7 @@ export const CAR_TYPES = [
     // by accident. See armament.js's `rearguard`.
     arms: "rearguard",
     driving: "outrunner",
-    weight: 0.9,
+    weight: 1,
   },
   {
     id: "sower",
@@ -1035,7 +1035,7 @@ export const CAR_TYPES = [
     faction: ENEMY_FACTION,
     w: 38,
     h: 66,
-    health: 55,
+    health: 70,
     mass: 0.8,
     // THE FASTEST THING ON THE ROAD AFTER THE CYCLE, and that is the whole
     // second half of its tactic: the run-out has to be an escape the player
@@ -1045,8 +1045,8 @@ export const CAR_TYPES = [
     // station long enough to line the strip up.
     speedMin: 200,
     cruiseMin: 640,
-    cruiseMax: 700,
-    speedMax: 700,
+    cruiseMax: 650,
+    speedMax: 650,
     steerSpeed: 140,
     blastRadius: 20,
     blastDamage: 10,
@@ -1056,7 +1056,7 @@ export const CAR_TYPES = [
     // (obstacletypes.js's `slowTo`), which is worth as much as a gun and
     // usually more. Killing it before the drop is the point.
     bounty: 25,
-    minDistance: 400,
+    minDistance: 1200,
     behaviour: "strew", // `raid`'s run-in with a strip for a payload, then away
                         // flat out and unarmed — see behaviours.js's `strew`
     // No gun at all, one spike strip, and one only — see armament.js's
@@ -1276,7 +1276,7 @@ export const CAR_TYPES = [
     // bounty — the same weight of enemy, paid the same, with the score half
     // ahead of the rival's 300 because this one costs consumables to reach.
     value: 400,
-    bounty: 100,
+    bounty: 50,
     // FLYING. See the field table above for the three places this is read; the
     // header of this record for what it is FOR.
     airborne: true,
