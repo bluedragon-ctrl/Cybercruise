@@ -105,6 +105,63 @@ export function glowPoly(ctx, points, color, width = 2, fill = null) {
 // path and pay for the one stroke only once.
 // `alpha` scales the stroke, which is what lets a transient effect (an
 // explosion fragment) fade out.
+//
+// THAT FADE NO LONGER KEEPS THE HALO'S RELATIVE WEIGHTING, AND THIS IS AN
+// ARGUED DECISION, NOT AN OVERSIGHT (Phase 15e-ii-a). Through 15d-i this
+// sentence read "alpha scales all three passes together, which is what lets a
+// transient effect fade out without losing the halo's relative weighting" —
+// true of the three-pass overdraw, because every pass scaled by the same
+// alpha, so core and halo always shrank in lockstep. 15d-ii collapsed the
+// three passes to one and bloom (present.js) took over the halo; the PROPERTY
+// that sentence named was never re-established, because bloom does not have
+// one to give: `BRIGHT_FS`'s threshold means glow/core ratio is
+// `1 - uThreshold/(alpha*c)`, which is a CONSTANT only while `alpha*c` stays
+// well above `uThreshold` and collapses to exactly zero the instant it
+// crosses — a fragment in a full-saturation colour (peak channel `c` == 1)
+// loses its ENTIRE halo the moment `alpha` drops under `uThreshold` (0.55),
+// with the bare stroke still visibly fading for the rest of its life. Worked
+// through concretely on `drawWreck`'s shell (game/effects.js, `alpha =
+// max(0, 1 - t^1.7)` over WRECK_DURATION's 0.75s): the ratio is 0.45 at t=0,
+// 0.21 at t=0.5, and exactly 0 by t=0.625 — the last ~38% of the shell's life
+// (~0.28s) is a bare line dimming on its own, glow already gone.
+//
+// FOUR OPTIONS WERE WEIGHED, and none of them is free:
+//   1. Soften BRIGHT_FS's knee. Global, cheap, no per-effect authoring. Moves
+//      nothing about WHERE the ratio hits zero (still exactly `alpha =
+//      uThreshold/c`) but removes the derivative kink in the last stretch
+//      before it does. THE ONE CHOSEN — see below.
+//   2. Lower BLOOM_THRESHOLD. Moves the zero point down directly, but it is a
+//      change to EVERYTHING bright in the game, not just fading effects, and
+//      reopens the headroom question Phase 15c settled at 0.55 (see
+//      present.js's "THE HUD SPLIT"). Not tried here — the blast radius is
+//      wrong for a fade-only problem.
+//   3. Fade by GEOMETRY instead of alpha — a fragment that shrinks, thins and
+//      travels out of frame stays above threshold until it is gone and never
+//      shows the knee at all. Arguably the more honest answer (real light
+//      recedes, it doesn't dim in place), but it is inherently PER-EFFECT,
+//      which means retuning drawWreck/drawWaterBurst/etc. — exactly the work
+//      Phase 15e-ii-b exists to do once this baseline is settled. Deferred
+//      there on purpose, not forgotten.
+//   4. Accept it, unfixed. Zero cost, and a real possibility live: a busy
+//      scene with several fragments and other motion might hide a bare stroke
+//      in a wreck's last third. Not chosen — the softened knee (option 1) was
+//      a small enough cost not to leave this undefended by anything at all.
+//
+// THE SOFT KNEE (`gl/shaders.js`'s `softKnee`, `BRIGHT_FS`) is what shipped:
+// the subtractive threshold's hard corner at `c == uThreshold` becomes a short
+// quadratic ramp (`BLOOM_KNEE = 0.08`) that meets the old linear shape
+// continuously in value AND slope, entirely ABOVE `uThreshold` rather than
+// straddling it — see that function's own header for why the self-test's
+// exact-zero proof requires the floor to sit there and not lower. IT DOES NOT
+// FIX PROPORTIONALITY. The ratio still reaches exactly zero at `alpha =
+// uThreshold/c` — a saturated fragment still goes fully bloomless at 55%
+// alpha, same as before. What it buys is narrower: the last sliver of glow
+// above that point now fades IN gently instead of snapping to full linear
+// contribution the moment it clears the line, so there is no visible "pop" at
+// the edge of the halo, even though the edge itself has not moved. The real
+// fix — proportional fade, which needs a threshold-free pass and would bloom
+// the background — is what option 3 buys, and it is 15e-ii-b's job once this
+// PR's baseline is in.
 export function neonStroke(ctx, build, color, width = 2, alpha = 1) {
   if (alpha <= 0) return;
   ctx.save();

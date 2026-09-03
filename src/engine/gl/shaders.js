@@ -120,17 +120,17 @@ void main() {
   fragColor = texture(uFrame, vUv);
 }`;
 
-// Bright-pass: per-channel subtractive threshold. `max(c - uThreshold, 0.0)`
-// rather than a hard cutoff on luminance — it has no branch, it falls off
+// Bright-pass: per-channel subtractive threshold, softened at the knee as of
+// Phase 15e-ii-a (see softKnee below) — it has no branch, it falls off
 // smoothly instead of drawing a hard edge around whatever crosses the
 // threshold, and it is what makes the pixel-identity self-test provable by
 // inspection rather than by measurement: with `c` a texture fetch of an 8-bit
 // frame, every channel is in [0, 1], so `uThreshold >= 1.0` forces `c -
-// uThreshold <= 0.0` for every fragment and `max(..., 0.0)` is EXACTLY zero —
-// no rounding, no GPU-specific transcendental, just a subtraction and a max.
-// That makes this stage provably exact; see present.js's THRESHOLD SELF-TEST
-// for the one stage downstream (COMPOSITE_FS's exp) that isn't provable this
-// way and has to be measured instead.
+// uThreshold <= 0.0` for every fragment and softKnee(c, uThreshold, ...) is
+// EXACTLY zero — no rounding, no GPU-specific transcendental, just a
+// subtraction and two clamps. That makes this stage provably exact; see
+// present.js's THRESHOLD SELF-TEST for the one stage downstream (COMPOSITE_FS's
+// exp) that isn't provable this way and has to be measured instead.
 //
 // THE FRAME READ IS FLIPPED, `vec2(vUv.x, 1.0 - vUv.y)` rather than plain
 // vUv — see PRESENT_VS's header. This is the one place in the chain the frame
@@ -192,9 +192,75 @@ void main() {
 // symmetric about that corner, so the frame's y-flip does not change which four
 // texels they are and needs no sign care.
 //
-// THE PIXEL-IDENTITY SELF-TEST SURVIVES UNCHANGED: with uThreshold >= 1.0 each
-// of the four `max`es is exactly zero before anything is summed, so the sum is
-// exactly zero and the proof above still holds by inspection.
+// --- THE SOFT KNEE (Phase 15e-ii-a) -----------------------------------------
+//
+// THE PROBLEM THIS ANSWERS. glow/core ratio is `1 - uThreshold/(alpha*c)` for
+// a stroke fading through `alpha`, which hits exactly zero the instant
+// `alpha*c` crosses `uThreshold` from above — a full-saturation colour (`c`
+// == 1) loses its ENTIRE halo the moment `alpha` drops under `uThreshold`
+// (0.55 today), with the bare core still visibly fading for the rest of its
+// life. `engine/neon.js`'s header has the full derivation and the fade
+// options weighed against it; this is the one chosen for the baseline: soften
+// the APPROACH into that zero so it is not a sudden derivative kink, without
+// trying to make the ratio proportional (which would need a threshold-free
+// pass, and would bloom the background — see neon.js). A softer knee does NOT
+// move the point where output reaches zero — see WHY IT SITS ABOVE uThreshold,
+// NOT ACROSS IT below — so a fragment still goes bloomless at exactly the same
+// alpha it did before. What changes is that the last sliver of glow above that
+// point now fades IN gently (quadratic) rather than snapping to full linear
+// contribution the instant it clears the line, which is what removes the
+// visible "pop" at the edge of the halo without touching where the edge is.
+//
+//   d = c - uThreshold
+//   d <= 0                -> 0                    (unchanged: below threshold)
+//   0 < d <= BLOOM_KNEE     -> d*d / (2*BLOOM_KNEE)  (soft ramp)
+//   d > BLOOM_KNEE          -> d - BLOOM_KNEE/2      (old linear shape, shifted
+//                                                     down by BLOOM_KNEE/2 so it
+//                                                     meets the quadratic term
+//                                                     continuously in VALUE and
+//                                                     SLOPE at d == BLOOM_KNEE)
+//
+// WHY IT SITS ABOVE uThreshold, NOT ACROSS IT — THE SELF-TEST DEMANDS IT. The
+// usual "soft threshold" shape (Unreal/Frostbite-style bloom) straddles the
+// cutoff: it starts ramping in BELOW the nominal threshold and reaches the old
+// linear shape somewhat above it, which is a strictly SOFTER floor, not just a
+// softer approach — a few pixels get a little bloom that used to get none. That
+// shape cannot pass this file's own self-test: `uThreshold >= 1.0` has to force
+// EVERY fragment to contribute exactly zero (present.js's THRESHOLD SELF-TEST),
+// and a floor sitting BELOW uThreshold would let some fragment at `c` close to
+// 1.0 leak through even with the threshold forced to 1.0 — a straddling knee
+// widened just enough to be visible is a knee widened just enough to break
+// provability. Anchoring the WHOLE soft region at `d = c - uThreshold >= 0`
+// keeps `d <= 0` (hence output exactly 0) for every channel whenever
+// `uThreshold >= 1.0`, for ANY BLOOM_KNEE > 0 — the proof does not depend on
+// how wide the knee is, only on where its floor sits.
+//
+// BLOOM_KNEE = 0.08, chosen so the softened region (uThreshold to uThreshold +
+// 0.08, i.e. roughly 0.55-0.63 today) covers a visible slice of a typical
+// alpha fade without eating deeply into the headroom that drives full-strength
+// bloom. THE COST: a fully saturated channel (c == 1, threshold 0.55) used to
+// contribute 0.45 to the sum below; now it contributes 0.45 - 0.08/2 = 0.41, a
+// flat ~9% reduction for every channel at or above uThreshold + BLOOM_KNEE
+// (0.63) — see present.js for BLOOM_EXPOSURE's retune against that. The
+// function itself is defined once, inside the shader source below.
+//
+// THE PIXEL-IDENTITY SELF-TEST SURVIVES UNCHANGED: with uThreshold >= 1.0 every
+// `d` above is <= 0 for every channel of every tap, so softKnee is exactly zero
+// before anything is summed and the proof above still holds by inspection —
+// see softKnee's own header for why that holds for any BLOOM_KNEE.
+//
+// 15C-I'S PARITY ARGUMENT IS UNCHANGED TOO, and does not depend on what
+// function is applied per tap: it only requires the four taps to be the same
+// four source texels regardless of which row of the quad a 1px line lands on,
+// and to have IDENTICAL treatment (same threshold, same knee) applied to each
+// before they are summed. softKnee is applied per tap, before the sum, exactly
+// where max(c - uThreshold, 0.0) was — so a 1px line still lights exactly two
+// of the four taps whichever row of its quad it occupies, and the combined
+// output is the same either way. Re-run at BLOOM_KNEE = 0.08, BLOOM_THRESHOLD
+// 0.55: a full-value channel (c = 1) landing on 2 of 4 taps gives
+// (0.41 + 0.41 + 0 + 0) * 0.25 = 0.205 flat at every row parity (was 0.225
+// under the old linear subtraction) — still one number regardless of which
+// physical row the line falls on, only the number itself moved with the knee.
 export const BRIGHT_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uFrame;
@@ -202,13 +268,21 @@ uniform float uThreshold;
 uniform vec2 uTexel;
 in vec2 vUv;
 out vec4 fragColor;
+
+vec3 softKnee(vec3 c, float threshold, float knee) {
+  vec3 d = c - threshold;
+  vec3 t = clamp(d, 0.0, knee);
+  return t * t / (2.0 * knee) + max(d - knee, 0.0);
+}
+
 void main() {
   vec2 uv = vec2(vUv.x, 1.0 - vUv.y);
   vec2 o = uTexel * 0.5;
-  vec3 c = max(texture(uFrame, uv + vec2(-o.x, -o.y)).rgb - uThreshold, 0.0)
-         + max(texture(uFrame, uv + vec2( o.x, -o.y)).rgb - uThreshold, 0.0)
-         + max(texture(uFrame, uv + vec2(-o.x,  o.y)).rgb - uThreshold, 0.0)
-         + max(texture(uFrame, uv + vec2( o.x,  o.y)).rgb - uThreshold, 0.0);
+  const float knee = 0.08;
+  vec3 c = softKnee(texture(uFrame, uv + vec2(-o.x, -o.y)).rgb, uThreshold, knee)
+         + softKnee(texture(uFrame, uv + vec2( o.x, -o.y)).rgb, uThreshold, knee)
+         + softKnee(texture(uFrame, uv + vec2(-o.x,  o.y)).rgb, uThreshold, knee)
+         + softKnee(texture(uFrame, uv + vec2( o.x,  o.y)).rgb, uThreshold, knee);
   fragColor = vec4(c * 0.25, 1.0);
 }`;
 

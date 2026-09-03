@@ -291,7 +291,7 @@ import { createTarget, resizeTarget } from "./gl/target.js";
 // channel.
 //
 // THE FIELDS NAME THE SIGNAL, NOT EITHER SEQUENCE. Nothing here says "jack-in"
-// or "death", deliberately: 15e-ii is hull-driven corruption on this same axis,
+// or "death", deliberately: 15e-iv is hull-driven corruption on this same axis,
 // and when it lands it writes `corrupt`/`quant` from the hull and main.js takes
 // the larger of the two. A channel whose fields were named after the sequences
 // that first filled them would need widening for that; this one does not.
@@ -370,11 +370,28 @@ const FEED_BLOCKS_Y = 32;
 // below, since every frame channel is in [0, 1].
 const BLOOM_THRESHOLD = 0.55;
 
-// FINAL AS OF PHASE 15C — multiplies the bright-pass contribution before
-// COMPOSITE_FS's `1 - exp(-x)` knee (gl/shaders.js). Higher pushes more of the
-// knee's curve into its steep early region, which reads as a stronger glow
-// for the same threshold.
-const BLOOM_EXPOSURE = 4.0;
+// RETUNED IN PHASE 15E-II-A, up from 4.0. Multiplies the bright-pass
+// contribution before COMPOSITE_FS's `1 - exp(-x)` knee (gl/shaders.js).
+// Higher pushes more of the knee's curve into its steep early region, which
+// reads as a stronger glow for the same threshold.
+//
+// THE RETUNE IS A CORRECTION, NOT A NEW LOOK. BRIGHT_FS's softKnee (see that
+// shader's own header) trims a flat BLOOM_KNEE/2 (0.04) off every fully
+// saturated channel's contribution to make the approach into zero gentle
+// instead of kinked — a deliberate, small cost, paid once per channel
+// regardless of how far past threshold it sits. Left at 4.0, that shows up as
+// every already-established halo (buildings, barriers — anything drawn at
+// full alpha) reading measurably dimmer than it did through Phase 15c, which
+// is not what this phase set out to change. Solved for directly rather than
+// nudged by eye: a full-value channel's four-tap bright-pass output drops
+// from 0.225 to 0.205 (BRIGHT_FS's own header has the per-tap arithmetic), and
+// `E` solving `1 - exp(-0.205*E) == 1 - exp(-0.225*4.0)` is ~4.39 — rounded to
+// 4.4, which restores the OLD peak composited halo intensity for a saturated
+// thin line almost exactly (0.5934 old vs 0.5942 new, computed) while still
+// letting near-threshold pixels ramp in through the soft knee rather than
+// snapping on. Confirmed live: a busy gameplay scene's buildings and barriers
+// read the same thickness of halo as before the knee, not thinner.
+const BLOOM_EXPOSURE = 4.4;
 
 // The 2D canvas the game draws into, and the WebGL2 canvas in front of it.
 let source = null;

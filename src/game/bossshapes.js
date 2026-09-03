@@ -409,6 +409,17 @@ export const BOSS_SHAPES = [
     // which is a bounded exception rather than a reason to doubt the rest of
     // the catalogue: every other shape's colours were chosen to clear
     // threshold on their own, and only this one was chosen not to.
+    // RE-EXAMINED AT BLOOM_THRESHOLD 0.55 (Phase 15e-ii-a, down from the 0.75
+    // this exception was written against). HAULER (#197c88) peaks on B at
+    // 0.5333 — 0.0167 UNDER 0.55, margin thin enough that the question was
+    // worth asking again: does a small palette nudge retire this exception?
+    // NO. hauler.js's render() comment is explicit that HAULER sits WELL below
+    // PLAYER in value ON PURPOSE — the CLAW LIFTER closes AROUND the car it is
+    // rescuing, and two similar-brightness cyans overlapping like that merge
+    // into one mass with the car lost inside it. Closing a 0.0167 gap would
+    // mean brightening HAULER, which is exactly the move that constraint rules
+    // out — the margin this hull was given from PLAYER is not slack to spend
+    // on clearing bloom, it is the point of the colour. localGlow stays.
     localGlow: true,
     parts: [
       [[0, -0.98], [0.86, -0.92], [0.90, -0.62], [0.80, -0.52], [0, -0.50]],
