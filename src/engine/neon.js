@@ -76,6 +76,24 @@ export function glowPoly(ctx, points, color, width = 2, fill = null) {
   ctx.restore();
 }
 
+// A single narrow dart — a triangle whose tip points `angle` — added Phase
+// 15e-ii-b as a shared primitive: game/effects.js's mine blast and shield arc
+// use it for a field of small directional sparks, and game/walletrender.js's
+// uplink packets use the identical shape for the same reason both places
+// wanted it — a spark or a data packet is a DIRECTIONAL thing (it flies or
+// travels somewhere), where a circle reads as a field with no preferred
+// direction. Building it once here, rather than copying it into each caller,
+// is what keeps "a dart" one shape across the game instead of three
+// almost-identical ones drifting apart. Call through neonStroke, same as
+// every other mark in this file — this only issues the path.
+export function dartAt(c, px, py, r, angle) {
+  const a2 = angle + 2.4, a3 = angle - 2.4; // ~137° back corners — a narrow dart, not an equilateral triangle
+  c.moveTo(px + Math.cos(angle) * r * 1.6, py + Math.sin(angle) * r * 1.6);
+  c.lineTo(px + Math.cos(a2) * r * 0.7, py + Math.sin(a2) * r * 0.7);
+  c.lineTo(px + Math.cos(a3) * r * 0.7, py + Math.sin(a3) * r * 0.7);
+  c.closePath();
+}
+
 // A glowing OPEN polyline, drawn WITHOUT ctx.shadowBlur.
 //
 // THROUGH PHASE 15D-I, THIS STROKED THE PATH THREE TIMES — wide and faint,
@@ -147,21 +165,48 @@ export function glowPoly(ctx, points, color, width = 2, fill = null) {
 //      in a wreck's last third. Not chosen — the softened knee (option 1) was
 //      a small enough cost not to leave this undefended by anything at all.
 //
-// THE SOFT KNEE (`gl/shaders.js`'s `softKnee`, `BRIGHT_FS`) is what shipped:
-// the subtractive threshold's hard corner at `c == uThreshold` becomes a short
-// quadratic ramp (`BLOOM_KNEE = 0.08`) that meets the old linear shape
-// continuously in value AND slope, entirely ABOVE `uThreshold` rather than
-// straddling it — see that function's own header for why the self-test's
-// exact-zero proof requires the floor to sit there and not lower. IT DOES NOT
-// FIX PROPORTIONALITY. The ratio still reaches exactly zero at `alpha =
-// uThreshold/c` — a saturated fragment still goes fully bloomless at 55%
-// alpha, same as before. What it buys is narrower: the last sliver of glow
-// above that point now fades IN gently instead of snapping to full linear
-// contribution the moment it clears the line, so there is no visible "pop" at
-// the edge of the halo, even though the edge itself has not moved. The real
-// fix — proportional fade, which needs a threshold-free pass and would bloom
-// the background — is what option 3 buys, and it is 15e-ii-b's job once this
-// PR's baseline is in.
+// THE SOFT KNEE (`gl/shaders.js`'s `softKnee`, `BRIGHT_FS`) is what 15e-ii-a
+// shipped as the baseline: the subtractive threshold's hard corner at
+// `c == uThreshold` becomes a short quadratic ramp (`BLOOM_KNEE = 0.08`) that
+// meets the old linear shape continuously in value AND slope, entirely ABOVE
+// `uThreshold` rather than straddling it — see that function's own header for
+// why the self-test's exact-zero proof requires the floor to sit there and
+// not lower. IT DID NOT FIX PROPORTIONALITY on its own — the ratio still
+// reaches exactly zero at `alpha = uThreshold/c` — what it bought was
+// narrower: the last sliver of glow fading IN gently instead of snapping on,
+// so there was no visible "pop" at the edge of the halo even though the edge
+// itself had not moved.
+//
+// OPTION 3 IS WHAT 15E-II-B SHIPPED, AND IT WENT FURTHER THAN "RETUNE THE
+// EXPONENTS". Every effect in game/effects.js that used to fade by alpha now
+// fades by GEOMETRY — a field of small shapes (squares for an object's
+// silhouette breaking apart, circles or triangles for a pulse of energy)
+// SHRINKING TO A POINT at CONSTANT alpha 1, never crossing the knee at all
+// because there is no alpha ramp left to cross it with. `game/effects.js`'s
+// own header has the two mechanisms (block shatter, area/line pulse) and the
+// full account of which effect uses which. THREE EXCEPTIONS WERE KEPT AS
+// ALPHA, DELIBERATELY: the white "impact" flashes (drawWreck, the fireball,
+// heavy impact) are punctuation rather than fragments meant to persist, so a
+// saturated flash going bloomless as it winds down reads as the flash itself
+// dying, which is correct for punctuation in a way it never was for a
+// fragment; drawShieldArc's own discharge stayed alpha-only too, at 0.18s too
+// short for the defect to read as anything but a snap. `drawTargetMark`'s
+// persistent pulse and `player.js`'s shield ring are not fades at all — see
+// each for its own one-line decision.
+//
+// THE WIDTH TRAP, WHY `width` IS NOT A FADE KNOB EITHER. Thinning a stroke is
+// not a threshold-free fade — it is an alpha fade wearing a different hat. A
+// stroke narrower than one DEVICE pixel does not draw a thin line, it
+// antialiases to partial coverage, and the value that lands in the
+// framebuffer falls exactly the way `globalAlpha` makes it fall: it hits the
+// identical knee at the identical place. The game draws in logical units on a
+// backing store `renderScale()` times larger (`viewport.js`), so a device
+// pixel is `1/scale` logical units and `scale` moves in eighths from 1
+// upward (`viewport.js`'s `SCALE_STEP`) — at scale 1 a `width` under ~1.0 is
+// already bleeding coverage, and the floor stays at one device pixel however
+// high `scale` goes. Geometric fade means the shape's own SIZE or COUNT goes
+// to zero, at constant `width` and constant `alpha` — never the stroke
+// getting thinner.
 export function neonStroke(ctx, build, color, width = 2, alpha = 1) {
   if (alpha <= 0) return;
   ctx.save();

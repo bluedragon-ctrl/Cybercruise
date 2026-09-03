@@ -12,18 +12,27 @@
 // plain Node, and stay there. The three functions here take those results and
 // turn them into ink, and take nothing else — so they are readable without
 // knowing anything about how credits are earned.
-import { glowText, neonStroke } from "../engine/neon.js";
+import { glowText, neonStroke, dartAt } from "../engine/neon.js";
 import { GREEN_PALE, GREEN_BRIGHT, HAZARD } from "../engine/palette.js";
 import { centerXAt } from "./road.js";
-import { AWARD_MARK_LIFE, AWARD_MARK_RISE, DISH_MAST, DISH_R } from "./wallet.js";
+import { AWARD_MARK_LIFE, AWARD_MARK_RISE, LINK_CLEAR } from "./wallet.js";
 
-// The link's dashes: length, gap, and px/sec of travel — brisk enough to read
-// as flow at a glance, slow enough not to strobe. They march FROM THE NODE
+// The link's packets: spacing and px/sec of travel — brisk enough to read as
+// flow at a glance, slow enough not to strobe. They march FROM THE NODE
 // TOWARD THE CAR, because that is the direction the data is going and a beam
 // running the other way would quietly say the player is uploading something.
-const LINK_DASH = 7;
-const LINK_GAP = 6;
+// LINK_MARCH is unchanged from the old dashed-line version; only the shape
+// travelling along it changed (Phase 15e-ii-b — see wallet.js's own header).
+const LINK_PACKET_GAP = 13; // px between packet centres along the beam
+const LINK_PACKET_R = 2.6;
 const LINK_MARCH = 34;
+
+// How long the receiver marker stays flared after a packet reaches it —
+// derived purely from `clockValue modulo the packet's own arrival period`
+// (LINK_PACKET_GAP / LINK_MARCH seconds), so it needs no memory of the last
+// packet that actually arrived, the same stateless philosophy every other
+// render function in this file already follows.
+const LINK_FLARE_WINDOW = 0.12;
 
 // Both parts brighten as the hold fills, from "connecting" to "about to pay".
 // The floor's bar is still the precise reading; this is the glance version, so
@@ -109,50 +118,53 @@ export function renderAwardMarks(ctx, marks, player, distance, W) {
   }
 }
 
-// THE DISH AND ITS LINK. Drawn from main.js immediately AFTER the car, so the
-// dish sits on the car rather than under it — and drawn in two neonStrokes
-// rather than a dozen (see neon.js on why the path is batched): one for the
-// link's dashes, one for the dish and its mast.
+// THE UPLINK: a stream of packets and the marker receiving them. Drawn from
+// main.js immediately AFTER the car, so it sits on the car rather than under
+// it — and drawn in two neonStrokes rather than a dozen (see neon.js on why
+// the path is batched): one for the packet stream, one for the receiver
+// marker's flare.
 //
 // The only thing in this module that draws in the CAR's layer rather than on
-// the city floor, which is exactly the point of it (see wallet.js's THE DISH).
-// `link` is Wallet.linkGeometry()'s output, or null when nothing is draining.
+// the city floor, which is exactly the point of it (see wallet.js's THE
+// UPLINK MARKER). `link` is Wallet.linkGeometry()'s output, or null when
+// nothing is draining.
+//
+// THROUGH PHASE 15E-II-A THIS WAS A MARCHING DASHED LINE AND A SATELLITE
+// DISH. Phase 15e-ii-b replaces both with the same directional-dart
+// vocabulary game/effects.js's mine blast and shield arc use (`dartAt`,
+// engine/neon.js) — see wallet.js's own header for why the dish specifically
+// had to go.
 export function renderUplink(ctx, clockValue, link) {
   if (!link) return;
 
   // Faint at the moment the link takes, bright as it comes good.
   const alpha = LINK_MIN_ALPHA + (1 - LINK_MIN_ALPHA) * link.progress;
 
-  // THE LINK: dashes marching node -> car. `clockValue` drives the march, so
-  // it keeps step with the same floor clock the nodes' own pings run on and
-  // stops dead when the game does.
-  const start = DISH_MAST + DISH_R;                       // clear of the dish's mouth
-  const span = Math.hypot(link.nx - link.ax, link.ny - link.ay) - start;
+  // THE PACKET STREAM: darts marching node -> car, `LINK_CLEAR` past the
+  // car's own flank (`link.dx,dy`) out to the node. `clockValue` drives the
+  // march, so it keeps step with the same floor clock the nodes' own pings
+  // run on and stops dead when the game does. Subtracted, not added: the
+  // pattern slides back down the beam toward the car, the direction the
+  // credits are going — unchanged from the old dash version.
+  const span = Math.hypot(link.nx - link.dx, link.ny - link.dy);
   if (span > 0) {
-    const period = LINK_DASH + LINK_GAP;
-    // Subtracted, not added: the pattern slides back down the beam toward
-    // the car, which is the direction the credits are going.
-    const phase = (clockValue * LINK_MARCH) % period;
+    const travelAngle = Math.atan2(-link.uy, -link.ux); // every dart points toward the car
+    const phase = (clockValue * LINK_MARCH) % LINK_PACKET_GAP;
     neonStroke(ctx, (c) => {
-      for (let d = span - phase; d > 0; d -= period) {
-        const from = Math.max(0, d - LINK_DASH);
-        c.moveTo(link.ax + link.ux * (start + from), link.ay + link.uy * (start + from));
-        c.lineTo(link.ax + link.ux * (start + d), link.ay + link.uy * (start + d));
+      for (let d = span - phase; d > 0; d -= LINK_PACKET_GAP) {
+        dartAt(c, link.dx + link.ux * d, link.dy + link.uy * d, LINK_PACKET_R, travelAngle);
       }
-    }, GREEN_BRIGHT, 1.5, alpha * 0.8);
+    }, GREEN_BRIGHT, 1.6, alpha * 0.9);
   }
 
-  // THE DISH: a mast off the flank, a half-circle whose OPEN side faces the
-  // node (the bulge points back at the car, the way a real dish's does), and
-  // a stub feed horn standing in its mouth.
-  const theta = Math.atan2(link.uy, link.ux);
-  neonStroke(ctx, (c) => {
-    c.moveTo(link.ax, link.ay);
-    c.lineTo(link.dx, link.dy);
-    c.moveTo(link.dx + Math.cos(theta + Math.PI / 2) * DISH_R,
-             link.dy + Math.sin(theta + Math.PI / 2) * DISH_R);
-    c.arc(link.dx, link.dy, DISH_R, theta + Math.PI / 2, theta + Math.PI * 1.5);
-    c.moveTo(link.dx, link.dy);
-    c.lineTo(link.dx + link.ux * DISH_R * 0.8, link.dy + link.uy * DISH_R * 0.8);
-  }, GREEN_BRIGHT, 1.5, alpha);
+  // THE RECEIVER MARKER: a dart right on the car's own flank, aimed at the
+  // node (the same "which way" job the dish's aim used to do), FLARING
+  // briefly on each arrival. Purely time-based, so it needs no memory of
+  // which packet actually just landed.
+  const arrivalPeriod = LINK_PACKET_GAP / LINK_MARCH;
+  const sinceArrival = clockValue % arrivalPeriod;
+  const flareK = Math.max(0, 1 - sinceArrival / LINK_FLARE_WINDOW);
+  const r = 3 + flareK * 3.5;
+  neonStroke(ctx, (c) => dartAt(c, link.ax, link.ay, r, Math.atan2(link.uy, link.ux)),
+    GREEN_BRIGHT, 1.6, alpha * (0.55 + 0.45 * flareK));
 }

@@ -102,11 +102,12 @@ const DAMAGE_THRESHOLDS = [
 // RETIRES THE GRADIENT for the same reason neonStroke's overdraw went: bloom
 // (engine/present.js) now supplies a soft falloff around anything bright
 // enough to cross its threshold, so a second, hand-authored falloff doubles
-// up with it. What is left is a single plain stroked ring — still additive,
-// still nothing drawn over the car's own centre (a filled disc would wash the
-// wireframe out there, which is exactly what the gradient's dimmed middle
-// stop was avoiding; a ring keeps avoiding it by construction, drawing
-// nothing inside its own radius at all).
+// up with it. What is left is a plain stroked ring (TWO of them as of Phase
+// 15e-ii-b — renderShield's own header has the wavy-barrier reasoning) —
+// still additive, still nothing drawn over the car's own centre (a filled
+// disc would wash the wireframe out there, which is exactly what the
+// gradient's dimmed middle stop was avoiding; a ring keeps avoiding it by
+// construction, drawing nothing inside its own radius at all).
 //
 // The radius spans the car with room to spare (the body is 34x64), so the
 // ring sits just outside the wireframe rather than on top of it.
@@ -140,6 +141,20 @@ const SHIELD_PULSE_RATE = 4.2; // rad/sec — roughly a breath every 1.5s
 // glow now pulses with the breath instead of just the radius, which reads as
 // MORE alive than the old orb did, not less.
 const SHIELD_ORB_ALPHA = 0.85;
+// The wavy-ring tuning, Phase 15e-ii-b. Two rings, close enough together
+// (SHIELD_RING_SPACING) that their wobble overlaps rather than reading as two
+// separate barriers; two harmonics per ring (k=3 and k=5, weighted 2:1 by
+// SHIELD_WAVE_AMP_1/2) so the outline breathes rather than looks like a gear.
+// SHIELD_WAVE_RATE and SHIELD_WAVE_RING_OFFSET drive the wobble off the same
+// shieldPhase the breath already uses, offset per ring so the two rings never
+// wobble in lockstep.
+const SHIELD_RING_COUNT = 2;
+const SHIELD_RING_SPACING = 2.6; // px between the two rings' base radii
+const SHIELD_WAVE_RATE = 2.3;    // rad/sec
+const SHIELD_WAVE_RING_OFFSET = 2.1; // rad, the second ring's phase lead
+const SHIELD_WAVE_AMP_1 = 2.4;   // px, the k=3 harmonic
+const SHIELD_WAVE_AMP_2 = 1.3;   // px, the k=5 harmonic
+const SHIELD_WAVE_SEGMENTS = 48; // polyline segments per ring
 // The last stretch of the window flickers toward SHIELD_FLICKER — the same
 // "about to lose it" tell CRITICAL_FLASH gives a dying car (traffic.js),
 // moved into the player's own family. Kept short: a flicker that ran the
@@ -693,26 +708,46 @@ export class Player {
     if (this.shieldTime > 0) this.renderShield(ctx, x);
   }
 
-  // One pulsing ring around the car. Drawn OVER the car (after drawCarCached
-  // above) but ADDITIVELY ("lighter"), so it brightens the wireframe
-  // underneath instead of veiling it — the same "a layer on top" logic the
-  // hit-flash colour follows. See SHIELD_ORB_R's own comment for why this is
-  // a plain stroke rather than glowOrb's old radial gradient.
+  // TWO WAVY, LAYERED RINGS — an energy BARRIER rather than a wireframe
+  // circle, added Phase 15e-ii-b. Same breath (radius and alpha both still
+  // driven by the one `Math.sin(shieldPhase * SHIELD_PULSE_RATE)` curve, same
+  // reasoning as before: two out-of-step curves would read as a wobble, not a
+  // breath) and the same SHIELD_ORB_ALPHA argument above, untouched — this
+  // does not revisit whether the ring should bloom, only what shape it is.
+  //
+  // Two rings at slightly different radii (SHIELD_RING_SPACING apart) and
+  // wave phases, each a LOW-ORDER wobble (two harmonics, k=3 and k=5 — an
+  // energy field breathing, not the sharp fast crackle the mine/arc
+  // discharges use) rather than a perfect circle, both drawn "lighter" at a
+  // SHARE of the same alpha the single ring used. The "blurred barrier" read
+  // comes from genuine overlap between two independently wavy shapes under
+  // bloom's own per-pixel halo where they cross — not from faking a blur
+  // with extra alpha or a wider stroke, which would only repeat the width
+  // trap engine/neon.js's `neonStroke` header warns against.
   renderShield(ctx, x) {
     const expiring = this.shieldTime < SHIELD_EXPIRING;
     const flicker = expiring && Math.sin(this.shieldPhase * SHIELD_FLICKER_RATE) > 0;
     const color = flicker ? SHIELD_FLICKER : PLAYER;
-    // One sine drives both radius and brightness, so the halo swells as it
-    // brightens — two out-of-step curves would read as a wobble, not a breath.
     const breath = (Math.sin(this.shieldPhase * SHIELD_PULSE_RATE) + 1) / 2; // 0..1
-    const r = SHIELD_ORB_R - SHIELD_ORB_PULSE * (1 - breath);
+    const baseR = SHIELD_ORB_R - SHIELD_ORB_PULSE * (1 - breath);
     const alpha = SHIELD_ORB_ALPHA * (0.5 + 0.5 * breath);
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
-    neonStroke(ctx, (c) => {
-      c.moveTo(x + r, this.y);
-      c.arc(x, this.y, r, 0, Math.PI * 2);
-    }, color, SHIELD_ORB_WIDTH, alpha);
+    for (let ring = 0; ring < SHIELD_RING_COUNT; ring++) {
+      const radiusOffset = (ring - (SHIELD_RING_COUNT - 1) / 2) * SHIELD_RING_SPACING;
+      const wavePhase = this.shieldPhase * SHIELD_WAVE_RATE + ring * SHIELD_WAVE_RING_OFFSET;
+      neonStroke(ctx, (c) => {
+        const N = SHIELD_WAVE_SEGMENTS;
+        for (let i = 0; i <= N; i++) {
+          const a = (i / N) * Math.PI * 2;
+          const wave = Math.sin(a * 3 + wavePhase) * SHIELD_WAVE_AMP_1
+            + Math.sin(a * 5 - wavePhase * 1.4) * SHIELD_WAVE_AMP_2;
+          const rr = baseR + radiusOffset + wave;
+          const px = x + Math.cos(a) * rr, py = this.y + Math.sin(a) * rr;
+          if (i === 0) c.moveTo(px, py); else c.lineTo(px, py);
+        }
+      }, color, SHIELD_ORB_WIDTH * 0.75, alpha * 0.75);
+    }
     ctx.restore();
   }
 }

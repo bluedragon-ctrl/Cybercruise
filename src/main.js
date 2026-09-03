@@ -1788,7 +1788,7 @@ function render(alpha) {
   // the road is hiding is one that pays nothing anyway, and the marker
   // disappearing under the tarmac says exactly that.
   // Gathered once and kept: the same list feeds the floor's own markers here
-  // and the link's dish drawn on the car further down, and walking the floor
+  // and the uplink drawn on the car further down, and walking the floor
   // twice for two views of one fact would be paying for it twice.
   let floorNodes = null;
   if (state !== "menu") {
@@ -1851,16 +1851,16 @@ function render(alpha) {
     ctx.translate(0, lift);
     player.render(ctx, alpha, road.headingAt(camY));
     ctx.restore();
-    // The link's dish, on the car and aimed at the node it is draining, with
-    // the link drawn between the two (game/wallet.js). AFTER the car, so the
-    // dish reads as bolted to it rather than buried under it — and only in the
-    // branch where there IS a car, since a dish on a wreck would be the HUD
-    // reporting on a link that died with it. Draws nothing unless a hold is
-    // actually running, and shares the car's interpolated x so the two never
-    // drift apart between logic steps.
+    // The uplink: a stream of packets from the node to a receiver marker on
+    // the car (game/wallet.js). AFTER the car, so the marker reads as bolted
+    // to it rather than buried under it — and only in the branch where there
+    // IS a car, since a marker on a wreck would be the HUD reporting on a
+    // link that died with it. Draws nothing unless a hold is actually
+    // running, and shares the car's interpolated x so the two never drift
+    // apart between logic steps.
     //
-    // NOT while the car is off the road: a siphon link is a dish on the car
-    // aimed at a node on the city floor, and the geometry stops meaning
+    // NOT while the car is off the road: a siphon link runs from a node on
+    // the city floor to a marker on the car, and the geometry stops meaning
     // anything the moment the car is hanging under a drone thirty metres above
     // it. `lift` is exactly the "is the car still on the tarmac" test, and it
     // is already computed above.

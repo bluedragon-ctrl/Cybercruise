@@ -1,29 +1,83 @@
-// Destruction effects — what a car looks like when it dies.
+// Destruction and discharge effects — what happens on screen when something in
+// the world gets hit.
 //
-// THE LOOK. The shell breaks apart along the car's OWN outline while its insides
-// spray out from under it. The silhouette fragments are what say which car died
-// and which faction it belonged to; the streaks give the moment the physical
-// weight that outline fragments alone lack. Because the shell comes from
-// carshapes.js, a new car type is destructible the day it is added — there is no
-// per-type explosion art to draw.
+// PHASE 15E-II-B RE-AUTHORS NEARLY ALL OF THIS FILE, not just the fade. Through
+// 15e-ii-a every effect here was Canvas2D debris art built against a renderer
+// (the three-pass `neonStroke` overdraw) that no longer exists — bloom now
+// supplies the halo (engine/present.js), and a stroke's `alpha` fading through
+// `BRIGHT_FS`'s threshold goes fully bloomless partway through its own life
+// (engine/neon.js's `neonStroke` header has the derivation). The brief for
+// this phase was not "patch the fade in place"; it was "the project owner
+// explicitly invited a second answer to `the car is destroyed`, is the
+// existing debris vocabulary even still the right one". It wasn't, for four
+// of the events below, and the record of WHY is kept here rather than
+// deleted, per this repo's rule on superseded decisions.
 //
-// STATELESS DRAWING. drawWreck is a PURE function of normalised progress `t`
-// (0 -> 1 across WRECK_DURATION): particle positions are recomputed from a
-// per-explosion seed every frame rather than stored. That keeps the artwork
-// scrubbable (the gallery animates it straight from its own `phase` counter) and
-// means the pool below only has to remember (worldY, offset, seed, elapsed) per
-// explosion — four numbers, no particle arrays.
+// TWO NEW VOCABULARIES, PLUS ONE CARRIED OVER UNCHANGED:
 //
-// COST. Unlike cars, an explosion is unique per instance, so the sprite cache
-// cannot help: every frame is drawn live. That rules out ctx.shadowBlur — as
-// neon.js documents, blur cost scales with the shadow's BOUNDING-BOX AREA, and a
-// debris field's box is enormous. Everything here goes through neonStroke
-// instead, which since Phase 15d-ii is a single plain stroke (bloom supplies the
-// halo — see neon.js's header), and each pass batches ALL of its fragments into
-// one path so that stroke is paid once per pass, not once per particle. A wreck
-// is 3 strokes per frame regardless of how many pieces it is made of.
+//   BLOCK SHATTER (drawWreck, the three roadblock materials). A destroyed
+//   object's RENDER fails rather than its parts flying off it — the
+//   silhouette is sampled onto a small grid and the occupied cells fly
+//   outward, shrinking to a point at CONSTANT alpha. This is deliberately not
+//   a glass-shatter trope: it echoes `GLITCH_FS`'s own macroblock vocabulary
+//   (engine/gl/shaders.js) — the game's fiction is already "you are looking
+//   at a signal", so a destroyed object's picture failing block by block is
+//   the same category of event as the signal itself failing, just local and
+//   permanent. Squares, always — see AREA PULSE below for why that shape
+//   choice is load-bearing.
+//
+//   AREA PULSE (drawMineBlast, drawFireballBurst, drawCollectBurst,
+//   drawShieldArc). These four are not objects failing, they are ENERGY AT A
+//   POINT (or, for the arc, energy travelling between two points) with a real
+//   radius — so the idiom is a WAVEFRONT REVEALING a field rather than blocks
+//   flying off a silhouette. Every cell in the field gets an arrival time
+//   from its own position (radial distance for a point event, distance along
+//   the line for the arc); a cell not yet arrived is not drawn AT ALL, and
+//   once arrived it flares then shrinks to a point over FLARE_HOLD of the
+//   effect's own life — the identical `GLITCH_FS` "frontier through a block
+//   field" mechanism (`uResolve` sweeping `arriveT`), reused here in 2D so
+//   the whole game speaks one dialect for "something happened here" rather
+//   than three unrelated ones. DRAWN AS CIRCLES, NOT SQUARES, except the mine
+//   and the shield arc, which are TRIANGLES — see each effect's own header
+//   for why. The shape difference (square vs. circle/triangle) is what keeps
+//   "an object's picture failed" reading as a different category of event
+//   from "energy happened here" at a glance, before colour or duration are
+//   read at all.
+//
+//   drawTargetMark and drawHullMeter are UNCHANGED — neither is a fade (a
+//   persistent pulse and a plain instrument respectively); see each for the
+//   one-line decision on why.
+//
+// WHAT THIS BUYS ON THE ORIGINAL BRIEF (a threshold-free fade) FOR FREE: every
+// block/circle/triangle in both new vocabularies fades by SHRINKING TO A
+// POINT at alpha 1, never by thinning a stroke or ramping alpha down — see
+// engine/neon.js's `neonStroke` header for why thinning a stroke cannot do
+// this (the width trap) and why shrinking the geometry can. Nothing below
+// crosses BLOOM_THRESHOLD's knee partway through its own life the way the
+// pre-15e-ii-b file did.
+//
+// STATELESS DRAWING, UNCHANGED FROM BEFORE. Every draw function here is a PURE
+// function of normalised progress `t` (0 -> 1 across the effect's own
+// `*_DURATION`): geometry is recomputed from a per-explosion seed every frame
+// rather than stored, which keeps the artwork scrubbable (the gallery
+// animates it straight from its own `phase` counter) and means the pool below
+// only remembers (worldY, offset, seed, elapsed) per explosion — four
+// numbers, no particle arrays.
+//
+// COST, UNCHANGED IN SHAPE. An explosion is unique per instance, so the
+// sprite cache cannot help — every frame is drawn live, which is why nothing
+// here uses ctx.shadowBlur (its cost scales with the shadow's BOUNDING-BOX
+// AREA, and a debris field's box is large) and everything goes through
+// `neonStroke` instead, batched so each pass costs one stroke regardless of
+// fragment count. The ONE new cost this phase adds: block/pulse OCCUPANCY —
+// which grid cells are inside a silhouette, or inside a disk — depends only
+// on the shape's own dimensions, never on seed or t, so it is computed once
+// per distinct shape and cached (`shatterCache`) rather than rebuilt every
+// frame of every explosion. A car wreck's occupancy is the same array for
+// every wreck of that car type; a mine's disk is the same array for every
+// mine at that radius.
 
-import { neonStroke } from "../engine/neon.js";
+import { neonStroke, dartAt } from "../engine/neon.js";
 import { carShapeOutline } from "./carshapes.js";
 import { centerXAt } from "./road.js";
 import {
@@ -31,10 +85,7 @@ import {
   GREEN_BRIGHT,
   HAZARD,
   GREEN_DIM,
-  GREEN_PALE,
   NEUTRAL,
-  NEUTRAL_DEEP,
-  NEUTRAL_PALE,
   PICKUP_FRAME_BRIGHT,
   PLAYER,
   PLAYER_THRUST,
@@ -48,14 +99,12 @@ import { OBSTACLE_SHAPES, SPLINTER, WATER, IMPACT } from "./obstacleshapes.js";
 export const WRECK_DURATION = 0.75;
 
 // A mine's blast is a different event from a car dying and is over faster — see
-// drawMineBlast below.
-export const MINE_BLAST_DURATION = 0.55;
-
-const PARTICLES = 14;  // interior streaks
-const CHUNKS = 4;      // larger tumbling pieces
-const DRAG = 3.4;      // 1/sec; position integrates to v*(1-e^-kt)/k
-const SHELL_SPEED = 1.25; // the shell is thrown harder than the guts, so the
-                          // silhouette opens up before the spray takes over
+// drawMineBlast below. SHORTENED in Phase 15e-ii-b (0.55 -> 0.32) alongside
+// the switch to an area pulse: an EMP discharge reads as a zap, not a bloom
+// that lingers, and the shorter window also means a slot frees up sooner —
+// strictly cheaper at the MAX_WRECKS ceiling during a busy road, not more
+// expensive.
+export const MINE_BLAST_DURATION = 0.32;
 
 // Small deterministic PRNG. Seeding per explosion is what makes the particle
 // layout stable across frames without storing it. Exported because
@@ -71,145 +120,241 @@ export function rng(seed) {
   };
 }
 
-// --- Path builders. Each only issues moveTo/lineTo, so the caller can batch a
-// whole pass into a single neonStroke and pay the halo once. ---
+// ---------------------------------------------------------------------------
+// BLOCK SHATTER — shared by drawWreck and the three roadblock materials.
+//
+// OCCUPANCY IS CACHED, NOT PER-INSTANCE. Which grid cells sit inside a
+// silhouette depends only on the silhouette's own shape and size (and the
+// grid resolution), never on seed or t, so it is computed once per distinct
+// key and reused by every explosion that shares it — the sprite-cache
+// principle applied to a per-instance effect. `shatterCache` is unbounded
+// only in the sense that nothing ever evicts it, which is fine: the possible
+// keys are the car catalogue's (shape, w, h) triples and three fixed obstacle
+// footprints, a few dozen entries for the life of a run, not a per-explosion
+// allocation.
+const shatterCache = new Map();
 
-// Walks the car's wireframe as SEGMENTS, which is the unit both effects below
-// work in: each yields the segment's two endpoints, its midpoint, and the unit
-// vector from the car's centre out through that midpoint. Fragments and copies
-// alike move along that vector, so it is worth deriving once.
-function* outlineSegments(shape, w, h) {
-  for (const loop of carShapeOutline(shape, w, h)) {
-    for (let i = 0; i < loop.length; i++) {
-      const [x1, y1] = loop[i];
-      const [x2, y2] = loop[(i + 1) % loop.length];
-      const mx = (x1 + x2) / 2;
-      const my = (y1 + y2) / 2;
-      const d = Math.hypot(mx, my) || 1;
-      yield { x1, y1, x2, y2, mx, my, nx: mx / d, ny: my / d };
+// Point-in-polygon via ray casting, over carShapeOutline's loops (each an
+// array of [x, y] pairs in car-centred coordinates — see carshapes.js). Used
+// only to build the occupancy grid once per car shape; never called per frame.
+function pointInLoops(loops, x, y) {
+  let inside = false;
+  for (const loop of loops) {
+    for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
+      const [xi, yi] = loop[i], [xj, yj] = loop[j];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// Build (or fetch) the occupied-cell list for a `key`: a `cols` x `rows` grid
+// over a `w` x `h` box centred on the origin, keeping only cells where `test`
+// is true. Each cell records its own centre offset and size, so a caller never
+// has to re-derive them.
+function blocksFor(key, w, h, cols, rows, test) {
+  const k = `${key}:${w}:${h}:${cols}:${rows}`;
+  let blocks = shatterCache.get(k);
+  if (blocks) return blocks;
+  blocks = [];
+  const bw = w / cols, bh = h / rows;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = -w / 2 + bw * (c + 0.5), y = -h / 2 + bh * (r + 0.5);
+      if (test(x, y)) blocks.push({ x, y, w: bw, h: bh });
+    }
+  }
+  shatterCache.set(k, blocks);
+  return blocks;
+}
+
+// The four occupancy shapes this file needs. A car's is the real silhouette
+// (carShapeOutline); the three obstacle materials get simple parametric
+// stand-ins rather than parsed geometry — obstacleshapes.js draws each with
+// imperative glowPoly/glowLine calls with no shared "outline" abstraction to
+// sample, and a rectangle/diamond/circle-pair reads close enough to each
+// material's real footprint (a wide flat beam, a squat welded cross, a barrel
+// pair) that the extra parsing was not worth building for a look effect.
+const carBlocks = (shape, w, h, cols, rows) =>
+  blocksFor(`car:${shape}`, w, h, cols, rows, (x, y) => pointInLoops(carShapeOutline(shape, w, h), x, y));
+const rectBlocks = (w, h, cols, rows) => blocksFor("rect", w, h, cols, rows, () => true);
+const diamondBlocks = (w, h, cols, rows) =>
+  blocksFor("diamond", w, h, cols, rows, (x, y) => Math.abs(x) / (w / 2) + Math.abs(y) / (h / 2) <= 1.05);
+const barrelBlocks = (w, h, cols, rows) =>
+  blocksFor("barrels", w, h, cols, rows, (x, y) => Math.hypot(x + w / 4, y) <= h / 2 || Math.hypot(x - w / 4, y) <= h / 2);
+
+// A field of occupied blocks flying outward from the object's own centre and
+// SHRINKING TO A POINT at constant alpha 1 — the threshold-free fade every
+// effect in this file now uses one form of. `life` is `t` (0..1 of the
+// effect's own duration); `drag` shapes how far a block travels before it
+// coasts (the same `(1 - e^-kt) / k` integral driving speed already used
+// throughout this file); `bias` is an optional extra directional pull (water's
+// upward kick) blended with the pure radial scatter.
+function buildBlockShatter(c, cx, cy, blocks, life, rand, { speed, drag, spinMax, bias = [0, 0] }) {
+  const recede = Math.max(0, 1 - life);
+  if (recede <= 0) return;
+  const travel = (1 - Math.exp(-drag * life)) / drag;
+  for (const b of blocks) {
+    const dist = Math.hypot(b.x, b.y) || 1;
+    const nx = b.x / dist, ny = b.y / dist;
+    const jitter = rand() * Math.PI * 2;
+    const sp = speed[0] + rand() * (speed[1] - speed[0]);
+    const dirx = nx * 0.7 + Math.cos(jitter) * 0.2 + bias[0] * 0.3;
+    const diry = ny * 0.7 + Math.sin(jitter) * 0.2 + bias[1] * 0.3;
+    const ox = dirx * sp * travel, oy = diry * sp * travel;
+    const spin = (rand() - 0.5) * spinMax;
+    const a = spin * life, cos = Math.cos(a), sin = Math.sin(a);
+    const hw = (b.w / 2) * recede, hh = (b.h / 2) * recede;
+    const px = cx + b.x + ox, py = cy + b.y + oy;
+    const corners = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]];
+    for (let i = 0; i < 4; i++) {
+      const [dx, dy] = corners[i];
+      const rx = px + dx * cos - dy * sin, ry = py + dx * sin + dy * cos;
+      if (i === 0) c.moveTo(rx, ry); else c.lineTo(rx, ry);
+    }
+    c.closePath();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AREA PULSE — shared by drawMineBlast, drawFireballBurst and
+// drawCollectBurst; drawShieldArc reuses the same arrival-time idea walked
+// along a line instead of a disk (see buildLinePulse, below its own header).
+//
+// Each cell's arrival time is its OWN radial distance (normalised to `maxR`)
+// plus a fixed jitter draw — for `inward` effects (the collect burst) the
+// field is read in the opposite direction, outermost arriving first, which is
+// what makes an explosion push outward and a collect pull inward off the
+// IDENTICAL function. A cell that has not yet arrived is not drawn at all
+// (blank, not dim); once arrived it flares to full brightness then shrinks to
+// a point over FLARE_HOLD of the effect's own life. Reading the true `maxR`
+// straight off the field is what makes the pulse's own extent an honest tell
+// of the event's real radius, rather than a decorative ring drawn at whatever
+// looked right.
+const FLARE_HOLD = 0.22; // fraction of an effect's life a cell stays visible after arriving
+
+// `dartAt` (engine/neon.js) is the shape used wherever a pulse or a spark
+// wants to read as SHARP/DIRECTIONAL rather than as a smooth radiating field
+// — see buildAreaPulse's `mark` option and buildLinePulse below for the two
+// places that choice is made per effect. Shared with game/walletrender.js's
+// uplink packets, which is why it lives in neon.js rather than here.
+
+// `mark` is "circle" (the default — a smooth radiating field, mine's own
+// exception aside) or "triangle" (a field of outward-pointing darts, sharper
+// and more electrical — drawMineBlast's own choice; see its header).
+function buildAreaPulse(c, cx, cy, t, rand, { maxR, cols, rows, inward = false, edgeSpread = 0.28, blockScale = 1, mark = "circle" }) {
+  const blocks = blocksFor(`disk:${maxR}`, maxR * 2, maxR * 2, cols, rows, (x, y) => Math.hypot(x, y) <= maxR);
+  for (const b of blocks) {
+    const dist = Math.hypot(b.x, b.y);
+    const frac = maxR > 0 ? dist / maxR : 0;
+    const jitter = (rand() - 0.5) * edgeSpread; // one rand() per block, fixed order — no t-dependent branch before this
+    let arriveT = Math.min(1, Math.max(0, frac + jitter));
+    if (inward) arriveT = 1 - arriveT;
+    const age = t - arriveT;
+    if (age < 0) continue; // hasn't arrived yet — blank, not dim
+    const recede = Math.max(0, 1 - age / FLARE_HOLD);
+    if (recede <= 0) continue;
+    const r = (Math.min(b.w, b.h) / 2) * blockScale * recede;
+    const px = cx + b.x, py = cy + b.y;
+    if (mark === "triangle") {
+      dartAt(c, px, py, r * 1.3, dist > 0.001 ? Math.atan2(b.y, b.x) : 0);
+    } else {
+      c.moveTo(px + r, py);
+      c.arc(px, py, r, 0, Math.PI * 2);
     }
   }
 }
 
-// THE CHROMATIC SPLIT USED TO LIVE HERE, and Phase 15e-i deleted it along with
-// both of its call sites. It redrew the car's own outline three times a few px
-// apart — cyan, white, magenta — so the signal was still recognisably the
-// player's car but no longer agreed with itself about where it was;
-// game/disconnect.js ran it forward (the car coming apart) and game/jackin.js
-// backward (the car assembling), off one implementation rather than two copies.
-//
-// WHY IT WENT, since it was a good effect and the deletion was not automatic:
-// both sequences are now drawn by a fragment pass over the whole finished frame
-// (engine/gl/shaders.js's GLITCH_FS), and a wireframe easing together inside a
-// block-corrupted feed reads as mush rather than as a car. Giving the car its
-// own region in the PASS instead — the feed failing where the car is and
-// spreading outward — was built and rejected on sight: it opens a black hole
-// around the car, which reads as a cutout, not as data loss. The car now
-// resolves and fails with the rest of the frame. GLITCH_FS's header carries the
-// full argument.
-//
-// `outlineSegments` above survives because drawWreck's shell still uses it.
-//
-// The shell: every segment of the car's own outline becomes a fragment that
-// flies outward and tumbles about its midpoint.
-function buildShell(c, cx, cy, tt, shape, w, h, rand) {
-  for (const { x1, y1, x2, y2, mx, my, nx, ny } of outlineSegments(shape, w, h)) {
-    // Fragments fly away from the car's centre, at a speed that varies per
-    // fragment so the field spreads instead of staying a ring.
-    const speed = (55 + rand() * 110) * SHELL_SPEED;
-    const spin = (rand() - 0.5) * 9; // rad/sec
-    const ox = nx * speed * tt;
-    const oy = ny * speed * tt;
-
-    const a = spin * tt;
-    const cos = Math.cos(a);
-    const sin = Math.sin(a);
-    const rx1 = (x1 - mx) * cos - (y1 - my) * sin;
-    const ry1 = (x1 - mx) * sin + (y1 - my) * cos;
-    const rx2 = (x2 - mx) * cos - (y2 - my) * sin;
-    const ry2 = (x2 - mx) * sin + (y2 - my) * cos;
-
-    c.moveTo(cx + mx + ox + rx1, cy + my + oy + ry1);
-    c.lineTo(cx + mx + ox + rx2, cy + my + oy + ry2);
+// The 1-D form of the same idea: a travelling burst of darts from (x1,y1) to
+// (x2,y2), each point's arrival time its own fraction of the distance along
+// the line. Always triangles (see drawShieldArc's header for why a spark is
+// drawn differently from an area pulse) and always a small perpendicular
+// `crackle` jitter, so the burst still reads as electrical rather than as a
+// travelling dot.
+function buildLinePulse(c, x1, y1, x2, y2, t, rand, { count, edgeSpread = 0.12, crackle = 3 }) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  const dirAngle = Math.atan2(dy, dx); // every dart points toward the target
+  const nx = -dy / len, ny = dx / len; // perpendicular, for the crackle offset
+  for (let i = 0; i < count; i++) {
+    const frac = i / (count - 1);
+    const jitter = (rand() - 0.5) * edgeSpread;
+    const arriveT = Math.min(1, Math.max(0, frac + jitter));
+    const age = t - arriveT;
+    if (age < 0) continue;
+    const recede = Math.max(0, 1 - age / FLARE_HOLD);
+    if (recede <= 0) continue;
+    const off = (rand() - 0.5) * crackle;
+    const px = x1 + dx * frac + nx * off, py = y1 + dy * frac + ny * off;
+    dartAt(c, px, py, 2.4 * recede, dirAngle);
   }
 }
 
-// The guts: streaks drawn ALONG their velocity so they read as motion rather
-// than as dots. Origins are scattered across `spread` (the car's footprint), not
-// emitted from a point, so they come out from UNDER the breaking shell instead
-// of from a single spark beneath it.
-function buildStreaks(c, cx, cy, tt, base, rand, spread) {
-  const travel = (1 - Math.exp(-DRAG * tt)) / DRAG; // position factor for speed 1
-  const decay = Math.exp(-DRAG * tt) * 0.035;       // a slice of current velocity
-  for (let i = 0; i < PARTICLES; i++) {
-    const sx = (rand() - 0.5) * spread[0];
-    const sy = (rand() - 0.5) * spread[1];
-    const a = rand() * Math.PI * 2;
-    const speed = base * (1.4 + rand() * 3.4);
-    const vx = Math.cos(a) * speed;
-    const vy = Math.sin(a) * speed;
-    const px = cx + sx + vx * travel;
-    const py = cy + sy + vy * travel;
-    c.moveTo(px, py);
-    c.lineTo(px - vx * decay, py - vy * decay);
+// The arc's landing flare: a small field of OUTWARD-pointing darts at the
+// target, timed so the flare blooms right as the travelling burst above
+// arrives (arriveT ~= 1 at the far end of buildLinePulse). Its own tiny
+// arrival loop rather than a call into buildAreaPulse, so its darts can point
+// radially outward from the LANDING point — "a spark hitting and skittering
+// off" — without adding a third option to buildAreaPulse's own `mark` switch
+// for an effect that owns no other caller of it.
+function buildLandingSpark(c, cx, cy, t, rand, maxR, cols, rows) {
+  const blocks = blocksFor(`disk:${maxR}`, maxR * 2, maxR * 2, cols, rows, (x, y) => Math.hypot(x, y) <= maxR);
+  for (const b of blocks) {
+    const dist = Math.hypot(b.x, b.y) || 0.001;
+    const frac = maxR > 0 ? dist / maxR : 0;
+    const jitter = (rand() - 0.5) * 0.2;
+    const arriveT = Math.min(1, Math.max(0, frac + jitter));
+    const age = t - arriveT;
+    if (age < 0) continue;
+    const recede = Math.max(0, 1 - age / FLARE_HOLD);
+    if (recede <= 0) continue;
+    const r = (Math.min(b.w, b.h) / 2) * recede;
+    dartAt(c, cx + b.x, cy + b.y, r, Math.atan2(b.y, b.x));
   }
 }
 
-// Larger chunks that tumble and slow — the wreckage a later phase could leave
-// lying on the road as a hazard.
-function buildChunks(c, cx, cy, tt, base, rand, spread) {
-  const travel = (1 - Math.exp(-DRAG * tt)) / DRAG;
-  for (let i = 0; i < CHUNKS; i++) {
-    const sx = (rand() - 0.5) * spread[0];
-    const sy = (rand() - 0.5) * spread[1];
-    const a = rand() * Math.PI * 2;
-    const speed = base * (0.8 + rand() * 1.6);
-    const px = cx + sx + Math.cos(a) * speed * travel;
-    const py = cy + sy + Math.sin(a) * speed * travel;
-    const size = 3 + rand() * 4;
-    const ang = (rand() - 0.5) * 7 * tt;
-    for (let k = 0; k < 4; k++) {
-      const c1 = ang + (k / 4) * Math.PI * 2;
-      const c2 = ang + ((k + 1) / 4) * Math.PI * 2;
-      c.moveTo(px + Math.cos(c1) * size, py + Math.sin(c1) * size);
-      c.lineTo(px + Math.cos(c2) * size, py + Math.sin(c2) * size);
-    }
-  }
-}
+// ---------------------------------------------------------------------------
+// CAR WRECK
+//
+// The whole car — shell, interior spray, tumbling chunks — used to be three
+// separate passes (an outline stroke, radial streaks, tumbling quads) that
+// this phase's earlier draft re-authored into "plates": the outline's own
+// segments extruded and receding. THAT DRAFT WAS SUPERSEDED, on sight, once
+// block shatter existed as a direct comparison: plates read as "the
+// wireframe broke", where block shatter reads as "the picture failed" — the
+// stronger fit for a game whose fiction is a signal, and the same mechanism
+// the three roadblock materials below now use, so a wreck and a broken
+// barrier are legibly the same KIND of event rather than two unrelated ones
+// that happen to share a colour convention.
+//
+// Because the occupancy grid is sampled from carShapeOutline, a new car type
+// is destructible the day it is added — there is no per-type explosion art to
+// draw, exactly as before.
+const WRECK_COLS = 6, WRECK_ROWS = 9;
+const WRECK_SPEED = [40, 150]; // px/sec range, low..high per block
+const WRECK_DRAG = 2.6;
+const WRECK_SPIN = 5; // rad/sec range, tumble as the block flies out
 
 // Draw a wreck centred at (cx, cy), `t` of the way through WRECK_DURATION.
-// opts: { shape, color, thrust, w, h, seed }
+// opts: { shape, color, w, h, seed }
 export function drawWreck(ctx, cx, cy, t, opts = {}) {
   if (t < 0 || t >= 1) return;
-  const { shape = 0, color, thrust, w, h, seed = 1 } = opts;
-  const tt = t * WRECK_DURATION; // seconds since detonation
+  const { shape = 0, color, w, h, seed = 1 } = opts;
   const rand = rng(seed);
-  const base = Math.max(w, h);
-  // Origins are scattered over the BODY, not the bounding box, so nothing spawns
-  // out past where the car actually was.
-  const spread = [w * 0.7, h * 0.75];
-
+  const blocks = carBlocks(shape, w, h, WRECK_COLS, WRECK_ROWS);
   ctx.save();
-
-  // Interior first, so the shell fragments read as being in front of the spray.
-  neonStroke(ctx, (c) => buildStreaks(c, cx, cy, tt, base, rand, spread),
-    thrust, 2, Math.max(0, 1 - Math.pow(t, 1.5)));
-  neonStroke(ctx, (c) => buildChunks(c, cx, cy, tt, base, rand, spread),
-    color, 1.5, t < 0.65 ? 1 : Math.max(0, 1 - (t - 0.65) / 0.35));
-
-  // The shell, fading first so the spray is what you are left watching.
-  neonStroke(ctx, (c) => buildShell(c, cx, cy, tt, shape, w, h, rand),
-    color, 2, Math.max(0, 1 - Math.pow(t, 1.7)));
-
+  neonStroke(ctx, (c) => buildBlockShatter(c, cx, cy, blocks, t, rand, { speed: WRECK_SPEED, drag: WRECK_DRAG, spinMax: WRECK_SPIN }),
+    color, 2, 1);
   // A brief white core, so an effect built from fragments still reads as an
-  // impact rather than the car quietly disassembling.
-  if (t < 0.24) {
-    const k = 1 - t / 0.24;
-    const r = base * 0.22 * k;
-    neonStroke(ctx, (c) => {
-      c.moveTo(cx + r, cy);
-      c.arc(cx, cy, r, 0, Math.PI * 2);
-    }, "#ffffff", 3, k);
+  // impact rather than the car quietly disassembling. IMPACT PUNCTUATION, not
+  // a fragment — kept as an alpha fade on purpose: a saturated flash going
+  // bloomless as it winds down reads as the flash itself dying, which is
+  // correct for punctuation the way it was never correct for a fragment meant
+  // to persist and travel.
+  if (t < 0.2) {
+    const k = 1 - t / 0.2;
+    const r = Math.max(w, h) * 0.22 * k;
+    neonStroke(ctx, (c) => { c.moveTo(cx + r, cy); c.arc(cx, cy, r, 0, Math.PI * 2); }, "#ffffff", 3, k);
   }
   ctx.restore();
 }
@@ -217,155 +362,93 @@ export function drawWreck(ctx, cx, cy, t, opts = {}) {
 // ---------------------------------------------------------------------------
 // MINE DETONATION — "EMP BLOOM"
 //
-// Deliberately NOT the car wreck. drawWreck is a SHELL BREAKING UP: fragments of
-// the car's own outline tumbling outward with its guts spraying from under it,
-// and it says "a vehicle died". A mine has no silhouette worth preserving, so
-// this says "the road erupted" instead, and it says it in ENERGY rather than
-// fire: a jittering hexagonal cage blows outward and dissolves into branching
-// arcs. Nothing here reuses the shell/streak/chunk vocabulary, so a mine going
-// off next to a wreck stays tellable apart.
+// Deliberately NOT the car wreck, still. A mine has no silhouette worth
+// preserving and nothing to shatter, so it stays an AREA PULSE rather than
+// block shatter — but it is the one pulse drawn as TRIANGLES rather than
+// circles: a field of small darts pointing radially outward reads sharper and
+// more electrical than the fireball/collect's smooth ripple, which is the
+// right material for a synthetic discharge rather than fire or a pickup's
+// gentle chime. Two overlaid pulses (cyan to the full radius, pale-red to 70%
+// of it) read as a two-layer discharge; the pulse's own extent traces the
+// blast's real radius, which the old jittering hex cage never did (its
+// growth curve plateaued short of `radius`).
 //
-// It also runs faster (MINE_BLAST_DURATION vs WRECK_DURATION) — a mine is an
-// instant, not a death throe.
+// THE JITTERING HEX CAGE AND THE LIGHTNING ARCS ARE BOTH GONE, on request —
+// no radiating lines at all, and no white core either: a mine is not an
+// impact-punctuation event the way a car dying or a heavy hit is, so the
+// pulse alone is the whole tell now, the same shape of effect as the
+// fireball below with a colder, sharper material.
 //
-// COLOUR. The cool end of the palette is what makes this read as synthetic
-// discharge, so it borrows the player's cyan. That is safe only because the
-// blast lasts half a second and expands from a point the player is nowhere near
-// by then; a longer or slower cyan effect would start competing with the one
-// thing on screen that must always be findable — the player's own car.
-//
-// Like drawWreck, this is a PURE function of `t` (0 -> 1): the jitter and the
-// arcs are re-rolled every frame from the seed, which is exactly what makes the
-// discharge crackle, and it means a live blast is four numbers in the pool.
-// Everything goes through neonStroke — a blast covers a big bounding box, and
-// ctx.shadowBlur is priced by box AREA (see engine/neon.js).
+// COLOUR. Cold cyan/red is what makes this read as synthetic discharge; safe
+// only because the blast is half a second and expands from a point the
+// player is nowhere near by then — a longer or slower cyan effect would
+// compete with the one thing that must always be findable, the player's own
+// car.
+const MINE_COLS = 9, MINE_ROWS = 9;
+
 export function drawMineBlast(ctx, cx, cy, t, opts = {}) {
   if (t < 0 || t >= 1) return;
   const { seed = 1, radius = 58 } = opts;
   const rand = rng(seed);
-  // sqrt-ish growth: the cage is thrown out hard and then coasts to a stop.
-  const R = radius * Math.sqrt(Math.min(1, t * 1.15));
-
   ctx.save();
-
-  // The cage: two counter-rotating hexagons with per-vertex jitter, so the
-  // outline crackles instead of expanding as a clean ring.
-  for (let ring = 0; ring < 2; ring++) {
-    const r = R * (1 - ring * 0.3);
-    const rot = (ring ? -1 : 1) * t * 2.4;
-    neonStroke(ctx, (c) => {
-      for (let i = 0; i <= 6; i++) {
-        const a = rot + (i / 6) * Math.PI * 2;
-        const j = 1 + (rand() - 0.5) * 0.22;
-        const x = cx + Math.cos(a) * r * j;
-        const y = cy + Math.sin(a) * r * j;
-        if (i === 0) c.moveTo(x, y);
-        else c.lineTo(x, y);
-      }
-    }, ring ? PLAYER : CRITICAL_FLASH, 2.5 - ring,
-      Math.max(0, 1 - Math.pow(t, 1.5)));
-  }
-
-  // Arcs: kinked lightning branches from the centre out past the cage, batched
-  // into one path so all eight share a single set of strokes. They fade in over
-  // the first instant, so the flash lands before the discharge does.
-  neonStroke(ctx, (c) => {
-    for (let i = 0; i < 8; i++) {
-      let a = (i / 8) * Math.PI * 2 + rand() * 0.5;
-      let x = cx;
-      let y = cy;
-      c.moveTo(x, y);
-      for (let k = 0; k < 3; k++) {
-        a += (rand() - 0.5) * 1.1;
-        const seg = (R / 3) * (0.7 + rand() * 0.7);
-        x += Math.cos(a) * seg;
-        y += Math.sin(a) * seg;
-        c.lineTo(x, y);
-      }
-    }
-  }, PLAYER, 1.5, Math.max(0, 1 - t) * (t < 0.12 ? t / 0.12 : 1));
-
-  // The collapsing white core — the charge dumping itself.
-  if (t < 0.3) {
-    const k = 1 - t / 0.3;
-    const r = 14 * k + 3;
-    neonStroke(ctx, (c) => {
-      c.moveTo(cx + r, cy);
-      c.arc(cx, cy, r, 0, Math.PI * 2);
-    }, "#ffffff", 4, k);
-  }
+  neonStroke(ctx, (c) => buildAreaPulse(c, cx, cy, t, rand, { maxR: radius, cols: MINE_COLS, rows: MINE_ROWS, mark: "triangle" }),
+    CRITICAL_FLASH, 2, 1);
+  neonStroke(ctx, (c) => buildAreaPulse(c, cx, cy, t, rand, { maxR: radius * 0.7, cols: MINE_COLS, rows: MINE_ROWS, mark: "triangle" }),
+    PLAYER, 2, 1);
   ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
 // ROCKET IMPACT — "FIREBALL BURST"
 //
-// The one true FIRE-coloured explosion in the game, deliberately: drawWreck
-// stays in the dying car's own colours and drawMineBlast goes cold cyan
-// specifically so THIS is the only thing on the road that reads as flame. A
-// rocket is meant to look and feel unlike anything else that goes off — a
-// ragged ball of fire that throws its embers on a falling ARC rather than
-// flinging them in a straight line, which is the one place gravity appears in
-// this file at all.
+// The one true FIRE-coloured explosion in the game, still: drawWreck stays in
+// the dying car's own colours and drawMineBlast stays cold cyan/red
+// specifically so this is the only thing on the road that reads as flame.
 //
-// COLOUR. Reuses the rocket's OWN colours (ROCKET/ROCKET_HOT, engine/palette.js)
-// for the ring and the glow, the same way drawWreck reuses a dying car's
-// colour/thrust — the burst is visibly the same ordnance that just flew in, and
-// it is why this function takes no colour opts of its own (compare
-// drawMineBlast, which hardcodes its colours for the same reason: there is only
-// one look for this event).
+// THE RAGGED OUTLINE RING AND INNER GLOW BECOME AN AREA PULSE, same
+// mechanism as the mine, warm colours instead of cold and CIRCLES instead of
+// triangles — a fireball's material is soft/hot, not sharp/electrical, so it
+// keeps the smooth-ripple mark the mine deliberately opts out of. Two
+// overlaid pulses (ROCKET to the full radius, ROCKET_HOT to 55% of it)
+// replace what used to be a single ragged ring that stalled short of
+// `radius` plus a separately-fading inner glow; the pulse's own extent now
+// traces the blast's true reach.
 //
-// Pure function of `t` like every other drawer above, and for the same reason:
-// the ragged edge and the ember scatter are re-rolled from the seed every
-// frame rather than stored, so a live burst is still just four numbers in the
-// Explosions pool.
+// SMOKE AND EMBERS ARE KEPT as their own trailing debris — a flame particle
+// is not "the picture failing", so neither joins the pulse mechanism. Embers
+// now fade by SHRINK (their tail length -> 0 with `t`) rather than alpha,
+// matching the droplet-shrink trick this file has used elsewhere. Smoke never
+// fades out at all — it only ramps IN and stays low enough (GREEN_DIM's own
+// peak channel, composited, never nears BLOOM_THRESHOLD at this alpha) that
+// there was never a defect to fix there. The white core stays, same
+// impact-punctuation reasoning as the wreck's.
 export const FIREBALL_DURATION = 0.5;
+const FIREBALL_COLS = 8, FIREBALL_ROWS = 8;
 
-// The ragged outer edge: a circle whose radius is perturbed per vertex and
-// re-rolled from the seed each frame, so it crawls instead of sitting as a
-// clean ring — rounder and warmer than the mine's jittering hexagon cage.
-function buildFireballOutline(c, cx, cy, r, rand) {
-  const N = 16;
-  for (let i = 0; i <= N; i++) {
-    const a = (i / N) * Math.PI * 2;
-    const rr = r * (0.82 + rand() * 0.36);
-    const x = cx + Math.cos(a) * rr;
-    const y = cy + Math.sin(a) * rr;
-    if (i === 0) c.moveTo(x, y);
-    else c.lineTo(x, y);
-  }
-}
-
-// Embers thrown mostly upward and outward, then pulled down by a flat
-// acceleration term — unlike every drag-only effect above, this is the one
-// place "down" means something, which is part of what tells a fireball apart
-// from a wreck's flung shell or a mine's radial arcs.
-function buildFireballEmbers(c, cx, cy, tt, rand, radius) {
-  const G = radius * 5.5; // tuned for the burst's short life, not real units
-  for (let i = 0; i < 8; i++) {
-    const a = -Math.PI / 2 + (rand() - 0.5) * Math.PI * 1.3; // upward-ish, wide spread
-    const speed = radius * (1.4 + rand() * 2.2);
-    const vx = Math.cos(a) * speed;
-    const vy = Math.sin(a) * speed;
-    const px = cx + vx * tt;
-    const py = cy + vy * tt + 0.5 * G * tt * tt;
-    c.moveTo(px, py);
-    c.lineTo(px - vx * 0.06, py - (vy + G * tt) * 0.06);
-  }
-}
-
-// A few smoke wisps that curl straight up regardless of where they started,
-// so the burst reads as something that is still burning after the flash.
 function buildFireballSmoke(c, cx, cy, tt, rand, radius) {
   for (let i = 0; i < 3; i++) {
     const a = -Math.PI / 2 + (rand() - 0.5) * 1.6;
     const rise = radius * (0.9 + rand() * 0.5);
-    const x0 = cx + Math.cos(a) * radius * 0.35;
-    const y0 = cy + Math.sin(a) * radius * 0.35;
-    const x1 = x0 + Math.cos(a) * rise * tt * 1.4;
-    const y1 = y0 + Math.sin(a) * rise * tt * 1.4 - rise * tt;
-    c.moveTo(x0, y0);
-    c.lineTo(x1, y1);
+    const x0 = cx + Math.cos(a) * radius * 0.35, y0 = cy + Math.sin(a) * radius * 0.35;
+    const x1 = x0 + Math.cos(a) * rise * tt * 1.4, y1 = y0 + Math.sin(a) * rise * tt * 1.4 - rise * tt;
+    c.moveTo(x0, y0); c.lineTo(x1, y1);
+  }
+}
+
+// Embers thrown mostly upward and outward, then pulled down by a flat
+// acceleration term — the one place "down" means something, which is part of
+// what tells a fireball apart from a wreck's block field or a mine's radial
+// pulse. Tail length shrinks to zero with `t` instead of fading by alpha.
+function buildFireballEmbers(c, cx, cy, tt, rand, radius, t) {
+  const G = radius * 5.5; // tuned for the burst's short life, not real units
+  for (let i = 0; i < 8; i++) {
+    const a = -Math.PI / 2 + (rand() - 0.5) * Math.PI * 1.3; // upward-ish, wide spread
+    const speed = radius * (1.4 + rand() * 2.2);
+    const vx = Math.cos(a) * speed, vy = Math.sin(a) * speed;
+    const px = cx + vx * tt, py = cy + vy * tt + 0.5 * G * tt * tt;
+    const tail = 0.06 * Math.max(0, 1 - t);
+    c.moveTo(px, py);
+    c.lineTo(px - vx * tail, py - (vy + G * tt) * tail);
   }
 }
 
@@ -377,8 +460,6 @@ export function drawFireballBurst(ctx, cx, cy, t, opts = {}) {
   const { seed = 1, radius = 42 } = opts;
   const rand = rng(seed);
   const tt = t * FIREBALL_DURATION;
-  // Grows fast then coasts, like the mine's cage.
-  const R = radius * Math.sqrt(Math.min(1, t * 1.3));
 
   ctx.save();
 
@@ -386,32 +467,20 @@ export function drawFireballBurst(ctx, cx, cy, t, opts = {}) {
   neonStroke(ctx, (c) => buildFireballSmoke(c, cx, cy, tt, rand, radius),
     GREEN_DIM, 2, Math.max(0, t - 0.15) * 0.6);
 
-  // The ragged outer ring.
-  neonStroke(ctx, (c) => buildFireballOutline(c, cx, cy, R, rand),
-    ROCKET, 2.5, Math.max(0, 1 - Math.pow(t, 1.6)));
+  neonStroke(ctx, (c) => buildAreaPulse(c, cx, cy, t, rand, { maxR: radius, cols: FIREBALL_COLS, rows: FIREBALL_ROWS }),
+    ROCKET, 2, 1);
+  neonStroke(ctx, (c) => buildAreaPulse(c, cx, cy, t, rand, { maxR: radius * 0.55, cols: FIREBALL_COLS, rows: FIREBALL_ROWS }),
+    ROCKET_HOT, 2, 1);
 
-  // Inner glow, fading a little ahead of the outer ring.
-  if (t < 0.7) {
-    const k = 1 - t / 0.7;
-    neonStroke(ctx, (c) => {
-      c.moveTo(cx + R * 0.45, cy);
-      c.arc(cx, cy, R * 0.45, 0, Math.PI * 2);
-    }, ROCKET_HOT, 3, k);
-  }
+  neonStroke(ctx, (c) => buildFireballEmbers(c, cx, cy, tt, rand, radius, t),
+    ROCKET, 2, 1);
 
-  // Falling embers.
-  neonStroke(ctx, (c) => buildFireballEmbers(c, cx, cy, tt, rand, radius),
-    ROCKET, 2, Math.max(0, 1 - Math.pow(t, 1.3)));
-
-  // The white core flash — same device drawWreck and drawMineBlast use, so an
-  // impact still reads as one even before the eye has parsed the fire.
+  // The white core flash — same device drawWreck uses, so an impact still
+  // reads as one even before the eye has parsed the fire.
   if (t < 0.22) {
     const k = 1 - t / 0.22;
     const r = radius * 0.24 * k;
-    neonStroke(ctx, (c) => {
-      c.moveTo(cx + r, cy);
-      c.arc(cx, cy, r, 0, Math.PI * 2);
-    }, "#ffffff", 3, k);
+    neonStroke(ctx, (c) => { c.moveTo(cx + r, cy); c.arc(cx, cy, r, 0, Math.PI * 2); }, "#ffffff", 3, k);
   }
   ctx.restore();
 }
@@ -419,230 +488,84 @@ export function drawFireballBurst(ctx, cx, cy, t, opts = {}) {
 // ---------------------------------------------------------------------------
 // ROADBLOCK DESTRUCTION
 //
-// A roadblock breaking is a THIRD kind of event, and the whole point of these
-// three drawers is that the player learns what they just hit without being told:
+// A roadblock breaking is a THIRD kind of event, and — as before — the whole
+// point of these three drawers is that the player learns what they just hit
+// without being told. That distinction now lives entirely in BLOCK TUNING and
+// COLOUR rather than in three bespoke debris vocabularies (slats vs. spray vs.
+// chunks-and-shockwave):
 //
-//   SPLINTER (the trestle) — it was a light thing on legs, and it comes apart
-//   like one. Thin slats fly out fast, spin, and are gone. No shockwave, no
-//   lingering debris, no white core: nothing here says "that cost you", because
-//   ploughing through a trestle shouldn't feel like it did.
+//   SPLINTER (the trestle) — MANY small blocks, fast, LOW drag: a trestle
+//   coming apart shouldn't feel like it cost you, so unlike the tetra there
+//   is no flash.
 //
-//   WATER (the barrels) — see drawWaterBurst: a crown of green spray settling
-//   into a puddle. The one destruction in the game that is good news.
+//   IMPACT (the tetra) — FEW big blocks, slow, HIGH drag: they stop almost
+//   where they started, the same "heavy doesn't go far" argument the old
+//   shockwave-plus-chunks pair made, now carried entirely by the blocks
+//   themselves. A strong flash IS kept — this is the one obstacle meant to
+//   feel expensive to hit.
 //
-//   IMPACT (the tetra) — you hit something that did not want to
-//   move. The vocabulary is inverted: the pieces are FEWER, THICKER, SLOWER and
-//   they decelerate hard instead of flying clear, and the energy goes into a
-//   flash and a squat shockwave ring at the point of contact rather than into
-//   travel. Heavy is communicated by things NOT going far.
+//   WATER (the barrels) — SAME mechanism and tuning shape as the other two,
+//   differentiated by colour (GREEN_BRIGHT) alone plus a slight upward bias
+//   (a burst still throws spray up before gravity takes it), per the call to
+//   keep water on one logic rather than its own vocabulary. No flash — water
+//   stays the one good-news destruction on the road. THE OLD CROWN/DROPLET/
+//   PUDDLE LOOK, AND THE LINGERING PUDDLE WITH IT, ARE GONE: water no longer
+//   leaves anything behind once the burst is over. If a lingering puddle is
+//   wanted later, that is a separate effect layered on top of this shatter,
+//   not a reason to special-case the shatter itself.
 //
-// Both are pure functions of `t` (0 -> 1) like drawWreck and drawMineBlast, both
-// stay in the amber family so the debris is still recognisably road furniture,
-// and both go through neonStroke for the reason engine/neon.js documents.
+// All three go through neonStroke for the reason this file has always cited:
+// ctx.shadowBlur is priced by bounding-box area, and a debris field's box is
+// large.
 
-// Seconds from hit to gone, per style (obstacleshapes.js names the styles). The
-// heavy one runs longest — the debris settling is the part that reads as weight,
-// so it needs the time to settle in.
-// Water runs longest of the three: the puddle settling is the payoff, and it is
-// the only debris that should still be visible as the player drives past it.
+// Seconds from hit to gone, per style (obstacleshapes.js names the styles).
+// Unchanged from before this phase — block shatter reads fine at the existing
+// windows, and retuning duration was not part of what this phase set out to
+// change.
 export const OBSTACLE_WRECK_DURATION = { [SPLINTER]: 0.45, [WATER]: 0.7, [IMPACT]: 0.6 };
 
-// Light debris: slats thrown clear and tumbling. `w`/`h` are the obstacle's
-// footprint, so a wider block sheds its pieces across a wider front.
+const SPLINTER_COLS = 10, SPLINTER_ROWS = 3;
+const SPLINTER_SPEED = [90, 220];
+const SPLINTER_DRAG = 1.6;
+const SPLINTER_SPIN = 8;
+
+const IMPACT_COLS = 4, IMPACT_ROWS = 4;
+const IMPACT_SPEED = [25, 70];
+const IMPACT_DRAG = 5.5;
+const IMPACT_SPIN = 3;
+
+const WATER_COLS = 6, WATER_ROWS = 6;
+const WATER_SPEED = [70, 180];
+const WATER_DRAG = 3.2;
+const WATER_SPIN = 6;
+const WATER_BIAS = [0, -1]; // up
+
 function drawSplinters(ctx, cx, cy, t, w, h, seed) {
   const rand = rng(seed);
-  const tt = t * OBSTACLE_WRECK_DURATION[SPLINTER];
-  const travel = (1 - Math.exp(-2.6 * tt)) / 2.6; // mild drag: they keep going
-
-  neonStroke(ctx, (c) => {
-    for (let i = 0; i < 12; i++) {
-      // Origins spread along the beam, not from a point, so the break runs the
-      // whole width of the thing that broke.
-      const sx = (rand() - 0.5) * w;
-      const sy = (rand() - 0.5) * h;
-      const a = rand() * Math.PI * 2;
-      const speed = 120 + rand() * 190;
-      const px = cx + sx + Math.cos(a) * speed * travel;
-      const py = cy + sy + Math.sin(a) * speed * travel;
-
-      // Each slat is a short segment lying along its own tumble angle — a stick,
-      // not a spark, which is what makes this read as splintered timber/plastic
-      // rather than as an explosion.
-      const len = 5 + rand() * 7;
-      const spin = a + (rand() - 0.5) * 8 * tt;
-      c.moveTo(px - Math.cos(spin) * len, py - Math.sin(spin) * len);
-      c.lineTo(px + Math.cos(spin) * len, py + Math.sin(spin) * len);
-    }
-  }, NEUTRAL, 2, Math.max(0, 1 - Math.pow(t, 1.4)));
-
-  // A few brighter stripe shards, from the painted face of the beam. They fade
-  // first, so the last thing on screen is plain debris.
-  neonStroke(ctx, (c) => {
-    for (let i = 0; i < 4; i++) {
-      const sx = (rand() - 0.5) * w;
-      const a = rand() * Math.PI * 2;
-      const speed = 150 + rand() * 160;
-      const px = cx + sx + Math.cos(a) * speed * travel;
-      const py = cy + Math.sin(a) * speed * travel;
-      c.moveTo(px, py);
-      c.lineTo(px - Math.cos(a) * 9, py - Math.sin(a) * 9);
-    }
-  }, NEUTRAL_PALE, 1.5, Math.max(0, 1 - t * 1.8));
+  const blocks = rectBlocks(w, h, SPLINTER_COLS, SPLINTER_ROWS);
+  neonStroke(ctx, (c) => buildBlockShatter(c, cx, cy, blocks, t, rand, { speed: SPLINTER_SPEED, drag: SPLINTER_DRAG, spinMax: SPLINTER_SPIN }),
+    NEUTRAL, 2, 1);
 }
 
-// Heavy debris: a hard hit that mostly stays where it happened.
 function drawHeavyImpact(ctx, cx, cy, t, w, h, seed) {
   const rand = rng(seed);
-  const tt = t * OBSTACLE_WRECK_DURATION[IMPACT];
-  const size = Math.max(w, h);
-
-  // The jolt: a squat ring that snaps outward and stops almost immediately.
-  // Short reach on purpose — a shockwave that raced away would read light.
-  if (t < 0.55) {
-    const k = t / 0.55;
-    const r = size * (0.22 + 0.42 * Math.sqrt(k));
-    neonStroke(ctx, (c) => {
-      c.moveTo(cx + r, cy);
-      c.arc(cx, cy, r, 0, Math.PI * 2);
-    }, NEUTRAL_PALE, 3.5, 1 - k);
+  const blocks = diamondBlocks(w, h, IMPACT_COLS, IMPACT_ROWS);
+  neonStroke(ctx, (c) => buildBlockShatter(c, cx, cy, blocks, t, rand, { speed: IMPACT_SPEED, drag: IMPACT_DRAG, spinMax: IMPACT_SPIN }),
+    NEUTRAL, 2.5, 1);
+  // The flash: the force having somewhere to punctuate even though the
+  // blocks themselves barely travel.
+  if (t < 0.22) {
+    const k = 1 - t / 0.22;
+    const r = Math.max(w, h) * 0.3 * k;
+    neonStroke(ctx, (c) => { c.moveTo(cx + r, cy); c.arc(cx, cy, r, 0, Math.PI * 2); }, "#ffffff", 3.5, k);
   }
-
-  // Four stubby lances at the contact point: the force having nowhere to go.
-  if (t < 0.3) {
-    const k = 1 - t / 0.3;
-    const L = size * 0.42 * (1 - k * 0.45);
-    neonStroke(ctx, (c) => {
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-        c.moveTo(cx + Math.cos(a) * L * 0.25, cy + Math.sin(a) * L * 0.25);
-        c.lineTo(cx + Math.cos(a) * L, cy + Math.sin(a) * L);
-      }
-    }, "#ffffff", 3.5, k);
-  }
-
-  // The chunks. Heavy drag (8/sec vs the splinters' 2.6) means they lurch out
-  // and stop dead inside the first fifth of a second, then just lie there
-  // rocking — the settle is what sells the weight.
-  const travel = (1 - Math.exp(-8 * tt)) / 8;
-  neonStroke(ctx, (c) => {
-    for (let i = 0; i < 6; i++) {
-      const sx = (rand() - 0.5) * w * 0.7;
-      const sy = (rand() - 0.5) * h * 0.7;
-      const a = rand() * Math.PI * 2;
-      const speed = 130 + rand() * 150;
-      const px = cx + sx + Math.cos(a) * speed * travel;
-      const py = cy + sy + Math.sin(a) * speed * travel;
-
-      // Chunks are quads, not sticks: a lump of concrete or welded steel with
-      // area, tumbling to a halt as its drag runs out.
-      const r = 4 + rand() * 5;
-      const ang = (rand() - 0.5) * 5 * travel * 8;
-      for (let k = 0; k < 4; k++) {
-        const a1 = ang + (k / 4) * Math.PI * 2;
-        const a2 = ang + ((k + 1) / 4) * Math.PI * 2;
-        c.moveTo(px + Math.cos(a1) * r, py + Math.sin(a1) * r);
-        c.lineTo(px + Math.cos(a2) * r, py + Math.sin(a2) * r);
-      }
-    }
-  }, NEUTRAL, 2, t < 0.7 ? 1 : Math.max(0, 1 - (t - 0.7) / 0.3));
-
-  // Dust: a dim, slowly spreading ring of dashes low to the tarmac, still
-  // hanging there after the chunks have stopped. The one part of the effect
-  // that outlives the impact, so the spot stays marked for a beat.
-  neonStroke(ctx, (c) => {
-    for (let i = 0; i < 10; i++) {
-      const a = (i / 10) * Math.PI * 2 + rand() * 0.4;
-      const r = size * (0.35 + 0.55 * t) * (0.75 + rand() * 0.5);
-      c.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
-      c.lineTo(cx + Math.cos(a + 0.22) * r, cy + Math.sin(a + 0.22) * r);
-    }
-  }, NEUTRAL_DEEP, 2.5, Math.max(0, 1 - t) * 0.7);
 }
 
-// A burst water barrel. The odd one out of the three, on purpose: it is the only
-// destruction in the game that is GOOD NEWS, so it borrows none of the impact
-// vocabulary — no shockwave, no white lance flash, no tumbling chunks. It is a
-// crown of spray that spreads, slows and settles into a puddle, with a few
-// amber shards of plastic drum mixed in so it still reads as a barrel that
-// burst rather than as weather.
-//
-// COLOUR. The spray is GREEN, not cyan. Cyan is the player's own colour and the
-// mine blast already borrows it, and water is the one effect on the road that
-// means "you are fine" — putting it in the world's phosphor green says harmless
-// the way amber says hazard. It also keeps the spray from competing with the one
-// thing that must always be findable on screen: the player's car.
 function drawWaterBurst(ctx, cx, cy, t, w, h, seed) {
   const rand = rng(seed);
-  const tt = t * OBSTACLE_WRECK_DURATION[WATER];
-  const size = Math.max(w, h);
-
-  // The crown: a ring with a scalloped edge, thrown up at the moment of impact.
-  // The scallops are what stop it reading as the impact's clean shockwave — a
-  // sheet of water tears as it spreads.
-  if (t < 0.6) {
-    const k = t / 0.6;
-    const r = size * (0.18 + 0.5 * Math.sqrt(k));
-    neonStroke(ctx, (c) => {
-      const N = 28;
-      for (let i = 0; i <= N; i++) {
-        const a = (i / N) * Math.PI * 2;
-        const rr = r * (1 + 0.13 * Math.sin(a * 5 + seed));
-        const x = cx + Math.cos(a) * rr;
-        const y = cy + Math.sin(a) * rr;
-        if (i === 0) c.moveTo(x, y);
-        else c.lineTo(x, y);
-      }
-    }, GREEN_BRIGHT, 2.5, 1 - k);
-  }
-
-  // Droplets. Heavy drag (5/sec) and short streaks that get shorter as they
-  // slow: water goes out fast, loses everything it had, and falls.
-  const travel = (1 - Math.exp(-5 * tt)) / 5;
-  neonStroke(ctx, (c) => {
-    for (let i = 0; i < 20; i++) {
-      const sx = (rand() - 0.5) * w * 0.6;
-      const sy = (rand() - 0.5) * h * 0.6;
-      const a = rand() * Math.PI * 2;
-      const speed = 110 + rand() * 210;
-      const px = cx + sx + Math.cos(a) * speed * travel;
-      const py = cy + sy + Math.sin(a) * speed * travel;
-      const len = (3 + rand() * 6) * Math.max(0.25, 1 - t);
-      c.moveTo(px, py);
-      c.lineTo(px - Math.cos(a) * len, py - Math.sin(a) * len);
-    }
-  }, GREEN_PALE, 2, Math.max(0, 1 - Math.pow(t, 1.7)));
-
-  // The puddle: a wide, dim, wobbling pool that spreads slowly and is the LAST
-  // thing to fade. Water doesn't vanish, it lies there — and it gives the barrels
-  // an afterimage that the tetra's dust ring deliberately echoes at half the
-  // friendliness.
-  neonStroke(ctx, (c) => {
-    const N = 24;
-    const pr = size * (0.3 + 0.42 * t);
-    for (let i = 0; i <= N; i++) {
-      const a = (i / N) * Math.PI * 2;
-      const rr = pr * (1 + 0.16 * Math.sin(a * 3 + seed * 1.7));
-      const x = cx + Math.cos(a) * rr;
-      const y = cy + Math.sin(a) * rr * 0.8; // squashed: a pool spreads sideways
-      if (i === 0) c.moveTo(x, y);
-      else c.lineTo(x, y);
-    }
-  }, GREEN_DIM, 2.5, t < 0.5 ? 0.85 : Math.max(0, 1 - (t - 0.5) / 0.5) * 0.85);
-
-  // Shards of the drum itself, so the burst stays attached to the object that
-  // burst. Amber, few, and gone early — the water is the event, not these.
-  neonStroke(ctx, (c) => {
-    for (let i = 0; i < 5; i++) {
-      const a = rand() * Math.PI * 2;
-      const speed = 90 + rand() * 130;
-      const px = cx + Math.cos(a) * speed * travel;
-      const py = cy + Math.sin(a) * speed * travel;
-      const spin = a + (rand() - 0.5) * 7 * tt;
-      const len = 4 + rand() * 5;
-      c.moveTo(px - Math.cos(spin) * len, py - Math.sin(spin) * len);
-      c.lineTo(px + Math.cos(spin) * len, py + Math.sin(spin) * len);
-    }
-  }, NEUTRAL, 2, Math.max(0, 1 - t * 1.6));
+  const blocks = barrelBlocks(w, h, WATER_COLS, WATER_ROWS);
+  neonStroke(ctx, (c) => buildBlockShatter(c, cx, cy, blocks, t, rand, { speed: WATER_SPEED, drag: WATER_DRAG, spinMax: WATER_SPIN, bias: WATER_BIAS }),
+    GREEN_BRIGHT, 2, 1);
 }
 
 // Break a roadblock apart. `style` is SPLINTER, WATER or IMPACT
@@ -660,69 +583,67 @@ export function drawObstacleWreck(ctx, cx, cy, t, opts = {}) {
 // ---------------------------------------------------------------------------
 // PICKUP COLLECTED — "GOOD NEWS" BURST
 //
-// The buff crates (game/pickupshapes.js, game/pickups.js) need their own
-// event for the same reason drawWaterBurst gets one apart from drawHeavyImpact
-// — obstacleshapes.js's own MINE/BLOCK split, restated here across a wider
-// gap: everything above this line is something going WRONG (a car dying, a
-// mine going off, a roadblock breaking), and a collected buff is the one
-// event on the road that is unambiguously good. So it borrows none of that
-// vocabulary — no shockwave, no white lance flash, no debris that implies
-// something broke. A clean ring expands and a few sparks kick outward along
-// the reticle's own bracket directions, then it is gone.
+// The buff crates need their own event for the reason they always have —
+// everything else in this file is something going WRONG, and a collected
+// buff is the one event on the road that is unambiguously good.
 //
-// ONE COLOUR, THE CAR'S OWN. The burst is drawn in the same player-cyan
-// family the crate's frame rides in (palette.js's PICKUP_FRAME_BRIGHT), so
-// collecting a buff reads as the car taking something INTO itself rather than
-// as another coloured event on a road full of them. This used to vary per
-// buff, echoing whichever glyph had just been picked up — that answered
-// "which one was it?" in the 0.4s the ring is alive, which is a question the
-// SYS LOG line already answers in text and which nobody can read off a hue
-// mid-corner anyway. Faction beats identity here, same call the frame makes.
-export const COLLECT_DURATION = 0.4;
-
-function buildCollectSparks(c, cx, cy, r) {
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
-    const inner = r * 0.5;
-    const outer = inner + 7;
-    c.moveTo(cx + Math.cos(a) * inner, cy + Math.sin(a) * inner);
-    c.lineTo(cx + Math.cos(a) * outer, cy + Math.sin(a) * outer);
-  }
-}
+// AN AREA PULSE RUN INWARD — the one inversion in the whole family, and the
+// reason this stayed an area pulse rather than becoming block shatter:
+// destruction pushes energy OUT, taking something in pulls it IN, and
+// `buildAreaPulse`'s `inward` flag is the one line of difference between the
+// two readings off an otherwise identical mechanism. No new colour
+// vocabulary is needed to say "this one's good news" — the direction alone
+// does it. Replaces the old expanding ring plus radial sparks entirely.
+//
+// ONE COLOUR, THE CAR'S OWN, unchanged: the burst is drawn in the same
+// player-cyan family the crate's frame rides in (palette.js's
+// PICKUP_FRAME_BRIGHT), so collecting a buff reads as the car taking
+// something INTO itself. Takes no options for the same reason as before —
+// every crate bursts the same way regardless of which buff it was; the SYS
+// LOG line answers "which one" in text. SHORTENED in Phase 15e-ii-b (0.4 ->
+// 0.22) alongside the switch to an inward pulse: a pickup is a quick
+// acknowledgement, not an event to linger on, and the shorter window is
+// again strictly cheaper at the pool's ceiling, not more expensive.
+export const COLLECT_DURATION = 0.22;
+const COLLECT_RADIUS = 26;
+const COLLECT_COLS = 6, COLLECT_ROWS = 6;
 
 // Draw a collect burst centred at (cx, cy), `t` of the way through
-// COLLECT_DURATION. Takes no options — see the header for why the colour is
-// fixed.
-export function drawCollectBurst(ctx, cx, cy, t) {
+// COLLECT_DURATION. `seed` varies the field's own jitter per crate so a run of
+// pickups in quick succession doesn't visibly repeat.
+export function drawCollectBurst(ctx, cx, cy, t, seed = 1) {
   if (t < 0 || t >= 1) return;
-  const color = PICKUP_FRAME_BRIGHT;
-  const r = 4 + t * 26;
-  const a = 1 - t;
-
+  const rand = rng(seed);
   ctx.save();
-  neonStroke(ctx, (c) => {
-    c.moveTo(cx + r, cy);
-    c.arc(cx, cy, r, 0, Math.PI * 2);
-  }, color, 2, a * 0.9);
-  neonStroke(ctx, (c) => buildCollectSparks(c, cx, cy, r), color, 1.5, a);
+  neonStroke(ctx, (c) => buildAreaPulse(c, cx, cy, t, rand, { maxR: COLLECT_RADIUS, cols: COLLECT_COLS, rows: COLLECT_ROWS, inward: true, blockScale: 0.8 }),
+    PICKUP_FRAME_BRIGHT, 1.6, 1);
   ctx.restore();
 }
 
 // --- The target reticle (weapons.js's AUTOLOCK) ------------------------------
 //
 // FOUR CORNER BRACKETS around the car the player's tracer rounds are chasing,
-// not a box and not a tint. A closed rectangle would read as a UI element
+// unchanged by this phase. A closed rectangle would read as a UI element
 // sitting on the road, and a colour wash would collide with the critical-hull
 // blink that already owns "this car looks different" (traffic.js's
 // BLINK_PERIOD). Corner ticks are the one shape that says "designated" at a
 // glance, and they are four moveTo/lineTo pairs.
 //
 // IT IS THE UPGRADE'S ONLY EXPLANATION. Rounds that bend out of their lane are
-// otherwise unaccountable — the player has to be able to see WHICH car they are
-// bending toward, or a locked burst just looks like the gun has developed a
-// fault. This is why the reticle is not optional polish.
+// otherwise unaccountable — the player has to be able to see WHICH car they
+// are bending toward, or a locked burst just looks like the gun has developed
+// a fault.
 //
-// NOT A POOLED SLOT, unlike everything below it. A lock is not an event with a
+// THE PULSE'S ON/OFF HALO BLINK WAS EXAMINED AND LEFT, ON PURPOSE, THIS
+// PHASE. `alpha = 0.55 + 0.35*sin(...)` puts PLAYER_THRUST's fully-saturated
+// channel through a composited range that straddles BLOOM_THRESHOLD (0.55),
+// so the reticle's halo switches fully on and off once per pulse cycle — an
+// accident of the threshold moving twice since this constant was tuned,
+// arguably, but changing it was not confirmed as wanted and the current look
+// is the shipped, already-familiar one. A future pass with a reason to settle
+// this can retune MARK_PULSE's range then.
+//
+// NOT A POOLED SLOT, unlike everything above it. A lock is not an event with a
 // lifetime of its own — it lasts as long as the designation does — and pooling
 // it would mean a car outliving its own brackets, or the brackets outliving the
 // car. Traffic.render calls this directly for the one locked car, with the same
@@ -756,15 +677,12 @@ export function drawTargetMark(ctx, cx, cy, w, h, phase, color = PLAYER_THRUST) 
 
 // --- The boss's hull meter ----------------------------------------------------
 //
-// A small bar under one car, saying how much of it is left. The road's first
-// boss (cartypes.js's `mortar`) is the only thing that asks for one.
-//
-// IT IS AN INSTRUMENT, NOT NEON, and that is the one rule it is built on. The
-// node drain meter (game/walletrender.js) already made this argument and made it
-// well: a plain fill with a dark backing, no glow and no neonStroke, because it
-// has to be readable at a glance by a player who is watching traffic rather than
-// watching it. Everything glowing on this screen is part of the world; the two
-// bars that report on the world deliberately are not.
+// A small bar under one car, saying how much of it is left. Unchanged by this
+// phase — it is an INSTRUMENT, not neon (the node drain meter,
+// game/walletrender.js, makes the same argument): a plain fill with a dark
+// backing, no glow and no neonStroke, because it has to be readable at a
+// glance by a player watching traffic rather than watching it. The road's
+// first boss (cartypes.js's `mortar`) is the only thing that asks for one.
 //
 // UNDER THE HULL, not over it. The boss holds station at the TOP of the screen
 // (behaviours.js's `siege`), so below it is the road between the boss and the
@@ -817,41 +735,32 @@ export function drawHullMeter(ctx, cx, cy, h, frac, marks = []) {
 
 // --- The shield arc (game/shieldstorm.js) ------------------------------------
 //
-// One discharge from the player's shield to a car it has just bitten: a jagged
-// bolt between the two, and a small burst where it lands.
+// One discharge from the player's shield to a car it has just bitten: a burst
+// that TRAVELS from the shield to the target along the line between them,
+// instead of an already-complete jagged bolt fading in place.
 //
-// THE BOLT IS BUILT FROM THE SEED, not stored, so a slot stays the same four
-// numbers every other kind in this pool is (see THE POOL below) — the zigzag is
-// re-derived identically every frame of its short life from `rng`, exactly as
-// drawWreck's debris is. Nothing about a bolt is animated except its FADE and
-// its taper; a bolt that re-randomised per frame would strobe rather than arc.
-export const ARC_DURATION = 0.18; // seconds. Shorter than any other slot kind —
-                                  // an electrical discharge is a snap, and this
-                                  // one fires several times a second
+// A LINE PULSE, the 1-D form of the area-pulse mechanism above (buildLinePulse):
+// the identical arrival-time field, walked along a segment instead of
+// radiated across a disk, so the discharge visibly ARRIVES rather than
+// existing complete and dimming. Two strands (a thicker leading one in the
+// shield's own colour, a thinner trailing one in SHIELD_FLICKER) read as one
+// hot discharge, the same "two strands" trick the old jagged-bolt version
+// used. A small landing flare (buildLandingSpark) blooms right at the target
+// as the burst arrives, echoing the destruction family's own impact language
+// at a much smaller scale.
+//
+// TRIANGLES THROUGHOUT, not circles — on request, to read SHARP and sparky:
+// a spark is directional (it flies somewhere), where an explosion's pulse is
+// a radiating field with no preferred direction, and the shape difference is
+// what keeps a discharge reading as electrical rather than as one more
+// area pulse in a slightly different colour.
+export const ARC_DURATION = 0.18; // seconds. An electrical discharge is a snap,
+                                  // and this one fires several times a second
 
-const ARC_SEGMENTS = 7;  // kinks in the bolt
-const ARC_JITTER = 11;   // px each kink strays off the straight line
-
-// The bolt's own path, from the shield (x1,y1) to the car (x2,y2). Perpendicular
-// jitter about the straight line between them, so it stays a bolt BETWEEN two
-// specific points however the two have moved apart.
-function buildArcBolt(c, x1, y1, x2, y2, rand, spread) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const len = Math.hypot(dx, dy) || 1;
-  const nx = -dy / len;
-  const ny = dx / len;
-  c.moveTo(x1, y1);
-  for (let i = 1; i < ARC_SEGMENTS; i++) {
-    const t = i / ARC_SEGMENTS;
-    // Pinned at both ends and loosest in the middle — a bolt that wandered at
-    // the car's own body would look like it had missed.
-    const slack = Math.sin(t * Math.PI);
-    const j = (rand() * 2 - 1) * ARC_JITTER * slack * spread;
-    c.lineTo(x1 + dx * t + nx * j, y1 + dy * t + ny * j);
-  }
-  c.lineTo(x2, y2);
-}
+const ARC_MAIN_COUNT = 14;
+const ARC_GLOW_COUNT = 9;
+const ARC_LANDING_R = 10;
+const ARC_LANDING_COLS = 4, ARC_LANDING_ROWS = 4;
 
 // Draw one arc, `t` of the way through ARC_DURATION. (x1,y1) is the shield end
 // and (x2,y2) the car it struck — both in screen space, resolved by the caller
@@ -859,40 +768,29 @@ function buildArcBolt(c, x1, y1, x2, y2, rand, spread) {
 export function drawShieldArc(ctx, x1, y1, x2, y2, t, opts = {}) {
   if (t < 0 || t >= 1) return;
   const { color = PLAYER, glow = SHIELD_FLICKER, seed = 1 } = opts;
-  // Fades fast and squarely — the flash is over long before the slot is, which
-  // is what makes a repeating discharge read as a series of snaps rather than
-  // as a continuous beam.
-  const a = (1 - t) * (1 - t);
-
   ctx.save();
-  neonStroke(ctx, (c) => buildArcBolt(c, x1, y1, x2, y2, rng(seed), 1),
-    color, 1.8, a);
-  // A second, tighter bolt on its own seed: two strands reading as one
-  // discharge, which is the cheapest way to make a bolt look hot rather than
-  // drawn.
-  neonStroke(ctx, (c) => buildArcBolt(c, x1, y1, x2, y2, rng(seed * 31 + 7), 0.45),
-    glow, 1.2, a * 0.85);
-  // Where it lands.
-  const r = 3 + t * 9;
-  neonStroke(ctx, (c) => {
-    c.moveTo(x2 + r, y2);
-    c.arc(x2, y2, r, 0, Math.PI * 2);
-  }, glow, 1.4, a);
+  neonStroke(ctx, (c) => buildLinePulse(c, x1, y1, x2, y2, t, rng(seed), { count: ARC_MAIN_COUNT }),
+    color, 1.8, 1);
+  neonStroke(ctx, (c) => buildLinePulse(c, x1, y1, x2, y2, t, rng(seed * 31 + 7), { count: ARC_GLOW_COUNT, crackle: 1.5 }),
+    glow, 1.2, 0.85);
+  neonStroke(ctx, (c) => buildLandingSpark(c, x2, y2, t, rng(seed * 7 + 3), ARC_LANDING_R, ARC_LANDING_COLS, ARC_LANDING_ROWS),
+    glow, 1.4, 1);
   ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
 // THE POOL
 //
-// Explosions are spawned mid-collision, at the exact moment the frame is already
-// at its busiest, so this allocates NOTHING per detonation: slots are created
-// once and reused, and a spawn on a full pool overwrites the oldest rather than
-// growing the array or dropping the newest (the newest is the one the player is
-// looking at). Every live wreck is four numbers plus the type's colours.
+// Unchanged in shape by this phase: explosions are spawned mid-collision, at
+// the exact moment the frame is already at its busiest, so this allocates
+// NOTHING per detonation — slots are created once and reused, and a spawn on
+// a full pool overwrites the oldest rather than growing the array or dropping
+// the newest (the newest is the one the player is looking at). Every live
+// wreck is four numbers plus the type's colours.
 //
-// Explosions are anchored in WORLD space by (worldY, offset), exactly as traffic
-// cars are, so a wreck stays welded to the tarmac where the car died instead of
-// sliding against the road as the world scrolls under it.
+// Explosions are anchored in WORLD space by (worldY, offset), exactly as
+// traffic cars are, so a wreck stays welded to the tarmac where the car died
+// instead of sliding against the road as the world scrolls under it.
 // ---------------------------------------------------------------------------
 
 const MAX_WRECKS = 8;
@@ -934,7 +832,6 @@ export class Explosions {
       seed: 1,
       shape: 0,
       color: "#ffffff",
-      thrust: "#ffffff",
       w: 34,
       h: 62,
       // ARC only: the OTHER end of the bolt — the shield it was thrown from.
@@ -973,7 +870,6 @@ export class Explosions {
     const slot = this.take(worldY, offset, WRECK);
     slot.shape = type.shape ?? 0;
     slot.color = type.color;
-    slot.thrust = type.thrust;
     slot.w = type.w;
     slot.h = type.h;
     return slot;
@@ -1057,7 +953,7 @@ export class Explosions {
       else if (s.kind === BLAST) drawMineBlast(ctx, sx, sy, t, s);
       else if (s.kind === RUBBLE) drawObstacleWreck(ctx, sx, sy, t, s);
       else if (s.kind === BURST) drawFireballBurst(ctx, sx, sy, t, s);
-      else if (s.kind === COLLECT) drawCollectBurst(ctx, sx, sy, t);
+      else if (s.kind === COLLECT) drawCollectBurst(ctx, sx, sy, t, s.seed);
       else drawWreck(ctx, sx, sy, t, s);
     }
   }

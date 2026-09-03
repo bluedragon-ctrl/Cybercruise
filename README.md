@@ -732,6 +732,21 @@ corrected to 0.55; the constant itself (0.85) is unchanged, since it already
 clears the new threshold with room to spare and nothing about this phase gives
 a reason to retune an already-shipped, already-verified look.
 
+**PHASE 15E-II-B RESOLVES THE FADE QUESTION THIS SECTION LEFT OPEN — AND WIDER
+THAN "RESOLVES".** The proportional-fade job named above shipped, but as a
+re-authoring rather than a retune: every effect in `game/effects.js` that used
+to fade by alpha now fades by GEOMETRY, a field of small shapes (squares for
+an object's silhouette breaking apart, circles or triangles for a pulse of
+energy) shrinking to a point at constant alpha, never touching
+`BRIGHT_FS`'s knee at all. `game/effects.js`'s own header has the two new
+mechanisms (block shatter, area/line pulse) and which effect uses which;
+`engine/neon.js`'s `neonStroke` header has the width trap (why a stroke
+narrower than one device pixel is an alpha fade wearing a different hat, and
+cannot substitute for a geometric one) and the short list of what stayed
+alpha-only on purpose. `player.js`'s shield ring and `drawTargetMark`'s
+reticle pulse were not fades to begin with and are covered on their own terms
+in the same places. The Phase 15e roadmap entry below has the full account.
+
 ### Display scaling
 
 The playfield is **600x800 forever** — a game constant, not a window
@@ -1169,7 +1184,7 @@ score's distance term stalls, everything hostile gets longer to work on you.
 this replaced two mechanics that differed only by whether a node happened to be
 lit as you arrived, and the affordances that keep one act reading as one act — the
 price on the floor, the `SHOULDER` prompt, the fill meter *every* pickup draws,
-the dish on the car, the floating `+25CR` over the spot it came from. The stock
+the uplink marker on the car, the floating `+25CR` over the spot it came from. The stock
 figures there (300px reach, four seconds at the edge, face value) are all raised
 by the SIPHON RIG below.
 
@@ -1757,15 +1772,90 @@ is on hold is everything that wants a SERVER behind it.
         that gap would mean spending the exact margin the colour was chosen
         for). `player.js`'s `SHIELD_ORB_ALPHA` comment, the one place in
         `src/game/` that quoted the OLD 0.75 threshold, corrected to 0.55.
-  - [ ] **15e-ii-b** — The per-effect pass 15e-ii-a's baseline exists to be
-        judged against: fade `drawWreck`, `drawMineBlast`, `drawFireballBurst`,
-        the obstacle wrecks, `drawCollectBurst`, the shield arc and the target
-        reticle by GEOMETRY (shrinking, thinning, travelling out of frame)
-        rather than by alpha alone, so a fragment stays above bloom's
-        threshold until it is gone instead of dimming through it. Option 3 in
-        `neonStroke`'s header has the argument; deferred here because changing
-        the baseline and the effects it will be judged against in one PR is
-        exactly what splitting 15d into two was for
+  - [x] **15e-ii-b** — DONE, AND ITS PREMISE CHANGED MID-FLIGHT. This was
+        pencilled in as a fade conversion — retune each effect's alpha curve
+        into a threshold-free geometric one, judged against 15e-ii-a's soft
+        knee. That is not what shipped. Proposed as a Stage 1 mock (a
+        throwaway single-file HTML page running the real `present.js`/
+        `neonStroke`/bloom chain, current vs. proposed side by side, per this
+        PR's own gate), the project owner looked at the destruction family and
+        asked for something built "out of the box" rather than a patched fade
+        — the fade defect was real, but so was the chance to ask whether the
+        pre-15e-ii-b debris vocabulary was still the right one at all, per the
+        brief's own invitation. It wasn't, for eight of the eleven effects.
+        **TWO NEW VOCABULARIES SHIP, PLUS ONE CARRIED OVER:**
+        **BLOCK SHATTER** (`drawWreck`, the three roadblock materials) — an
+        object's RENDER fails rather than its parts flying off it: the
+        silhouette is sampled onto a small grid (occupancy CACHED per shape,
+        never per explosion) and the occupied cells fly outward, shrinking to
+        a point at CONSTANT alpha. Squares, deliberately echoing `GLITCH_FS`'s
+        own macroblock vocabulary — the game's fiction is already "you are
+        looking at a signal", so a destroyed object's picture failing block by
+        block is the same category of event as the signal itself failing,
+        just local and permanent. The three roadblock materials (trestle,
+        tetra, barrels) keep their weight-class distinction entirely through
+        block count/size/speed/drag now, not through three bespoke debris
+        vocabularies — a trestle sheds many small fast blocks with no flash, a
+        tetra sheds few big slow ones with a strong flash, water is the
+        IDENTICAL mechanism recoloured green with a slight upward bias per an
+        explicit call to keep water on one logic rather than its own. Water's
+        old crown/droplet/puddle look, and the lingering puddle with it, are
+        GONE — a future lingering-puddle effect is a layer on top of this
+        shatter, not a reason to special-case it.
+        **AREA PULSE** (`drawMineBlast`, `drawFireballBurst`,
+        `drawCollectBurst`) plus its 1-D form **LINE PULSE** (the shield arc)
+        — these are energy AT a point (or travelling between two points), not
+        objects failing, so the idiom is a WAVEFRONT REVEALING a field rather
+        than blocks flying off a silhouette: literally `GLITCH_FS`'s own
+        "frontier through a block field" mechanism (`uResolve` sweeping an
+        arrival-time field), reused in 2D. A cell not yet arrived is not drawn
+        at all; once arrived it flares then shrinks to a point over
+        `FLARE_HOLD` of the effect's own life. The pulse's own extent now
+        traces the event's REAL radius, which the old hex cage/ragged
+        ring/expanding circle never reliably did. `drawCollectBurst` runs the
+        identical mechanism INWARD — destruction pushes energy out, taking
+        something in pulls it in, one flag's difference. Drawn as circles by
+        default (a smooth radiating field); the mine and the shield arc are
+        TRIANGLES instead, on request, for a sharper/more electrical material
+        — `buildAreaPulse`'s own `mark` option, scoped per effect. The mine's
+        old jittering hex cage, lightning arcs and white core are all gone —
+        two overlaid triangle pulses are the whole tell now. The shield arc
+        now visibly TRAVELS from the shield to the target instead of existing
+        complete and fading, with a landing flare timed to its arrival.
+        `MINE_BLAST_DURATION` (0.55 -> 0.32) and `COLLECT_DURATION`
+        (0.4 -> 0.22) both SHORTENED on top of the mechanism change, live
+        feedback that a discharge and a pickup should read as a snap — both
+        moves are strictly cheaper at `MAX_WRECKS`' ceiling, not more
+        expensive, since a shorter slot frees sooner.
+        **THE PLAYER'S SHIELD RING** becomes two wavy, layered rings (two low-
+        order harmonics each, drawn "lighter" at the same `SHIELD_ORB_ALPHA`
+        scheme already argued correct) instead of one crisp circle — an
+        energy BARRIER rather than a wireframe outline, the "blurred" read
+        coming from genuine overlap between two independently wavy shapes
+        under bloom's own halo rather than from faking a blur with alpha or
+        width. `player.js`'s `renderShield` carries the reasoning.
+        **CARRIED OVER, ON PURPOSE, NOT AN OVERSIGHT:** `drawTargetMark`'s
+        on/off halo blink (straddling `BLOOM_THRESHOLD` once per pulse cycle)
+        was examined and left — flagged as likely an accident of the
+        threshold moving twice, but changing it was not confirmed as wanted.
+        Three white "impact" flashes (`drawWreck`, the fireball, heavy impact)
+        stay alpha-only, deliberately: they are punctuation, not fragments
+        meant to persist, so going bloomless as they wind down is correct for
+        them the way it never was for a fade meant to travel. `engine/neon.js`'s
+        `neonStroke` header carries the full account of what shipped, the
+        three exceptions, and THE WIDTH TRAP (why thinning a stroke is an
+        alpha fade wearing a different hat, and cannot substitute for a
+        geometric one) — recorded there for the first time, as this PR's
+        acceptance required. **TIER C (a positional hotspot in the feed
+        channel) WAS NOT PROPOSED OR BUILT** — nothing here needed the
+        channel to know WHERE an effect is; every mechanism above carries its
+        own position already. **TIER B (a feed-channel punch on a big
+        detonation) WAS PROPOSED EARLY AND NOT CARRIED FORWARD** once the
+        out-of-the-box direction landed on block shatter/area pulse instead —
+        recorded as a live option for a future pass, not built here.
+        **THE BARE-DESKTOP GPU RE-MEASUREMENT OWED SINCE 15B REMAINS OWED** —
+        this PR did not attempt it either, for the same reason 15e-i and
+        15e-ii-a did not: still the same sandboxed/remoted pane.
   - [ ] **15e-iii** — Map visuals: a later step than the effects/fade work
         above, and an earlier one than hull-driven corruption below — not
         further specified yet

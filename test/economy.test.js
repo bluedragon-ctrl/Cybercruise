@@ -1,7 +1,7 @@
 // Part of the cross-file invariant suite — see test/README-invariants.md for
 // what these assert and why they are not unit tests of behaviour.
 //
-// Credits: what a run earns, the link that is the one way a node is taken, and the dish that reports it.
+// Credits: what a run earns, the link that is the one way a node is taken, and the uplink marker that reports it.
 //
 // Everything imported here is DOM-free at module scope, so the game's real
 // modules load under plain Node.
@@ -409,7 +409,7 @@ test("a fine with nothing left to take leaves no marker at all", () => {
 function beside(node, distance, speed = 350) {
   const center = centerXAt(distance, TEST_W);
   const side = Math.sign(node.cx - center) || -1;
-  // `w` because the link's dish is measured off the car's flank
+  // `w` because the link's marker is measured off the car's flank
   // (wallet.js's linkGeometry); everything else here only needs a point.
   return { x: center + side * (ROAD_HALF_WIDTH - 17), y: node.sy, speed, w: 34 };
 }
@@ -632,17 +632,17 @@ test("the uplink draws while a hold is running, and nothing at all when none is"
 
   const idle = [];
   renderUplink(recordingCtx(idle), 0, w.linkGeometry([node], player, player.x));
-  assert.equal(idle.length, 0, "a car with no hold still drew a dish");
+  assert.equal(idle.length, 0, "a car with no hold still drew a marker");
 
   hold(w, node, player, distance, 0.5);
   const live = [];
   renderUplink(recordingCtx(live), 0, w.linkGeometry([node], player, player.x));
-  assert.ok(live.some(([k]) => k === "stroke"), "the dish never reached the canvas");
+  assert.ok(live.some(([k]) => k === "stroke"), "the uplink never reached the canvas");
 });
 
-// --- The dish: the same fact, drawn on the car -------------------------------
+// --- The marker: the same fact, drawn on the car -----------------------------
 
-test("no hold, no dish — the car only wears one while it is actually taking something", () => {
+test("no hold, no marker — the car only wears one while it is actually taking something", () => {
   const distance = 4000;
   const node = nodeBeside(distance, { offRoadBy: 200 });
   const w = new Wallet(null);
@@ -650,7 +650,7 @@ test("no hold, no dish — the car only wears one while it is actually taking so
   assert.equal(w.linkGeometry([node], player, player.x), null);
 });
 
-test("the dish rides the flank the node is on, clear of the car's own body", () => {
+test("the marker rides the flank the node is on, clear of the car's own body", () => {
   const distance = 4000;
   const node = nodeBeside(distance, { offRoadBy: 200 });
   const w = new Wallet(null);
@@ -658,7 +658,7 @@ test("the dish rides the flank the node is on, clear of the car's own body", () 
   hold(w, node, player, distance, 1);
 
   const link = w.linkGeometry([node], player, player.x);
-  assert.ok(link, "a running hold drew no dish");
+  assert.ok(link, "a running hold drew no marker");
   // The whole point of the marker: it says WHICH WAY the money is.
   assert.equal(Math.sign(link.ax - player.x), Math.sign(node.cx - player.x));
   // Off the edge of the body, never on top of the wireframe.
@@ -668,7 +668,7 @@ test("the dish rides the flank the node is on, clear of the car's own body", () 
   assert.ok(Math.sign(link.ux) === Math.sign(node.cx - player.x));
 });
 
-test("the dish brightens with the drain it is reporting, and lands on the node", () => {
+test("the marker brightens with the drain it is reporting, and lands on the node", () => {
   const distance = 4000;
   const node = nodeBeside(distance, { offRoadBy: 200 });
   const w = new Wallet(null);
@@ -685,7 +685,7 @@ test("the dish brightens with the drain it is reporting, and lands on the node",
   assert.equal(later.ny, node.sy);
 });
 
-test("a node the floor is no longer drawing takes its dish with it", () => {
+test("a node the floor is no longer drawing takes its marker with it", () => {
   // linkGeometry reads the node out of the list actually on screen, so a hold on
   // something that has scrolled away draws nothing rather than a beam into an
   // empty patch of city.

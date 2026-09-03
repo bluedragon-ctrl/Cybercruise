@@ -197,21 +197,32 @@ export const AWARD_MARK_RISE = 26;
 // what stays on screen is what just happened.
 const MAX_AWARD_MARKS = 5;
 
-// THE DISH: the marker on the car saying a link is running.
+// THE UPLINK MARKER: the mark on the car saying a link is running.
 //
 // The node's fill bar is the instrument — how far along, to the pixel — but it
 // lives out on the floor, on the thing being drained. It cannot say the CAR is
 // the other end, and "am I downloading?" is asked with eyes on your own car,
 // mid-traffic, while paying for the answer in speed.
 //
-// AIMED at the node, which is the part that teaches: the dish swings to the
+// AIMED at the node, which is the part that teaches: the marker sits on the
 // side the money is on, so it answers "which way" as well as "yes".
 //
 // On the flank, not the roof — the car is 34px wide, so anything over the
 // wireframe competes with it while the outside edge is against empty tarmac.
 // The offset clears the body, so the link never crosses the car.
-export const DISH_MAST = 9;    // px from the car's flank out to the dish's middle
-export const DISH_R = 6;       // the dish's own radius
+//
+// THROUGH PHASE 15E-II-A THIS WAS A SATELLITE DISH — a mast, a half-circle
+// arc and a feed-horn stub, with a marching dashed line for the link itself.
+// PHASE 15E-II-B RETIRES THAT LOOK: a dish is a physical-antenna metaphor,
+// out of place next to the block-shatter/area-pulse vocabulary the rest of
+// the game's effects now speak (game/effects.js's own header). The dashes
+// become a stream of directional darts (engine/neon.js's `dartAt`, shared
+// with effects.js's mine blast and shield arc) marching node -> car, and the
+// dish is replaced by a dart at the same anchor point that flares briefly on
+// each packet's arrival — see walletrender.js's `renderUplink` for the ink.
+// `LINK_CLEAR` is what `DISH_MAST` used to be: the same small standoff
+// distance, now naming what it clears rather than what it used to hold up.
+export const LINK_CLEAR = 9; // px from the car's flank to where the packet stream starts
 
 // Nodes UNDER the road pay nothing, however close they are. The city floor
 // runs beneath the elevated road ribbon and the road paints an opaque surface
@@ -622,8 +633,8 @@ export class Wallet {
   // thing left in the render method is ink.
   //
   // `carX` is the car's INTERPOLATED position (player.renderX), not player.x:
-  // the dish is bolted to a car being drawn between two logic steps, and a
-  // dish that used the logic position would swim against its own car.
+  // the marker is bolted to a car being drawn between two logic steps, and one
+  // that used the logic position would swim against its own car.
   //
   // The node is looked up in the list the floor just drew rather than being
   // remembered when the drain started, so the link is always attached to where
@@ -640,15 +651,16 @@ export class Wallet {
     const len = Math.hypot(dx, dy);
     if (len < 1) return null; // degenerate; nothing sane to aim at
 
-    // Which flank the dish rides: the node's side, always, since that is the
-    // half of the answer the floor's own meter cannot give.
+    // Which flank the marker rides: the node's side, always, since that is
+    // the half of the answer the floor's own meter cannot give.
     const side = dx >= 0 ? 1 : -1;
     const ax = carX + side * (player.w / 2);
     const ux = dx / len, uy = dy / len;
     return {
-      // The mast's foot on the car's flank, and the dish's middle out past it.
+      // The car's own flank, and the point LINK_CLEAR past it where the
+      // packet stream and the receiver flare both anchor.
       ax, ay: player.y,
-      dx: ax + ux * DISH_MAST, dy: player.y + uy * DISH_MAST,
+      dx: ax + ux * LINK_CLEAR, dy: player.y + uy * LINK_CLEAR,
       // The far end: the node itself.
       nx: node.cx, ny: node.sy,
       // Unit vector from car to node — the direction the dish faces and the
