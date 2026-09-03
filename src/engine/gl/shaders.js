@@ -2,10 +2,16 @@
 //
 // SEPARATE FROM THE CODE THAT COMPILES IT because shaders are the one thing in
 // this phase that will keep growing: 15b's bright-pass, blur and recombine and
-// 15e's aberration/vignette/scanlines are all fragment programs over the same
-// bound texture, and they belong beside this one rather than inlined in
-// whatever module happens to bind them. `gl/context.js` compiles, `present.js`
-// draws, this says what is drawn.
+// 15e-i's feed pass are all fragment programs over the same bound texture, and
+// they belong beside this one rather than inlined in whatever module happens to
+// bind them. `gl/context.js` compiles, `present.js` draws, this says what is
+// drawn.
+//
+// 15E WAS PENCILLED IN AS "aberration/vignette/scanlines" AND IS NOT THAT.
+// Those are CRT-simulation terms — a screen being photographed — and the
+// project owner rejected that reading outright. What 15e-i actually adds is
+// GLITCH_FS at the bottom of this file, in the DATA vocabulary the game's own
+// fiction is written in; its header has the argument.
 //
 // 15b ADDS FOUR STAGES: BRIGHT_FS (threshold), BLUR_FS (one separable Gaussian
 // pass, reused four times — H and V at half-res, H and V at quarter-res), and
@@ -44,19 +50,27 @@
 // vUv is the PLAIN, UNFLIPPED mapping: v=0 at the bottom of the destination,
 // v=1 at the top — the natural result of interpolating this triangle's own
 // corners, and the right one for every stage that samples a texture the GPU
-// itself rendered (every target in gl/target.js). That covers five of this
-// chain's six texture reads: the four blur passes and the downsample all read
-// a texture written by an EARLIER pass in this same chain, at a viewport row
-// 0 that is already "bottom" by the same convention this stage produces.
+// itself rendered (every target in gl/target.js). That covers the four blur
+// passes and the downsample, which all read a texture written by an EARLIER
+// pass in this same chain, at a viewport row 0 that is already "bottom" by the
+// same convention this stage produces.
 //
-// THE ONE EXCEPTION, AND WHY THE FLIP DOES NOT LIVE HERE ANY MORE. The frame
+// THE EXCEPTION, AND WHY THE FLIP DOES NOT LIVE HERE ANY MORE. The frame
 // texture is not GPU-rendered — present.js fills it with texSubImage2D from
 // the 2D canvas's pixel data, whose row 0 is the TOP of the image (ordinary
 // top-down bitmap order). That is the opposite convention from every other
 // texture in the chain, so reading it needs `vec2(vUv.x, 1.0 - vUv.y)` where
 // every other read needs plain `vUv` — and that correction is applied in the
-// two fragment stages that actually touch the frame texture (BRIGHT_FS,
-// COMPOSITE_FS), not here. 15b's first draft baked the flip into this shared
+// fragment stages that actually DISPLAY it (BRIGHT_FS, COMPOSITE_FS), not here.
+//
+// GLITCH_FS (15e-i) READS THE FRAME TEXTURE AND DOES NOT FLIP IT, which is not
+// a third case so much as the absence of one: it does not display the frame, it
+// REWRITES it, and it writes its target in the same row order it read. Nothing
+// downstream can tell the two textures apart, so BRIGHT_FS and COMPOSITE_FS
+// keep flipping exactly as they did and needed no edit. The cost is that
+// GLITCH_FS's own vertical terms are in the frame's convention (v=0 is the
+// image's top) rather than the screen's; that is stated once, at the top of its
+// main(). 15b's first draft baked the flip into this shared
 // vertex stage instead, on the (wrong) assumption that "the one flip 15a
 // needed" was a property of the pipeline rather than of one specific texture's
 // upload path — every FBO-to-FBO pass then flipped a second time, and bloom
@@ -264,4 +278,200 @@ void main() {
   vec3 bloom = texture(uBloomHalf, vUv).rgb * 0.55 + texture(uBloomQuarter, vUv).rgb * 0.45;
   vec3 knee = 1.0 - exp(-bloom * uExposure);
   fragColor = vec4(clamp(frame + knee, 0.0, 1.0), 1.0);
+}`;
+
+// --- The feed pass (Phase 15e-i) --------------------------------------------
+//
+// THE JACK-IN AND THE DISCONNECT, both of them, as one fragment stage. Through
+// Phase 15d these were Canvas2D: game/jackin.js masked, tore and channel-split
+// the frame by drawing it back onto itself, and game/disconnect.js swept and
+// dimmed it. What they were both reaching for is per-pixel work a 2D context
+// cannot do, and this is it.
+//
+// THE FICTION, which is the whole reason the vocabulary is what it is. The game
+// is a signal the player is jacked into (engine/neon.js): the car is not an
+// object, it is data arriving. So the two sequences are the two ends of ONE
+// connection — a feed resolving and a feed collapsing — and what they are made
+// of is the DATA vocabulary: packet arrival, block loss, line dropout,
+// reordering, channel desync, bandwidth collapse. It is explicitly NOT a screen
+// being photographed: no phosphor, no barrel distortion, no standing scanline
+// overlay, no vignette-as-tube-falloff. Those were considered and REJECTED by
+// the project owner, deliberately, and they are not a subtle touch worth
+// sneaking back in later.
+//
+// ONE MECHANISM, RUN BOTH WAYS. The screen is a grid of macroblocks; each block
+// draws an ARRIVAL TIME, and `uResolve` is a frontier through that field. Ramp
+// it UP and the feed arrives block by block; ramp it DOWN and the feed drains
+// through the same order. That is the thing both modules' headers have always
+// CLAIMED about each other ("run BACKWARDS", "the exact inverse") and never
+// actually shared an implementation of. `uOrder` is how ordered that field is:
+// the boot scans in as a wavefront, the death fails in scattered patches, off
+// one field rather than two mechanisms.
+//
+// WHAT EACH TERM REPLACES, so the old look can be found from the new one:
+//
+//   uResolve   jackin's VOID mask below the sweep line, and disconnect's own
+//              collapse. A ragged block frontier rather than a rectangle with
+//              a drawn line on its edge.
+//   uCorrupt   jackin's band-tear loop (blitScreenBand) and its scanline wash,
+//              and disconnect's full-width scanline tears.
+//   uSplit     jackin's whole-scene chromatic split — which was two tinted
+//              full-frame copies at ONE global offset. Here each block ROW
+//              disagrees by its own amount, in its own direction, and most
+//              rows not at all: bands of desync rather than a lens fringe.
+//   uQuant     new, and the term that carries the collapse. Nothing in the 2D
+//              path could do it at all.
+//   uFade      disconnect's dim toward black (its DESAT_MAX).
+//   uFlash     jackin's hand-over flash. In here rather than left as a 2D
+//              fillRect because it has to whiten what THIS pass produced, not
+//              the frame that went into it.
+//   uShake     disconnect's shake(), which main.js used to apply as a whole-
+//              scene ctx.translate. A UV offset composes with everything above,
+//              cannot reach the HUD layer by construction, and on a NEAREST
+//              frame texture is quantised to whole device pixels for free —
+//              which is the camera rule the README states, enforced by the
+//              sampler instead of by discipline.
+//
+// THE CAR HAS NO STAGE OF ITS OWN AT EITHER END, as of 15e-i. jackin.js
+// assembled it out of three offset wireframe copies and disconnect.js pulled it
+// apart the same way (game/effects.js's drawChromaticSplit, deleted along with
+// both call sites). Under this pass neither reads: a wireframe easing together
+// inside a block-corrupted feed is mush, and a hole opened around the car reads
+// as a cutout rather than as data loss — that second one was built, looked at
+// and rejected on sight. The car now resolves and fails with the rest of the
+// frame, which is the more honest version of the fiction anyway: the car is not
+// a special object, it is part of the signal.
+//
+// A PURE FUNCTION OF ITS UNIFORMS. No history texture, no feedback, nothing
+// carried between frames — the animated jitter is reseeded from `uTime` the
+// same way jackin.js and disconnect.js already reseed theirs from `elapsed`
+// (their shared "a pure function of progress" note). A feedback texture WAS the
+// obvious way to get real persistence and is rejected for a specific reason: it
+// would make a render target's CONTENTS matter across frames, and target
+// contents are the one thing present.js's build() cannot restore after a
+// context loss. As written, the first frame after a restore mid-sequence is
+// simply correct.
+//
+// IDLE COSTS NOTHING BECAUSE IT IS NOT DRAWN — present() skips this pass
+// entirely when the feed is at rest, rather than running it with zeroed
+// uniforms (see present.js's `feed`). The identity below is still worth having,
+// because it makes that skip an optimisation rather than a correctness
+// requirement: at uQuant 0 `levels` is exactly 255.0, so `floor(c * 255 + 0.5)
+// / 255` is the identity for any channel of an 8-bit source, and every other
+// term is multiplied or added by zero.
+export const GLITCH_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uFrame;
+uniform vec2  uBlocks;
+uniform vec2  uShake;
+uniform float uResolve;
+uniform float uCorrupt;
+uniform float uSplit;
+uniform float uQuant;
+uniform float uFade;
+uniform float uFlash;
+uniform float uOrder;
+uniform float uTime;
+uniform float uSeed;
+in vec2 vUv;
+out vec4 fragColor;
+
+// Enough hash for a per-block draw that does not repeat across the grid. Not a
+// quality generator and does not need to be — game/effects.js's rng() has the
+// same job on the CPU side and is held to the same standard.
+//
+// EVERY CALLER PASSES SMALL NUMBERS INTO THIS, and that is load-bearing. The
+// arguments are block indices (0..32) plus uSeed and a frame counter; highp is
+// 32-bit, so an addend over 2^24 would round the block index away and hand
+// every block the same value. uSeed is therefore a fraction in [0, 1) rather
+// than the caller's raw seed — see present.js's feed, which has the bug this
+// prevents and how it was found.
+float hash(vec2 p) {
+  p = fract(p * vec2(443.897, 441.423));
+  p += dot(p, p + 19.19);
+  return fract((p.x + p.y) * p.x);
+}
+
+// How far past each end of the arrival field the frontier runs — see its use
+// below. Must exceed FLARE_WIDTH.
+const float FRONT_MARGIN = 0.06;
+// Half-width of the hot band about the frontier, in arrival-time units.
+const float FLARE_WIDTH = 0.04;
+
+void main() {
+  // vUv IS FRAME-TEXTURE SPACE, NOT SCREEN SPACE: v = 0 is the image's TOP row,
+  // because the frame texture is the one CPU-uploaded (top-down) texture in the
+  // chain — see PRESENT_VS's header. Every vertical term below reads that way.
+  // This pass writes its target with the SAME convention it read, so the target
+  // is a texel-for-texel stand-in for the frame texture and the downstream flip
+  // in BRIGHT_FS and COMPOSITE_FS is still exactly right, unedited. That is
+  // deliberate: 15b's mirrored-bloom bug came from moving a flip, and the
+  // version of this pass with zero downstream edits cannot reintroduce it.
+  vec2  blk    = floor(vUv * uBlocks);
+  float step30 = floor(uTime * 30.0);
+
+  // ARRIVAL ORDER. uOrder 0 is a pure top-to-bottom wavefront (the boot's own
+  // sweep, ragged at block granularity); 1 is no order at all (a feed failing
+  // in patches). One field, both directions.
+  float spread  = mix(0.22, 1.0, uOrder);
+  float arriveT = vUv.y * (1.0 - spread) + hash(blk + uSeed) * spread;
+
+  // THE FRONTIER TRAVELS PAST BOTH ENDS OF THE FIELD, and the margin is not
+  // cosmetic. arriveT lands in [0, 1], so a caller's uResolve of exactly 1
+  // parks the frontier ON the last blocks rather than beyond them — and the
+  // flare below, which is a band about the frontier, would then light that last
+  // block row FOREVER. Found by the pixel-identity self-test (README, "The present path"): with every feed field at rest the pass came back 10,975
+  // bytes off a byte-identical frame, all of them in the bottom block row. Live
+  // that is a permanently brightened strip along the bottom of the screen from
+  // SWEEP_END to the end of every jack-in. FRONT_MARGIN is wider than the
+  // flare's own half-width (0.040) so both ends clear it completely.
+  float front = uResolve * (1.0 + 2.0 * FRONT_MARGIN) - FRONT_MARGIN;
+
+  float live = step(arriveT, front);
+  // The frontier itself. A block whose state has just changed runs hot for a
+  // moment, so the leading edge is the SHAPE OF THE ARRIVAL rather than a line
+  // drawn over it — which is what jackin.js's three glowLine calls were for.
+  float edge = smoothstep(FLARE_WIDTH, 0.0, abs(arriveT - front));
+
+  // REORDERING. A fraction of block ROWS slide sideways, and the offset is
+  // floored to whole blocks — that is what makes it read as packets arriving
+  // out of order rather than as a smear. A smaller fraction of rows lose their
+  // data outright and repeat the last good line instead.
+  float rowSel = hash(vec2(7.1, blk.y) + step30 + uSeed);
+  float torn   = step(1.0 - uCorrupt * 0.45, rowSel);
+  float amt    = hash(vec2(blk.y, 3.7) + step30 + uSeed) * 2.0 - 1.0;
+  float dx     = floor(torn * amt * uCorrupt * 0.16 * uBlocks.x) / uBlocks.x;
+
+  float dropSel = hash(vec2(blk.y, 11.3) + floor(uTime * 31.0) + uSeed);
+  float held    = step(1.0 - uCorrupt * 0.20, dropSel);
+
+  vec2 uv = vUv + uShake + vec2(dx, 0.0);
+  uv.y = mix(uv.y, (blk.y + 0.02) / uBlocks.y, held);
+
+  // CHANNEL DESYNC. Only SOME block rows disagree (the step(0.40, ...) leaves
+  // most of them alone), each by its own amount and in its own direction. One
+  // global offset applied to the whole frame is what the 2D path did, and it
+  // reads as a lens; per-row is what reads as data.
+  float bandSel = hash(vec2(blk.y, 5.9) + uSeed);
+  float band    = (hash(vec2(blk.y, 2.3) + uSeed) * 2.0 - 1.0) * step(0.40, bandSel);
+  vec2  s       = vec2(band * uSplit * 0.018, 0.0);
+  vec3 c = vec3(
+    texture(uFrame, uv + s).r,
+    texture(uFrame, uv).g,
+    texture(uFrame, uv - s).b
+  );
+
+  // BANDWIDTH. Geometric from 255 levels down to 2, because everything the eye
+  // reads in a collapse happens in the last few levels — a linear ramp spends
+  // most of its travel between 255 and 60, where nothing is visible. 255
+  // EXACTLY at uQuant 0, which is what makes this stage the identity for an
+  // 8-bit source (see the header's note on idle).
+  float levels = 255.0 * pow(2.0 / 255.0, uQuant);
+  c = floor(c * levels + 0.5) / levels;
+
+  c *= live;
+  c *= 1.0 - uFade;
+  c += edge * vec3(0.55, 0.90, 0.68) * (0.40 + 0.60 * uCorrupt);
+  c += uFlash;
+  fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
 }`;

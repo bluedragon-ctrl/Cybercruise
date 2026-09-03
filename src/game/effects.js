@@ -91,37 +91,25 @@ function* outlineSegments(shape, w, h) {
   }
 }
 
-// The CHROMATIC SPLIT both ends of a run are drawn with: the car's own wireframe
-// outline redrawn once per colour a few px apart, each copy easing out along its
-// own radius from the car's centre and jittering in place. The signal is still
-// recognisably the player's car, it just no longer agrees with itself about
-// where it is.
+// THE CHROMATIC SPLIT USED TO LIVE HERE, and Phase 15e-i deleted it along with
+// both of its call sites. It redrew the car's own outline three times a few px
+// apart — cyan, white, magenta — so the signal was still recognisably the
+// player's car but no longer agreed with itself about where it was;
+// game/disconnect.js ran it forward (the car coming apart) and game/jackin.js
+// backward (the car assembling), off one implementation rather than two copies.
 //
-// SHARED BY BOTH DIRECTIONS. disconnect.js runs it forward (the car coming
-// apart) and jackin.js runs it backward (the car assembling) — they were two
-// copies of this loop, differing only in the numbers below, which is exactly
-// what an effect that is meant to be the same effect played in reverse should
-// NOT be. Note this is NOT drawWreck's shell above: fragments here ease apart
-// along their radius and never rotate, because this is desync, not an explosion.
+// WHY IT WENT, since it was a good effect and the deletion was not automatic:
+// both sequences are now drawn by a fragment pass over the whole finished frame
+// (engine/gl/shaders.js's GLITCH_FS), and a wireframe easing together inside a
+// block-corrupted feed reads as mush rather than as a car. Giving the car its
+// own region in the PASS instead — the feed failing where the car is and
+// spreading outward — was built and rejected on sight: it opens a black hole
+// around the car, which reads as a cutout, not as data loss. The car now
+// resolves and fails with the rest of the frame. GLITCH_FS's header carries the
+// full argument.
 //
-// `layers` is [color, spread, alpha] per copy — `spread` is the sideways offset
-// in `spreadPx` units (-1 / 0 / +1 for the left, centre and right copies) and
-// doubles as the identity of the centre copy, which the callers give a different
-// alpha. A layer at alpha <= 0.01 is skipped rather than drawn invisibly.
-export function drawChromaticSplit(ctx, cx, cy, w, h, { drift, jitter, spreadPx, rand, layers }) {
-  for (const [color, spread, alpha] of layers) {
-    if (alpha <= 0.01) continue;
-    neonStroke(ctx, (c) => {
-      for (const { x1, y1, x2, y2, nx, ny } of outlineSegments(0, w, h)) {
-        const ox = nx * drift + spread * spreadPx + (rand() - 0.5) * jitter;
-        const oy = ny * drift + (rand() - 0.5) * jitter;
-        c.moveTo(cx + x1 + ox, cy + y1 + oy);
-        c.lineTo(cx + x2 + ox, cy + y2 + oy);
-      }
-    }, color, 2, alpha);
-  }
-}
-
+// `outlineSegments` above survives because drawWreck's shell still uses it.
+//
 // The shell: every segment of the car's own outline becomes a fragment that
 // flies outward and tumbles about its midpoint.
 function buildShell(c, cx, cy, tt, shape, w, h, rand) {

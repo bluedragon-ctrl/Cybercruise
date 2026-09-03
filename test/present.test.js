@@ -26,8 +26,22 @@
 // pass (COMPOSITE_FS), the same silent failure reads as a bloom bug — a
 // texture bound to the wrong logical slot — rather than as the spelling drift
 // it actually is. The test below checks every getUniformLocation call in
-// present.js against every uniform declared across all five shader sources, so
+// present.js against every uniform declared across all six shader sources, so
 // a typo in any one of them fails loudly here instead of quietly on screen.
+//
+// 15E-I RAISED THE STAKES ON THAT. GLITCH_FS has eleven uniforms rather than
+// one or two, they are looked up as eleven separate module-level handles, and —
+// unlike anything in the bloom chain — the pass they drive only runs while a
+// jack-in or a death is on screen. A misspelling there is a uniform silently
+// pinned at 0.0 during a sequence nobody is diffing pixel by pixel, which is
+// about as quiet as a rendering bug gets.
+//
+// THIRD, THE FEED TIMELINE. The two sequences hand present.js a block of plain
+// numbers each frame (present.js's `feed`) and the shader reads most of them as
+// 0..1. Nothing on the GPU side clamps them and nothing complains: a field
+// written out of range is a visual bug whose only symptom is that something
+// looked wrong. The beat ORDER and the field RANGE are what section 3 pins —
+// not the look, which is not something an assertion can hold.
 //
 // It runs headless because it can: present.js touches the DOM only through the
 // two elements it is handed, so a pair of stand-ins is enough. That is the same
@@ -39,8 +53,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { init, isLive, present } from "../src/engine/present.js";
-import { PRESENT_FS, PRESENT_VS, BRIGHT_FS, BLUR_FS, COMPOSITE_FS } from "../src/engine/gl/shaders.js";
+import { init, isLive, present, feed } from "../src/engine/present.js";
+import {
+  PRESENT_FS, PRESENT_VS, BRIGHT_FS, BLUR_FS, COMPOSITE_FS, GLITCH_FS,
+} from "../src/engine/gl/shaders.js";
+import { JackIn, CONNECT_DURATION } from "../src/game/jackin.js";
+import { Disconnect, DISCONNECT_DURATION } from "../src/game/disconnect.js";
 
 // The minimum of a canvas element that present.js reaches for on the path
 // where there is no context to be had — now including the `#gl-notice`
@@ -128,8 +146,17 @@ test("every uniform present.js binds by name is declared in some fragment stage"
   const bound = [...source.matchAll(/getUniformLocation\([^,]+,\s*"([^"]+)"\)/g)].map((m) => m[1]);
   assert.ok(bound.length >= 5, "present.js binds far fewer uniforms than the 15b chain has — this test is stale");
 
-  const allSource = [PRESENT_FS, BRIGHT_FS, BLUR_FS, COMPOSITE_FS].join("\n");
-  const declared = new Set([...allSource.matchAll(/uniform\s+\S+\s+(\w+)\s*;/g)].map((m) => m[1]));
+  const allSource = [PRESENT_FS, BRIGHT_FS, BLUR_FS, COMPOSITE_FS, GLITCH_FS].join("\n");
+  // ONE MATCH PER NAME, NOT PER LINE. GLSL allows `uniform float a, b, c;` and
+  // the first version of this pattern only captured the name touching the
+  // semicolon — so a comma-declared uniform read as UNDECLARED and failed a
+  // shader that was perfectly correct. Found exactly that way, adding
+  // GLITCH_FS. Splitting the declarator list is what makes this a test of
+  // spelling rather than of formatting.
+  const declared = new Set();
+  for (const m of allSource.matchAll(/uniform\s+\S+\s+([^;]+);/g)) {
+    for (const name of m[1].split(",")) declared.add(name.trim());
+  }
   for (const name of bound) {
     // A name bound here but declared nowhere is exactly the failure mode the
     // header above describes: silently ignored, and the sampler that should
@@ -152,7 +179,153 @@ test("every stage is GLSL ES 3.00, declared on the first line", () => {
   // fails to compile, which is why the template strings open on the same line
   // as the backtick. A stray newline there is easy to add and gives a compile
   // error that names line 1 of a file that has no line 1.
-  for (const src of [PRESENT_VS, PRESENT_FS, BRIGHT_FS, BLUR_FS, COMPOSITE_FS]) {
+  for (const src of [PRESENT_VS, PRESENT_FS, BRIGHT_FS, BLUR_FS, COMPOSITE_FS, GLITCH_FS]) {
     assert.ok(src.startsWith("#version 300 es\n"));
   }
+});
+
+// --- 3. The feed timeline ---------------------------------------------------
+//
+// NOT A TEST OF THE LOOK, which is not a thing an assertion can hold. These pin
+// the ORDER of the beats and the RANGE of the fields, which are the two things
+// a retune can break silently. Both sequences are driven by advancing their own
+// clock, so each is walked frame by frame the way main.js walks it.
+
+// Every field GLITCH_FS reads as a 0..1 scalar. `time` and the two shake
+// components are deliberately absent — they are not fractions. `seed` IS one,
+// and is here for a sharper reason than tidiness: the shader adds it to block
+// indices in a 32-bit float, so a raw seed silently flattens the whole effect
+// (present.js's `feed` carries the story). A range check is exactly the guard
+// that would have caught it.
+const UNIT_FIELDS = ["resolve", "order", "corrupt", "split", "quant", "fade", "flash", "seed"];
+
+// One frame at 60Hz, which is what createLoop hands these.
+const DT = 1 / 60;
+
+// A copy of the real block, so a test can never leave the module-level one
+// holding a sequence's last frame.
+function walk(seq, duration, onFrame) {
+  const block = { ...feed };
+  for (let i = 0; i * DT <= duration + DT; i++) {
+    seq.update(DT);
+    const live = seq.feed(block);
+    onFrame(seq.progress, live, block);
+  }
+}
+
+test("no feed field the shader reads as a fraction ever leaves 0..1", () => {
+  // A field out of range does not throw and does not warn — it produces a frame
+  // that is wrong in a way nobody can attribute. `fade` over 1 is a negative
+  // multiply; `resolve` outside [0,1] quietly pins the arrival frontier past
+  // one end of its own field, which reads as "the effect stopped working".
+  for (const [name, seq, duration] of [
+    ["jackin", new JackIn(), CONNECT_DURATION],
+    ["disconnect", new Disconnect(), DISCONNECT_DURATION],
+  ]) {
+    seq.trigger();
+    walk(seq, duration, (t, live, block) => {
+      if (!live) return;
+      for (const f of UNIT_FIELDS) {
+        assert.ok(
+          block[f] >= 0 && block[f] <= 1,
+          name + " wrote " + f + " = " + block[f] + " at t=" + t.toFixed(3),
+        );
+      }
+    });
+  }
+});
+
+test("the jack-in resolves: the arrival frontier only ever moves forward", () => {
+  // The boot's one irreversible claim. A frontier that went backwards would be
+  // blocks that had arrived un-arriving, which is not something a feed does —
+  // and it is exactly what a mis-signed retune of SWEEP_END would produce.
+  const jackin = new JackIn();
+  jackin.trigger();
+  let last = -1;
+  walk(jackin, CONNECT_DURATION, (t, live, block) => {
+    if (!live) return;
+    assert.ok(block.resolve >= last, "resolve went backwards at t=" + t.toFixed(3));
+    last = block.resolve;
+  });
+  assert.equal(last, 1, "the feed never finished arriving");
+});
+
+test("the disconnect holds still after the hit, then only ever loses ground", () => {
+  // THE HELD BEAT IS THE ASSERTION HERE. disconnect.js's HOLD_END exists so the
+  // player registers the death before the screen comes apart, and the way that
+  // is implemented is feed() reporting NO WORK AT ALL — which is also what
+  // keeps those frames a bit-for-bit no-op (present.js's `feed`, and README's
+  // "The present path"). A retune that let the collapse start at the hit would
+  // quietly take both the pacing and the no-op.
+  const disconnect = new Disconnect();
+  disconnect.trigger();
+  let sawHold = false;
+  let last = Infinity;
+  walk(disconnect, DISCONNECT_DURATION, (t, live, block) => {
+    if (!live) {
+      // Only ever at the start: once the collapse begins it does not pause.
+      assert.ok(last === Infinity, "the feed went idle again at t=" + t.toFixed(3));
+      sawHold = true;
+      return;
+    }
+    assert.ok(block.resolve <= last, "resolve recovered at t=" + t.toFixed(3));
+    last = block.resolve;
+  });
+  assert.ok(sawHold, "the held beat after the hit is gone");
+  assert.ok(last < 1, "the feed never started failing");
+});
+
+test("the two sequences run one arrival field from opposite ends", () => {
+  // The whole design rests on this (gl/shaders.js's GLITCH_FS): ONE mechanism,
+  // ramped up for a boot and down for a death, which is what those two modules'
+  // headers have always claimed about each other. If a later change gave either
+  // sequence machinery of its own, this is the claim that stops being true.
+  const jackin = new JackIn();
+  jackin.trigger();
+  let jackFirst = null;
+  let jackLast = null;
+  walk(jackin, CONNECT_DURATION, (t, live, block) => {
+    if (!live) return;
+    if (jackFirst === null) jackFirst = block.resolve;
+    jackLast = block.resolve;
+  });
+
+  const disconnect = new Disconnect();
+  disconnect.trigger();
+  let discFirst = null;
+  let discLast = null;
+  walk(disconnect, DISCONNECT_DURATION, (t, live, block) => {
+    if (!live) return;
+    if (discFirst === null) discFirst = block.resolve;
+    discLast = block.resolve;
+  });
+
+  assert.ok(jackFirst < jackLast, "the jack-in does not gain blocks");
+  assert.ok(discFirst > discLast, "the disconnect does not lose blocks");
+  // The boot ends where a live frame is, and the death starts there.
+  assert.equal(jackLast, 1);
+  assert.equal(discFirst, 1);
+});
+
+test("an inactive sequence describes nothing, so a stale instance cannot draw", () => {
+  // reset() between games is what keeps a finished sequence from being drawn
+  // for a frame on restart (both modules' reset() comments). With the picture
+  // in a shader now, "drawn for a frame" would be a whole corrupted frame
+  // rather than a stray outline, so the guard is worth pinning.
+  const block = { ...feed };
+  const jackin = new JackIn();
+  assert.equal(jackin.feed(block), false);
+  jackin.trigger();
+  jackin.update(DT);
+  assert.equal(jackin.feed(block), true);
+  jackin.reset();
+  assert.equal(jackin.feed(block), false);
+
+  const disconnect = new Disconnect();
+  assert.equal(disconnect.feed(block), false);
+  disconnect.trigger();
+  disconnect.update(DISCONNECT_DURATION * 0.5);
+  assert.equal(disconnect.feed(block), true);
+  disconnect.reset();
+  assert.equal(disconnect.feed(block), false);
 });
