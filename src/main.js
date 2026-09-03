@@ -889,7 +889,7 @@ function update(dt) {
     case "paused": return updatePaused();
     case "connecting": return updateConnecting(dt);
     case "dying": return updateDying(dt);
-    case "highscore": return updateHighscore();
+    case "highscore": return updateHighscore(dt);
     case "gameover": return updateGameOver();
     case "lifting": return updateLifting(dt);
     case "shopping": return updateShopping();
@@ -1011,8 +1011,8 @@ function updateDying(dt) {
 // straight on to the same "gameover" screen a non-qualifying death reaches
 // directly — the initials prompt is purely an extra step in front of it, not
 // a fork in what gameover itself does.
-function updateHighscore() {
-  const result = nameEntry.update();
+function updateHighscore(dt) {
+  const result = nameEntry.update(dt);
   if (result.confirmed) {
     leaderboard.submit(result.name, score.points);
     state = "gameover";
