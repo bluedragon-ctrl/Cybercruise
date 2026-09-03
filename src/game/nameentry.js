@@ -31,13 +31,20 @@
 // footer already do) rather than adding a second string list for the
 // vector-coverage test to track.
 
-import { consumePress } from "../engine/input.js";
+import { consumePress, isDown } from "../engine/input.js";
 import { glowText } from "../engine/neon.js";
 import { GREEN, GREEN_PALE, GREEN_DIM, PLAYER } from "../engine/palette.js";
 import { drawHorizon } from "./menu.js";
 
 const CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const SLOT_COUNT = 3;
+
+// Holding UP/DOWN auto-repeats cycle() instead of needing a repress per
+// letter — 36 glyphs in CHARSET makes single-step-per-tap the slow path.
+// DELAY is longer than RATE so a tap-tap-tap player never free-rides into an
+// unwanted repeat between presses.
+const REPEAT_DELAY = 0.4; // s held before auto-repeat kicks in
+const REPEAT_RATE = 0.08; // s between repeats once it has
 
 const TITLE_Y = 260;
 const SLOTS_Y = 340;
@@ -48,6 +55,7 @@ const HINT_Y = 430;
 export function createNameEntry() {
   let letters = Array(SLOT_COUNT).fill("A");
   let cursor = 0;
+  let repeatTimer = 0; // seconds until the next auto-repeat cycle(), while up/down is held
 
   // Called by main.js the tick it enters "highscore" — resets to AAA/cursor 0
   // so a previous entry (or a stale one from a build with no persistence,
@@ -55,6 +63,7 @@ export function createNameEntry() {
   function open() {
     letters = Array(SLOT_COUNT).fill("A");
     cursor = 0;
+    repeatTimer = 0;
   }
 
   function cycle(dir) {
@@ -65,11 +74,29 @@ export function createNameEntry() {
   // Returns { confirmed, name } — main.js reads `confirmed` the one tick the
   // last slot is fired, the same edge-triggered shape menu.js's update()
   // returns `confirmed` on. `name` is only meaningful that tick.
-  function update() {
+  function update(dt) {
     if (consumePress("left")) cursor = Math.max(0, cursor - 1);
     if (consumePress("right")) cursor = Math.min(SLOT_COUNT - 1, cursor + 1);
-    if (consumePress("up")) cycle(1);
-    if (consumePress("down")) cycle(-1);
+    if (consumePress("up")) {
+      cycle(1);
+      repeatTimer = REPEAT_DELAY;
+    }
+    if (consumePress("down")) {
+      cycle(-1);
+      repeatTimer = REPEAT_DELAY;
+    }
+    // isDown, not consumePress: the press above already fired the first
+    // cycle(), this only keeps firing it for as long as the key stays down.
+    const heldDir = isDown("up") ? 1 : isDown("down") ? -1 : 0;
+    if (heldDir === 0) {
+      repeatTimer = 0;
+    } else {
+      repeatTimer -= dt;
+      if (repeatTimer <= 0) {
+        cycle(heldDir);
+        repeatTimer += REPEAT_RATE;
+      }
+    }
     if (consumePress("fire")) {
       if (cursor === SLOT_COUNT - 1) return { confirmed: true, name: letters.join("") };
       cursor++;

@@ -181,13 +181,25 @@ export function testRowRect(W, i) {
   return { x, y: CHECK_Y - 6, w: CHECK_ITEM_W, h: CHECK_FONT + 12 };
 }
 
+// The three real rows sit on the screen's own centreline in "pause" (no
+// leaderboard there to answer to — see leaderboardrender.js), but in
+// "start"/"gameover" — where leaderboardrender.js draws its TOP 10 column
+// centred on the 3/4 line — they centre on the 1/4 line instead: split the
+// screen into quarters and each block sits on the line between its own pair,
+// rather than one centred stack ignoring a column that just appeared beside
+// it. Horizontal only — rowY's vertical layout is unaffected, and the
+// title/subtitle above stay centred as the screen's one true headline.
+function rowCx(W, mode) {
+  return mode === "pause" ? W / 2 : W / 4;
+}
+
 // SOUND/MUSIC rows' volume bar geometry, shared between render() (drawing)
 // and update() (mouse hit-testing) so the clickable area can never drift from
 // what's actually drawn.
 const BAR_W = 200;
 const BAR_H = 12;
-function barRect(W, row) {
-  return { x: W / 2 - BAR_W / 2, y: rowY(row) + 30, w: BAR_W, h: BAR_H };
+function barRect(W, row, mode) {
+  return { x: rowCx(W, mode) - BAR_W / 2, y: rowY(row) + 30, w: BAR_W, h: BAR_H };
 }
 
 // DISPLAY TYPE SIZES. The title is set far larger and higher than the 46px
@@ -408,7 +420,7 @@ export function createMenu() {
     const { x, y } = mousePos();
     const clicked = consumeMouseClick();
     for (const [row, setter] of [[SOUND_ROW, setSoundVolume], [MUSIC_ROW, setMusicVolume]]) {
-      const bar = barRect(W, row);
+      const bar = barRect(W, row, mode);
       // A few px of vertical slop around the thin bar so it isn't a
       // pixel-perfect target to grab.
       const overBar = x >= bar.x && x <= bar.x + bar.w && y >= bar.y - 6 && y <= bar.y + bar.h + 6;
@@ -471,20 +483,21 @@ export function createMenu() {
     // The two volume rows no longer carry their level as a PERCENTAGE in the
     // label: the meter below each of them counts it out exactly (see
     // VOLUME_SEGMENTS), so the number was the same fact printed twice.
+    const cx = rowCx(W, mode);
     const rows = [ROW0_LABEL[mode], "SOUND", "MUSIC"];
     for (let i = 0; i < rows.length; i++) {
       const isSelected = i === selected;
       const y = rowY(i);
       const color = isSelected ? PLAYER : GREEN;
       const cap = rowCap(i);
-      vectorText(ctx, rows[i], W / 2, y, color, cap, "center", isSelected ? 2.6 : 1.8, 0.16);
+      vectorText(ctx, rows[i], cx, y, color, cap, "center", isSelected ? 2.6 : 1.8, 0.16);
       // SELECTION IS A PAIR OF BRACKETS, not the old "> " prefix. A prefix
       // inside a CENTRED string shifts the whole label sideways when the
       // cursor lands on it, so every row twitched as the cursor passed; a
       // bracket on each side is symmetric, so nothing moves. It is also the
       // marker an arcade menu used, which is the point of the rest of this
       // screen.
-      if (isSelected) drawBrackets(ctx, W / 2, y, textWidth(rows[i], cap, 0.16 * cap), cap, color);
+      if (isSelected) drawBrackets(ctx, cx, y, textWidth(rows[i], cap, 0.16 * cap), cap, color);
     }
 
     // SOUND/MUSIC rows' volume meters, at exactly the rects update()
@@ -492,7 +505,7 @@ export function createMenu() {
     // clickable — the geometry is unchanged from the solid bar these replaced,
     // only what fills it is.
     for (const [row, level] of [[SOUND_ROW, soundLevel], [MUSIC_ROW, volume]]) {
-      const bar = barRect(W, row);
+      const bar = barRect(W, row, mode);
       segmentMeter(ctx, bar.x, bar.y, bar.w, bar.h, level, VOLUME_SEGMENTS, GREEN_BRIGHT, GREEN_DIM);
     }
 
