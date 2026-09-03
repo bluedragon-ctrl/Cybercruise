@@ -222,7 +222,9 @@ function rowCap(row) {
 const HORIZON_FROM_BOTTOM = 150;
 const FLOOR_COLUMNS = 20;
 const FLOOR_ROWS = 9;
-function drawHorizon(ctx, W, H) {
+// Exported so nameentry.js's high-score screen — same road, no menu rows —
+// can draw the identical floor rather than a second copy of it.
+export function drawHorizon(ctx, W, H) {
   const horizon = H - HORIZON_FROM_BOTTOM;
   ctx.save();
   ctx.lineWidth = 1;
