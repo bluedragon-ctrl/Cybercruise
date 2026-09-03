@@ -2,20 +2,26 @@
 // bikes and trikes will wear, chosen from a top-down Harley/Bugatti reference
 // and kept here, drawable, until the phase that gives them behaviour.
 //
-// THREE OF THE ORIGINAL FOUR HAVE LEFT, and the way they left is the point of
-// this file: CRUISER, RACER and GLIDE moved across to carshapes.js's CAR_SHAPES
-// the day cartypes.js gave each of them a record (the outrunner, the outrider
-// and the sower). They went in one piece and unedited, which is what a staging
-// catalogue is for. DELTA is what is left, and it is still here for the reason
-// all four were.
+// ALL FOUR OF THE ORIGINAL SET HAVE NOW LEFT, and the way they left is the
+// point of this file: CRUISER, RACER and GLIDE moved across to carshapes.js's
+// CAR_SHAPES the day cartypes.js gave each of them a record (the outrunner,
+// the outrider and the sower), and DELTA followed the same day cartypes.js
+// gave IT one (the delta). Each went in one piece and unedited, which is what
+// a staging catalogue is for.
 //
-// NO CAR TYPE YET, ON PURPOSE. This is bossshapes.js's arrangement, for
-// bossshapes.js's reason: carshapes.js's CAR_SHAPES is 1:1 with cartypes.js and
-// that pairing is enforced by test/road-and-caches.test.js's "one car type per
-// silhouette", so a shape in that catalogue with no type is a broken invariant,
-// not a work in progress. The finished ARTWORK lives here and the TYPE gets
-// written later, at which point the hull moves across to CAR_SHAPES beside its
-// cartypes.js record, in one piece, unedited.
+// EMPTY NOW, ON PURPOSE, NOT DEAD. This file stays — the next two- or
+// three-wheeler still gets drawn here first, against the grammar and worked
+// examples below, and graduates the same way its four predecessors did. An
+// empty `CYCLE_SHAPES` is the resting state, not a sign the file finished its
+// job.
+//
+// NO CAR TYPE UNTIL IT GRADUATES, ON PURPOSE. This is bossshapes.js's
+// arrangement, for bossshapes.js's reason: carshapes.js's CAR_SHAPES is 1:1
+// with cartypes.js and that pairing is enforced by test/road-and-caches.test.js's
+// "one car type per silhouette", so a shape in that catalogue with no type is
+// a broken invariant, not a work in progress. The finished ARTWORK lives here
+// and the TYPE gets written later, at which point the hull moves across to
+// CAR_SHAPES beside its cartypes.js record, in one piece, unedited.
 //
 // Staging it here also keeps it out of sprites.js's cache budget (see
 // cartypes.js's SPRITE-CACHE BUDGET note), which is sized off the number of car
@@ -23,11 +29,12 @@
 // ~0.5 MB of sprite cache the day it gets a type, and not before.
 //
 // THE WHOLE FLEET'S NOTES, INCLUDING THE HULLS THAT LEFT. Everything from here
-// down describes how a two- or three-wheeler is drawn, and CRUISER, RACER and
-// GLIDE are still named in it by way of example. They are worked examples, not
-// a stale index: the three are in carshapes.js now and its own entry for them
-// points back here rather than restating any of this. Keeping one copy is the
-// point — a bike's drawing rules do not change with which array it sits in.
+// down describes how a two- or three-wheeler is drawn, and CRUISER, RACER,
+// GLIDE and DELTA are still named in it by way of example. They are worked
+// examples, not a stale index: all four are in carshapes.js now and each
+// entry there points back here rather than restating any of this. Keeping one
+// copy is the point — a bike's drawing rules do not change with which array
+// it sits in.
 //
 // THE GRAMMAR IS carshapes.js's. Read that file's header first: `profile` is
 // the right half of a symmetric hull (nose -1, tail +1) in fractions of hw/hh,
@@ -73,46 +80,12 @@
 // sits outside it — without them the wheels look detached. Saddlebags and
 // winglets are `raised()` and deliberately OUTBOARD of the tyres rather than
 // over them, so they frame a wheel instead of hiding it.
-import { CAR_FILL_HIGH } from "../engine/palette.js";
-
-export const CYCLE_SHAPES = [
-  // =========================================================================
-  // TRICYCLE — three wheels, and the pair of them differed by WHICH END carried
-  // the twin axle. GLIDE (rear pair, trunk between the tyres) has gone to
-  // CAR_SHAPES as the sower; this is the other half of that contrast, and it
-  // keeps its odd wheel solo and its twin axle outboard as it always did.
-  // =========================================================================
-  {
-    family: "TRICYCLE",
-    name: "DELTA",
-    pitch: "widest at the NOSE — the one hull that tapers backwards",
-    size: [36, 62],
-    profile: [
-      [0, -0.70], [0.30, -0.64], [0.62, -0.48], [0.72, -0.22],
-      [0.56, 0.04], [0.38, 0.26], [0.22, 0.42], [0, 0.46],
-    ],
-    // Fronts stand outboard of a wide shoulder AND reach past the nose; the
-    // rear is solo and almost entirely behind the body.
-    wheels: [[-0.50, 5, 10, 10], [0.68, 6, 10, 0, true]],
-    exhaust: [0.18, 0.34, 0.54],
-    overhang: { x: 1.24 },
-    flat({ line }, c, thrust, headlight) {
-      line(-0.56, -0.52, -0.26, -0.52, headlight, 1.5, 8);
-      line(0.26, -0.52, 0.56, -0.52, headlight, 1.5, 8);
-      line(0, -0.64, 0, -0.16, c);
-      line(-0.14, 0.44, -0.09, 0.72, c); // swingarm out to the rear tyre
-      line(0.14, 0.44, 0.09, 0.72, c);
-    },
-    raised({ solid }, c) {
-      // Aero shrouds INBOARD of the front tyres — they sit between wheel and
-      // cockpit, so neither tyre is covered.
-      solid([[-0.54, -0.56], [-0.28, -0.46], [-0.30, -0.16], [-0.58, -0.26]], c);
-      solid([[0.54, -0.56], [0.28, -0.46], [0.30, -0.16], [0.58, -0.26]], c);
-      solid([[0, -0.30], [0.26, -0.10], [0.22, 0.18], [0, 0.28], [-0.22, 0.18], [-0.26, -0.10]], c);
-      solid([[0.14, 0.28], [0.30, 0.36], [0.24, 0.50], [-0.24, 0.50], [-0.30, 0.36], [-0.14, 0.28]], c, CAR_FILL_HIGH);
-    },
-  },
-];
+// EMPTY — see the header. DELTA (a TRICYCLE, the odd wheel solo and the twin
+// axle outboard, widest at the nose rather than the tail) was the last hull
+// staged here; it graduated to carshapes.js's CAR_SHAPES the day the delta
+// car type was written. The next two- or three-wheeler is drawn into this
+// array, against the grammar and worked examples above.
+export const CYCLE_SHAPES = [];
 
 // Hulls grouped in catalogue order, so a gallery can show whichever families
 // are still staged here. Derived rather than hand-listed, so adding or dropping
