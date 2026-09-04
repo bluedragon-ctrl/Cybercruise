@@ -317,6 +317,27 @@ const CATAMARAN_BATTERY = {
 };
 const CATAMARAN_KIT = { gun: null, layer: null, battery: CATAMARAN_BATTERY };
 
+// THE ROAD TRAIN'S KIT — not a boss, and the last hostile the catalogue adds.
+// ENEMY_TWIN_SMG (weapons.js) IS THE SKIRTED BARGE'S OWN GUN, named again
+// rather than duplicated: nothing about firing a pair of SMG rounds instead
+// of one is specific to `outrun`'s hold, and reusing the type by reference
+// costs nothing here since neither car's cartypes.js entry ever retunes a
+// weapon's own numbers, only which kit carries it. NO forwardOnly ON IT,
+// UNLIKE THE OUTRUNNER'S OWN REARGUARD — this car's tactic (`outrun`) is
+// armed through its whole approach, not only once it holds ahead, so a shot
+// taken while it's still behind the player fighting past traffic needs to be
+// able to fire backward, which REARGUARD's plain blaster already could too;
+// this is only carried over onto the twin round.
+//
+// AND THE STANDARD MINE_LAYER, unlike the barge's own `layer: null` or the
+// bunker's bracketing one: three rounds, ordinary aim, dropped opportunistically
+// by `useArms` every tick this car is armed — see `layMine`'s own gate, which
+// fires only ahead of a trailing player regardless of which tactic asked. With
+// `outrun` holding the car in that window for as long as the fight lasts, the
+// drop reads as "in front of the player, repeatedly," rather than as the
+// rival's own one deliberate round on the way past.
+const ROAD_TRAIN_KIT = { gun: ENEMY_TWIN_SMG, layer: MINE_LAYER };
+
 // Keyed BY NAME, exactly like behaviours.js's BEHAVIOURS table, so a car type
 // can name its kit in the catalogue the same way it already names its tactics.
 const ARMAMENTS = {
@@ -331,6 +352,7 @@ const ARMAMENTS = {
   spiker: SPIKER,
   battery: BATTERY_KIT,
   catamaran: CATAMARAN_KIT,
+  roadtrain: ROAD_TRAIN_KIT,
 };
 
 // The profile a car type carries, or null if it carries nothing.

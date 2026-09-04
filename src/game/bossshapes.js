@@ -14,19 +14,23 @@
 // the number of car TYPES and would otherwise be paying for eight hulls that
 // nothing on the road can spawn.
 //
-// THREE HULLS, THREE VEHICLES — was eight and five. The armoured rig, the
-// combat drone and the cargo drone keep their one apiece; the hovercraft has
+// TWO HULLS, TWO VEHICLES — was eight and five. The combat drone and the
+// cargo drone keep their one apiece; the armoured rig and the hovercraft have
 // none left (see below). `group` says which vehicle a hull belongs to, so
 // the gallery can show a vehicle's options side by side and the boss session
 // can find them.
 //
-// FIVE ARE GONE FROM THIS LIST, and that is this file working as intended
+// SIX ARE GONE FROM THIS LIST, and that is this file working as intended
 // rather than hulls being lost: the SIEGE MORTAR went first, then the ARMORED
 // QUAD the day cartypes.js grew the gunship record that wears it, then the
 // BUNKER TRAILER the day it grew a second boss's own record, then the SKIRTED
 // BARGE the day it grew a third, then the CATAMARAN GUNSHIP the day it grew a
-// fourth. All five are in carshapes.js now. See the notes where each group
-// used to be, and expect this count to keep falling as the rest are claimed.
+// fourth. The ROAD TRAIN went last, and NOT to a boss record — it graduated
+// the day cartypes.js grew an ordinary (if rare) ambient hostile of its own,
+// which costs this file nothing extra: a hull graduates when a CAR_TYPES
+// entry claims it, boss or not. All six are in carshapes.js now. See the
+// notes where each group used to be, and expect this count to keep falling
+// as the rest are claimed.
 //
 // THE GRAMMAR IS carshapes.js's. Read that file's header first: `profile` is the
 // right half of a symmetric hull (nose -1, tail +1) in fractions of hw/hh,
@@ -95,24 +99,6 @@ function flip(pts) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared sub-shapes.
-// ---------------------------------------------------------------------------
-
-// A turret: an octagonal ring plate. `cy` is where it sits, `r` its radius in
-// hw fractions (the y radius is taken as `ry` so it stays round on a long hull).
-function turret(cy, r, ry) {
-  return ring(1, 8, Math.PI / 8).map(([x, y]) => [x * r, cy + y * ry]);
-}
-
-// A low, raked canopy — carshapes.js's SLIT, shifted to wherever a boss wants it.
-function canopy(cy, sx = 1, sy = 1) {
-  return [
-    [0, cy - 0.26 * sy], [0.30 * sx, cy - 0.08 * sy], [0.28 * sx, cy + 0.14 * sy],
-    [0, cy + 0.24 * sy], [-0.28 * sx, cy + 0.14 * sy], [-0.30 * sx, cy - 0.08 * sy],
-  ];
-}
-
-// ---------------------------------------------------------------------------
 // The hulls. Each carries `group` (which of the five vehicles it is) and `pitch`
 // (the one line that says what this hull is FOR), and the gallery prints both
 // under the cell. `pitch` is not a caption for its own sake: it is the reason
@@ -121,56 +107,14 @@ function canopy(cy, sx = 1, sy = 1) {
 // ---------------------------------------------------------------------------
 export const BOSS_SHAPES = [
   // =========================================================================
-  // ARMORED RIG — the existing RIG escalated two ways: armour bolted onto a
-  // shape the player already knows, and sheer length.
-  //
-  // ONE HULL LEFT. The other was the BUNKER TRAILER, and it graduated to
-  // carshapes.js the day it earned a second cartypes.js boss record, the same
-  // move the SIEGE MORTAR and the ARMORED QUAD made below. What remains here is
-  // pure length, where that one argued for armour on a familiar shape.
+  // ARMORED RIG — GRADUATED. The ROAD TRAIN that stood here is now a car type
+  // (cartypes.js's `roadtrain` — rare, ambient, and explicitly not a boss) and
+  // its artwork lives in carshapes.js, beside that record. This note is what
+  // is left of the group, and it is deliberately not an empty entry:
+  // bossGroups() derives its groups from the list, so a vehicle with no hulls
+  // left simply stops being one, and the gallery stops offering a choice that
+  // has already been made.
   // =========================================================================
-  {
-    group: "ARMORED RIG",
-    name: "ROAD TRAIN",
-    pitch: "three hulls, one vehicle — length IS the threat",
-    size: [46, 180],
-    // The argument here is pure LENGTH: at 180px this fills most of the visible
-    // road ahead, and the player meets the gun trailer well before the tail
-    // clears. Nothing else in the game is allowed to be this long, which is
-    // exactly why it reads as a boss without needing a new colour or scale.
-    parts: [
-      [[0, -1.00], [0.42, -0.98], [0.60, -0.90], [0.62, -0.78], [0.60, -0.72], [0, -0.70]],
-      [[0, -0.66], [0.86, -0.64], [0.92, -0.56], [0.92, -0.08], [0.74, -0.04], [0, -0.04]],
-      [[0, 0.04], [0.74, 0.06], [0.92, 0.16], [0.92, 0.88], [0.70, 0.98], [0, 1.00]],
-    ],
-    wheels: [[-0.90, 4, 9, 4], [-0.22, 5, 10, 4], [-0.12, 5, 10, 4], [0.54, 5, 10, 4], [0.90, 5, 10, 4]],
-    exhaust: [0.30, 0.92, 1.00],
-    overhang: { x: 1.06 },
-    flat({ line }, c, thrust, headlight) {
-      line(-0.42, -1.00, 0.42, -1.00, headlight, 1.5, 8);
-      line(-0.92, -0.56, -0.92, -0.08, c);
-      line(0.92, -0.56, 0.92, -0.08, c);
-    },
-    raised({ solid }, c, thrust) {
-      solid(box(-0.36, -0.94, 0.36, -0.76), c);          // cab roof
-      solid(box(-0.20, -0.70, 0.20, -0.62), c);          // coupling 1
-      solid(box(-0.20, -0.04, 0.20, 0.04), c);           // coupling 2
-      solid(box(-0.78, -0.60, 0.78, -0.12), c, CAR_FILL_HIGH); // gun deck
-      solid(box(-0.78, 0.18, 0.78, 0.86), c, CAR_FILL_HIGH);   // cargo roof
-      solid(box(-0.56, -0.94, -0.44, -0.78), thrust);    // stacks
-      solid(box(0.44, -0.94, 0.56, -0.78), thrust);
-      // The turret and its barrel, on the MIDDLE hull — the middle of a convoy
-      // is where you least expect the gun, and it means the fight starts before
-      // the vehicle has finished arriving.
-      solid(turret(-0.36, 0.46, 0.13), c, CAR_FILL_HIGH);
-      solid(box(-0.09, -0.74, 0.09, -0.40), c, CAR_FILL_HIGH);
-    },
-    top({ line }, c) {
-      for (const y of [0.30, 0.44, 0.58, 0.72]) line(-0.78, y, 0.78, y, c);
-      line(0, -0.74, 0, -0.44, c, 1.5, 7); // barrel bore
-    },
-  },
-
 
   // =========================================================================
   // TANK — GRADUATED. The SIEGE MORTAR that stood here is now a car type and
