@@ -58,6 +58,9 @@ test("the values read from source match what the modules actually export", () =>
   assert.equal(byId.get("run.SHOP_INTERVAL"), SHOP_INTERVAL);
   assert.equal(byId.get("run.TIER_PRICE_2"), TIER_PRICES[1]);
   assert.equal(byId.get("run.TIER_PRICE_3"), TIER_PRICES[2]);
+  const siphon = STATS.find((s) => s.id === "siphon");
+  assert.equal(byId.get("siphon.PRICE"), siphon.price);
+  assert.equal(byId.get("siphon.YIELD_T1"), siphon.values[1]);
 });
 
 test("the three player figures the shop's ladders count up from are all editable", () => {

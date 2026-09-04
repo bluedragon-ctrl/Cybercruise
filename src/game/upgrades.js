@@ -38,7 +38,7 @@
 
 import { AMMO, HEAL, SHIELD, applyPickup } from "./pickuptypes.js";
 import { MAX_SPEED, PLAYER_MASS, BASE_MAX_HEALTH } from "./player.js";
-import { SIPHON_YIELDS } from "./wallet.js";
+import { SIPHON_YIELDS, SIPHON_PRICE } from "./wallet.js";
 import { ROCKET, PLAYER_THRUST, ENEMY, GREEN_BRIGHT, PLAYER } from "../engine/palette.js";
 
 // --- Consumables -------------------------------------------------------------
@@ -340,9 +340,15 @@ export const STATS = [
     // independent number, kept in step with SIPHON_YIELDS by a comment only —
     // one tuning pass moved the yields without moving the ladder, and the
     // shelf quoted stale numbers until this shape closed the gap structurally.
+    //
+    // `price` reads SIPHON_PRICE the same way, for the same reason: this row
+    // has no editable field of its own on the Shop tab in car-editor (state.js
+    // excludes it from UPGRADE_STAT_IDS) — every siphon number, price
+    // included, is retuned from World -> Siphon rig instead, since that's
+    // already where the other four live.
     values: SIPHON_YIELDS,
     scale: 100,
-    price: 100,
+    price: SIPHON_PRICE,
     unit: "%",
     decimals: 0,
   },
