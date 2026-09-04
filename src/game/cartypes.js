@@ -164,7 +164,7 @@
 //
 // SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) is a cache
 // key in sprites.js, times WHEEL_FRAMES (8), plus one colour for the
-// critical-hull blink: 21 types * 8 * 2 = 336 sprites at worst, built lazily. A
+// critical-hull blink: 22 types * 8 * 2 = 352 sprites at worst, built lazily. A
 // `staged` type costs what any other does — the cache is keyed on artwork, and
 // the gunship's is built the first time its encounter rolls.
 // Keeping the catalogue a small FIXED list is what bounds this: vary cars by
@@ -1158,6 +1158,108 @@ export const CAR_TYPES = [
     driving: "sower",
     weight: 0.8, // uncommon: a strip is an event, and three of them at once
                  // would be weather
+  },
+
+  // --- Enemy: the last one -----------------------------------------------------
+  //
+  // THE ROAD TRAIN. NOT A BOSS — no `staged`, no `hullMeter`, an ordinary
+  // `weight` in the ambient draw — but the toughest thing that draw can
+  // produce, and the last hostile this catalogue adds: everything past this
+  // point is a boss's own record, held off the ambient road entirely.
+  //
+  // THE LONGEST SILHOUETTE IN THE GAME, at 180px — past even the mortar's 90
+  // or the bunker's 132 — because this one earns its presence by being SEEN
+  // arriving, three hulls at a time, rather than by an encounter announcing
+  // it first. Graduated from bossshapes.js's ARMORED RIG group unedited but
+  // for its one helper call; see that file's own note and carshapes.js's
+  // ROAD TRAIN entry.
+  //
+  // `outrun` (behaviours.js), THE OUTRUNNER'S OWN TACTIC, NAMED DIRECTLY: get
+  // past whatever's ahead, hold station up the road, and stay there — the
+  // same tactic the bunker trailer and the skirted barge already carry. NOT
+  // `duel`: that one settles into `pursue` for good once its one mine is
+  // spent, which is a hostile that ends up parked on the player's own bumper
+  // — the road's standing pressure, and the right shape for the rival, but
+  // the wrong one for a car meant to be seen coming rather than felt from
+  // behind. This one holds AHEAD instead, the same promise every other
+  // front-attacking hostile makes, and the mine drop is no longer one
+  // deliberate round on the way past: `useArms` (armament.js) tries `layMine`
+  // every tick armed, so it drops opportunistically, again and again out of
+  // its own magazine, for as long as the hold keeps the player inside the
+  // layer's own window — the literal reading of "drops mines when in front
+  // of the player" rather than a single scripted round.
+  {
+    id: "roadtrain",
+    label: "ROAD TRAIN",
+    shape: carShapeIndex("ROAD TRAIN"),
+    faction: ENEMY_FACTION,
+    // The shape's own authored size, unchanged.
+    w: 46,
+    h: 180,
+    // TWICE THE RIVAL'S OWN 400 — the toughest ambient hostile until now, and
+    // doubly so on purpose. The mine deals a flat 150 (obstacletypes.js): 800
+    // survives five direct hits (800 - 5*150 = 50) and dies on the sixth,
+    // where the rival's own 400 folds on the third. Still an order below the
+    // boss tier's four-figure totals (the mortar's 3200) — this is the
+    // ambient road's own ceiling, not a set-piece.
+    health: 800,
+    // HEAVIER THAN ANYTHING THAT ISN'T A BOSS — above the rig's own 4, under
+    // the bosses' shared 6. Three articulated hulls of armour plate ask for
+    // more than the ordinary road's mass scale was built to carry, but the
+    // full boss figure would make ramming this as pointless as ramming one,
+    // which this is deliberately short of being.
+    mass: 5,
+    // OPENS A GAP LIKE THE OTHER HEAVIES DO (the bruiser's 330..560, the
+    // stocker's 415..600): the cruise roll is what the road sees on an
+    // ordinary pass, `speedMax` is what `outrun`'s overtake half spends
+    // fighting its way past whatever's ahead before it can settle into its
+    // hold. 650 AND NO HIGHER, matching the rival's own ceiling exactly —
+    // overdrive (620 -> 820, twelve seconds) is the escape from this one too,
+    // and this car earns no exemption from that just for being heavier.
+    speedMin: 0,
+    cruiseMin: 380,
+    cruiseMax: 500,
+    speedMax: 650,
+    // CLEARS obstacles.js's SPAWN_MARGIN BUDGET WITH ROOM TO SPARE:
+    // dodgeDistance(650, 120) is ~1007, under the rig's own worst-case ~1142
+    // that budget is sized against (test/hazards.test.js). Slower hands than
+    // any ordinary hostile (120 against the standard tier's 150-250) — three
+    // welded hulls do not snap sideways, and the road already prices that as
+    // "fast, and it shows," not as unhittable.
+    steerSpeed: 120,
+    // THE BIGGEST BLAST A HOSTILE CAN DEAL, second only to the rig's own
+    // 200/60 civilian record — three hulls of armour going up should clear
+    // more tarmac than any other kill on the road, short of the one thing
+    // that was always going to top it.
+    blastRadius: 160,
+    blastDamage: 55,
+    value: 500,
+    bounty: 75,
+    // RARE, AND LATE. Nothing meets one before DIST 3000 — past even the
+    // rival's own 1400 — so this is the last new threat the ambient road
+    // introduces, arriving once the player has had the whole road to get
+    // ready for it rather than as one more thing in the mirror early.
+    minDistance: 3000,
+    behaviour: "outrun", // gets past, holds station up the road — the
+                        // outrunner's own tactic, see the header note above
+    // DOUBLE SMG, EITHER DIRECTION, PLUS THE STANDARD MINE LAYER — see
+    // armament.js's `roadtrain` kit. `ENEMY_TWIN_SMG` is the skirted barge's
+    // own weapon (weapons.js's `twinSmg`), reused rather than duplicated —
+    // and NO forwardOnly on it (unlike the outrunner's own REARGUARD kit),
+    // which is what lets this car keep firing if it ever ends up behind the
+    // player instead: `outrun`'s "still getting past" phase is plain
+    // `overtake`, armed the whole way there, so a shot on the way to the hold
+    // is on the table exactly as one is once it's won.
+    arms: "roadtrain",
+    // NOT THE RIVAL'S OWN `duelist` PROFILE — that one's `nerve: 10` is "a
+    // driver, not a battering ram," the rival's own character. This is armour
+    // plate three hulls long; it does not swerve for a barrel, it drives
+    // through it. `nerve: 0` — amber, like the rig and every other heavy on
+    // this road — is the different claim, and the reason it earns its own row
+    // in driving.js rather than borrowing the rival's.
+    driving: "roadtrain",
+    weight: 0.2, // rarer than the rival's own 0.3 — the last figure the
+                // ambient draw spends
   },
 
   // --- The boss -------------------------------------------------------------

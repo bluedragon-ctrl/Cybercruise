@@ -117,14 +117,14 @@ test("every car type has a coherent speed range", () => {
 // --- The sprite-cache budget -------------------------------------------------
 
 test("sprite-cache budget matches the figure cartypes.js documents", () => {
-  // cartypes.js: "21 types * 8 * 2 = 336 sprites at worst" — one per (type,
+  // cartypes.js: "22 types * 8 * 2 = 352 sprites at worst" — one per (type,
   // wheel frame), doubled for the critical-hull blink colour. This is what
   // keeps the cache bounded, so it must not grow silently. The figure moved
   // when the motorcycle fleet landed (192 -> 240), again for the boss
   // (240 -> 256), again for the gunship (256 -> 272), again for delta
   // (272 -> 288), again for the bunker trailer (288 -> 304), again for the
-  // skirted barge (304 -> 320), and again for the catamaran gunship
-  // (320 -> 336).
+  // skirted barge (304 -> 320), again for the catamaran gunship (320 -> 336),
+  // and again for the road train (336 -> 352).
   //
   // A `staged` type is counted like any other, on purpose: the cache is keyed
   // on ARTWORK, and the boss's artwork is built the first time its encounter
@@ -133,8 +133,8 @@ test("sprite-cache budget matches the figure cartypes.js documents", () => {
   const worstCase = CAR_TYPES.length * WHEEL_FRAMES * 2;
   assert.equal(
     worstCase,
-    336,
-    `traffic sprite worst case is now ${worstCase}, not the documented 336 ` +
+    352,
+    `traffic sprite worst case is now ${worstCase}, not the documented 352 ` +
       `(${CAR_TYPES.length} types x ${WHEEL_FRAMES} wheel frames x 2 colours)`,
   );
 });

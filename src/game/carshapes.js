@@ -1135,6 +1135,54 @@ export const CAR_SHAPES = [
       line(0.46, -0.34, 0.46, 0.14, c);
     },
   },
+
+  // THE FIFTH BOSS HULL TO EARN A CAR TYPE — except this one is not a boss.
+  // See cartypes.js's ROAD TRAIN for why the ambient road gets the catalogue's
+  // longest silhouette rather than a sixth encounter. Graduated unedited except
+  // for its one helper call: `turret()` (bossshapes.js's own octagonal-plate
+  // builder, this file has no such helper — see the skirted barge's own note
+  // above for why one is not worth adding for a single caller), so the gun
+  // plate on the middle hull below is the point list `turret(-0.36, 0.46, 0.13)`
+  // would have emitted, written out by hand.
+  {
+    name: "ROAD TRAIN",
+    pitch: "three hulls, one vehicle — length IS the threat",
+    size: [46, 180],
+    parts: [
+      [[0, -1.00], [0.42, -0.98], [0.60, -0.90], [0.62, -0.78], [0.60, -0.72], [0, -0.70]],
+      [[0, -0.66], [0.86, -0.64], [0.92, -0.56], [0.92, -0.08], [0.74, -0.04], [0, -0.04]],
+      [[0, 0.04], [0.74, 0.06], [0.92, 0.16], [0.92, 0.88], [0.70, 0.98], [0, 1.00]],
+    ],
+    wheels: [[-0.90, 4, 9, 4], [-0.22, 5, 10, 4], [-0.12, 5, 10, 4], [0.54, 5, 10, 4], [0.90, 5, 10, 4]],
+    exhaust: [0.30, 0.92, 1.00],
+    overhang: { x: 1.06 },
+    flat({ line }, c, thrust, headlight) {
+      line(-0.42, -1.00, 0.42, -1.00, headlight, 1.5, 8);
+      line(-0.92, -0.56, -0.92, -0.08, c);
+      line(0.92, -0.56, 0.92, -0.08, c);
+    },
+    raised({ solid }, c, thrust) {
+      solid(box(-0.36, -0.94, 0.36, -0.76), c);          // cab roof
+      solid(box(-0.20, -0.70, 0.20, -0.62), c);          // coupling 1
+      solid(box(-0.20, -0.04, 0.20, 0.04), c);           // coupling 2
+      solid(box(-0.78, -0.60, 0.78, -0.12), c, CAR_FILL_HIGH); // gun deck
+      solid(box(-0.78, 0.18, 0.78, 0.86), c, CAR_FILL_HIGH);   // cargo roof
+      solid(box(-0.56, -0.94, -0.44, -0.78), thrust);    // stacks
+      solid(box(0.44, -0.94, 0.56, -0.78), thrust);
+      // The turret and its barrel, on the MIDDLE hull — the middle of a convoy
+      // is where you least expect the gun, and it means the fight starts before
+      // the vehicle has finished arriving.
+      solid([
+        [0.425, -0.310], [0.176, -0.240], [-0.176, -0.240], [-0.425, -0.310],
+        [-0.425, -0.410], [-0.176, -0.480], [0.176, -0.480], [0.425, -0.410],
+      ], c, CAR_FILL_HIGH); // gun plate — turret(-0.36, 0.46, 0.13), see the note above
+      solid(box(-0.09, -0.74, 0.09, -0.40), c, CAR_FILL_HIGH);
+    },
+    top({ line }, c) {
+      for (const y of [0.30, 0.44, 0.58, 0.72]) line(-0.78, y, 0.78, y, c);
+      line(0, -0.74, 0, -0.44, c, 1.5, 7); // barrel bore
+    },
+  },
 ];
 
 // Look a shape up by name. Car types (cartypes.js) select their silhouette

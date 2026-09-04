@@ -1115,6 +1115,89 @@ export const EVENT_TYPES = [
   },
 
   {
+    // THE ARMED CONVOY — `triad`'s own move (the same type, three at once,
+    // ONE SPEC COUNT 3 so THE OPEN LANE rule spaces them one per lane with
+    // the fourth left clear) made on the road train instead of the rival,
+    // plus the six-bike escort `bunker`'s own encounter already proved.
+    //
+    // THREE ROAD TRAINS FILL THREE LANES EXACTLY — LANE_COUNT is 4
+    // (road.js), so `count: 3` needs no clamp: this is the wall the player
+    // drives into, the same shape `triad` and `airwing` already stage, only
+    // three abreast rather than a lead the width of one lane apiece 62-90px
+    // wide. A 180-long hull in each of the open lanes costs the formation
+    // nothing extra in DEPTH — the ahead budget planStage's own note counts
+    // is spent per LANE, not tripled by three cars occupying different ones.
+    //
+    // THE ESCORT IS THE BUNKER'S OWN SIX, reused rather than invented: one
+    // each of the four ordinary bike hulls plus a pair of deltas — see that
+    // encounter's own note on why a pair of twin-missile tries earns its
+    // place next to four chip-damage bikes. Behind, same as there: a
+    // formation staged ahead has no room left once three road trains have
+    // taken it, and behind is where `pursue`/`raid`/`outrun`/`strew` already
+    // want to arrive from.
+    //
+    // 3500, FIVE HUNDRED PAST THE ROAD TRAIN'S OWN AMBIENT GATE (3000,
+    // cartypes.js) — the same relation `triad` holds with the ordinary
+    // rival, a short step rather than a long one because the road train is
+    // rare enough on its own (weight 0.2) that the ambient road has barely
+    // begun producing one by here; this guarantees three of them read as an
+    // ESCALATION rather than as the same rare thing happening to happen
+    // three times. It also sits inside the fourth boss's own 3000..4000
+    // window, so a run can meet this before or after the catamaran gunship
+    // depending on how the road falls, the same way `chokepoint` and
+    // `bunker` can land in either order past DIST 2000.
+    //
+    // WEIGHT, THINNER THAN `triad`'s OWN 0.5 — 2400 hull across three road
+    // trains against triad's 1200 across three rivals is a much bigger ask
+    // of the road for one encounter to keep making, and a share of the draw
+    // this late is already split many ways (see `airstrike`'s own note on
+    // why a weight here is a SHARE, not a rarity). 0.4 keeps it the rarer of
+    // the two three-at-once escalations, met but not routine.
+    id: "armedConvoy",
+    label: "ARMED CONVOY — DEAD AHEAD",
+    weight: 0.4,
+    minDistance: 3500, // 500 past the road train's own ambient gate — see above
+    maxDistance: Infinity,
+    // LONGER THAN `triad`'s OWN 120 — three road trains and their six-bike
+    // escort are a bigger interruption to the ambient road than three
+    // rivals alone.
+    cooldown: 150,
+    // SIZED OFF THE SAME 0.109-UNITS-PER-HULL RATIO the boss milestones use
+    // (siege's own note: 350 units against 3200 hull) — 2400 hull across the
+    // three road trains alone comes to ~262, and this is a backstop rather
+    // than a plan (same reasoning as every set-piece here), so it is rounded
+    // up rather than down to leave real room once the escort's own hull is
+    // added in. Comfortably past `triad`'s own 200 for a fight that is
+    // carrying roughly twice the combined hull.
+    duration: 280,
+    exitLabel: "ARMED CONVOY BREAKING OFF",
+    // THINNER THAN `swarm`'s OWN 0.2 — nine hostiles at once (three road
+    // trains, six bikes) is a bigger ask of the road than swarm's twelve
+    // fragile ones, in hull if not in count, and every mine on this stretch
+    // should be one the road trains or the cycle just laid, not one the
+    // ambient road happened to leave lying around — the identical reasoning
+    // `triad`'s own `hazards: 0` gives.
+    density: { cars: 0.15, hazards: 0 },
+    stage: [
+      // ONE SPEC, COUNT 3 — `triad`'s and `airwing`'s own pattern: three of
+      // the same threat arriving together, not a lead with escorts. `atomic`
+      // guards the all-or-nothing floor only, same as there — one or two
+      // road trains landing on a busy road still counts as the encounter,
+      // only zero leaves the roll unspent.
+      { kind: "cars", type: "roadtrain", count: 3, side: "ahead", spread: 0, atomic: true },
+      // THE ESCORT, `bunker`'s own six, unchanged — one each of the ordinary
+      // fleet, a pair of deltas for real output next to the rest of the
+      // pack's chip damage, all from the mirror where the wall ahead has left
+      // the road.
+      { kind: "cars", type: "cycle", count: 1, side: "behind", spread: 0 },
+      { kind: "cars", type: "outrider", count: 1, side: "behind", spread: 0 },
+      { kind: "cars", type: "outrunner", count: 1, side: "behind", spread: 0 },
+      { kind: "cars", type: "sower", count: 1, side: "behind", spread: 0 },
+      { kind: "cars", type: "delta", count: 2, side: "behind", spread: 240 },
+    ],
+  },
+
+  {
     // THE SHOPPING INTERLUDE. `every: SHOP_INTERVAL` is the whole of what moved
     // out of hauler.js — its `milestone` counter and crossedMilestone(). The
     // number is still that file's feel dial and is imported, not restated.

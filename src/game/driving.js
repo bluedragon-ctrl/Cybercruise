@@ -524,6 +524,27 @@ export const DRIVING_PROFILES = {
     contact: 0,
   }),
 
+  // The road train — not a boss, but `outrun` (behaviours.js) all the same,
+  // the outrunner's and the two wheeled bosses' own tactic: get past, hold
+  // station up the road, the siege battery's own 420 `leadHold` again, for
+  // the same reason bunker's own note gives — it carries a gun, so the hold
+  // answers to armament.js's GUN_MIN_RANGE..GUN_RANGE as well as to the
+  // framing rule, and 420 already sits inside that band with room either
+  // side. NO followReaction bump: this car's speedMax stops at 650, well
+  // under the barge's 900 that bump was sized against.
+  //
+  // NOT THE RIVAL'S OWN `duelist` — that profile's `nerve: 10` is "a driver,
+  // not a battering ram," the rival's own character. This is armour plate
+  // three hulls long; it does not swerve for a barrel, it drives through it.
+  // `nerve: 0` — amber, like the rig and every other heavy on this road, and
+  // every other type on this tactic — is the different claim.
+  roadtrain: profile({
+    patience: 0.15,
+    leadHold: 420,
+    nerve: 0,
+    contact: 0,
+  }),
+
   // The gunship (cartypes.js) — the only profile here driving something that is
   // not on the road, and the only one whose sweep is bounded by the SCREEN
   // rather than by the tarmac (behaviours.js's `patrol` and its FLIGHT_LIMIT).
