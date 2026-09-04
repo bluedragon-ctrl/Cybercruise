@@ -46,6 +46,8 @@ const ENEMY_GUN = ENEMY_WEAPON_TYPES[0];
 const ENEMY_SMG = ENEMY_WEAPON_TYPES[1];
 const ENEMY_MISSILE = ENEMY_WEAPON_TYPES[2];
 const ENEMY_TWIN_MISSILE = ENEMY_WEAPON_TYPES[3];
+const ENEMY_TURRET_SMG = ENEMY_WEAPON_TYPES[4];
+const ENEMY_TWIN_SMG = ENEMY_WEAPON_TYPES[5];
 
 // The mine layer, expressed as a WEAPON — because from the carrier's point of
 // view that is exactly what it is: a rate of fire and a magazine. `Weapon`
@@ -91,6 +93,39 @@ const SPIKE_LAYER = {
   interval: 6,
   ammo: 1,
   payload: "spikes",
+};
+
+// THE BUNKER TRAILER'S OWN LAYER — same two fields as MINE_LAYER, tuned for a
+// car that spends the WHOLE FIGHT parked ahead of the player instead of
+// snatching one drop on the way past.
+//
+// TWICE THE CYCLE'S RATE. MINE_LAYER's interval of 6 is sized for a car that
+// gets one or two windows before it is past and gone; this car never leaves,
+// so half that — 3 — is what keeps the road it is threatening actually
+// filling in over the course of the fight rather than reading as the same
+// occasional drop stretched across a much longer encounter.
+//
+// INFINITE, for the reason BATTERY's own magazine is (see below): a boss
+// whose mines ran out would be a boss the player could simply wait out from a
+// clean lane, which is the one thing a second boss fight must not reward any
+// more than the first one did.
+//
+// SPREAD, unlike the cycle's own single drop — see layMine's own BRACKET
+// note for the mechanism. ONE LANE PITCH EITHER SIDE (2 * LANE_WIDTH, 71.5 —
+// road.js): a mine dead centre in the neighbouring lane rather than
+// somewhere in it, so committing to that lane to dodge the SMG is a real
+// gamble, not a corridor with a mine floating loosely inside it. A tighter
+// spread would still sit inside the same lane as the burst — indistinguishable
+// from one mine, dodged by the same swerve — and a wider one would land past
+// the FAR lane a two-lane road puts within reach, missing the lane the player
+// was actually going to pick.
+const BUNKER_MINE_LAYER = {
+  id: "bunkerminelayer",
+  label: "MINES",
+  interval: 3,
+  ammo: Infinity,
+  payload: "caltrop",
+  spread: 143,
 };
 
 // The one hostile profile. See UNIFORM FOR NOW above. Still the rival's own
@@ -149,6 +184,29 @@ const TWIN_ROCKETEER = { gun: ENEMY_TWIN_MISSILE, layer: null };
 // pin the player from in front AND carpet the road between them is two
 // encounters at once.
 const REARGUARD = { gun: ENEMY_GUN, layer: null };
+
+// THE BUNKER TRAILER'S KIT — the escalation REARGUARD's own note names and
+// then declines: "a hostile that could both pin the player from in front AND
+// carpet the road between them is two encounters at once." The outrunner is
+// deliberately not that. The second boss is: it carries ENEMY_TURRET_SMG
+// (weapons.js) — the same burst spray as the stocker's, but firing backward
+// down the road at a player it holds ahead of, which is what that entry's own
+// header explains — AND a mine layer that BRACKETS the lane it is shooting
+// down (BUNKER_MINE_LAYER's own `spread`) rather than mining the exact lane
+// the burst is already covering: the two threats now cost the player two
+// different answers instead of one swerve solving both.
+const BUNKER_KIT = { gun: ENEMY_TURRET_SMG, layer: BUNKER_MINE_LAYER };
+
+// THE SKIRTED BARGE'S KIT — the third boss, and no layer at all: this car's
+// extra threat is not a second weapon system the way the bunker's mines are,
+// it is that ENEMY_TWIN_SMG (weapons.js) — TURRET SMG fired as a pair — never
+// lines up on anything but the player's own exact lane, because `outrun`
+// (behaviours.js) reads this car's `roadMargin` (cartypes.js) and holds
+// station there wherever that lane is, barrier or no barrier. A mine layer on
+// top of that would be the same "two encounters at once" REARGUARD's own note
+// declines for the outrunner — this boss already spends its one escalation on
+// the hold, not on the gun.
+const BARGE_KIT = { gun: ENEMY_TWIN_SMG, layer: null };
 
 // The sower's kit: a spike strip and nothing else. The RAIDER shape — no gun at
 // all, one thing laid in the road — pointed at the other payload, which is the
@@ -236,6 +294,29 @@ export function barragePhase(frac) {
 // three-round one and is only ever used in the last phase (see BARRAGE above).
 const BATTERY_KIT = { gun: null, layer: MINE_LAYER, battery: BATTERY };
 
+// THE CATAMARAN GUNSHIP'S KIT — the fourth boss, and BATTERY's own numbers
+// on a SEPARATE object rather than the mortar's by reference, for the reason
+// TWIN MISSILE's own note gives: retuning one boss's fight must never quietly
+// retune another's. `layer: null`, unlike the mortar's — this boss reuses the
+// EXACT SAME BARRAGE table (below), phase, mines and all, and its last
+// phase's `mines: true` still fires straight into `layMine`, which no-ops on
+// a null layer (see that function's own first line). So the escalation reads
+// exactly as it does for the mortar — one shell, then two, then a straddle —
+// minus a mine drop this boss was never given the magazine for. No new code,
+// which is the point: the fourth boss is the siege battery's own fight,
+// carried by a hull that can also hold it off the tarmac (`roadMargin` below).
+const CATAMARAN_BATTERY = {
+  id: "catbattery",
+  label: "BOMBS",
+  interval: 3.4,
+  ammo: Infinity,
+  fuse: 1.25,
+  blastRadius: 72,
+  blastDamage: 55,
+  spread: 52,
+};
+const CATAMARAN_KIT = { gun: null, layer: null, battery: CATAMARAN_BATTERY };
+
 // Keyed BY NAME, exactly like behaviours.js's BEHAVIOURS table, so a car type
 // can name its kit in the catalogue the same way it already names its tactics.
 const ARMAMENTS = {
@@ -245,8 +326,11 @@ const ARMAMENTS = {
   rocketeer: ROCKETEER,
   twinRocketeer: TWIN_ROCKETEER,
   rearguard: REARGUARD,
+  bunker: BUNKER_KIT,
+  barge: BARGE_KIT,
   spiker: SPIKER,
   battery: BATTERY_KIT,
+  catamaran: CATAMARAN_KIT,
 };
 
 // The profile a car type carries, or null if it carries nothing.
@@ -530,6 +614,39 @@ function layMine(car, arms, target, world) {
   if (lead < MINE_MIN_LEAD || lead > MINE_RANGE) return false;
   if (Math.abs(target.offset - car.offset) > MINE_AIM) return false;
   if (trafficBetween(car, world, lead)) return false;
+
+  // THE BRACKET, the bunker trailer's own escalation — see BUNKER_MINE_LAYER's
+  // `spread`. A layer that names one gets TWO mines either side of ITS OWN
+  // line instead of one dead on it, the same STRADDLE idea the battery's own
+  // `spread` already gives shells (see BARRAGE above), turned on the one
+  // weapon that used to put its whole threat where the gun's was already
+  // aiming: a mine dead centre in the lane the SMG is already shooting down
+  // costs the player nothing extra to dodge, since leaving that lane answers
+  // both at once. Bracketing it instead prices the ESCAPE — changing lane to
+  // clear the burst now risks the mine waiting in the lane taken.
+  if (arms.layer.type.spread) {
+    const half = arms.layer.type.spread / 2;
+    // A PLAIN LITERAL, NOT `{ ...car }`. Obstacles.drop() only ever reads
+    // `worldY`/`h`/`offset` off the body it is handed, but `w`/`h` on a real
+    // TrafficCar (traffic.js) are GETTERS on the prototype, not the
+    // instance's own enumerable properties — so a spread clone silently
+    // drops them, `body.h` comes out `undefined`, and drop()'s own
+    // `body.h + deepest` arithmetic goes NaN. The mine still gets pushed
+    // (drop() never validates worldY), so the layer reads as firing — an
+    // invisible mine nobody can see or hit, forever holding a slot in
+    // MAX_LAID_HOSTILE. Naming the three fields explicitly reads the
+    // getters' VALUES instead of losing them.
+    const shooter = { worldY: car.worldY, h: car.h };
+    // The drop is still attempted BEFORE the round is spent (see the single-
+    // mine branch below for why), and EITHER LANDING is enough to count as
+    // the attack: a budget cap or a barrier clamp swallowing one side must
+    // not silently refund the whole reload when the other side still landed.
+    const left = world.dropMine({ ...shooter, offset: car.offset - half }, arms.payload);
+    const right = world.dropMine({ ...shooter, offset: car.offset + half }, arms.payload);
+    if (!left && !right) return false;
+    arms.layer.tryFire();
+    return true;
+  }
 
   // The drop is attempted BEFORE the round is spent, so a mine the road had no
   // room for costs the car nothing: this is the one weapon with a magazine small

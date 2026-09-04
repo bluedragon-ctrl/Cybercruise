@@ -164,7 +164,7 @@
 //
 // SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) is a cache
 // key in sprites.js, times WHEEL_FRAMES (8), plus one colour for the
-// critical-hull blink: 18 types * 8 * 2 = 288 sprites at worst, built lazily. A
+// critical-hull blink: 21 types * 8 * 2 = 336 sprites at worst, built lazily. A
 // `staged` type costs what any other does — the cache is keyed on artwork, and
 // the gunship's is built the first time its encounter rolls.
 // Keeping the catalogue a small FIXED list is what bounds this: vary cars by
@@ -172,7 +172,7 @@
 // The speed band is free variety, since speed doesn't affect the artwork.
 
 import { carShapeIndex } from "./carshapes.js";
-import { DIST_UNITS } from "./road.js";
+import { DIST_UNITS, LANE_WIDTH } from "./road.js";
 import { pickWeighted } from "./weightedpick.js";
 import {
   ENEMY_DEEP,
@@ -1266,10 +1266,327 @@ export const CAR_TYPES = [
                         // on the road ahead of the player instead (behaviours.js)
     arms: "battery",    // no gun, three mines, and the artillery (armament.js)
     driving: "battery", // holds higher up the screen than anything else
-    // The bar under the hull, and the only type that asks for one. See
-    // effects.js's drawHullMeter for why this is an opt-in flag rather than a
-    // health threshold: a future boss buys the instrument with one line, and no
-    // ordinary enemy ever grows one by accident.
+    // The bar under the hull. See effects.js's drawHullMeter for why this is
+    // an opt-in flag rather than a health threshold: a future boss buys the
+    // instrument with one line, and no ordinary enemy ever grows one by
+    // accident. THE BUNKER TRAILER below is that future boss, arrived.
+    hullMeter: true,
+  },
+
+  {
+    // THE BUNKER TRAILER. The road's second boss, and an escalation of the
+    // OUTRUNNER rather than of the mortar above: same tactic (`outrun` —
+    // overtake, then hold station ahead and shoot back down the road), same
+    // shape of kit, both numbers turned up past what an ordinary hostile is
+    // allowed. REARGUARD's own note names the escalation and declines it for
+    // the outrunner — "a hostile that could both pin the player from in front
+    // AND carpet the road between them is two encounters at once" — which is
+    // exactly what a SECOND boss is for: the first one taught the player to
+    // fear a fixed point ahead of them that cannot be reasoned with; this one
+    // fights back while it holds that point.
+    //
+    // ITS OWN HULL, WELDED SHUT. carshapes.js's BUNKER TRAILER pitch is "the
+    // rig you know, welded shut" — armour bolted onto the ordinary RIG's own
+    // silhouette rather than a new one to learn, escalating a shape the player
+    // already reads as heavy rather than introducing a second unfamiliar one
+    // this early after the mortar's tracked hull.
+    id: "bunker",
+    label: "BUNKER TRAILER",
+    shape: carShapeIndex("BUNKER TRAILER"),
+    faction: ENEMY_FACTION,
+    // The shape's own authored size, unchanged.
+    w: 46,
+    h: 132,
+    // ABOVE THE MORTAR'S 3200, and the reason is where the two fights sit on
+    // the road rather than anything about the kit: this one arrives at DIST
+    // 2000 against the mortar's 1200, which is roughly two more shop visits
+    // (hauler.js's SHOP_INTERVAL, 350) of upgrades the player has had time to
+    // buy. A second boss with the first one's own hull would be a shorter
+    // fight than the one the player has since out-levelled it for, which
+    // reads as an anticlimax rather than an escalation.
+    //
+    // THE SAME DPS FLOOR THE MORTAR'S OWN NOTE MEASURES AGAINST — cannon
+    // ~256 dps, rocket ~280, tracker ~185, all at roughly a third of perfect
+    // uptime once dodging is accounted for — scaled by the same ~1.3x this
+    // row scales the mortar's hull by: a cannon-only player clears this in
+    // ~47s against the mortar's ~36s. `duration` below (eventtypes.js) moves
+    // with it, at the mortar's own ratio of backstop to hull.
+    health: 4200,
+    // The mortar's own 6 — "half again the rig's 4… ramming a boss must never
+    // be a strategy." This car IS the rig, welded shut, so the same figure is
+    // the same claim rather than a coincidence.
+    mass: 6,
+    // THE MORTAR'S OWN BAND, reused rather than re-derived. Two things force
+    // it: FLOOR 0, because this is a second hostile that attacks from IN
+    // FRONT (see the field table's WHY THE SECOND GROUP IS 0 note above) and
+    // must be able to fall back onto a player who brakes; and the CEILING at
+    // 730, because `outrun`'s overtake has to clear the player's own 620
+    // first. Reusing the figures outright also keeps this row off
+    // obstacles.js's SPAWN_MARGIN budget, which the mortar's dodgeDistance
+    // already spends about as much of as the catalogue can afford (see
+    // test/hazards.test.js) — a car that shares the band shares the number
+    // rather than adding a second claim on the same margin.
+    speedMin: 0,
+    cruiseMin: 640,
+    cruiseMax: 730,
+    speedMax: 730,
+    // THE MORTAR'S OWN 130, for the mortar's own reason: fast and wallowing
+    // together are what keep a car this size from also being able to dodge —
+    // see the field table's WHERE 200 COMES FROM note and the dodgeDistance
+    // budget cited above, both of which this figure was already measured
+    // against once and would have to be measured against again for any other
+    // number.
+    steerSpeed: 130,
+    // The mortar's own 90/45 — a boss's ram must hurt on both sides of a kill,
+    // never so much that winning next to it costs more hull than the fight
+    // that got the player there.
+    blastRadius: 90,
+    blastDamage: 45,
+    // PAST THE MORTAR'S 1500/250, the same DIST-2000-over-DIST-1200 relation
+    // `health` above is priced against: a second boss the player has spent
+    // longer reaching pays more of both currencies, on the header's own split
+    // between what a kill is WORTH (score, generous) and what it PAYS
+    // (credits, conservative).
+    value: 1800,
+    bounty: 300,
+    // NEVER ROLLED, exactly like the mortar. The `bunker` encounter
+    // (eventtypes.js) is this type's only trigger.
+    staged: true,
+    minDistance: 0,
+    weight: 0,
+    behaviour: "outrun", // gets past, holds station up the road and fires back
+                         // down it — the outrunner's own tactic, named
+                         // directly rather than through a `siege`-style
+                         // wrapper, because this car (unlike the mortar)
+                         // carries a gun that tactic is free to fire
+    arms: "bunker",      // the burst SMG, backward-capable, plus a mine layer
+                         // twice the cycle's rate (armament.js)
+    driving: "bunker",   // holds at the siege battery's own height on screen
+    // The bar under the hull, same instrument the mortar's own carries. See
+    // traffic.js's METER_MARKS for why this one draws with no notches: the
+    // marks are the siege battery's own phase thresholds (armament.js's
+    // BARRAGE), and this car has no phases to promise — an instrument that
+    // notched a fight that never escalates would be the "lying instrument"
+    // effects.js's own header warns against.
+    hullMeter: true,
+  },
+
+  {
+    // THE SKIRTED BARGE. The road's third boss, and the first that is not a
+    // wheeled vehicle: a hovercraft, and `roadMargin` below is what that
+    // buys — the one car on this road allowed past the barrier at all. Same
+    // `outrun` tactic as the bunker (gets past, holds station ahead, fires
+    // back down the road at it), so the escalation is not a new manoeuvre,
+    // it is that manoeuvre's own clamp widened for this one type: `outrun`
+    // reads behaviours.js's `trackTarget`, which normally clamps its hold to
+    // `ROAD_HALF_WIDTH - car.w / 2` (road.js) the same as every wheeled car.
+    // This is the one entry that widens that limit AND leans into it —
+    // `trackTarget` holds further past the player's own lane the nearer the
+    // player already is to an edge, so hugging a barrier is answered by the
+    // hull visibly crossing it, not merely by a wheeled car's half-width
+    // graze. See traffic.js's `clampToRoad` and behaviours.js's
+    // `trackTarget`, the two places that read the field.
+    id: "barge",
+    label: "SKIRTED BARGE",
+    // Authored in bossshapes.js and graduated into carshapes.js the day this
+    // record was written — see that file's note where the HOVERCRAFT group's
+    // second hull used to be.
+    shape: carShapeIndex("SKIRTED BARGE"),
+    faction: ENEMY_FACTION,
+    // The shape's own authored size, unchanged.
+    w: 64,
+    h: 100,
+    // SIZED AGAINST THE LOADOUT THIS BOSS ASSUMES, not the DIST-linear step
+    // the first two bosses' hull totals happen to sit on (mortar 3200 @
+    // DIST 1200, bunker 4200 @ DIST 2000 — about 1.25 hull per DIST unit,
+    // which would put this one at ~5450). A player who has reached DIST 3000
+    // has had three shop visits (hauler.js SHOP_INTERVAL 350) since the
+    // mortar and is assumed to own TWIN CANNON, which neither earlier fight's
+    // own health figure was priced against:
+    //
+    //   cannon        256 dps   ~27s
+    //   twin cannon   512 dps   ~14s   (both rounds connect — this hull is
+    //                                   64 wide, well past the pair's 20px
+    //                                   spread)
+    //   rocket        280 dps   ~25s   (rationed by ammo, so not sustainable
+    //                                   this long)
+    //
+    // At the siege battery's own realistic third of perfect uptime — and
+    // real uptime here is lower than on either predecessor, since
+    // `roadMargin` below means holding the SMG's line is holding a target
+    // that can plant itself anywhere across the road, not just the nearest
+    // legal lane — twin cannon clears this in ~42s, longer than either
+    // earlier boss's own realistic fight.
+    health: 7000,
+    // The mortar's and bunker's own figure, reused: half again the rig's 4,
+    // "immovable in practice". A third boss gets no softer a ram just for
+    // floating.
+    mass: 6,
+    // THE ARRIVAL PACE IS THE MORTAR'S AND BUNKER'S OWN, reused: it already
+    // clears obstacles.js's SPAWN_MARGIN dodge-distance budget with room (the
+    // rig, not either boss, is the actual worst case there — see the
+    // bunker's own note above).
+    speedMin: 0,
+    cruiseMin: 640,
+    cruiseMax: 730,
+    // OPENS THE cruiseMax..speedMax GAP the shared boss band otherwise leaves
+    // closed (this file's own THE TWO SPEED BANDS note on what that gap
+    // buys): a player who reaches DIST 3000 already owns the twelve-second
+    // OVERDRIVE boost (pickuptypes.js), which lifts their own ceiling from
+    // 620 to 820 — past either earlier boss's flat 730 speedMax, which would
+    // let an overdriving player simply leave this one behind and empty the
+    // fight early by outrunning it off the bottom of the screen. 900 clears
+    // 820 with room, the same way the stocker and the bruiser open this same
+    // gap to chase with rather than to cruise faster.
+    speedMax: 900,
+    // FASTER HANDS THAN EITHER EARLIER BOSS, and not by taste: raising
+    // speedMax past 730 also raises this car's own entry in behaviours.js's
+    // dodgeDistance (test/hazards.test.js sweeps every type's speedMax
+    // against obstacles.js's SPAWN_MARGIN), and the mortar's and bunker's own
+    // 130 at 900 would have pushed this catalogue's worst case past that
+    // budget. 150 keeps it under the rig's own 1141.96-unit figure — still
+    // the worst case in the catalogue — rather than raising SPAWN_MARGIN, a
+    // number sized for the whole road, for one boss whose own encounter never
+    // spawns a hazard to dodge in the first place (density: { hazards: 0 },
+    // eventtypes.js). It also happens to be the honest hull: a hovercraft is
+    // not wheel-and-tread bound the way the mortar's tracked hull or the
+    // bunker's semi are, so sharper lateral control reads as what it is
+    // rather than as a tuning patch — and it is what lets the lean past the
+    // barrier (`roadMargin` below) arrive fast enough to read as a reaction
+    // to the player's own lane, not a slow drift.
+    steerSpeed: 150,
+    // The established boss ceiling (mortar, bunker), reused for the third
+    // time running: winning next to this one should hurt exactly as much as
+    // winning next to either of the others, not more.
+    blastRadius: 90,
+    blastDamage: 45,
+    // PAST THE BUNKER'S 1800/300, on the same "a longer fight pays more of
+    // both" logic — and a bigger step than mortar-to-bunker took, matching
+    // the bigger step `health` above took.
+    value: 2200,
+    bounty: 400,
+    // NEVER ROLLED. The `barge` encounter (eventtypes.js) is this type's
+    // only trigger.
+    staged: true,
+    minDistance: 0,
+    weight: 0,
+    behaviour: "outrun", // the bunker's own tactic — see the header note above
+                         // for why no new one was needed
+    arms: "barge",       // a double SMG (weapons.js's `twinSmg`, the bunker's
+                         // backward-capable `turretSmg` fired as a pair) and
+                         // no mine layer — this boss's whole extra threat is
+                         // that its gun follows you off the tarmac, not a
+                         // second weapon system
+    driving: "barge",    // the siege battery's own height on screen, same as
+                         // the bunker
+    // TWO LANE WIDTHS PAST THE BARRIER — as much shoulder as the paved road
+    // itself gives on that side. Derived from road.js's own LANE_WIDTH rather
+    // than picked, on the same grounds HAZARD_DODGE_SPAN and the rest of
+    // behaviours.js's road-geometry contracts are: a car's reach off the
+    // tarmac is a fact about the road, not a taste.
+    //
+    // `trackTarget` (behaviours.js) does not merely permit this margin — it
+    // LEANS into it, holding further past the player's own lane the nearer
+    // the player already is to an edge, from nothing at the centre-line up
+    // to the full margin at the true barrier (the formula lives there, not
+    // here, since `roadMargin: 0` makes it a no-op for every wheeled type).
+    // A car that only ever matched the player's exact offset would graze the
+    // barrier by half its own width at most; leaning wider is what actually
+    // carries the hull's CENTRE past the tarmac, which is the whole point of
+    // a hovercraft boss existing — still gated by `blocked` (behaviours.js),
+    // the same reactive fallback every station-keeping tactic already has.
+    roadMargin: LANE_WIDTH * 2,
+    // The bar under the hull, the same instrument the other two bosses
+    // carry. No BARRAGE phases here either (armament.js's `barge` kit has no
+    // battery), so it draws with no notches, same reasoning as the bunker's
+    // own note above.
+    hullMeter: true,
+  },
+
+  {
+    // THE CATAMARAN GUNSHIP. The road's fourth boss, and a combination
+    // rather than a fresh escalation: the siege mortar's fight (no gun, an
+    // indirect barrage that leads the target and cannot be dodged by simply
+    // driving faster — armament.js's fireBarrage) carried by the skirted
+    // barge's hull (`roadMargin` below, the one field that lets a car settle
+    // past the barrier). Both halves are named machinery, reused rather than
+    // rebuilt: `behaviour: "siege"` is the mortar's own tactic unchanged, and
+    // `arms: "catamaran"` is BATTERY's own numbers on a fresh object (see
+    // armament.js's CATAMARAN_BATTERY) driving the SAME shared BARRAGE
+    // escalation table the mortar reads — one shell, then two, then a
+    // straddle, at whatever fraction of THIS boss's own hull is left.
+    id: "catamaran",
+    label: "CATAMARAN GUNSHIP",
+    // Authored in bossshapes.js and graduated into carshapes.js the day this
+    // record was written — see that file's note where the HOVERCRAFT
+    // group's last hull used to be.
+    shape: carShapeIndex("CATAMARAN GUNSHIP"),
+    faction: ENEMY_FACTION,
+    // The shape's own authored size, unchanged.
+    w: 68,
+    h: 100,
+    // CONTINUING THE SAME ESCALATION barge's own entry set out: a player who
+    // has reached DIST 4000 has had roughly one more shop visit than the
+    // barge's own fight assumed (hauler.js SHOP_INTERVAL 350), so this
+    // boss's hull is priced up from the barge's 7000 by more than the
+    // straight DIST-linear step would give, the same reasoning barge's own
+    // note gives for why it broke from mortar-to-bunker's own ratio:
+    //
+    //   cannon        256 dps   ~41s
+    //   twin cannon   512 dps   ~21s
+    //   rocket        280 dps   ~38s   (rationed by ammo, so not sustainable
+    //                                   this long)
+    //
+    // At the siege battery's own realistic third of perfect uptime, twin
+    // cannon clears this in ~62s — longer than any earlier boss's own
+    // realistic fight, which is the right shape for the last one on the
+    // road so far: this is the fight the whole run has been building toward.
+    health: 10500,
+    // The established boss figure, reused a fourth time: half again the
+    // rig's 4, "immovable in practice".
+    mass: 6,
+    // THE ARRIVAL PACE IS THE SHARED BOSS BAND, reused rather than opened
+    // the way the barge's own speedMax was. That was a deliberate exception
+    // to answer a gun that has to keep the player in its line; a barrage
+    // has no line to keep — armament.js's fireBarrage has no range gate on
+    // purpose, so this boss reaches the player whether they are alongside
+    // it or a screen away on overdrive. Twelve seconds of overdrive
+    // outrunning it stays exactly the escape the siege mortar's own entry
+    // already documents, not a hole this boss needs to close.
+    speedMin: 0,
+    cruiseMin: 640,
+    cruiseMax: 730,
+    speedMax: 730,
+    steerSpeed: 130,
+    // The established boss ceiling, reused a fourth time: winning next to
+    // this one should hurt exactly as much as winning next to any other.
+    blastRadius: 90,
+    blastDamage: 45,
+    // PAST THE BARGE'S 2200/400, on the same "a longer fight pays more of
+    // both" logic that has held for every boss so far.
+    value: 2600,
+    bounty: 500,
+    // NEVER ROLLED. The `catamaran` encounter (eventtypes.js) is this
+    // type's only trigger.
+    staged: true,
+    minDistance: 0,
+    weight: 0,
+    behaviour: "siege", // the mortar's own tactic — `outrun`'s hold with no
+                        // gun-band constraint, since this car carries none
+    arms: "catamaran",  // BATTERY's own numbers, no gun, no layer — the
+                        // shared BARRAGE table's last-phase mine drop
+                        // no-ops on this kit's null layer (armament.js)
+    driving: "catamaran", // the siege battery's own height on screen
+    // THE BARGE'S OWN MARGIN, reused rather than re-derived: two lane
+    // widths past the barrier, leaned into the same way (behaviours.js's
+    // `trackTarget`) — see that entry's own note for the formula. A barrage
+    // has no aim to keep, so the lean here is pure presence: the player
+    // never quite knows which side of the road the mark is coming from.
+    roadMargin: LANE_WIDTH * 2,
+    // The bar under the hull — and unlike the barge's own, this one DOES
+    // draw BARRAGE notches (traffic.js gates them on `car.arms?.battery`,
+    // which this kit sets): the phase thresholds are real for this boss,
+    // exactly as they are for the mortar, so the meter earns them honestly.
     hullMeter: true,
   },
 

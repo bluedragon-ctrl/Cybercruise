@@ -975,6 +975,166 @@ export const CAR_SHAPES = [
       line(-0.20, -0.98, 0.20, -0.98, headlight, 1.5, 8);
     },
   },
+
+  // THE SECOND BOSS HULL TO EARN A CAR TYPE, graduated from bossshapes.js the
+  // same way the SIEGE MORTAR was: unedited except for its helper calls. This
+  // one used `pair()` (bossshapes.js's own helper, for a plate bolted to both
+  // flanks at once) and this file has no such helper — see `box` above's own
+  // note on why one is not worth adding for a single caller — so the flank
+  // skirts below are the two `pair()` would have emitted, written out by hand.
+  //
+  // DELIBERATELY THE SAME TWO-HULL CAB-AND-TRAILER LAYOUT AS THE RIG, at the
+  // same proportions: the player already knows what a rig is, and armour bolted
+  // onto that familiar shape reads as "that, but welded shut" without a single
+  // new silhouette to learn — see the pitch below.
+  {
+    name: "BUNKER TRAILER",
+    pitch: "the rig you know, welded shut",
+    size: [46, 132],
+    parts: [
+      [[0, -1.00], [0.44, -0.98], [0.62, -0.88], [0.66, -0.70], [0.64, -0.54], [0, -0.52]],
+      [[0, -0.48], [0.90, -0.46], [0.94, -0.30], [0.94, 0.86], [0.72, 0.96], [0, 0.98]],
+    ],
+    wheels: [[-0.82, 4, 10, 4], [0.34, 5, 11, 4], [0.80, 5, 11, 4]],
+    exhaust: [0.30, 0.86, 0.96],
+    overhang: { x: 1.16, up: 1.14 },
+    flat({ line }, c, thrust, headlight) {
+      line(-0.44, -1.02, 0.44, -1.02, headlight, 1.5, 8);
+    },
+    raised({ solid, line }, c, thrust) {
+      solid(box(-0.38, -0.92, 0.38, -0.62), c);          // cab roof
+      solid(box(-0.22, -0.56, 0.22, -0.42), c);          // fifth-wheel coupling
+      // Trailer roof with its corners CUT rather than square — the same "armour
+      // plate, never rounded" rule the BRUISER is built on, at trailer scale.
+      solid([
+        [-0.70, -0.32], [0.70, -0.32], [0.80, -0.20], [0.80, 0.72],
+        [0.70, 0.84], [-0.70, 0.84], [-0.80, 0.72], [-0.80, -0.20],
+      ], c, CAR_FILL_HIGH);
+      solid(box(0.94, -0.24, 1.08, 0.80), c);            // flank skirts
+      solid(box(-1.08, -0.24, -0.94, 0.80), c);
+      solid(box(-0.80, -0.82, -0.66, -0.58), thrust);    // stacks
+      solid(box(0.66, -0.82, 0.80, -0.58), thrust);
+      // Ram bar: opaque, highest, hiding the nose behind it. Same tell as the
+      // BRUISER's — contact with this hurts.
+      solid(box(-0.92, -1.14, 0.92, -1.02), c, CAR_FILL_HIGH);
+      line(-0.50, -1.02, -0.50, -0.94, c);
+      line(0.50, -1.02, 0.50, -0.94, c);
+    },
+    top({ line }, c) {
+      // Cross-bracing on the roof, rather than the RIG's plain rungs: an X per
+      // bay reads as structure holding something shut.
+      for (const [a, b] of [[-0.30, 0.04], [0.04, 0.38], [0.38, 0.72]]) {
+        line(-0.80, a, 0.80, b, c);
+        line(0.80, a, -0.80, b, c);
+        line(-0.80, b, 0.80, b, c);
+      }
+    },
+  },
+
+  // THE THIRD BOSS HULL TO EARN A CAR TYPE, graduated from bossshapes.js the
+  // same way the first two were: unedited except for its helper calls. This
+  // one used `canopy()` (bossshapes.js's own helper, for the low raked bridge
+  // shape) and this file has no such helper — see `box` above's own note on
+  // why one is not worth adding for a single caller — so the bridge below is
+  // the point list `canopy(0.30, 1.3, 1.0)` would have emitted, written out
+  // by hand.
+  //
+  // NO WHEELS, NO TRACKS — the first hull in this catalogue without either.
+  // `hover`'s ground track is the only thing saying where the road is, which
+  // is the honest cue for a car that cartypes.js's `roadMargin` lets steer
+  // past the barrier: a wheeled silhouette going there would read as a bug,
+  // where a skirt visibly clear of the tarmac reads as the whole point.
+  {
+    name: "SKIRTED BARGE",
+    pitch: "unmistakable: the skirt is the whole read",
+    size: [64, 100],
+    hover: { drop: 34, scale: 0.86 },
+    profile: [
+      [0, -1.00], [0.52, -0.96], [0.82, -0.78], [0.92, -0.50],
+      [0.94, 0.50], [0.82, 0.80], [0.50, 0.96], [0, 1.00],
+    ],
+    rotors: [[-0.42, -0.18, 10, 4], [0.42, -0.18, 10, 4]],
+    exhaust: [0.44, 0.92, 1.06],
+    thrustWide: true,
+    overhang: { x: 1.16, up: 1.14, down: 1.14 },
+    low({ solid }, c) {
+      solid(ring(1.12, 24), c, CAR_FILL); // the skirt, proud of the hull all round
+    },
+    flat({ line }, c, thrust, headlight) {
+      line(-0.40, -0.88, 0.40, -0.88, headlight, 1.5, 8);
+      // Skirt segment joins — the lobes that stop it reading as one balloon.
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        line(Math.cos(a) * 0.90, Math.sin(a) * 0.90, Math.cos(a) * 1.10, Math.sin(a) * 1.10, c);
+      }
+    },
+    raised({ solid, line }, c, thrust) {
+      solid([
+        [0, 0.04], [0.39, 0.22], [0.364, 0.44], [0, 0.54], [-0.364, 0.44], [-0.39, 0.22],
+      ], c); // bridge — canopy(0.30, 1.3, 1.0), see the note above
+      solid(box(-0.62, 0.56, -0.30, 0.86), c, CAR_FILL_HIGH); // thrust ducts
+      solid(box(0.30, 0.56, 0.62, 0.86), c, CAR_FILL_HIGH);
+      solid(box(-0.30, -0.66, 0.30, -0.40), c);            // forward gun deck
+      line(-0.30, -0.53, 0.30, -0.53, c);
+    },
+    top({ line }, c) {
+      line(-0.46, 0.71, -0.46, 0.86, c);
+      line(0.46, 0.71, 0.46, 0.86, c);
+    },
+  },
+
+  // THE FOURTH BOSS HULL TO EARN A CAR TYPE, graduated from bossshapes.js the
+  // same way the first three were: unedited except for its helper calls. This
+  // one used `canopy()` (see the skirted barge's own note above for why
+  // there is no shared version) and `flip()` (bossshapes.js's own point-list
+  // mirror, for the two pontoons) — this file has no such helper either, so
+  // both are written out by hand below.
+  //
+  // THE ROAD SHOWS THROUGH THE MIDDLE — the other reading of "no wheels, no
+  // tracks" the skirted barge's own note names: where that hull hid the
+  // ground with a skirt, this one puts a real gap between its two pontoons
+  // and lets the tarmac stream through it, `hover`'s ground track sitting
+  // where a keel would be.
+  {
+    name: "CATAMARAN GUNSHIP",
+    pitch: "two pontoons with the road showing between them",
+    size: [68, 100],
+    hover: { drop: 32, scale: 0.80 },
+    profile: [[0, -0.94], [0.17, -0.86], [0.19, 0.78], [0, 0.92]],
+    rotors: [[-0.72, 0.52, 10, 4], [0.72, 0.52, 10, 4]],
+    exhaust: [0.09, 0.86, 0.98],
+    overhang: { x: 1.02, up: 1.02, down: 1.02 },
+    low({ solid }, c) {
+      // The pontoons. Inner edge at 0.46 leaves a clear gap from the spine's
+      // 0.19 — that band is the hole. The second `solid` is `flip(pontoon)`
+      // written out by hand (bossshapes.js's own helper — see the note above).
+      const pontoon = [
+        [0.46, -0.86], [0.74, -0.96], [0.94, -0.70], [0.98, 0.60],
+        [0.80, 0.94], [0.50, 0.88], [0.46, 0.40],
+      ];
+      solid(pontoon, c, CAR_FILL);
+      solid([
+        [-0.46, -0.86], [-0.74, -0.96], [-0.94, -0.70], [-0.98, 0.60],
+        [-0.80, 0.94], [-0.50, 0.88], [-0.46, 0.40],
+      ], c, CAR_FILL);
+    },
+    raised({ solid, line }, c) {
+      // A bridging deck across the gap, but only amidships: leaving the fore
+      // and aft gaps open is what keeps the hole visible while the vehicle
+      // still looks like one object.
+      solid(box(-0.78, -0.34, 0.78, 0.14), c, CAR_FILL_HIGH);
+      solid([
+        [0, -0.36], [0.42, -0.18], [0.392, 0.04], [0, 0.14], [-0.392, 0.04], [-0.42, -0.18],
+      ], c); // bridge — canopy(-0.10, 1.4, 1.0), see the note above
+      solid(box(-0.30, -0.80, 0.30, -0.50), c);  // forward gun mount
+      line(0, -0.80, 0, -0.50, c);
+    },
+    top({ line }, c) {
+      for (const y of [-0.24, -0.14, -0.04, 0.06]) line(-0.78, y, 0.78, y, c);
+      line(-0.46, -0.34, -0.46, 0.14, c); // where the deck meets each pontoon
+      line(0.46, -0.34, 0.46, 0.14, c);
+    },
+  },
 ];
 
 // Look a shape up by name. Car types (cartypes.js) select their silhouette

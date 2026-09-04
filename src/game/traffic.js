@@ -390,7 +390,11 @@ class TrafficCar {
   // on screen belongs with the tactic that aims it, not with the road.
   clampToRoad() {
     if (this.type.airborne) return;
-    const limit = ROAD_HALF_WIDTH - this.type.w / 2;
+    // `roadMargin` (cartypes.js) is 0 for everything but the skirted barge —
+    // see that entry for why one hovercraft is allowed past the barrier at
+    // all, and behaviours.js's `trackTarget` for the intent-side half of the
+    // same widened limit.
+    const limit = ROAD_HALF_WIDTH + (this.type.roadMargin ?? 0) - this.type.w / 2;
     if (this.offset < -limit) {
       this.offset = -limit;
       if (this.vLateral < 0) this.vLateral = 0;
@@ -873,7 +877,7 @@ export class Traffic {
         drawTargetMark(ctx, sx, sy, car.type.w, car.type.h, lock.time);
       }
 
-      // ...and the hull meter, for the one type that asks for one (the boss —
+      // ...and the hull meter, for any type that asks for one (a boss —
       // cartypes.js's `hullMeter`). Drawn in the SAME place and off the SAME
       // (sx, sy) as the reticle above, for the same reason: it is an overlay on
       // one specific car, and the car has just been drawn.
@@ -882,8 +886,17 @@ export class Traffic {
       // die, but a meter on one that already has would be an instrument
       // reporting on nothing — traffic keeps a dead car in the list for the
       // tick its explosion is spawned in (see detonate), so this needs saying.
+      //
+      // MARKS ONLY FOR THE BATTERY. METER_MARKS is armament.js's BARRAGE
+      // thresholds, and those notches are a promise about phases that only the
+      // siege mortar's kit actually has (`arms.battery`, checked here rather
+      // than by id — see armament.js's own note on why a kit is what
+      // distinguishes it). The bunker trailer carries `hullMeter` too but no
+      // phases, so it gets a bar and no notches: an instrument that lies is
+      // worse than none (effects.js's drawHullMeter header).
       if (car.type.hullMeter && car.alive) {
-        drawHullMeter(ctx, sx, sy, car.type.h, car.health / car.type.health, METER_MARKS);
+        drawHullMeter(ctx, sx, sy, car.type.h, car.health / car.type.health,
+          car.arms?.battery ? METER_MARKS : []);
       }
     }
   }

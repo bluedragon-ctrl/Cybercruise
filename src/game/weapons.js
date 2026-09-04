@@ -669,6 +669,70 @@ export const ENEMY_WEAPON_TYPES = [
     // for a lighter pair. Comfortably under a lane (65px, road.js) either way.
     twinSpread: 26,
   },
+  {
+    id: "turretSmg",
+    label: "SMG",
+    // The bunker trailer's own gun (armament.js's `bunker` profile) — the SAME
+    // burst-fire spray as SMG above, minus its `forwardOnly` restriction.
+    //
+    // A SEPARATE ENTRY RATHER THAN A FLAG READ DIFFERENTLY, for the reason
+    // TWIN MISSILE above already gives: `smg` is shared BY REFERENCE with the
+    // stocker's GUNNER profile (armament.js), so dropping `forwardOnly` there
+    // would let the stocker fire back over its own shoulder too. This car
+    // needs the opposite of what the stocker's tactic needs: `outrun`
+    // (behaviours.js) holds station AHEAD of the player and fires BACK down
+    // the road at it — exactly the shot REARGUARD's own note (armament.js)
+    // says the plain SMG cannot take, which is why the outrunner carries the
+    // blaster instead. This entry is what lets a second front-holding boss
+    // carry the burst weapon anyway, without touching the stocker's.
+    damage: 4,
+    interval: 1.3,
+    burstCount: 5,
+    burstInterval: 0.09,
+    muzzleSpeed: 760,
+    flight: FLIGHT_STRAIGHT,
+    aimSlack: 45,
+    ammo: Infinity,
+    color: ENEMY,
+    glow: ENEMY_THRUST,
+    length: 10,
+    width: 3,
+    // NO forwardOnly — the whole point of this entry. Fires forward or back,
+    // exactly like the plain blaster REARGUARD carries.
+  },
+  {
+    id: "twinSmg",
+    label: "SMG",
+    // The skirted barge's own gun (armament.js's `barge` profile) — TURRET
+    // SMG above, fired as a pair. A SEPARATE ENTRY rather than `twin` bolted
+    // onto that one, for the reason TWIN MISSILE's own note gives: TURRET SMG
+    // is shared by reference with nothing today, but stating the field on a
+    // copy rather than on the shared original is what keeps it that way — a
+    // second type naming `turretSmg` later must not silently fire in pairs.
+    damage: 4,
+    interval: 1.3,
+    burstCount: 5,
+    burstInterval: 0.09,
+    muzzleSpeed: 760,
+    flight: FLIGHT_STRAIGHT,
+    aimSlack: 45,
+    ammo: Infinity,
+    color: ENEMY,
+    glow: ENEMY_THRUST,
+    length: 10,
+    width: 3,
+    // UNCONDITIONAL, like TWIN MISSILE's own — an enemy owns no shop
+    // specials, so `true` rather than a flag name is what makes a hostile
+    // weapon always fire paired (see muzzleOffsets' own header).
+    twin: true,
+    // A THIRD WIDER THAN THE PLAYER'S OWN CANNON PAIR (20): this hull holds
+    // the player's exact lane (cartypes.js's `roadMargin`) rather than a
+    // fixed line the player can already read, so the two streams need to
+    // read as two separate lines to dodge BETWEEN rather than as one fat
+    // spray — comfortably under half a lane (35.75px, road.js's LANE_WIDTH)
+    // either way.
+    twinSpread: 30,
+  },
 ];
 
 // --- What the shop's SPECIALS do to a trigger pull ---------------------------

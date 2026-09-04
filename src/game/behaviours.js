@@ -637,8 +637,22 @@ function avoidHazards(car, world) {
 // The player is passed as `ignore` in every case: lining up with them is the
 // entire point, so they are never a reason to hold back.
 function trackTarget(car, target, world) {
-  const limit = ROAD_HALF_WIDTH - car.w / 2;
-  const want = Math.max(-limit, Math.min(limit, target.offset));
+  // `roadMargin` (cartypes.js) is 0 for every wheeled type, so `excursion`
+  // and the widened clamp below are both no-ops for them — see the skirted
+  // barge's own entry for the one type that sets it, and traffic.js's
+  // `clampToRoad` for the other half of the same contract.
+  const margin = car.type.roadMargin ?? 0;
+  // LEANS FURTHER PAST THE PLAYER'S OWN LANE THE NEARER THEY ALREADY ARE TO
+  // AN EDGE, scaled linearly from nothing at the centre-line to the full
+  // margin at the true barrier. Matching `target.offset` exactly (as every
+  // wheeled car does) only ever grazes the barrier by half this car's own
+  // width; a margin-carrying car instead OVERSHOOTS in the same direction
+  // the player is already leaning, which is what puts its hull's centre
+  // past the tarmac rather than merely its edge — see the skirted barge's
+  // own `roadMargin` note for why that distinction is the whole point.
+  const excursion = margin * (target.offset / ROAD_HALF_WIDTH);
+  const limit = ROAD_HALF_WIDTH + margin - car.w / 2;
+  const want = Math.max(-limit, Math.min(limit, target.offset + excursion));
   const clear = !blocked(car, target, want, world, car.drive.passLookAhead);
   car.targetOffset = clear ? want : car.offset;
 }

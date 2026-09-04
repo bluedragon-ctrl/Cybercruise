@@ -1094,6 +1094,40 @@ test("the shop visit is LATE, never lost, when an encounter is already live", ()
   assert.equal(fires, before + 1, "the deferred shop visit must fire the moment the road clears");
 });
 
+test("the shop drone is skipped while a boss is on the road, either boss", () => {
+  // THE SAME MECHANISM the test above proves, aimed at the case the second
+  // boss actually creates: `bunker`'s own `at` (2000) and `duration` (450)
+  // put a live encounter across SHOP_INTERVAL * 6 (2100) — the first shop
+  // milestone the bunker's own arrival is old enough to sit on top of. No new
+  // code answers this; events.js's `!live` gate on dueMilestone (see its
+  // "MILESTONES FIRST" note) already covers every entry with an `at`, the
+  // bunker included, which is what this pins down rather than assumes.
+  events.reset();
+  const world = makeWorld(0);
+  let fires = 0;
+  const handlers = { shop: { fire: () => { fires++; }, live: () => false } };
+
+  // A quiet drive up to just past the bunker's own milestone — warband,
+  // rival and siege all fire and finish on the way through, same as any
+  // ordinary run, and every shop lap before 2100 passes uneventfully.
+  withRandom(1, () => drive(world, 0, 2001, handlers));
+  assert.equal(events.active(), "bunker", "expected the bunker to be live at DIST 2001");
+  const before = fires;
+
+  // Drive straight through SHOP_INTERVAL * 6 (2100) with the bunker still
+  // live — the shop milestone comes due here and must not fire over it.
+  withRandom(1, () => drive(world, 2002, 2100 + 4, handlers));
+  assert.equal(events.active(), "bunker", "the bunker should still be the live encounter");
+  assert.equal(fires, before, "the shop drone must not spawn while the bunker is live");
+
+  // Kill the boss and its escort — the encounter ends, and the deferred
+  // milestone is spent the moment the road clears, not on the next lap.
+  for (const car of world.traffic.cars.filter((c) => c.staged)) car.alive = false;
+  withRandom(1, () => drive(world, 2100 + 6, 2100 + 10, handlers));
+  assert.equal(events.active(), null, "the bunker encounter should have ended");
+  assert.equal(fires, before + 1, "the deferred shop visit must fire once the bunker clears");
+});
+
 test("every shop milestone crossed is spent, exactly once each", () => {
   events.reset();
   const world = makeWorld(0);

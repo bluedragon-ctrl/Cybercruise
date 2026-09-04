@@ -842,7 +842,7 @@ the simulation:
 | file | |
 | --- | --- |
 | `game/cartypes.js` | **the catalogue.** A type is pure data: silhouette, colours, size, hull, speed band, steering, blast, spawn weight, `minDistance`, and the names of its tactic and driving profile. New traffic = a new entry here |
-| `game/carshapes.js` | the silhouettes, 1:1 with the catalogue and pinned both ways by `test/road-and-caches.test.js`. Siblings: `cycleshapes.js` for the bike hulls, `bossshapes.js` for Phase 10's artwork, held outside the pairing until its types exist — hulls graduate OUT of it one at a time as types are written for them (the siege mortar, then the gunship) |
+| `game/carshapes.js` | the silhouettes, 1:1 with the catalogue and pinned both ways by `test/road-and-caches.test.js`. Siblings: `cycleshapes.js` for the bike hulls, `bossshapes.js` for Phase 10's artwork, held outside the pairing until its types exist — hulls graduate OUT of it one at a time as types are written for them (the siege mortar, then the gunship, then the bunker trailer) |
 | `game/behaviours.js` | the manoeuvres. A tactic sets only INTENT (`targetOffset`, `targetSpeed`); `traffic.js` integrates it under the type's limits, so a rig can't corner like a roadster and the physics stay in one place |
 | `game/driving.js` | the driving **profiles**: the numbers behind a tactic — following distance, patience, lane discipline, how much hull a driver will accept spending |
 | `game/traffic.js` | spawning, driving, dying, retiring, drawing |
@@ -1052,7 +1052,8 @@ The cruise band is pinned to both ends of the player's own 100–620:
 | cycle | 620–730 | 200 | catches a player at full throttle |
 | hypercar | 630–700 | 0 | |
 | sower | 640–700 | 200 | lays its strip and leaves, and the band is why it can |
-| mortar | 640–730 | 0 | the boss |
+| mortar | 640–730 | 0 | the first boss |
+| bunker | 640–730 | 0 | the second boss — the mortar's own band, reused |
 
 **Only four types have a floor at all**, and they share one number. A hostile
 holds station only on a player it can *match*, so its floor is the speed at which
@@ -1066,10 +1067,10 @@ against this type".
   loses its firing line, the cycle is forced by with its mine undropped, the
   outrunner and the sower pull away up the road.
 - **0** — everything else, hostile and civilian alike. Braking is not an answer
-  to the interceptor, stocker, rival, bruiser, boss or gunship, which is what
-  stops "slow down" being the answer to everything. And every civilian still
-  stops dead for a roadblock and still brakes behind a rig, exactly as before the
-  field existed.
+  to the interceptor, stocker, rival, bruiser, either boss or the gunship, which
+  is what stops "slow down" being the answer to everything. And every civilian
+  still stops dead for a roadblock and still brakes behind a rig, exactly as
+  before the field existed.
 
 Two things about those numbers were measured rather than chosen, and both look
 reasonable when wrong. **The second group is 0 rather than the player's own 100**

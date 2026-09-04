@@ -681,8 +681,9 @@ export function drawTargetMark(ctx, cx, cy, w, h, phase, color = PLAYER_THRUST) 
 // phase — it is an INSTRUMENT, not neon (the node drain meter,
 // game/walletrender.js, makes the same argument): a plain fill with a dark
 // backing, no glow and no neonStroke, because it has to be readable at a
-// glance by a player watching traffic rather than watching it. The road's
-// first boss (cartypes.js's `mortar`) is the only thing that asks for one.
+// glance by a player watching traffic rather than watching it. cartypes.js's
+// `hullMeter` is the opt-in, and only the two bosses (`mortar`, `bunker`) name
+// it — see traffic.js's render for why only the mortar's own draws notches.
 //
 // UNDER THE HULL, not over it. The boss holds station at the TOP of the screen
 // (behaviours.js's `siege`), so below it is the road between the boss and the
