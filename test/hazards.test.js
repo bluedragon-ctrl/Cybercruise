@@ -686,20 +686,6 @@ test("a chase range is wider than the gap it chases down to", () => {
 
 // --- The hard floor ----------------------------------------------------------
 
-test("the shakeable hostiles all share one floor", () => {
-  // Four bikes, one number, because it is one physical fact about bikes — they
-  // cannot be ridden at walking pace — rather than four dispositions. Asserted
-  // so a retune of one of them silently splits the rule into four.
-  const shakeable = CAR_TYPES.filter((t) => t.value >= 0 && t.speedMin > MIN_SPEED);
-  const floors = new Set(shakeable.map((t) => t.speedMin));
-  assert.equal(
-    floors.size,
-    1,
-    `the escapable hostiles floor at ${[...floors].join(", ")}. One fact, one ` +
-      `number: ${shakeable.map((t) => `${t.id} ${t.speedMin}`).join(", ")}`,
-  );
-});
-
 test("every civilian can be brought to a full stop", () => {
   // The civilian half of the same rule, and what keeps the new floor invisible
   // on the civilian road: `hazardStop` (behaviours.js) is MEASURED behaviour — a

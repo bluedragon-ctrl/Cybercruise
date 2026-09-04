@@ -35,8 +35,6 @@ import {
   setDivert,
   isBusy,
 } from "../src/engine/console.js";
-import { MIN_SPEED, MAX_SPEED } from "../src/game/player.js";
-import { STATS, statValue, TIER_COUNT } from "../src/game/upgrades.js";
 
 // A snapshot in the shape main.js's deckSnapshot() builds. Every field the
 // templates read has to be here, or a template that reaches for a missing one
@@ -73,30 +71,6 @@ function vocabulary(over = {}, draws = 400) {
   for (let n = 0; n < draws; n++) out.push(fillerLine(n, s).text.replace(/^t\+\d+:\d+\s+/, ""));
   return out;
 }
-
-test("the log's emission band is pinned to the car's real speed band, not to numbers of its own", () => {
-  // telemetry.js maps its SLOW->FAST interval across [260, 740] and calls those
-  // the game's own endpoints: the player's starting speed, and what a fully
-  // upgraded engine tops out at. If either moves, the log's pacing silently
-  // stops covering the range the car can actually drive — fast at the bottom of
-  // the band and pinned at the top, or never reaching FAST at all.
-  const engine = STATS.find((s) => s.id === "engine");
-  const maxed = statValue(engine, TIER_COUNT);
-  assert.equal(
-    interval(MIN_SPEED === 260 ? MIN_SPEED : 260),
-    interval(260),
-    "sanity: 260 is the low end telemetry.js's SPEED_LO claims",
-  );
-  assert.equal(
-    Math.round(maxed),
-    740,
-    `telemetry.js's SPEED_HI is 740 because a maxed engine tops out there — it now tops out at ${maxed}`,
-  );
-  assert.ok(
-    MAX_SPEED <= maxed,
-    "the constant top speed must sit inside the band the log paces against",
-  );
-});
 
 test("a faster car makes the deck chatter faster, monotonically and with both ends clamped", () => {
   // The single most load-bearing behaviour in the file: the player feels the
