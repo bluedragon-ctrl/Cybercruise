@@ -277,7 +277,7 @@ export const WEAPON_TYPES = [
     //   across a lane from a gap of 70. That is the whole difference between
     //   "the rounds follow" and "the rounds cannot miss"
     //
-    // IT EXCEEDS THE ROCKET'S OWN 260 AND THAT IS FINE. The rocket's claim was
+    // IT EXCEEDS THE ROCKET'S OWN 390 AND THAT IS FINE. The rocket's claim was
     // never the turn rate: it HUNTS — it finds its own targets anywhere inside
     // 1100 units, re-acquires when one dies, reaches the air, and carries 98
     // damage and a splash. A tracer round is AIMED: it chases only what the
@@ -326,13 +326,15 @@ export const WEAPON_TYPES = [
     // per body (projectiles.js's `seekable`), so those types will choose for
     // themselves — no change here when they land.
     flight: FLIGHT_SEEKING,
-    // OUT-DRIVEABLE ON PURPOSE, and this is the weapon's difficulty knob. 260
-    // lateral units/sec against the road's own lane width means the rocket
-    // takes roughly a third of a second to cross one lane — enough to catch a
-    // car holding its line or drifting, not enough to catch one that commits to
-    // a hard change the moment it sees the launch. A seeker that could not be
-    // dodged would make the rocket the only weapon worth carrying.
-    turnRate: 260,
+    // OUT-DRIVEABLE ON PURPOSE, and this is the weapon's difficulty knob. +50%
+    // OVER THE ORIGINAL 260, so 390 lateral units/sec against the road's own
+    // 71.5-unit lane width means the rocket crosses one lane in ~0.18s — a car
+    // holding its line or drifting is still caught, and the margin against one
+    // committing to a hard change the moment it sees the launch is now
+    // noticeably tighter than the original figure left it. A seeker that could
+    // not be dodged at all would make the rocket the only weapon worth
+    // carrying, which is the ceiling this must stay under.
+    turnRate: 390,
     // At ~2.86 shots/sec a full magazine empties in under 20s of held trigger —
     // "use it, don't lean on it", retimed to match the faster reload above.
     ammo: 50,
@@ -442,7 +444,7 @@ export const WEAPON_TYPES = [
     // SIXTEEN IN THE MAGAZINE, EIGHT IN HAND. THE PLAYER'S ONLY DEPLOYABLE, and
     // the right one to be it: its whole behaviour — one hazard, dropped behind,
     // dodgeable — is legible the first time you use it. Issued at HALF the
-    // magazine rather than full, so the dock's SET OF 16 (upgrades.js) is a real
+    // magazine rather than full, so the dock's SET OF 4 (upgrades.js) is a real
     // top-up on the very first stop instead of a row with nothing to sell yet.
     ammo: 16,
     startAmmo: 8,
