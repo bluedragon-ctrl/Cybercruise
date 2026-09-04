@@ -453,7 +453,14 @@ export function buildAllWeaponState() {
 // be a second place that fact could be set wrong. Tune the car, not the shop,
 // to move where a stat starts.
 export const UPGRADE_CONSUMABLE_IDS = live.upgrades.CONSUMABLES.map((e) => e.id);
-export const UPGRADE_STAT_IDS = live.upgrades.STATS.map((s) => s.id);
+// `siphon` is excluded: it has no base+step ladder of its own to tune here
+// (see upgrades.js's own comment on that STATS entry) — price and yield both
+// read off wallet.js's SIPHON_PRICE/SIPHON_YIELDS, which the "constant"
+// catalogue already exposes under World -> Siphon rig. Listing the row here
+// too would just be a second, more limited place to change the same numbers.
+export const UPGRADE_STAT_IDS = live.upgrades.STATS
+  .map((s) => s.id)
+  .filter((id) => id !== "siphon");
 
 // A consumable's "how much" lives on a different field per `kind` — `amount`
 // for AMMO and HEAL, `duration` for SHIELD — mirroring PICKUP_EFFECT_FIELDS
@@ -495,20 +502,14 @@ export function buildUpgradeStatState(id) {
   if (!stat) {
     throw new Error(`buildUpgradeStatState: unknown stat id "${id}"`);
   }
-  // `step` is only on the editable-fields map for a base+step stat — a
-  // `values`-shaped stat (siphon) has no single step to patch, and its
-  // ladder is retuned from the constant TABLE it reads instead (World →
-  // Siphon rig), not from this shelf. See upgrades.js's own field table.
-  const editable = { price: stat.price };
-  if (stat.step !== undefined) editable.step = stat.step;
   return {
     id: stat.id,
     label: stat.label,
-    values: editable,
+    values: { price: stat.price, step: stat.step },
     // Read-only context so the editor can show what tier 1 actually buys
     // (base -> base + step) without the caller re-importing upgrades.js's own
-    // formatting rules. Absent for a `values`-shaped stat, same reason.
-    base: stat.step !== undefined ? stat.base : null,
+    // formatting rules.
+    base: stat.base,
     unit: stat.unit,
     decimals: stat.decimals,
   };

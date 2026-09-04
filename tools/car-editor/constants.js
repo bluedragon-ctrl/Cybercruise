@@ -260,19 +260,26 @@ export const CONSTANT_GROUPS = [
   {
     id: "siphon",
     label: "Siphon rig",
-    // The SHOP screen itself (upgrades.js's `siphon` STATS entry, listed
-    // under Shop → Car systems but with no editable step of its own — see
-    // that entry's comment) reads YIELD_T1/T2/T3 below DIRECTLY, so a retune
-    // here is what the shelf prints. Reach and drain never got shelf rows of
-    // their own — see wallet.js's own SIPHON_YIELDS header for why.
+    // The SIPHON RIG has no row of its own under Shop → Car systems — every
+    // other stat there is a base+step ladder, and this one isn't (see
+    // upgrades.js's own comment on the `siphon` STATS entry), so
+    // state.js's UPGRADE_STAT_IDS excludes it and ALL of its numbers,
+    // PRICE included, are retuned from here instead. upgrades.js reads
+    // PRICE and YIELD_T1/T2/T3 below DIRECTLY, so a retune here is what the
+    // shop shelf prints. Reach and drain never got shelf rows of their own —
+    // see wallet.js's own SIPHON_YIELDS header for why.
     //
     // STOCK, then the three tiers the rig can be bought up to. The first three
     // rows (LINK_RADIUS/LINK_NEAR_TIME/LINK_FAR_TIME) are what a car with NO
     // rig bought reads — index 0 of every array below is fixed to the first
     // two of them rather than a restated literal — and are also the base every
     // hunter/crawler style in tools/econsim.js is measured against.
-    note: "What a node's siphon actually costs and pays, stock and at every SIPHON RIG tier. The yield column below is the same number the shop shelf prints (Shop → Car systems) — there is nothing to keep in step, retuning it here is retuning the shelf.",
+    note: "What a node's siphon actually costs and pays, stock and at every SIPHON RIG tier, plus what the rig itself costs to buy — the SIPHON RIG has no row under Shop → Car systems, so this is the only place any of it is retuned. PRICE and the yield column are the same numbers the shop shelf prints.",
     constants: [
+      {
+        id: "siphon.PRICE", name: "SIPHON_PRICE", file: "src/game/wallet.js", min: 1,
+        description: "Credits for ONE tier of the rig (tiers 2 and 3 cost this times upgrades.js's TIER_PRICES, same as every other shop stat). THE SHOP SHELF CHARGES THIS SAME NUMBER — it is read live, so there is nothing else to retune to match it.",
+      },
       {
         id: "siphon.LINK_RADIUS", name: "LINK_RADIUS", file: "src/game/wallet.js", min: 1,
         description: "Siphon reach on a STOCK car (no rig bought), in px from the car to a node's marker. Also what a node's price fades in from, and the far end of the drain curve below.",
@@ -311,15 +318,15 @@ export const CONSTANT_GROUPS = [
       },
       {
         id: "siphon.YIELD_T1", name: "SIPHON_YIELDS", index: 1, file: "src/game/wallet.js", min: 0.01,
-        description: "Payout multiplier at tier 1 — 1.20 means every node pays 20% more. THE SHOP SHELF PRINTS THIS SAME NUMBER (as a %, under Shop → Car systems) — it is read live, so there is nothing else to retune to match it.",
+        description: "Payout multiplier at tier 1 — 1.20 means every node pays 20% more. THE IN-GAME SHOP SHELF PRINTS THIS SAME NUMBER (as a %, on its SIPHON RIG row) — it is read live, so there is nothing else to retune to match it.",
       },
       {
         id: "siphon.YIELD_T2", name: "SIPHON_YIELDS", index: 2, file: "src/game/wallet.js", min: 0.01,
-        description: "Payout multiplier at tier 2. The shop shelf reads this one live too.",
+        description: "Payout multiplier at tier 2. The in-game shop shelf reads this one live too.",
       },
       {
         id: "siphon.YIELD_T3", name: "SIPHON_YIELDS", index: 3, file: "src/game/wallet.js", min: 0.01,
-        description: "Payout multiplier at tier 3 (maxed). The shop shelf reads this one live too.",
+        description: "Payout multiplier at tier 3 (maxed). The in-game shop shelf reads this one live too.",
       },
     ],
   },

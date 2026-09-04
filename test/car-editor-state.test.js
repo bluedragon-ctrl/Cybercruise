@@ -322,10 +322,15 @@ test("buildUpgradeConsumableState throws for a consumable id outside the catalog
   );
 });
 
-test("buildAllUpgradeStatState returns every row on the car-systems shelf", () => {
+test("buildAllUpgradeStatState returns every base+step row on the car-systems shelf, and no others", () => {
   const all = buildAllUpgradeStatState();
   assert.deepEqual(all.map((s) => s.id).sort(), [...UPGRADE_STAT_IDS].sort());
-  assert.deepEqual(UPGRADE_STAT_IDS, STATS.map((s) => s.id));
+  // `siphon` is the one STATS entry with no `step` — see its own comment in
+  // upgrades.js — so it has nothing this shelf can preview and is excluded on
+  // purpose. Its numbers, price included, are only editable under World ->
+  // Siphon rig (constants.js), which is what "every OTHER id" checks below.
+  assert.ok(STATS.some((s) => s.id === "siphon" && s.step === undefined));
+  assert.deepEqual(UPGRADE_STAT_IDS, STATS.filter((s) => s.id !== "siphon").map((s) => s.id));
 });
 
 test("buildUpgradeStatState reports price, step and read-only context", () => {

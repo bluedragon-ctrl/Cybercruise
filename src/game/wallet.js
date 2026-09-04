@@ -166,13 +166,16 @@ const SIPHON_HINT = "SIGNAL NODE IN REACH // HOLD THE SHOULDER TO SIPHON";
 // patcher splits on commas with no comment-awareness, so a comment after an
 // element is read as part of the next one. Index === player.siphonLevel.
 //
-// SIPHON_YIELDS IS EXPORTED because upgrades.js's `siphon` STATS entry reads
-// it directly for what the shop shelf prints — see that file's own comment.
-// A retune here is what the shelf quotes; there is no second figure to keep
-// in step.
+// SIPHON_YIELDS AND SIPHON_PRICE ARE EXPORTED because upgrades.js's `siphon`
+// STATS entry reads both directly for what the shop shelf prints — see that
+// file's own comment. A retune here is what the shelf quotes; there is no
+// second figure to keep in step, for price or for yield. Kept next to
+// SIPHON_RANGES/SIPHON_FAR_TIMES so all five siphon-rig numbers retune from
+// one place (also where car-editor's World -> Siphon rig group points).
 const SIPHON_RANGES = [LINK_RADIUS, 330, 360, 390];
 const SIPHON_FAR_TIMES = [LINK_FAR_TIME, 3.0, 2.0, 1.0];
 export const SIPHON_YIELDS = [1.00, 1.5, 2, 3];
+export const SIPHON_PRICE = 100;
 
 // `player` is read defensively (`?.`) — the test suite and tools/econsim.js
 // both drive this module with plain `{x, y, speed}` stand-ins that carry no
