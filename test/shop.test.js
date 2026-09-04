@@ -81,35 +81,40 @@ test("every finite weapon in the player's catalogue can be rearmed at the dock",
   }
 });
 
-test("a GUN is topped up by the crate's own quantity", () => {
-  // upgrades.js's header claims a gun row sells what the road drops, so a player
-  // who knows what a ROCKET+ crate is worth already knows what the row is worth.
-  // Two catalogues, one set of numbers — this is what keeps them one set when
-  // somebody retunes either.
-  for (const entry of CONSUMABLES) {
-    if (entry.kind !== AMMO) continue;
-    const weapon = WEAPON_TYPES.find((w) => w.id === entry.weaponId);
-    if (weapon.payload) continue; // a layer — see the next test
-    const crate = PICKUP_TYPES.find((p) => p.kind === AMMO && p.weaponId === entry.weaponId);
-    assert.equal(entry.amount, crate.amount,
-      `${entry.id} no longer matches the ${entry.weaponId} crate`);
+test("every GUN sells the same fixed pack of rounds", () => {
+  // upgrades.js's header claims guns sell a flat pack size rather than the
+  // road's own crate quantity, so every gun row has to actually agree on that
+  // number — otherwise "a flat pack" is just prose.
+  const guns = CONSUMABLES.filter((e) => {
+    if (e.kind !== AMMO) return false;
+    const weapon = WEAPON_TYPES.find((w) => w.id === e.weaponId);
+    return weapon && !weapon.payload;
+  });
+  assert.ok(guns.length > 1, "not enough gun rows to compare");
+  const [first, ...rest] = guns;
+  for (const row of rest) {
+    assert.equal(row.amount, first.amount,
+      `${row.id} sells ${row.amount} rounds a pack, ${first.id} sells ${first.amount}`);
   }
 });
 
-test("a LAYER is rearmed as a whole set, whatever was left in it", () => {
-  // A layer's magazine is three or five rounds (weapons.js), and at that size a
-  // "+1" row is not a purchase — it is a rounding error on a decision the player
-  // walked down a menu to make. So the mine and the strip sell the WHOLE
-  // magazine, which Weapon.refill's own cap turns into "top it right up" however
-  // much was left. Told apart by `payload`, exactly as weapons.js tells a layer
-  // from a gun everywhere else.
+test("the LAYER's pack beats the road's own crate without emptying the magazine", () => {
+  // The mine's magazine is sixteen rounds (weapons.js) and the road's own
+  // MINE+ crate hands over two (pickuptypes.js) — the shop row has to sit
+  // strictly between the two: more than a lucky pickup, or there is no reason
+  // to walk down a menu for it, and less than the whole magazine, or the row
+  // is back to being a single all-or-nothing purchase. Told apart by
+  // `payload`, exactly as weapons.js tells a layer from a gun everywhere else.
   const layers = WEAPON_TYPES.filter((w) => w.payload);
   assert.ok(layers.length > 0, "the catalogue has no layers to check");
   for (const weapon of layers) {
     const row = CONSUMABLES.find((e) => e.kind === AMMO && e.weaponId === weapon.id);
     assert.ok(row, `nothing on the shelf rearms ${weapon.id}`);
-    assert.equal(row.amount, weapon.ammo,
-      `${row.id} is not a whole set of ${weapon.id}`);
+    const crate = PICKUP_TYPES.find((p) => p.kind === AMMO && p.weaponId === weapon.id);
+    assert.ok(row.amount > crate.amount,
+      `${row.id} (${row.amount}) is no better than the ${weapon.id} crate (${crate.amount})`);
+    assert.ok(row.amount < weapon.ammo,
+      `${row.id} (${row.amount}) is the whole ${weapon.id} magazine (${weapon.ammo}) again`);
   }
 });
 
@@ -446,24 +451,30 @@ test("a consumable that would do nothing is refused, and the wallet keeps the mo
   assert.equal(wallet.credits, before, "charged for a repair at full hull");
 });
 
-test("one press rearms a layer from any state, and never past its magazine", () => {
-  // The point of selling a whole set: the player presses once and leaves with a
-  // full magazine, whether they had one round left or none. Weapon.refill's cap
-  // is what makes "sell the whole magazine" and "top it right up" the same act.
+test("a layer's pack tops up from any state, capped at its own magazine", () => {
+  // The pack is a flat quantity now (upgrades.js's header), not "sell the
+  // whole magazine" — so a press from empty adds exactly the pack, and a press
+  // near full is capped by Weapon.refill rather than overflowing past the
+  // magazine.
   const { wallet, player, loadout, garage } = shopper();
   for (const weapon of WEAPON_TYPES.filter((w) => w.payload)) {
     const row = CONSUMABLES.find((e) => e.kind === AMMO && e.weaponId === weapon.id);
     const carried = loadout.get(weapon.id);
-    for (const left of [0, 1]) {
-      carried.ammo = left;
-      assert.equal(purchase(row, wallet, player, loadout, garage), true);
-      assert.equal(carried.ammo, weapon.ammo,
-        `${weapon.id} was not a full set after one press (had ${left})`);
-    }
+
+    carried.ammo = 0;
+    assert.equal(purchase(row, wallet, player, loadout, garage), true);
+    assert.equal(carried.ammo, row.amount,
+      `${weapon.id} did not gain a full pack from empty`);
+
+    carried.ammo = weapon.ammo - 1;
+    assert.equal(purchase(row, wallet, player, loadout, garage), true);
+    assert.equal(carried.ammo, weapon.ammo,
+      `${weapon.id} overflowed past its own magazine`);
+
     // ...and a press once the magazine is already full is refused, exactly
     // like the gun rows above.
     assert.equal(purchase(row, wallet, player, loadout, garage), false,
-      `${weapon.id} sold a set nobody needed`);
+      `${weapon.id} sold a pack nobody needed`);
   }
 });
 

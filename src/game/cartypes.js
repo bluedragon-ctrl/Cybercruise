@@ -1333,20 +1333,23 @@ export const CAR_TYPES = [
     // and it should be: it is the only one not steering on tyres.
     //
     // BOUNDED FROM ABOVE BY THE ROCKET, and that bound is the single most
-    // important relation on the row: the rocket steers at turnRate 260
-    // (weapons.js) and is the ONLY weapon permitted to reach this thing, so a
-    // gunship that could out-slide a seeker could not be killed by anything at
-    // all. 240 leaves 20 units/sec of margin.
+    // important relation on the row: the rocket steers at turnRate 390
+    // (weapons.js, +50% over its original 260) and is the ONLY weapon
+    // permitted to reach this thing, so a gunship that could out-slide a
+    // seeker could not be killed by anything at all. 240 leaves 150 units/sec
+    // of margin.
     //
     // IN PRACTICE THE MARGIN IS NOT THE FIGHT, and it is worth saying so rather
-    // than claiming a duel the numbers do not support. Measured: a player
-    // holding the trigger kills one in ~1.6-2.0s having fired 5 rockets for the
-    // 4 hits it takes, i.e. essentially none are dodged. The reason is flight
-    // TIME, not turn rate — the round covers the gap in about 0.4s, and the
-    // sweep only moves ~84px in that window against the 104px the rocket can
-    // correct. What actually rations this fight is rocket AMMUNITION, which the
-    // player has to have gone shopping for; the margin here is the guard-rail
-    // that keeps the weapon working at all, not the challenge.
+    // than claiming a duel the numbers do not support. Measured (at the
+    // original 260 turnRate): a player holding the trigger kills one in
+    // ~1.6-2.0s having fired 5 rockets for the 4 hits it takes, i.e.
+    // essentially none are dodged. The reason is flight TIME, not turn rate —
+    // the round covers the gap in about 0.4s, and the sweep only moves ~84px in
+    // that window against the 104px the rocket could correct at 260 (156px at
+    // the current 390). What actually rations this fight is rocket
+    // AMMUNITION, which the player has to have gone shopping for; the margin
+    // here is the guard-rail that keeps the weapon working at all, not the
+    // challenge.
     steerSpeed: 240,
     // NO BLAST, and it is the only hostile row with none. Not an omission and
     // not shyness about the number: it is the other half of the rule the whole

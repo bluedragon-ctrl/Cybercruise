@@ -388,7 +388,7 @@ test("a purchase leaves a receipt on the row until the player undocks", () => {
   // summary of what this stop was spent on. Cleared by undocking, not by time.
   clearInput();
   const s = shop();
-  // Damaged well short of the repair's own +100, so the row still quotes a
+  // Damaged well short of the repair's own +50, so the row still quotes a
   // price after one purchase instead of reading as a wasted, refused one
   // (upgrades.js's consumableWasted) — the point below is that the price
   // survives the BOUGHT mark, not that a second purchase would succeed.

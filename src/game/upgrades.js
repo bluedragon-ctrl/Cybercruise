@@ -47,18 +47,19 @@ import { ROCKET, PLAYER_THRUST, ENEMY, GREEN_BRIGHT, PLAYER } from "../engine/pa
 // anything: an enemy pays 25 CR (cartypes.js's `bounty`), so the numbers below
 // read as "three to five enemies" rather than as abstract figures.
 //
-// GUNS ARE TOPPED UP, THE LAYER IS REARMED, and that split is by what the weapon
-// IS rather than by taste. A gun's magazine runs to dozens of rounds, so the
-// dock sells the matching crate's own quantity (pickuptypes.js) — the road drops
-// it, this sells it, and a player who knows what a ROCKET+ crate is worth
-// already knows what the row is worth. The MINE crate hands over two against a
-// magazine of sixteen (weapons.js), and at that size a menu walk per pair is not
-// a purchase, it is a rounding error. So the mine is sold as a WHOLE SET: one
-// press leaves the dock rearmed.
+// EVERY ROW SELLS A FIXED SET — a flat quantity chosen for the menu, not
+// mirrored from the road's own crate or magazine. Guns sell in packs of 20
+// rounds; the MINE layer, at sixteen rounds a magazine, sells in packs of 4.
+// (An earlier version tied a gun's row to its own crate's count — ROCKET+ or
+// TRACER+ (pickuptypes.js) — and sold the mine as the WHOLE 16-round magazine
+// in one press, since a menu walk for the crate's own pair was a rounding
+// error rather than a purchase. Flat sets replace both: a player buys however
+// many sets a stop can afford, gun or layer alike, rather than being locked to
+// the crate's own count or the whole magazine at once.)
 //
-// Weapon.refill caps at the weapon's own starting magazine, so selling the whole
-// magazine is exactly "top it right up" whatever was left in it — there is no
-// separate refill-to-full path, and no way to overfill by buying two.
+// Weapon.refill caps every purchase at the weapon's own magazine, so a set
+// bought past a full load simply does nothing extra — there is no separate
+// refill-to-full path, and no way to overfill by buying twice.
 //
 // A ROW WITH NOTHING TO GIVE ISN'T FOR SALE. A crate on the road is free, so
 // driving over one at full ammo costing nothing but the drive-over is a
@@ -88,16 +89,18 @@ export const CONSUMABLES = [
   {
     id: "buy_repair",
     label: "HULL REPAIR",
-    detail: "+100 HULL",
+    detail: "+50 HULL",
     price: 50,
     kind: HEAL,
-    // HALF A STOCK HULL IN ONE PRESS, and comfortably more than the FIX crate's
-    // own 70 (pickuptypes.js): the crate is whatever the road happened to drop,
-    // this is the repair the player walked down a menu and paid for. `detail`
-    // is the same figure written out in the player's units, and shop.test.js
-    // pins the two together — the number and the caption under it are one
-    // edit, never two (the tuning editor makes it one: see patchUpgradeEntry).
-    amount: 100,
+    // A QUARTER OF STOCK HULL IN ONE PRESS — under the FIX crate's own 70
+    // (pickuptypes.js), because the value here is not raw quantity but being
+    // able to buy exactly this whenever the wallet allows, rather than waiting
+    // on whatever the road happens to drop. A player wanting more than one set
+    // just buys the row again. `detail` is the same figure written out in the
+    // player's units, and shop.test.js pins the two together — the number and
+    // the caption under it are one edit, never two (the tuning editor makes it
+    // one: see patchUpgradeEntry).
+    amount: 50,
     color: GREEN_BRIGHT,
   },
   {
@@ -132,36 +135,36 @@ export const CONSUMABLES = [
   {
     id: "buy_rocket_ammo",
     label: "ROCKET AMMO",
-    detail: "+18 RDS",
+    detail: "+20 RDS",
     price: 50,
     kind: AMMO,
     weaponId: "rocket",
-    amount: 18,
+    amount: 20,
     color: ROCKET,
   },
   {
     id: "buy_tracer_ammo",
     label: "TRACER AMMO",
-    detail: "+48 RDS",
+    detail: "+20 RDS",
     price: 35,
     kind: AMMO,
     weaponId: "tracker",
-    amount: 48,
+    amount: 20,
     color: PLAYER_THRUST,
   },
   {
     id: "buy_mine_ammo",
     label: "MINES",
-    detail: "SET OF 16",
-    // The whole magazine (weapons.js's `mine`) — twice the eight the player is
-    // issued with (weapons.js's `startAmmo`), so this is a real top-up from the
-    // first stop rather than a row with nothing left to sell until the player
-    // has burned through the run's own supply. Priced as a set, not as eight
-    // separate two-mine crates carried out one at a time.
+    detail: "SET OF 4",
+    // TWICE THE ROAD'S OWN MINE+ CRATE (2 rounds, pickuptypes.js) in one press
+    // — a real step up from a lucky pickup, without emptying the whole
+    // 16-round magazine in a single purchase the way "SET OF 16" used to. A
+    // player who wants the full mag back buys the row more than once; the
+    // price is per set, not per magazine.
     price: 50,
     kind: AMMO,
     weaponId: "mine",
-    amount: 16,
+    amount: 4,
     color: ENEMY,
   },
 ];
