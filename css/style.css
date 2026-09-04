@@ -216,8 +216,18 @@ body {
   will-change: transform;
 }
 
+/* OPACITY, NOT VISIBILITY. #present's and #hud's own comments both promise
+   that #game stays the click target — pointer-events: none on the two
+   canvases drawn over it so a click passes through to whichever element is
+   actually hit-tested. `visibility: hidden` used to sit here instead, and
+   that promise is exactly what it broke: a hidden element takes no part in
+   hit-testing at all, so engine/mouse.js's listener on #game stopped firing
+   the moment a run went live (".gl" is applied for the run's entire life,
+   Phase 15d-i) — no mouse click landed anywhere in the game, menu test rows
+   (src/testoptions.js) included. Zero opacity is invisible the same way,
+   without taking the element out of hit-testing. */
 #frame.gl #game {
-  visibility: hidden;
+  opacity: 0;
   will-change: auto;
 }
 
