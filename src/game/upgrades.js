@@ -212,7 +212,7 @@ export const STATS = [
     // sized against. The traffic band is pinned to the CONSTANT MAX_SPEED
     // rather than to this, so buying speed moves the player through the
     // field instead of dragging the field along with them.
-    step: 40,
+    step: 60,
     price: 100,
     unit: "",
     decimals: 0,
@@ -315,7 +315,7 @@ export const STATS = [
     // exactly (1.00/1.20/1.40/1.60) — retuning one without the other leaves
     // the shelf quoting a number the wallet doesn't pay.
     base: 100,
-    step: 20,
+    step: 100,
     price: 100,
     unit: "%",
     decimals: 0,

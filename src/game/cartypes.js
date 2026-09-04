@@ -990,11 +990,11 @@ export const CAR_TYPES = [
     // the player (`strafe`), so a rearward shot never needing to catch it
     // costs nothing — the player's window is while it's alongside or ahead,
     // same as any other pass. Not being outrunnable is the point, not a gap.
-    speedMin: 200,
+    speedMin: 250,
     cruiseMin: 400,
     cruiseMax: 660,
     speedMax: 800,
-    steerSpeed: 250, // the widest sweep on the road needs the quickest hands;
+    steerSpeed: 150, // the widest sweep on the road needs the quickest hands;
                      // this is the nimblest thing in the catalogue, past the
                      // cycle's own 180
     blastRadius: 12,
@@ -1029,11 +1029,11 @@ export const CAR_TYPES = [
     // The bike floor, from in front: a player who drops under it watches this one
     // pull away up the road and out of the fight. The counter to the one hostile
     // that attacks from ahead is to stop chasing it.
-    speedMin: 200,
+    speedMin: 250,
     cruiseMin: 600,
     cruiseMax: 670,
     speedMax: 700,
-    steerSpeed: 200,
+    steerSpeed: 150,
     blastRadius: 16,
     blastDamage: 8,
     value: 100,

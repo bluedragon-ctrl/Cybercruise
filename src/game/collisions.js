@@ -50,7 +50,7 @@
 const PUSH_GAIN = 7;
 
 // Bounce. Deliberately low: cars crumple, they don't ping.
-const RESTITUTION = 0.25;
+const RESTITUTION = 0.4;
 
 // Damage is linear in closing speed above a floor, so parking against a car
 // costs nothing and a full-speed ram is lethal. At equal mass, a 300 unit/sec
