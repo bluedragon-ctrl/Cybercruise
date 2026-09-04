@@ -465,6 +465,65 @@ export const DRIVING_PROFILES = {
     contact: 0,
   }),
 
+  // The bunker trailer, the second boss. `outrun` (behaviours.js), unlike the
+  // siege battery's own `siege`, so `leadHold` answers to armament.js's gun
+  // band as well as to the framing rule — see test/hazards.test.js, which
+  // checks every type naming `outrun` against GUN_MIN_RANGE..GUN_RANGE. 420
+  // is the siege battery's own figure, reused rather than re-derived: it
+  // already sits inside that band with room either side, and a second boss
+  // holding at the same height on the screen is the same promise the first
+  // one made — "the player must be able to see the thing attacking them" — not
+  // a coincidence worth a new number.
+  //
+  // NERVE AND CONTACT AT ZERO, and PATIENCE AT THE SIEGE BATTERY'S OWN 0.15,
+  // for its own reason: a boss that shouldered through hazards would clear
+  // the very mines it is laying to fight in front of.
+  bunker: profile({
+    patience: 0.15,
+    leadHold: 420,
+    nerve: 0,
+    contact: 0,
+  }),
+
+  // The skirted barge, the third boss. Same disposition as the bunker's own
+  // — `outrun` (behaviours.js), the siege battery's own 420 `leadHold` —
+  // because none of what makes this fight different lives in HOW it drives.
+  // That is cartypes.js's `roadMargin`, read by `trackTarget` and
+  // `clampToRoad` rather than by anything in this table: a third boss
+  // holding at the same height on screen, past a wider line, is still the
+  // same promise the first two made.
+  //
+  // `followReaction` IS TURNED, and it is the one figure here that answers
+  // to arithmetic rather than to character: this profile's only driver tops
+  // out at 900 (cartypes.js's own OVERDRIVE note), so its worst closing
+  // speed against the player's own MIN_SPEED is 800 units/sec, needing 941
+  // units of road to shed (test/road-and-caches.test.js's braking rule) —
+  // the reference COMMUTER's 40 followGap + 1.0 followReaction covers only
+  // 840. 1.3 clears it (40 + 800*1.3 = 1080) with room, the same knob
+  // COMMUTER's own header names as the one with a hard floor.
+  barge: profile({
+    patience: 0.15,
+    leadHold: 420,
+    followReaction: 1.3,
+    nerve: 0,
+    contact: 0,
+  }),
+
+  // The catamaran gunship, the fourth boss. `siege` (behaviours.js), the
+  // mortar's own tactic — this one carries no gun either, so `leadHold` need
+  // only answer to the framing rule, not to armament.js's gun band, exactly
+  // as `battery`'s own note says. NO followReaction bump, unlike the barge's:
+  // this boss's speedMax stays at the shared 730 arrival pace rather than
+  // opening a chase gap, because a barrage has no range gate (armament.js's
+  // fireBarrage) — outrunning it on overdrive was always the mortar's one
+  // intended escape, not a bug this boss needs to close.
+  catamaran: profile({
+    patience: 0.15,
+    leadHold: 420,
+    nerve: 0,
+    contact: 0,
+  }),
+
   // The gunship (cartypes.js) — the only profile here driving something that is
   // not on the road, and the only one whose sweep is bounded by the SCREEN
   // rather than by the tarmac (behaviours.js's `patrol` and its FLIGHT_LIMIT).

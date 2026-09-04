@@ -14,17 +14,19 @@
 // the number of car TYPES and would otherwise be paying for eight hulls that
 // nothing on the road can spawn.
 //
-// SIX HULLS, FOUR VEHICLES — was eight and five. Only the armoured rig still
-// keeps two, since both readings were worth having; the hovercraft keeps one
-// plus the pontoon variant, and the combat drone and the cargo drone one each.
-// `group` says which vehicle a hull belongs to, so the gallery can show a
-// vehicle's options side by side and the boss session can find them.
+// THREE HULLS, THREE VEHICLES — was eight and five. The armoured rig, the
+// combat drone and the cargo drone keep their one apiece; the hovercraft has
+// none left (see below). `group` says which vehicle a hull belongs to, so
+// the gallery can show a vehicle's options side by side and the boss session
+// can find them.
 //
-// TWO ARE GONE FROM THIS LIST, and that is this file working as intended rather
-// than hulls being lost: the SIEGE MORTAR went first, then the ARMORED QUAD the
-// day cartypes.js grew the gunship record that wears it. Both are in
-// carshapes.js now. See the notes where each group used to be, and expect this
-// count to keep falling as the rest are claimed.
+// FIVE ARE GONE FROM THIS LIST, and that is this file working as intended
+// rather than hulls being lost: the SIEGE MORTAR went first, then the ARMORED
+// QUAD the day cartypes.js grew the gunship record that wears it, then the
+// BUNKER TRAILER the day it grew a second boss's own record, then the SKIRTED
+// BARGE the day it grew a third, then the CATAMARAN GUNSHIP the day it grew a
+// fourth. All five are in carshapes.js now. See the notes where each group
+// used to be, and expect this count to keep falling as the rest are claimed.
 //
 // THE GRAMMAR IS carshapes.js's. Read that file's header first: `profile` is the
 // right half of a symmetric hull (nose -1, tail +1) in fractions of hw/hh,
@@ -121,56 +123,12 @@ export const BOSS_SHAPES = [
   // =========================================================================
   // ARMORED RIG — the existing RIG escalated two ways: armour bolted onto a
   // shape the player already knows, and sheer length.
+  //
+  // ONE HULL LEFT. The other was the BUNKER TRAILER, and it graduated to
+  // carshapes.js the day it earned a second cartypes.js boss record, the same
+  // move the SIEGE MORTAR and the ARMORED QUAD made below. What remains here is
+  // pure length, where that one argued for armour on a familiar shape.
   // =========================================================================
-  {
-    group: "ARMORED RIG",
-    name: "BUNKER TRAILER",
-    pitch: "the rig you know, welded shut",
-    size: [46, 132],
-    // Deliberately the SAME two-hull cab-and-trailer layout as carshapes.js's
-    // RIG, at the same proportions. Everything that makes this a boss is bolted
-    // ON: a ram bar, flank skirts, a braced trailer roof. That is the argument
-    // for this variant — the player already knows what a rig is, and this one
-    // says "that, but armoured" without a single new silhouette to learn.
-    parts: [
-      [[0, -1.00], [0.44, -0.98], [0.62, -0.88], [0.66, -0.70], [0.64, -0.54], [0, -0.52]],
-      [[0, -0.48], [0.90, -0.46], [0.94, -0.30], [0.94, 0.86], [0.72, 0.96], [0, 0.98]],
-    ],
-    wheels: [[-0.82, 4, 10, 4], [0.34, 5, 11, 4], [0.80, 5, 11, 4]],
-    exhaust: [0.30, 0.86, 0.96],
-    overhang: { x: 1.16, up: 1.14 },
-    flat({ line }, c, thrust, headlight) {
-      line(-0.44, -1.02, 0.44, -1.02, headlight, 1.5, 8);
-    },
-    raised({ solid, line }, c, thrust) {
-      solid(box(-0.38, -0.92, 0.38, -0.62), c);          // cab roof
-      solid(box(-0.22, -0.56, 0.22, -0.42), c);          // fifth-wheel coupling
-      // Trailer roof with its corners CUT rather than square — the same "armour
-      // plate, never rounded" rule the BRUISER is built on, at trailer scale.
-      solid([
-        [-0.70, -0.32], [0.70, -0.32], [0.80, -0.20], [0.80, 0.72],
-        [0.70, 0.84], [-0.70, 0.84], [-0.80, 0.72], [-0.80, -0.20],
-      ], c, CAR_FILL_HIGH);
-      for (const p of pair(0.94, -0.24, 1.08, 0.80)) solid(p, c); // flank skirts
-      solid(box(-0.80, -0.82, -0.66, -0.58), thrust);    // stacks
-      solid(box(0.66, -0.82, 0.80, -0.58), thrust);
-      // Ram bar: opaque, highest, hiding the nose behind it. Same tell as the
-      // BRUISER's — contact with this hurts.
-      solid(box(-0.92, -1.14, 0.92, -1.02), c, CAR_FILL_HIGH);
-      line(-0.50, -1.02, -0.50, -0.94, c);
-      line(0.50, -1.02, 0.50, -0.94, c);
-    },
-    top({ line }, c) {
-      // Cross-bracing on the roof, rather than the RIG's plain rungs: an X per
-      // bay reads as structure holding something shut.
-      for (const [a, b] of [[-0.30, 0.04], [0.04, 0.38], [0.38, 0.72]]) {
-        line(-0.80, a, 0.80, b, c);
-        line(0.80, a, -0.80, b, c);
-        line(-0.80, b, 0.80, b, c);
-      }
-    },
-  },
-
   {
     group: "ARMORED RIG",
     name: "ROAD TRAIN",
@@ -226,96 +184,12 @@ export const BOSS_SHAPES = [
   // =========================================================================
 
   // =========================================================================
-  // MILITARY HOVERCRAFT — no wheels, no tracks: `hover` and its ground track are
-  // the only thing saying where the ground is. Two hulls, and they are opposite
-  // arguments about how to say "this floats": a literal skirt, or a hole through
-  // the middle of the vehicle with the road streaming past inside it.
+  // MILITARY HOVERCRAFT — GRADUATED, both of them. The SKIRTED BARGE went
+  // first (the third boss); the CATAMARAN GUNSHIP that stood here after it
+  // followed the same day cartypes.js grew a fourth boss's own record, the
+  // same move the SIEGE MORTAR and the BUNKER TRAILER made above. Both are
+  // in carshapes.js now, and this group has nothing left to offer.
   // =========================================================================
-  {
-    group: "HOVERCRAFT",
-    name: "SKIRTED BARGE",
-    pitch: "unmistakable: the skirt is the whole read",
-    size: [64, 100],
-    hover: { drop: 34, scale: 0.86 },
-    // A visible inflated skirt standing proud of the hull all the way round,
-    // plus two ducted lift fans. Nobody has to be told what this is. The cost
-    // is that the skirt is a fat soft outline in a game whose entire vocabulary
-    // is hard chamfered plate — which is the objection this variant has to
-    // survive.
-    profile: [
-      [0, -1.00], [0.52, -0.96], [0.82, -0.78], [0.92, -0.50],
-      [0.94, 0.50], [0.82, 0.80], [0.50, 0.96], [0, 1.00],
-    ],
-    rotors: [[-0.42, -0.18, 10, 4], [0.42, -0.18, 10, 4]],
-    exhaust: [0.44, 0.92, 1.06],
-    thrustWide: true,
-    overhang: { x: 1.16, up: 1.14, down: 1.14 },
-    low({ solid }, c) {
-      solid(ring(1.12, 24), c, CAR_FILL); // the skirt, proud of the hull all round
-    },
-    flat({ line }, c, thrust, headlight) {
-      line(-0.40, -0.88, 0.40, -0.88, headlight, 1.5, 8);
-      // Skirt segment joins — the lobes that stop it reading as one balloon.
-      for (let i = 0; i < 12; i++) {
-        const a = (i / 12) * Math.PI * 2;
-        line(Math.cos(a) * 0.90, Math.sin(a) * 0.90, Math.cos(a) * 1.10, Math.sin(a) * 1.10, c);
-      }
-    },
-    raised({ solid, line }, c, thrust) {
-      solid(canopy(0.30, 1.3, 1.0), c);                    // bridge
-      solid(box(-0.62, 0.56, -0.30, 0.86), c, CAR_FILL_HIGH); // thrust ducts
-      solid(box(0.30, 0.56, 0.62, 0.86), c, CAR_FILL_HIGH);
-      solid(box(-0.30, -0.66, 0.30, -0.40), c);            // forward gun deck
-      line(-0.30, -0.53, 0.30, -0.53, c);
-    },
-    top({ line }, c) {
-      line(-0.46, 0.71, -0.46, 0.86, c);
-      line(0.46, 0.71, 0.46, 0.86, c);
-    },
-  },
-
-
-  {
-    group: "HOVERCRAFT",
-    name: "CATAMARAN GUNSHIP",
-    pitch: "two pontoons with the road showing between them",
-    size: [68, 100],
-    hover: { drop: 32, scale: 0.80 },
-    // The distinctive one. A narrow spine carries the hull; the mass is two
-    // separate pontoons drawn at ground level with a real GAP either side of
-    // the spine, so the road, the lane dashes and the city floor stream through
-    // the middle of the vehicle. Nothing else in the game does that, and it is
-    // the strongest single argument in this whole group — at the price of a
-    // silhouette with almost no mass in its centre.
-    profile: [[0, -0.94], [0.17, -0.86], [0.19, 0.78], [0, 0.92]],
-    rotors: [[-0.72, 0.52, 10, 4], [0.72, 0.52, 10, 4]],
-    exhaust: [0.09, 0.86, 0.98],
-    overhang: { x: 1.02, up: 1.02, down: 1.02 },
-    low({ solid }, c) {
-      // The pontoons. Inner edge at 0.46 leaves a clear gap from the spine's
-      // 0.19 — that band is the hole.
-      const pontoon = [
-        [0.46, -0.86], [0.74, -0.96], [0.94, -0.70], [0.98, 0.60],
-        [0.80, 0.94], [0.50, 0.88], [0.46, 0.40],
-      ];
-      solid(pontoon, c, CAR_FILL);
-      solid(flip(pontoon), c, CAR_FILL);
-    },
-    raised({ solid, line }, c) {
-      // A bridging deck across the gap, but only amidships: leaving the fore
-      // and aft gaps open is what keeps the hole visible while the vehicle
-      // still looks like one object.
-      solid(box(-0.78, -0.34, 0.78, 0.14), c, CAR_FILL_HIGH);
-      solid(canopy(-0.10, 1.4, 1.0), c);
-      solid(box(-0.30, -0.80, 0.30, -0.50), c);  // forward gun mount
-      line(0, -0.80, 0, -0.50, c);
-    },
-    top({ line }, c) {
-      for (const y of [-0.24, -0.14, -0.04, 0.06]) line(-0.78, y, 0.78, y, c);
-      line(-0.46, -0.34, -0.46, 0.14, c); // where the deck meets each pontoon
-      line(0.46, -0.34, 0.46, 0.14, c);
-    },
-  },
 
   // =========================================================================
   // HEAVY COMBAT DRONE — flying, so `hover` drops the track much further than

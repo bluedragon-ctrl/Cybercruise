@@ -575,6 +575,89 @@ export const EVENT_TYPES = [
   },
 
   {
+    // THE TRIAD — this entry's own escalation of ITSELF, the same move
+    // `airwing` makes on `airstrike`: same type, same tactic, three at once
+    // instead of one. `duel` (behaviours.js) needs no change to run three
+    // times over — each rival carries its own scratch state (heldTime,
+    // passTarget, the rest of TrafficCar's per-car register) and reads only
+    // `world.playerBody`, the same reason three simultaneous `pursue`rs
+    // already coexist in the siege battery's own escort.
+    //
+    // ROLLED, NOT A MILESTONE, unlike the single rival's own `rival` entry
+    // above. That one exists to GUARANTEE the first meeting, before the
+    // ambient road can produce one on its own (cartypes.js's rival gates at
+    // 1400). This is the opposite kind of encounter — the ambient road has
+    // been producing single rivals for eleven hundred units by the time this
+    // opens, so there is nothing left to guarantee; three at once is a rare
+    // escalation the player earns by driving far enough, not a fixed point
+    // the run is built around.
+    //
+    // THE TOUGHEST HOSTILE IN THE GAME, THREE TIMES OVER — 1200 hull between
+    // them, each matching the player's own top speed and carrying the plain
+    // HOSTILE kit (a gun AND a mine layer, cartypes.js's own note on why the
+    // rival names no `arms` override). Nothing else in the catalogue asks the
+    // player to answer three simultaneous chases that cannot be outrun.
+    id: "triad",
+    label: "RIVAL TRIAD — DEAD AHEAD",
+    // A SMALL SHARE OF A CROWDED DRAW, and the crowding is the reason this
+    // number reads high next to the lone rival's own 0.3 (cartypes.js) despite
+    // firing far less often: by DIST 2500 every rolled entry in the catalogue
+    // is eligible at once (this file's own airstrike note explains why a
+    // weight here is a SHARE, not a rarity), so the same figure buys a much
+    // thinner slice of the draw than it would have earlier in the run.
+    // MEASURED against the catalogue as it stands now: 60 simulated runs to
+    // DIST 8000, counted against its own eligible road (from 2500, so 5500 of
+    // the 8000) —
+    //
+    //     weight 0.5   0.17 triads per 1000 DIST of eligible road, ~0.9/run  <- this
+    //     weight 1.0   0.35, ~1.9/run
+    //     weight 1.5   0.53, ~2.9/run
+    //     weight 2.0   0.70, ~3.9/run
+    //
+    // 0.5 puts a full run at roughly one meeting — the single most dangerous
+    // thing on the road, met once if the drive goes on long enough, not
+    // furniture the way the ordinary rival now is past its own 1400 gate.
+    weight: 0.5,
+    // A THOUSAND PAST THE SINGLE RIVAL'S OWN AMBIENT GATE (1400, cartypes.js),
+    // and 300 past the airwing above — the run's escalation in order by the
+    // time a player reaches it: a rival, the siege battery, ordinary rivals on
+    // the road, the bunker trailer, three gunships at once, and only then
+    // three rivals at once, the last step past every other named threat.
+    minDistance: 2500,
+    maxDistance: Infinity,
+    // LONG, on the same reasoning `swarm`'s 90 gives over `gang`'s 40 —
+    // scaled again for a bigger interruption still: three duelists is the
+    // biggest ask a rolled entry makes of the road.
+    cooldown: 120,
+    // A BACKSTOP, NOT A PLAN — same role `siege`'s own 350 plays against its
+    // hull. `duel` does not let go once it reaches `pursue` (cartypes.js's own
+    // note: "falls back... for good"), so nothing here times out by the
+    // hostiles giving up; only the player killing them, or outlasting three
+    // separate `duel` mine-drops long enough for the clock to run out, ends
+    // it. 200 is comfortably past the single rival encounter's own 120 without
+    // pretending the fight is exactly three times as long — a duelist chased
+    // down is chased down whether or not two more are also in the mirror.
+    duration: 200,
+    exitLabel: "RIVAL TRIAD BREAKING OFF",
+    // THINNER THAN THE SINGLE RIVAL'S OWN 0.3 — three duelists each opening
+    // with `raid`'s forcing-past manoeuvre want the room the single one gets,
+    // times three, so the ambient road yields more of its own claim on it.
+    // NO HAZARDS, for the identical reason the single rival's own entry gives:
+    // every mine on this stretch should be one of the three just laid, not
+    // one the road happened to leave lying around.
+    density: { cars: 0.15, hazards: 0 },
+    stage: [
+      // ONE SPEC, COUNT 3 — the airwing's own pattern, for the same reason:
+      // three of the same threat arriving together, not a lead with escorts.
+      // Three lanes of a four-lane road, so THE OPEN LANE rule never has to
+      // clamp this rank — and `atomic` only guards the all-or-nothing floor,
+      // same as there: one or two rivals landing on a busy road still counts
+      // as the encounter, only zero leaves the roll unspent.
+      { kind: "cars", type: "rival", count: 3, side: "ahead", spread: 0, atomic: true },
+    ],
+  },
+
+  {
     // THE AIRSTRIKE — the road's first encounter that does not happen ON the
     // road. One gunship (cartypes.js's `airborne`) holds station over the
     // player, sweeps across the whole frame and shoots down at them, and the
@@ -662,6 +745,78 @@ export const EVENT_TYPES = [
       // `atomic`: no gunship, no encounter, and the roll is not spent. There is
       // nothing else in this entry for it to be an escort to.
       { kind: "cars", type: "gunship", count: 1, side: "ahead", spread: 0, atomic: true },
+    ],
+  },
+
+  {
+    // THE AIR WING — `airstrike`'s own rule, escalated the way `swarm` escalates
+    // `gang`: same tactic, same weapon answer, three at once instead of one.
+    // Everything `airstrike`'s header already argues (up is a place things can
+    // be, the rocket is the only answer, one on the tarmac alongside it would
+    // just be the thing the player shot at) still holds — this entry adds
+    // nothing new to LEARN, only more of the same threat to survive, which is
+    // why it is a second rolled entry rather than a phase folded into the first.
+    //
+    // GATED AT 2200, PAST THE SECOND BOSS'S OWN 2000 ARRIVAL. Both gates it
+    // actually answers to — the rocket's availability (SHOP_INTERVAL 350, the
+    // ROCKET+ crate at 800) — are already well clear by 1000, same as the single
+    // airstrike's own. 2200 is a RHYTHM decision, not a safety one: the player
+    // has met a lone gunship dozens of times by here and the rocket is a settled
+    // habit, not a new lesson, so this is where the road can afford to ask for
+    // three without teaching the wrong thing at the wrong moment.
+    id: "airwing",
+    label: "AIR WING — ABOVE",
+    // WELL UNDER THE SINGLE AIRSTRIKE'S 6 — this is the rarer, harder escalation,
+    // not a replacement for it; both stay in the draw together, same as `gang`
+    // and `swarm` do. MEASURED against the catalogue as it stands now (both
+    // bosses and this entry itself all drawing from the same roll — see
+    // airstrike's own note on why the rate one entry gets is a SHARE, not a
+    // rarity, and moves whenever the catalogue does): 30 simulated runs to DIST
+    // 6000, counted against its OWN eligible road (from 2200, so 3800 of the
+    // 6000) since a gate this late spends a third of every run simply not
+    // eligible yet —
+    //
+    //     weight 2     0.66 airwings per 1000 DIST of eligible road   <- this
+    //     weight 3     1.07
+    //     weight 4     1.25
+    //
+    // against the single airstrike's own 1.61 per 1000 over the same
+    // catalogue's full range. 2 lands this at a little over a third of the
+    // single contact's rate — met, but never routine, which is what an
+    // escalation past a boss the player has just fought should feel like.
+    weight: 2,
+    minDistance: 2200,
+    maxDistance: Infinity,
+    // LONGER THAN THE SINGLE AIRSTRIKE'S 60 — three simultaneous contacts are a
+    // bigger interruption to the ambient road, the same reasoning `swarm`'s 90
+    // gives over `gang`'s 40.
+    cooldown: 90,
+    // ROOM FOR TWELVE ROCKETS — four per gunship, the single airstrike's own
+    // figure, times three — with the same wide margin: `duration` is ROAD, so
+    // 150 units is ~24 seconds at the player's ceiling and considerably more at
+    // any speed somebody is actually aiming from, against a reload of 0.35s.
+    // The constraint is still whether the player BROUGHT rockets, not whether
+    // there was time to fire them.
+    duration: 150,
+    exitLabel: "AIR WING BREAKING OFF",
+    // THINNER THAN THE SINGLE AIRSTRIKE'S 0.5/0.5 — three sweeps filling the
+    // frame at once is closer to `swarm`'s crowding than to one contact circling
+    // overhead, so the ground yields more of its own claim on the player's
+    // attention. Not zero: some traffic is still what keeps the player reading
+    // the road as well as the sky, the same argument the single airstrike makes
+    // for its own non-zero density.
+    density: { cars: 0.3, hazards: 0.3 },
+    stage: [
+      // ONE SPEC, COUNT 3 — not three separate specs, since all three are the
+      // same threat arriving together rather than a lead escorted by extras.
+      // `atomic` guards the all-or-nothing floor only: if planStage cannot land
+      // a single one of them the roll is unspent, same as the lone airstrike's
+      // own — but landing one or two of three still counts as the encounter,
+      // the same best-effort the siege battery's escort already established
+      // ("three of five cycles on a busy road is a smaller gang, not a failed
+      // one" — events.js's own fire()). Three lanes of a four-lane road, so THE
+      // OPEN LANE rule (events.js's fire()) never has to clamp this rank at all.
+      { kind: "cars", type: "gunship", count: 3, side: "ahead", spread: 0, atomic: true },
     ],
   },
 
@@ -781,6 +936,181 @@ export const EVENT_TYPES = [
       // The pincer stays a pincer for the whole fight.
       { kind: "cars", type: "interceptor", count: 2, side: "ahead", spread: 300 },
       { kind: "cars", type: "interceptor", count: 2, side: "behind", spread: 300 },
+    ],
+  },
+
+  {
+    // THE BUNKER. The road's second boss — a one-shot milestone at 2000, the
+    // same shape of trigger `siege` above uses, staging cartypes.js's `bunker`
+    // (see that record for what makes it a different fight rather than a
+    // reskin: it shoots back, and it lays mines while it does).
+    //
+    // WHY 2000. Past the siege battery's own 1200 by eight hundred — roughly
+    // two more shop visits (hauler.js's SHOP_INTERVAL) of upgrades — and past
+    // `chokepoint`'s own 2000 gate, which is a ROLLED entry and therefore not
+    // a fixed point on the road the way this is: the two can fall in either
+    // order for a given run, but this milestone always fires the first time
+    // the odometer crosses 2000, same as `chokepoint` becoming eligible to be
+    // rolled from that point on.
+    //
+    // See src/testoptions.js's EVENT_AT_OVERRIDES for pulling this forward
+    // while testing. The number here is the SHIPPING one and stays that way,
+    // for the reason `siege`'s own note gives.
+    id: "bunker",
+    label: "BUNKER TRAILER — ROAD AHEAD",
+    at: 2000,
+    once: true,
+    cooldown: 0,
+    // SIZED OFF THE SAME RATIO `bunker`'s own cartypes.js entry cites: the
+    // siege battery's 350-unit backstop against its 3200 hull is ~0.109
+    // units of road per hull point, and this boss's 4200 hull at that same
+    // ratio is ~458 — rounded to 450. Killing it ends the fight sooner than
+    // the clock, same as the battery; this is only the net a player who
+    // cannot win is not trapped in.
+    duration: 450,
+    exitLabel: "BUNKER TRAILER DISENGAGING",
+    // THE ROAD CLEARS, same as every other set-piece boss here: a fight that
+    // shoots back and lays mines needs empty tarmac to read against as much
+    // as the battery's barrage did.
+    density: { cars: 0, hazards: 0 },
+    stage: [
+      // `atomic`: no bunker, no encounter, and the milestone goes unspent so
+      // it comes round again on the next beat.
+      //
+      // NO ESCORT AHEAD, unlike the siege battery's. That escort exists
+      // solely because the mortar itself carries no gun (armament.js's
+      // BATTERY_KIT) and would otherwise let a player trade fire with
+      // something that could not answer — see that entry's own note. This
+      // boss answers on its own: it carries a gun AND a mine layer, the
+      // escalation REARGUARD's note in armament.js names and declines for
+      // the ordinary outrunner. There is also no room for one — the bunker's
+      // own 132-long hull already spends most of the 140-unit ahead budget
+      // planStage's own note measures, the same arithmetic that quietly
+      // capped the siege battery's escort at three interceptors instead of
+      // four.
+      { kind: "cars", type: "bunker", count: 1, side: "ahead", spread: 0, atomic: true },
+      // THE GANG, BEHIND — a rig this size does not ride alone, and behind is
+      // where the road has room for it (planStage's own "as far as it likes").
+      // Four of the ordinary motorcycle fleet, one each — the same four
+      // `swarm` throws at the player twelve at a time, here as an escort
+      // rather than the whole encounter — plus two DELTAS: the trike hull's
+      // twin-missile kit (armament.js's `twinRocketeer`) is real output next
+      // to the rest of the pack's chip damage, so a pair of them reads as
+      // outriders the bunker actually needed rather than more of the same
+      // bike. All six chase from the mirror, same as `swarm`'s own bike wing —
+      // the bunker is the wall the player meets driving into it; the gang is
+      // what stops them simply parking behind that wall and trading fire.
+      { kind: "cars", type: "cycle", count: 1, side: "behind", spread: 0 },
+      { kind: "cars", type: "outrider", count: 1, side: "behind", spread: 0 },
+      { kind: "cars", type: "outrunner", count: 1, side: "behind", spread: 0 },
+      { kind: "cars", type: "sower", count: 1, side: "behind", spread: 0 },
+      { kind: "cars", type: "delta", count: 2, side: "behind", spread: 240 },
+    ],
+  },
+
+  {
+    // THE SKIRTED BARGE. The road's third boss — a one-shot milestone at
+    // 3000, the same shape of trigger `siege` and `bunker` above use, staging
+    // cartypes.js's `barge` (see that record for what makes it a different
+    // fight rather than a second reskin: it is a hovercraft, and its own
+    // `roadMargin` lets it hold the player's exact lane past the barrier,
+    // where the first two bosses' `outrun` settles for the nearest legal
+    // one).
+    //
+    // WHY 3000. Past the bunker's own 2000 by a full thousand — nearly three
+    // more shop visits (hauler.js SHOP_INTERVAL 350) of upgrades, which is
+    // the gap this boss's own cartypes.js entry prices its hull against — and
+    // past `triad`'s own 2500 gate, a ROLLED entry and therefore not a fixed
+    // point on the road the way this is.
+    //
+    // See src/testoptions.js's EVENT_AT_OVERRIDES for pulling this forward
+    // while testing. The number here is the SHIPPING one and stays that way,
+    // for the reason `siege`'s own note gives.
+    id: "barge",
+    label: "SKIRTED BARGE — ROAD AHEAD",
+    at: 3000,
+    once: true,
+    cooldown: 0,
+    // SIZED OFF THE SAME RATIO `bunker`'s own duration cites: the siege
+    // battery's 350-unit backstop against its 3200 hull is ~0.109 units of
+    // road per hull point, and this boss's 7000 hull at that same ratio is
+    // ~766 — rounded to 760. Killing it ends the fight sooner than the clock,
+    // same as both earlier bosses; this is only the net a player who cannot
+    // win is not trapped in.
+    duration: 760,
+    exitLabel: "SKIRTED BARGE DISENGAGING",
+    // HAZARDS CLEAR, ORDINARY TRAFFIC DOES NOT — the one set-piece boss here
+    // that departs from "the road clears": this is the fight whose own
+    // cartypes.js entry promises a hovercraft that "interacts with other
+    // cars on the road", and an empty tarmac never gave it anything to
+    // interact WITH. Live traffic also gives `trackTarget`'s `blocked`
+    // fallback (behaviours.js) something to actually trigger against, so the
+    // lean past the barrier reads as reactive rather than merely permitted.
+    // Hazards stay at 0 regardless — a mine or a barrel arriving on top of
+    // this fight was never what was being asked for.
+    density: { cars: 1, hazards: 0 },
+    stage: [
+      // `atomic`: no barge, no encounter, and the milestone goes unspent so
+      // it comes round again on the next beat.
+      //
+      // NO ESCORT, same reasoning as the bunker's own entry: this boss
+      // answers on its own, and there is no room for one either — a 100-long
+      // hull already spends most of the 140-unit ahead budget planStage's
+      // own note measures. Unlike the bunker, nothing is added behind it —
+      // the bunker's gang was a later, separate request once that boss
+      // shipped, not something the first cut of either boss needed to be a
+      // real fight.
+      { kind: "cars", type: "barge", count: 1, side: "ahead", spread: 0, atomic: true },
+    ],
+  },
+
+  {
+    // THE CATAMARAN GUNSHIP. The road's fourth boss — a one-shot milestone
+    // at 4000, the same shape of trigger every earlier boss uses, staging
+    // cartypes.js's `catamaran` (see that record for what makes it a
+    // combination rather than a fourth reskin: the siege mortar's barrage,
+    // carried by the skirted barge's own reach past the barrier).
+    //
+    // WHY 4000. Past the barge's own 3000 by another full thousand, the
+    // same size step the barge took past the bunker's 2000 — roughly
+    // another three shop visits (hauler.js SHOP_INTERVAL 350) of upgrades,
+    // which is the gap this boss's own cartypes.js entry prices its hull
+    // against.
+    //
+    // See src/testoptions.js's EVENT_AT_OVERRIDES for pulling this forward
+    // while testing. The number here is the SHIPPING one and stays that
+    // way, for the reason `siege`'s own note gives.
+    id: "catamaran",
+    label: "CATAMARAN GUNSHIP — ROAD AHEAD",
+    at: 4000,
+    once: true,
+    cooldown: 0,
+    // SIZED OFF THE SAME RATIO every earlier boss's own duration cites: the
+    // siege battery's 350-unit backstop against its 3200 hull is ~0.109
+    // units of road per hull point, and this boss's 10500 hull at that same
+    // ratio is ~1148 — rounded to 1150. Killing it ends the fight sooner
+    // than the clock, same as every boss before it; this is only the net a
+    // player who cannot win is not trapped in.
+    duration: 1150,
+    exitLabel: "CATAMARAN GUNSHIP DISENGAGING",
+    // HAZARDS CLEAR, ORDINARY TRAFFIC DOES NOT — the same departure the
+    // barge's own entry makes, for the same reason: this hull carries the
+    // barge's `roadMargin` too (cartypes.js), and live traffic is what gives
+    // its lean past the barrier something to actually read as reactive to
+    // (behaviours.js's `trackTarget`, gated on `blocked`). A barrage still
+    // needs to be READ clearly, so hazards stay at 0 — a shell mark and a
+    // mine both competing for the same glance would be the noise `warband`'s
+    // own note warns about, not this one.
+    density: { cars: 1, hazards: 0 },
+    stage: [
+      // `atomic`: no gunship, no encounter, and the milestone goes unspent
+      // so it comes round again on the next beat.
+      //
+      // NO ESCORT, same reasoning as the barge's own entry: this boss
+      // answers on its own (a barrage nothing on the road can shoot down),
+      // and the road's fourth boss earns no more ceremony than its third
+      // did without one being asked for.
+      { kind: "cars", type: "catamaran", count: 1, side: "ahead", spread: 0, atomic: true },
     ],
   },
 
