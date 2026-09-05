@@ -1189,6 +1189,18 @@ the uplink marker on the car, the floating `+25CR` over the spot it came from. T
 figures there (300px reach, four seconds at the edge, face value) are all raised
 by the SIPHON RIG below.
 
+**Salvage** is a third source, and so far it is only a drawing. `game/salvageshape.js`
+is the player's own car at three quarters size, dashed, with the canopy replaced by a
+green `$` and the thruster plume gone — a previous run's wreck, left on the road with
+that run's credits still in it. Nothing spawns it and nothing collects it; the asset
+gallery is its only caller. It is held outside `pickupshapes.js`'s shape/type pairing
+for the same reason `bossshapes.js` holds hulls outside `cartypes.js`'s, and its header
+carries both the visual decisions (why 0.75, why a `[2, 2]` dash, what each removed
+pass was doing) and the three gameplay questions still open: a `CASH` kind for
+`applyPickup`, the first pickup whose payload is per-instance rather than a catalogue
+constant, and whether "the same road" means your own last death this session or a seed
+shared through the leaderboard worker.
+
 `npm run econ` measures the whole thing headlessly — credits per minute for a
 player who hugs the shoulders, one who hunts nodes, one who eases off to stay
 beside them longer, and one who never leaves the middle (that last should always

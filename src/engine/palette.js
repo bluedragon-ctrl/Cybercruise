@@ -369,3 +369,13 @@ export const HAULER_THRUST = "#43aab5"; // its lit details / hinge shoulders
 export const PICKUP_FRAME = "#2bb9bf";        // diamond edge
 export const PICKUP_FRAME_BRIGHT = "#32d8e0"; // corner brackets
 export const PICKUP_FRAME_DIM = "#18676b";    // inner diamond
+
+// The salvage husk (game/salvageshape.js) — a previous run's car, left on the
+// road with its cash still in it. Same cyan family and the same argument as
+// PICKUP_FRAME above, one further step down: this is not a crate lying beside
+// the car, it is a car-SHAPED object at three quarters of the player's own
+// size, so the step between the two has to carry more than a crate's does. At
+// PICKUP_FRAME_DIM it reads as switched off rather than dead; at PICKUP_FRAME
+// it reads as a second player car up the road, which is the one mistake this
+// object cannot afford to invite.
+export const SALVAGE_HULL = "#1a6d73";
