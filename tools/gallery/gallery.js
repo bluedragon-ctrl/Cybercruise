@@ -29,6 +29,7 @@ import { drawDart } from "../../src/game/projectiles.js";
 import { CAR_TYPES, ENEMY_FACTION } from "../../src/game/cartypes.js";
 import { WEAPON_TYPES } from "../../src/game/weapons.js";
 import { PICKUP_SHAPES, drawPickupShape } from "../../src/game/pickupshapes.js";
+import { drawSalvage } from "../../src/game/salvageshape.js";
 import { PICKUP_TYPES } from "../../src/game/pickuptypes.js";
 import {
   drawCollectBurst,
@@ -435,6 +436,15 @@ PICKUP_TYPES.forEach((t) => {
     const pulse = 0.7 + 0.3 * Math.sin(seconds * 2.2);
     drawPickupShape(ctx, size / 2, size / 2, t.shape, pulse, seconds);
   }, { animate: true });
+});
+
+// Salvage — artwork with no type behind it yet (see salvageshape.js's header
+// for why it is held outside pickupshapes.js's pairing). Drawn NEXT TO the
+// player's own car, because the whole design question it answers is whether
+// the two can be told apart at a glance; on its own it would look settled.
+cell("PICKUP · SALVAGE", (ctx, size) => {
+  drawCar(ctx, size / 2 - 26, size / 2, { color: pal.PLAYER, thrust: pal.PLAYER_THRUST });
+  drawSalvage(ctx, size / 2 + 26, size / 2);
 });
 
 // The "collected" burst, on the same armed-then-triggered loop as the other
