@@ -38,16 +38,20 @@
 // projectile pool (the tests, the gallery) leaves them off and armed cars go
 // through the motions without firing.
 
-import { Weapon, ENEMY_WEAPON_TYPES, muzzleOffsets } from "./weapons.js";
+import { Weapon, enemyWeaponById, muzzleOffsets } from "./weapons.js";
 import { ENEMY_FACTION } from "./cartypes.js";
 import { obstacleTypeById } from "./obstacletypes.js";
 
-const ENEMY_GUN = ENEMY_WEAPON_TYPES[0];
-const ENEMY_SMG = ENEMY_WEAPON_TYPES[1];
-const ENEMY_MISSILE = ENEMY_WEAPON_TYPES[2];
-const ENEMY_TWIN_MISSILE = ENEMY_WEAPON_TYPES[3];
-const ENEMY_TURRET_SMG = ENEMY_WEAPON_TYPES[4];
-const ENEMY_TWIN_SMG = ENEMY_WEAPON_TYPES[5];
+// The hostile guns this file hands out, resolved BY NAME rather than by position
+// in weapons.js's ENEMY_WEAPON_TYPES — see enemyWeaponById there for what the
+// index was costing. Resolved once here rather than at each kit below, so the
+// profiles read as a table of loadouts and not a table of lookups.
+const ENEMY_GUN = enemyWeaponById("blaster");
+const ENEMY_SMG = enemyWeaponById("smg");
+const ENEMY_MISSILE = enemyWeaponById("missile");
+const ENEMY_TWIN_MISSILE = enemyWeaponById("twinMissile");
+const ENEMY_TURRET_SMG = enemyWeaponById("turretSmg");
+const ENEMY_TWIN_SMG = enemyWeaponById("twinSmg");
 
 // The mine layer, expressed as a WEAPON — because from the carrier's point of
 // view that is exactly what it is: a rate of fire and a magazine. `Weapon`
@@ -247,7 +251,15 @@ const BATTERY = {
   // so a three-shell pattern brackets the player's lane and both neighbours —
   // the dodge stops being "change lane" and becomes "change SPEED", which is
   // the escalation the last phase is for.
+  //
+  // THE ACROSS AXIS. A battery may also name `spreadAlong` for the other one —
+  // see fireBarrage, which explains why a stick down the road makes the
+  // OPPOSITE demand of the player. This one throws straddles only, and says so
+  // by leaving that field off.
   spread: 52,
+  // NO `phases` EITHER, so this battery escalates through the shared BARRAGE
+  // table below — which is what that table was written for. A battery that
+  // wants its own shot counts names them; see barrageTable.
 };
 
 // THE PHASES. What the battery throws, by how much of the boss's hull is left.
@@ -259,12 +271,18 @@ const BATTERY = {
 // these fractions (game/effects.js) — the player can see the next phase coming
 // and choose whether to cross into it now or back off and heal.
 //
+// THE DEFAULT PHASES, and the ones both bosses on the road today actually use.
+// A battery profile may name its OWN `phases` instead (see barrageTable below);
+// this is what it gets when it doesn't.
+//
 // EXPORTED so the meter reads these thresholds rather than restating them. Two
 // copies of 0.66 that could drift apart would make the notch a lie, and a lying
 // instrument is worse than none.
 //
 // Ordered high to low; barragePhase walks it and takes the first match, so the
-// last entry's `above: 0` is the catch-all and needs no special case.
+// last entry's `above: 0` is the catch-all and needs no special case. A table of
+// ONE entry is therefore a battery that does not escalate at all — a fixed
+// number of shells whatever its hull is doing — and needs no flag saying so.
 export const BARRAGE = [
   // RANGING. One shell, slowly. This phase is the tutorial: the player gets to
   // watch a single mark land with nothing else demanding their attention, and
@@ -279,12 +297,29 @@ export const BARRAGE = [
   { above: 0, shells: 3, interval: 2.0, mines: true },
 ];
 
-// Which phase a car with `frac` of its hull left is in. Total rather than
-// per-car state, so nothing has to be reset, remembered or kept in step — the
-// hull IS the phase, and a boss healed by anything later would step back down
-// on its own.
-export function barragePhase(frac) {
-  return BARRAGE.find((p) => frac > p.above) ?? BARRAGE[BARRAGE.length - 1];
+// The phase table a given battery escalates through — its own `phases` if it
+// names one, BARRAGE otherwise.
+//
+// ON THE PROFILE RATHER THAN GLOBAL, because a barrage's SHOT COUNT is the one
+// thing about the weapon that was not a per-carrier number: spread, fuse, blast
+// and rate all live on the battery type already, while `shells` came from a
+// table both bosses shared. A third barrage carrier could not throw a different
+// number of shells without retuning the mortar's fight and the gunship's at the
+// same time.
+//
+// READ THROUGH HERE, NEVER INLINE — traffic.js draws the hull meter's notches
+// off the same answer, and the whole reason BARRAGE is exported is that two
+// copies of a threshold would make the notch a lie. One function, one answer.
+export function barrageTable(type) {
+  return type?.phases ?? BARRAGE;
+}
+
+// Which phase a car with `frac` of its hull left is in, within `phases`. Total
+// rather than per-car state, so nothing has to be reset, remembered or kept in
+// step — the hull IS the phase, and a boss healed by anything later would step
+// back down on its own.
+export function barragePhase(frac, phases = BARRAGE) {
+  return phases.find((p) => frac > p.above) ?? phases[phases.length - 1];
 }
 
 // The boss's kit. No gun AT ALL, and that is the design rather than an omission:
@@ -536,7 +571,7 @@ function fireBarrage(car, arms, target, world) {
   if (!world.fireShell || !arms.battery.ready) return false;
 
   const type = arms.battery.type;
-  const phase = barragePhase(car.health / car.type.health);
+  const phase = barragePhase(car.health / car.type.health, barrageTable(type));
 
   // THE LEAD, and the reason this weapon asks the player to change SPEED rather
   // than only to change lane: the impact point is where the target will be in
@@ -545,12 +580,39 @@ function fireBarrage(car, arms, target, world) {
   // swerving — is a dodge.
   const aimY = target.worldY + target.speed * type.fuse;
 
-  // A straddle is centred on the target's line, so an odd count puts one shell
-  // dead on it and the rest either side. `(i - (n-1)/2)` is that centring; with
-  // one shell it is zero and the whole thing collapses to a single aimed round.
+  // THE PATTERN, on both axes. A salvo is centred on the impact point, so an odd
+  // count puts one shell dead on it and the rest either side; `(i - (n-1)/2)` is
+  // that centring, and with one shell it is zero and the whole thing collapses to
+  // a single aimed round.
+  //
+  // WHICH AXIS IS THE WHOLE TACTIC, and the two are opposites:
+  //
+  //   ACROSS (`spread`)       a STRADDLE. Shells sit either side of the target's
+  //                           line at the same point down the road, so changing
+  //                           lane no longer clears the pattern and the dodge
+  //                           becomes a change of SPEED. The siege mortar's, and
+  //                           what the note on BATTERY's own `spread` describes.
+  //   ALONG (`spreadAlong`)   a STICK. Shells land ahead of and behind the lead
+  //                           point in the same lane, so braking and flooring it
+  //                           both arrive somewhere in the pattern and the dodge
+  //                           becomes a change of LANE. Exactly the inverse
+  //                           demand, which is why it is a second field and not
+  //                           a wider `spread`.
+  //
+  // A battery may name both, and the salvo then lands on a diagonal — legible,
+  // and no special case here. Omitting `spreadAlong` (or zero) is the pure
+  // straddle every battery threw before this field existed.
+  //
+  // ONE FUSE FOR THE WHOLE SALVO, along-axis included: the marks appear together
+  // and the shells land together, so the player reads ONE shape on the tarmac
+  // and has the full `fuse` to leave all of it. Landing a stick in sequence was
+  // the obvious alternative and is worse — the marks would arrive staggered, and
+  // a pattern that is still being drawn is one the player cannot yet dodge.
+  const along = type.spreadAlong ?? 0;
   for (let i = 0; i < phase.shells; i++) {
-    const spread = (i - (phase.shells - 1) / 2) * type.spread;
-    world.fireShell(aimY, target.offset + spread, type.fuse, type.blastRadius, type.blastDamage);
+    const step = i - (phase.shells - 1) / 2;
+    world.fireShell(aimY + step * along, target.offset + step * type.spread,
+      type.fuse, type.blastRadius, type.blastDamage);
   }
 
   arms.battery.tryFire();
