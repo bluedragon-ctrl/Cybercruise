@@ -14,9 +14,11 @@
 // the number of car TYPES and would otherwise be paying for eight hulls that
 // nothing on the road can spawn.
 //
-// TWO HULLS, TWO VEHICLES — was eight and five. The combat drone and the
-// cargo drone keep their one apiece; the armoured rig and the hovercraft have
-// none left (see below). `group` says which vehicle a hull belongs to, so
+// FOUR HULLS, THREE VEHICLES — was eight and five. The combat drone and the
+// cargo drone keep their one apiece and the armoured rig and the hovercraft
+// have none left (see below); the FIGHTER PLANE is the one group that arrived
+// here rather than leaving, two hulls for an airborne enemy that has no type
+// or tactic yet — precisely what this file is for. `group` says which vehicle a hull belongs to, so
 // the gallery can show a vehicle's options side by side and the boss session
 // can find them.
 //
@@ -123,8 +125,6 @@ export const BOSS_SHAPES = [
   // not an empty entry: bossGroups() derives its groups from the list, so a
   // vehicle with no hulls left simply stops being one, and the gallery stops
   // offering a choice that has already been made.
-  //
-  // SEVEN HULLS REMAIN, four vehicles. See the header.
   // =========================================================================
 
   // =========================================================================
@@ -268,6 +268,167 @@ export const BOSS_SHAPES = [
       for (const p of pair(0.58, 0.44, 0.76, 0.58)) solid(p, c, thrust);
       line(-0.62, -0.18, -0.36, -0.14, c);
       line(0.62, -0.18, 0.36, -0.14, c);
+    },
+  },
+
+  // =========================================================================
+  // FIGHTER PLANE — a FIXED-WING aircraft, which nothing in the game has been
+  // before: every flying hull to date (the quad, the catamaran, the gun ring,
+  // the claw lifter) is a rotorcraft that station-keeps. A plane cannot hover
+  // and cannot hold a lane, so whatever eventually wears one of these hulls is
+  // committed to crossing the frame — the artwork is here to make that decision
+  // concrete before the session that takes it.
+  //
+  // NO TYPE, NO TACTIC, ON PURPOSE. This is artwork only, exactly as the header
+  // describes: behaviours.js's airborne tactic is `hover`, which station-keeps
+  // and is the wrong verb for both of these, and inventing the right one is the
+  // work these hulls are waiting on rather than something to slip in beside
+  // them.
+  //
+  // TWO HULLS, ONE QUESTION: whether a delta keeps a tail. They are deliberately
+  // the two ends of that rather than two points near each other — a third
+  // candidate (a CRANKED DELTA, kinked leading edge, single fin) sat between
+  // them and was dropped for exactly that reason: the kink is a ~6px feature at
+  // 1x, so it would have read as the STRIKE DELTA at road scale while costing a
+  // second hull's worth of catalogue.
+  //
+  // NEITHER HAS AN ANIMATED PART, and that is what separates them from every
+  // other flying hull here. A rotorcraft sells flight with its rotors; a plane
+  // has none, no wheels and no tracks, so the whole "this is not on the road"
+  // claim rests on two static cues instead:
+  //
+  //   THE GROUND TRACK IS DROPPED MUCH FURTHER than any other hull's. The gun
+  //   ring flies at 46 and the gunship (carshapes.js) at 32; these fly at 66
+  //   and 74, with a SMALLER ring (0.45/0.50 against 0.54). A small, distant
+  //   contact reads as high, and that ramp is the only altitude scale the game
+  //   has. It also sizes the sprite: shapeExtent adds `drop + hh * scale` to the
+  //   bottom, which already reaches well past the burners, so neither entry
+  //   needs an `overhang.down` to keep its thrust in frame.
+  //
+  //   THE BURNERS RUN PAST THE TAIL (`y2` over 1.0 on the delta), which no
+  //   ground car does — an exhaust ending at the bodywork is a tailpipe, one
+  //   that keeps going is a jet. Both set `thrustWide`, so the plume is the 4px
+  //   draw rather than the standard 3.
+  // =========================================================================
+
+  {
+    group: "FIGHTER PLANE",
+    name: "STRIKE DELTA",
+    pitch: "stubby and fuselage-led — the wing is the smaller half",
+    size: [72, 78],
+    hover: { drop: 66, scale: 0.45 },
+    // Six points, and the profile is the FUSELAGE only: the wings are opaque
+    // pieces in low(), the same construction the catamaran uses for its
+    // pontoons, so the body reads as sitting on top of the wing rather than as
+    // one flat plate with it.
+    profile: [[0, -1.00], [0.09, -0.76], [0.12, -0.20], [0.14, 0.56], [0.10, 0.88], [0, 0.92]],
+    exhaust: [0.09, 0.88, 1.12],
+    thrustWide: true,
+    // Nothing reaches past 0.74 in x (the wingtips), and the profile only
+    // reaches 0.14 — so this has to be stated, or the sprite is sized off the
+    // fuselage and clips both wings.
+    overhang: { x: 0.80 },
+    low({ solid }, c) {
+      // SHORT SPAN, deliberately: the tips stop at 0.74 and the root starts at
+      // -0.16, well aft of the nose. A full-span delta reads as a wide flat
+      // arrowhead; keeping the wing small leaves the fuselage as the longest
+      // line on the hull, which is what makes this read fast rather than big —
+      // and separates it from the MANTA below, which is the wide one.
+      const wing = [[0.12, -0.16], [0.70, 0.54], [0.74, 0.78], [0.30, 0.80], [0.13, 0.58]];
+      solid(wing, c, CAR_FILL);
+      solid(flip(wing), c, CAR_FILL);
+    },
+    flat({ line }, c, thrust, headlight) {
+      line(0, -0.86, 0, -0.70, headlight, 1.5, 8); // nose sensor
+      line(0.14, -0.12, 0.67, 0.53, c);            // leading edges
+      line(-0.14, -0.12, -0.67, 0.53, c);
+      line(0.28, 0.34, 0.62, 0.72, c);             // outer panel joins
+      line(-0.28, 0.34, -0.62, 0.72, c);
+    },
+    raised({ solid }, c) {
+      // A RECTANGLE, and INSET: the fuselage is 0.095 half-width at the cabin's
+      // nose end and 0.119 at its tail, so body shows on both flanks along its
+      // whole length and the hull's taper reads past it. It is 5.8px wide at
+      // this size, close enough to the fuselage outline that bloom will merge
+      // the two on the road — a gallery-scale detail, kept because that is the
+      // scale this catalogue is authored at. The session that gives this hull a
+      // type and wants the inset legible at 1x should widen the MIDSECTION
+      // (0.12 -> ~0.17), not the cabin.
+      solid(box(-0.08, -0.64, 0.08, -0.24), c);
+      // Twin canted fins. TWO verticals rather than one, because the tail is
+      // what the player looks at longest — a plane crossing the frame is
+      // leaving for most of the time it is on screen.
+      solid([[0.24, 0.40], [0.38, 0.36], [0.45, 0.86], [0.29, 0.86]], c, CAR_FILL_HIGH);
+      solid([[-0.24, 0.40], [-0.38, 0.36], [-0.45, 0.86], [-0.29, 0.86]], c, CAR_FILL_HIGH);
+      // NO WINGTIP PYLONS. They were drawn, at 0.56-0.66, and removed: that
+      // leaves a 4px gap to the fins at this size, and carshapes.js's header is
+      // explicit that two marks a few px apart bloom into one. The fins are the
+      // tail group's mark; a second one beside them subtracts.
+    },
+    top({ line }, c) {
+      line(0.27, 0.56, 0.42, 0.54, c); // fin roots
+      line(-0.27, 0.56, -0.42, 0.54, c);
+    },
+  },
+
+  {
+    group: "FIGHTER PLANE",
+    name: "MANTA",
+    pitch: "tailless — the trailing edge cuts BACK IN, no fin anywhere",
+    size: [86, 70],
+    hover: { drop: 74, scale: 0.50 },
+    // THE ONLY CONCAVE OUTLINE IN THE GAME. Every other hull in all four
+    // catalogues is convex; this one's trailing edge turns forward between the
+    // tip and the centre stub, so the silhouette has a notch cut out of each
+    // side. That is the whole aircraft — there is no separate wing in low(),
+    // the fuselage is blended into it and drawn as raised detail on top, which
+    // is why this profile spends nine of the twelve points the header allows
+    // where the delta above spends six.
+    //
+    // WIDER THAN IT IS TALL (86 x 70), which nothing on the road is either. Two
+    // independent reads, both from the outline alone — and it has to be the
+    // outline, because with no fin this is the flattest hull in the game and
+    // has nothing standing up to be recognised by. Do not shrink it.
+    profile: [
+      [0, -1.00], [0.18, -0.74], [0.50, -0.24], [0.86, 0.30], [1.00, 0.66],
+      [0.90, 0.80], [0.46, 0.40], [0.16, 0.70], [0, 0.66],
+    ],
+    // The burners fire INTO the notch rather than past a tail — there is no
+    // tail for them to pass. Hence a `y2` inside 1.0, unlike the delta's.
+    exhaust: [0.21, 0.60, 0.90],
+    thrustWide: true,
+    overhang: { x: 1.04 }, // the tip pylons, just past the profile's own 1.00
+    flat({ line }, c, thrust, headlight) {
+      line(0, -0.96, 0, -0.88, headlight, 1.5, 8); // clear of the spine at -0.86
+      line(0.19, -0.70, 0.84, 0.28, c);            // leading edges
+      line(-0.19, -0.70, -0.84, 0.28, c);
+      line(0.88, 0.74, 0.50, 0.40, c);             // the notch, outer half
+      line(-0.88, 0.74, -0.50, 0.40, c);
+      line(0.44, 0.44, 0.20, 0.66, c);             // and inner, back to the stub
+      line(-0.44, 0.44, -0.20, 0.66, c);
+    },
+    raised({ solid }, c) {
+      // The fuselage as a RAISED SPINE on the wing rather than a body the wing
+      // is bolted to. Blended is the point: at the outline it has already
+      // stopped being a separate object.
+      solid([
+        [0, -0.86], [0.13, -0.66], [0.15, 0.18], [0.10, 0.46],
+        [-0.10, 0.46], [-0.15, 0.18], [-0.13, -0.66],
+      ], c);
+      solid([[0.17, -0.30], [0.30, -0.20], [0.31, 0.34], [0.18, 0.40]], c, CAR_FILL_HIGH);
+      solid([[-0.17, -0.30], [-0.30, -0.20], [-0.31, 0.34], [-0.18, 0.40]], c, CAR_FILL_HIGH);
+      solid([[0, -0.62], [0.11, -0.48], [0.10, -0.24], [0, -0.16], [-0.10, -0.24], [-0.11, -0.48]], c);
+      // Tip pylons, at 0.84-0.94 rather than on the tip itself: the leading
+      // edge is still climbing out there, and any further out the box pokes
+      // through it. Far enough from the engine humps at 0.31 to survive the
+      // merge the delta's pylons did not.
+      for (const p of pair(0.84, 0.54, 0.94, 0.70)) solid(p, c, CAR_FILL_HIGH);
+    },
+    top({ line }, c) {
+      for (const y of [-0.06, 0.14]) {
+        line(0.21, y, 0.28, y, c); // hump ribs
+        line(-0.21, y, -0.28, y, c);
+      }
     },
   },
 

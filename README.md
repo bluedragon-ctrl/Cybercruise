@@ -842,7 +842,7 @@ the simulation:
 | file | |
 | --- | --- |
 | `game/cartypes.js` | **the catalogue.** A type is pure data: silhouette, colours, size, hull, speed band, steering, blast, spawn weight, `minDistance`, and the names of its tactic and driving profile. New traffic = a new entry here |
-| `game/carshapes.js` | the silhouettes, 1:1 with the catalogue and pinned both ways by `test/road-and-caches.test.js`. Siblings: `cycleshapes.js` for the bike hulls, `bossshapes.js` for Phase 10's artwork, held outside the pairing until its types exist — hulls graduate OUT of it one at a time as types are written for them (the siege mortar, then the gunship, then the bunker trailer) |
+| `game/carshapes.js` | the silhouettes, 1:1 with the catalogue and pinned both ways by `test/road-and-caches.test.js`. Siblings: `cycleshapes.js` for the bike hulls, `bossshapes.js` for finished artwork that has no type yet, held outside the pairing until one exists — hulls graduate OUT of it one at a time as types are written for them (the siege mortar, then the gunship, then the bunker trailer), and IN when a hull is drawn ahead of its enemy (the two FIGHTER PLANE deltas) |
 | `game/behaviours.js` | the manoeuvres. A tactic sets only INTENT (`targetOffset`, `targetSpeed`); `traffic.js` integrates it under the type's limits, so a rig can't corner like a roadster and the physics stay in one place |
 | `game/driving.js` | the driving **profiles**: the numbers behind a tactic — following distance, patience, lane discipline, how much hull a driver will accept spending |
 | `game/traffic.js` | spawning, driving, dying, retiring, drawing |
