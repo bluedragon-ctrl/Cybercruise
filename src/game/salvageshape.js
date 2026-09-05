@@ -1,18 +1,13 @@
 // SALVAGE — the player's own car, left where an earlier run ended, with that
 // run's credits still in it.
 //
-// ARTWORK ONLY. Nothing spawns this, nothing collects it, no type names it.
-// It is here so the look is settled and reviewable before the gameplay is
-// designed; the asset gallery is the only caller.
-//
-// WHY IT IS NOT IN pickupshapes.js. That catalogue's rule is that a shape
-// pairs with a pickuptypes.js entry, and there is no entry for this: a crate's
-// payload is a constant in the catalogue, and salvage pays whatever the dead
-// player happened to be carrying. Holding artwork outside its pairing until
-// the type exists is exactly what bossshapes.js does for the boss hulls (see
-// the README's Traffic table — hulls graduate out of it one at a time as their
-// types are written). This graduates INTO pickupshapes.js the day a CASH kind
-// exists, and takes its own extents with it.
+// ARTWORK ONLY, still — this file draws and knows nothing else. What changed
+// when the CASH kind landed is that it is no longer artwork with nothing
+// behind it: pickupshapes.js's SALVAGE entry names this drawer and carries the
+// extents, pickuptypes.js's `salvage` entry pays out against it, pickups.js
+// places one per recorded death, and sprites.js's drawSalvageCached is what
+// actually reaches it per frame. The asset gallery is no longer the only
+// caller, and this is no longer uncached.
 //
 // WHY "SALVAGE" AND NOT "WRECK". The word is taken, twice. effects.js's
 // drawWreck is a car BREAKING UP — a shell coming apart over 0.75s — and
@@ -59,18 +54,18 @@
 // the bar here overhangs, which is what makes it look like a dollar sign and
 // exactly what would fail there.
 //
-// STILL UNDECIDED, and none of it is the artwork's to settle: the CASH kind
-// pickuptypes.js would need (applyPickup takes `player` and `loadout`, and
-// this pays the wallet), the per-instance payload (the first pickup whose
-// amount is not a catalogue constant), and whether "the same road" means your
-// own previous death this session or a seed shared through the leaderboard
-// worker — worldseed.js re-salts the city every run, so the road is not the
-// same one twice by default.
+// THE THREE THINGS THIS HEADER LEFT UNDECIDED all have answers now, none of
+// them here: applyPickup grew a `wallet` and an `amount` (pickuptypes.js's
+// THE FIFTH KIND), the per-instance payload arrives with the record
+// (worker/salvage.js), and "the same road" turned out not to need the city at
+// all — worldseed.js re-salts it every run, but DISTANCE is the same number
+// for everyone, so a husk is placed by where a run ended rather than by what
+// was standing there.
 //
-// NOT CACHED. Every live entity goes through sprites.js's cache, and this
-// would too once something spawns it; nothing draws it per frame yet, so
-// adding a cache entry now would only spend the documented budget
-// (test/road-and-caches.test.js) on a sprite no frame asks for.
+// THE INITIALS ARE NOT DRAWN HERE, and that is a caching decision rather than
+// a compositional one: a husk is one sprite for the whole game because it
+// never changes, while a name varies per husk. sprites.js keeps them as two
+// blits for that reason and explains it there.
 
 import { glowLine, vectorText } from "../engine/neon.js";
 import { CAR_SHAPES, drawShapeObject } from "./carshapes.js";

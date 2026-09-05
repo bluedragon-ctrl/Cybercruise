@@ -5,7 +5,7 @@
 // to obstacleshapes.js) and, if it is a new KIND of effect, one more branch in
 // applyPickup below.
 //
-// FOUR KINDS, deliberately kept this small rather than growing a field per
+// FIVE KINDS, deliberately kept this small rather than growing a field per
 // possible effect:
 //
 //   AMMO    tops up a weapon already in the player's Loadout (weapons.js).
@@ -26,6 +26,25 @@
 //           "how much" or "how long", and an overdrive is meaningless without
 //           both. That is also why tools/car-editor surfaces a crate's whole
 //           effect group rather than a single field; see its state.js.
+//   CASH    pays the WALLET. The one kind added by SALVAGE (game/salvage.js),
+//           and the one whose amount this catalogue does not hold — see below.
+//
+// THE FIFTH KIND BREAKS THE CATALOGUE-OWNS-THE-NUMBERS RULE, in exactly one
+// place, on purpose. Every other crate is worth what its entry says it is
+// worth. A salvage husk is worth a share of what the run that left it had
+// earned, which is a fact about another player's run and cannot be a constant
+// here — so applyPickup takes an `amount` override and the per-instance figure
+// arrives with the husk (worker/salvage.js). What stays in the catalogue is
+// the part that is a BALANCE decision rather than a fact: `rate`, the share of
+// the dead run's credits a husk pays out. Retuning the economy is still a
+// catalogue edit; only the multiplicand comes from outside.
+//
+// THE RATE IS NOT CAPPED, which is a live risk written down rather than
+// designed around: a rich run seeds a rich husk, whose collector ends richer
+// still, and over enough days the set can inflate. The decision was to ship
+// the mechanic's pure form first and watch it. If the numbers do run away, the
+// fix is a cap field beside `rate` and a matching one in worker/salvage.js —
+// not a redesign.
 //
 // WEIGHTS ARE UNIFORM FOR NOW. The Standard Loadout proposal this catalogue
 // implements called for gating the stronger buffs (MINE, SHIELD) behind a
@@ -43,6 +62,7 @@ export const AMMO = "ammo";
 export const HEAL = "heal";
 export const SHIELD = "shield";
 export const BOOST = "boost";
+export const CASH = "cash";
 
 export const PICKUP_TYPES = [
   {
@@ -130,12 +150,34 @@ export const PICKUP_TYPES = [
     weight: 0.5,
     minDistance: 300,
   },
+  {
+    id: "salvage",
+    label: "SALVAGE",
+    shape: pickupShapeIndex("SALVAGE"),
+    kind: CASH,
+    // A tenth of what the run that died here was carrying. Small enough that
+    // looting husks is a top-up rather than an income — bounties and nodes
+    // stay the two sources wallet.js's header names — and large enough that a
+    // late-run husk is worth crossing the road for. A literal rather than a
+    // named constant because tools/car-editor writes this field back into this
+    // file, and its patcher edits numbers, not references.
+    rate: 0.1,
+    // NEVER ROLLED. `placed` is the seam: pickupAvailable refuses it, so the
+    // road spawner cannot produce one no matter how the weights are retuned,
+    // and the only way a husk reaches the tarmac is pickups.js placing it at
+    // the distance a real run actually ended at. Same shape of decision as
+    // cartypes.js's `staged`, and the reason it is a flag rather than a zero
+    // weight: a zero weight is a tuning value somebody will later "fix".
+    placed: true,
+  },
 ];
 
 // Whether `type` may appear yet, given the RAW world odometer. Mirrors
 // obstacletypes.js's obstacleAvailable exactly — kept even though every entry
 // is gated at 0 today, so tightening a gate later needs no new machinery.
 export function pickupAvailable(type, distance) {
+  // `placed` types are never rolled at all — see the salvage entry.
+  if (type.placed) return false;
   return distance >= (type.minDistance ?? 0);
 }
 
@@ -158,8 +200,18 @@ export function pickupTypeById(id) {
 // at their own cap, so this never needs to ask "was there room" first; it
 // just costs the player a wasted pickup, same as driving over an ammo crate
 // at full ammo would in any other game of this shape.
-export function applyPickup(type, player, loadout) {
+// `amount` is the CASH kind's per-instance payout and is ignored by every
+// other kind — see THE FIFTH KIND in the header. `wallet` is likewise only
+// ever touched by CASH; it rides in the same argument list rather than through
+// a separate entry point so main.js keeps ONE place a pickup is ever applied,
+// which is what pickups.js's onCollect hook is built on.
+export function applyPickup(type, player, loadout, wallet = null, amount = 0) {
   switch (type.kind) {
+    case CASH:
+      // No floor check and no "was there room": the wallet's own award()
+      // already owns the floor rule, and a payout can only ever be positive.
+      if (wallet) wallet.award(amount);
+      break;
     case AMMO: {
       const weapon = loadout.get(type.weaponId);
       if (weapon) weapon.refill(type.amount);

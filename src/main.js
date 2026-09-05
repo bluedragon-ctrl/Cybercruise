@@ -426,8 +426,13 @@ function onPlayerDamage(hp, deflected) {
 
 // Phase 8 step 3's audio hook onto pickups.js's ONE place a crate is ever
 // actually applied — see Pickups' own constructor comment.
-function onPickupCollected(type) {
+function onPickupCollected(type, record) {
   music.play(PICKUP_SOUND[type.kind]);
+  // ...and the seam salvage rides in on: the claim is recorded here rather
+  // than in pickups.js, so that file stays as ignorant of the network as it is
+  // of the audio engine. salvage.js batches the claims into this run's one
+  // POST — see its header on why they are not sent as they happen.
+  if (record) salvage.markCollected(record.id);
 }
 
 // The audio hook onto engine/console.js's subscriber seam (onPush). Registered
@@ -1492,7 +1497,19 @@ function updatePlaying(dt) {
   // shoves or blocks anything — so it needs none of the tick-order care
   // bullets and obstacles do; it only has to see where the player ended up
   // this tick, which is already final by this point.
-  pickups.update(dt, { player, distance, W, H, loadout });
+  pickups.update(dt, {
+    player,
+    distance,
+    W,
+    H,
+    loadout,
+    wallet,
+    // Read fresh every tick rather than handed over at newGame(): the run-start
+    // fetch is not awaited, so the set this returns changes identity partway
+    // into most runs. pickups.js notices that by identity and re-points its
+    // cursor — see its placeSalvage().
+    salvage: salvage.getCached(),
+  });
 
   // The hull check runs LAST, after every damage source above (wall-scrape in
   // player.update, ramming and blast in traffic.update, mines and bullets)

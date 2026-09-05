@@ -324,6 +324,21 @@ export const SOUND_TYPES = [
     maxConcurrent: 2,
     minInterval: 0.1,
   },
+  {
+    id: "pickup_cash",
+    generator: null, // sfx.js's registerGenerator("pickup_cash", ...)
+    // The quietest of the family, and the only one whose maxConcurrent is
+    // worth more than 2: husks come in whatever cluster the deaths on that
+    // stretch of road left behind, so three looted in quick succession is a
+    // normal thing rather than a bug, and a third one going silent would read
+    // as one that paid nothing.
+    gain: 0.55,
+    duck: 0,
+    delaySend: 0.1,
+    priority: 3,
+    maxConcurrent: 3,
+    minInterval: 0.1,
+  },
 
   // --- Phase 8 step 4: console log ticks ----------------------------------
   //

@@ -4,7 +4,8 @@
 // NAME (pickupShapeIndex) and asks for it to be drawn; adding a new buff's
 // artwork means adding an entry here and nothing else.
 //
-// ONE BODY, SIX GLYPHS. Every pickup shares a single silhouette — a flat
+// ONE BODY, SIX GLYPHS, AND ONE DELIBERATE EXCEPTION (see below). Every buff
+// crate shares a single silhouette — a flat
 // DIAMOND RETICLE with four corner brackets, alpha-pulsing as one piece — so
 // the road reads "collectible" before the player is close enough to see which
 // buff it is; only the glyph at the centre answers that. The body is
@@ -16,6 +17,19 @@
 // off the road. The bracket-cornered diamond leans the result toward a
 // spy-thriller HUD target-lock rather than toward road furniture — the
 // player is meant to read "mine to take", not "obstacle to dodge".
+//
+// THE SEVENTH ENTRY, SALVAGE, breaks the shared body on purpose, and it is the
+// only thing here that may. A husk's entire payload is that the player
+// RECOGNISES THEIR OWN CAR sitting in the road — salvageshape.js's header
+// spends its length on exactly that — so wrapping it in the reticle would put
+// the one mark that says "generic collectible" over the one silhouette that
+// must not read as generic. What replaces the reticle's job of saying "drive
+// INTO this" is the green `$` at its centre: green is money everywhere else in
+// this game (walletrender.js writes every payout as a green `+25CR`), and the
+// dashed outline says the thing is a husk rather than a car to avoid. The risk
+// this accepts is a player reading a husk as an obstacle for their first one or
+// two; the alternative accepted a player never reading it as their own car at
+// all, which is the whole feature.
 //
 // SIZE vs EXTENT, same distinction obstacleshapes.js draws: `size` is the
 // footprint game/pickups.js tests contact against; `extent` is how far the
@@ -29,6 +43,7 @@
 
 import { glowLine, glowPoly } from "../engine/neon.js";
 import { polygon, caltropSpikes } from "./polygon.js";
+import { drawSalvage, SALVAGE_SIZE } from "./salvageshape.js";
 import {
   GREEN_BRIGHT,
   PICKUP_FRAME,
@@ -256,6 +271,22 @@ export const PICKUP_SHAPES = [
       drawBoostGlyph(ctx, cx, cy);
     },
   },
+  // THE ONE ENTRY WITH NO RETICLE — see THE SEVENTH ENTRY in the header. The
+  // artwork is salvageshape.js's, unchanged, because the husk has to be the
+  // player's own car and that file is where the car is. `pulse` is ignored:
+  // this body does not breathe, which is the point.
+  {
+    name: "SALVAGE",
+    size: SALVAGE_SIZE,
+    // Hand-padded like the rest of the file, from SALVAGE_SIZE's own half
+    // extents (12.75 x 23.25) plus room for the glow and the `$`'s overhanging
+    // bar. The initials are NOT in here: they vary per husk, so they cannot
+    // share this entry's one cached sprite and pickups.js draws them itself.
+    extent: { x: 20, up: 30, down: 30 },
+    draw(ctx, cx, cy) {
+      drawSalvage(ctx, cx, cy);
+    },
+  },
 ];
 
 // Look a pickup shape up by name — see obstacleShapeIndex for why this is a
@@ -265,6 +296,15 @@ export function pickupShapeIndex(name) {
   const i = PICKUP_SHAPES.findIndex((s) => s.name === name);
   if (i === -1) throw new Error(`unknown pickup shape: ${name}`);
   return i;
+}
+
+// How far shape `index`'s artwork reaches from its anchor — the figure a
+// cached sprite has to be sized by. Mirrors obstacleExtent; only the salvage
+// husk actually goes through a cache today (sprites.js explains which pickups
+// do and why), but the accessor belongs to the catalogue rather than to its
+// one caller.
+export function pickupExtent(index) {
+  return (PICKUP_SHAPES[index] ?? PICKUP_SHAPES[0]).extent;
 }
 
 // Draw pickup shape `index` centred at (cx, cy). `angle` rotates the whole
