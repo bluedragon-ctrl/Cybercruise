@@ -1189,17 +1189,25 @@ the uplink marker on the car, the floating `+25CR` over the spot it came from. T
 figures there (300px reach, four seconds at the edge, face value) are all raised
 by the SIPHON RIG below.
 
-**Salvage** is a third source, and so far it is only a drawing. `game/salvageshape.js`
-is the player's own car at three quarters size, dashed, with the canopy replaced by a
-green `$` and the thruster plume gone — a previous run's wreck, left on the road with
-that run's credits still in it. Nothing spawns it and nothing collects it; the asset
-gallery is its only caller. It is held outside `pickupshapes.js`'s shape/type pairing
-for the same reason `bossshapes.js` holds hulls outside `cartypes.js`'s, and its header
-carries both the visual decisions (why 0.75, why a `[2, 2]` dash, what each removed
-pass was doing) and the three gameplay questions still open: a `CASH` kind for
-`applyPickup`, the first pickup whose payload is per-instance rather than a catalogue
-constant, and whether "the same road" means your own last death this session or a seed
-shared through the leaderboard worker.
+**Salvage** is a third source: the husk of a car somebody died in, left at the
+distance they died at, with a cut of that run's credits still in it.
+`game/salvageshape.js` is the drawing — the player's own car at three quarters size,
+dashed, canopy replaced by a green `$`, thruster plume gone — and its header carries
+the visual decisions (why 0.75, why a `[2, 2]` dash, what each removed pass was
+doing). It is still held outside `pickupshapes.js`'s shape/type pairing for the same
+reason `bossshapes.js` holds hulls outside `cartypes.js`'s.
+
+The record behind it is stored and carried, but nothing places it on the road yet.
+`game/salvage.js` holds the set this run drives through and the husks it has looted;
+`worker/salvage.js` is the storage, one KV key per husk with the payload in KV
+metadata so a whole run's worth is a single `list()` — its header has why that is
+per-key where the board is one array, and what the per-band cap and the TTL each
+bound. Two of the questions `salvageshape.js` left open are answered there: **distance
+is the shared axis** (the city is re-salted every run, but every run drives the same
+numbers, so no seed has to be shared), and "your own last death *or* the worker" is
+**both** — a run records its husk to `localStorage` as well as posting it, so the road
+is never empty on day one or offline. What is left is the `CASH` kind for
+`applyPickup` and the per-instance payload that comes with it.
 
 `npm run econ` measures the whole thing headlessly — credits per minute for a
 player who hugs the shoulders, one who hunts nodes, one who eases off to stay
@@ -1218,6 +1226,15 @@ The board itself is `worker/` — a single Cloudflare Worker over one KV key
 holding the whole top-10 array; that module's own header has the shape (one
 record per name, no real anti-cheat) and `worker/README.md` has the deploy
 steps.
+
+That endpoint is now the RUN endpoint rather than the board's alone: one `GET` when
+a run starts and one `POST` when it ends, each carrying the board *and* the salvage
+set (Credits above). The two ride together because they fire at exactly the same two
+moments in a run's life, which is also why a top-ten run's initials reach both the
+board and its own husk in one request instead of needing a second to attach them
+after `nameentry.js` resolves. `leaderboard.js` is the only module on either side of
+the feature that touches the network; `salvage.js` owns storage and bookkeeping and
+knows no URL.
 
 ## The upgrade shop
 

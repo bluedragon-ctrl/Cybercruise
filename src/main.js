@@ -41,10 +41,15 @@ import { ShieldStorm } from "./game/shieldstorm.js";
 import { Lock } from "./game/targeting.js";
 import { createMenu } from "./game/menu.js";
 // The shared top-10 board — see leaderboard.js's header for the cache/qualify/
-// submit split, nameentry.js's for why initials rather than menu.js's own row
-// abstraction, and leaderboardrender.js's for where its column sits on screen.
+// report split (and for why the salvage set shares its one round trip),
+// nameentry.js's for why initials rather than menu.js's own row abstraction,
+// and leaderboardrender.js's for where its column sits on screen.
 import { createNameEntry } from "./game/nameentry.js";
 import * as leaderboard from "./game/leaderboard.js";
+// The husks other runs left on the road — salvage.js holds the set and this
+// run's claims, leaderboard.js carries them over the wire, pickups.js places
+// them. See salvage.js's header for the local/remote split.
+import * as salvage from "./game/salvage.js";
 import { draw as drawLeaderboard } from "./game/leaderboardrender.js";
 // What an armed test row is WORTH — the rows themselves live on menu.js, this
 // is only the figure EXTRA CASH pays out. See that file for the switch that
@@ -210,10 +215,11 @@ const nameEntry = createNameEntry();
 let state = "menu"; // "menu" | "connecting" | "playing" | "paused" | "dying" | "gameover"
                     //   | "lifting" | "shopping" | "lowering" | "gpulost" | "highscore"
 
-// Fired once, here rather than in newGame(): the cache only ever needs the
-// CURRENT board, never a per-run reset, and a run rarely lasts less than the
-// one round-trip this takes — see leaderboard.js's header for why a run that
-// somehow outraces it just doesn't get prompted rather than guessing.
+// Fired here as well as from newGame(), because the two calls want different
+// things and only one of them happens before the menu: the BOARD wants to be
+// on screen behind the start menu, which is this call, and each run's SALVAGE
+// wants to be current, which is newGame()'s. leaderboard.js's `fetching` guard
+// collapses this and the module-load newGame() into one request.
 leaderboard.refresh();
 
 // Which state to resume once the GPU context is restored — see
@@ -651,10 +657,42 @@ function newGame() {
   // has ever run (the very first newGame() call, at module load), same
   // contract every audio entry point here has.
   music.resetForNewRun();
+  // This run's claims, cleared before it can loot anything — salvage.js's
+  // header on why a claim is held until run end rather than sent as it
+  // happens.
+  salvage.beginRun();
+  // ...and the set it drives through, asked for fresh. A run's salvage IS its
+  // content, unlike the board, so this cannot be a once-per-page fetch. Not
+  // awaited and not awaitable: every husk is placed ahead of the player, so an
+  // answer that lands a moment into the run is not late for anything.
+  leaderboard.refresh();
   // The test rows, applied to the car and wallet this function just built —
   // see applyTestOptions() for why it also runs every tick.
   cashGranted = false;
   applyTestOptions();
+}
+
+// The one report a run makes, sent once, at the moment its outcome is final —
+// from updateDying() when the run didn't qualify and from updateHighscore()
+// when it did and the initials are in hand. `name` is null in the first case,
+// which is the ordinary one.
+//
+// SAFE TO READ THE WORLD HERE. "dying", "highscore" and "gameover" are all
+// frozen states (see `state` above), so `distance`, `player` and `wallet` are
+// exactly where the hull hitting zero left them, and the husk lands on the
+// spot the player actually died on rather than anywhere near it.
+//
+// RECORDED LOCALLY AS WELL AS POSTED, unconditionally and before the request:
+// the local ledger is what guarantees a player sees salvage on day one and
+// offline, and it must not depend on the network answering. See salvage.js.
+function reportRun(name) {
+  const wreck = {
+    distance: Math.max(0, Math.round(distance)),
+    offset: Math.round(player.x - road.centerXAt(distance, W)),
+    credits: Math.max(0, Math.round(wallet.credits)),
+  };
+  salvage.recordLocal(name ? { ...wreck, name } : wreck);
+  leaderboard.postRun({ name, score: score.points, wreck });
 }
 
 // --- The test options, applied ---------------------------------------------
@@ -997,6 +1035,10 @@ function updateDying(dt) {
       state = "highscore";
       nameEntry.open();
     } else {
+      // The run's one report goes out HERE for a run that won't be asked for
+      // initials — see reportRun(). The qualifying branch reports from
+      // updateHighscore() instead, once it has a name to put on the husk.
+      reportRun(null);
       state = "gameover";
       menu.open("gameover");
     }
@@ -1006,15 +1048,15 @@ function updateDying(dt) {
 
 // The initials screen — entered only from updateDying() above, once
 // disconnect.done and leaderboard.qualifies() have both said yes. Confirming
-// hands the name off to leaderboard.submit() (not awaited: the loop is sync,
-// and a failed submit is leaderboard.js's problem, not this run's) and moves
+// hands the name to reportRun() (not awaited: the loop is sync, and a failed
+// post is leaderboard.js's problem, not this run's) and moves
 // straight on to the same "gameover" screen a non-qualifying death reaches
 // directly — the initials prompt is purely an extra step in front of it, not
 // a fork in what gameover itself does.
 function updateHighscore(dt) {
   const result = nameEntry.update(dt);
   if (result.confirmed) {
-    leaderboard.submit(result.name, score.points);
+    reportRun(result.name);
     state = "gameover";
     menu.open("gameover");
   }
