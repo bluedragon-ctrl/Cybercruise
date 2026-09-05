@@ -492,6 +492,55 @@ const DEFAULT_WEAPON = WEAPON_TYPES[0];
 // Nothing else about it is special. Same fields, same `Weapon` runtime, same
 // bullets out of the same projectiles.js pool code. Which catalogue an entry
 // sits in is the only thing that says who carries it.
+// THE SMG, WRITTEN ONCE. Three entries below carry this burst weapon — the
+// stocker's `smg`, the bunker trailer's `turretSmg`, the skirted barge's
+// `twinSmg` — and they differ only in whether it may fire backward and whether
+// it fires paired. Everything else about it is ONE GUN, so it is stated here
+// and spread into each.
+//
+// SPREAD, NOT SHARED BY REFERENCE, which is the distinction TWIN MISSILE's own
+// note is really making: each entry below is still its own object, free to
+// override any field without touching the others. What this removes is the
+// six-number copy that had "the SMG's damage" living in three places at once,
+// where retuning one left the other two quietly behind — no test caught that,
+// and a burst weapon whose damage depends on which car is holding it is not a
+// decision anybody made.
+//
+// NO `id` OR `label` HERE, deliberately: an entry that forgot to state its own
+// would inherit a neighbour's and collide, and ids are what the sound map's
+// coverage test (test/audio.test.js) and armament.js's own lookup key on.
+const SMG_CORE = {
+  // SAME ORDER OF MAGNITUDE as the blaster over a full burst-plus-rest cycle
+  // (20 hull a cycle here against ~5 there per interval), not tuned finer than
+  // that — see the blaster's own note above on why this is measured against the
+  // road, not against the player's hull directly.
+  damage: 4,
+  interval: 1.3,        // rest between bursts
+  burstCount: 5,        // rounds per burst
+  burstInterval: 0.09,  // seconds between rounds within a burst
+  // SAME CEILING AS THE BLASTER, for the same reason — see its own note,
+  // outrider included.
+  muzzleSpeed: 760,
+  // STRAIGHT, not tracking, like the player's own default gun — an SMG aims
+  // exactly where it is pointed rather than curving its rounds to follow the
+  // lane. Reads as a rawer, more mechanical spray than the blaster's homing
+  // tracer, and it is the flight `forwardOnly` below is describing: what you
+  // are pointed at is what you hit.
+  flight: FLIGHT_STRAIGHT,
+  // RECKLESS, well beyond the blaster's tight 8: a spray that only fired on a
+  // clean lineup wouldn't read as one. Matches MINE_AIM (armament.js) — "about
+  // two thirds of a lane" — the same figure the mine layer already uses for
+  // "close enough to be a real threat, not a warning shot".
+  aimSlack: 45,
+  ammo: Infinity,
+  color: ENEMY,
+  glow: ENEMY_THRUST,
+  // Smaller than the blaster's round, so a spray of them reads as lighter fire
+  // rather than the same bullet coming out faster.
+  length: 10,
+  width: 3,
+};
+
 export const ENEMY_WEAPON_TYPES = [
   {
     id: "blaster",
@@ -537,50 +586,21 @@ export const ENEMY_WEAPON_TYPES = [
     width: 4,
   },
   {
+    ...SMG_CORE,
     id: "smg",
     label: "SMG",
-    // The stocker's own gun (armament.js's `gunner` profile) — a spray
-    // rather than a single well-aimed round. Lower per-hit damage than the
-    // blaster, made up for by rounds landing five at a time: the burst
-    // fields below (burstCount/burstInterval) are what turn this into a
-    // 0.36s spray followed by a 1.3s rest instead of a steady drip.
+    // The stocker's own gun (armament.js's `gunner` profile) — a spray rather
+    // than a single well-aimed round: lower per-hit damage than the blaster,
+    // made up for by five rounds landing at a time. SMG_CORE above carries the
+    // numbers and the reasoning for them.
     //
-    // SAME ORDER OF MAGNITUDE as the blaster over a full burst-plus-rest
-    // cycle (20 hull a cycle here against ~5 there per interval), not tuned
-    // finer than that — see the blaster's own note above on why this is
-    // measured against the road, not against the player's hull directly.
-    damage: 4,
-    interval: 1.3,       // rest between bursts
-    burstCount: 5,        // rounds per burst
-    burstInterval: 0.09,  // seconds between rounds within a burst
-    // SAME CEILING AS THE BLASTER, for the same reason — see its own note,
-    // outrider included.
-    muzzleSpeed: 760,
-    // STRAIGHT, not tracking, like the player's own default gun — the
-    // stocker aims exactly where it's pointed rather than curving its rounds
-    // to follow the lane. Reads as a rawer, more mechanical spray than the
-    // blaster's homing tracer, and it's the flight the `forwardOnly` note
-    // just below is describing: what you're pointed at is what you hit.
-    flight: FLIGHT_STRAIGHT,
-    // NEVER FIRED BACKWARD. See armament.js's shoot() — a gun with this set
-    // simply does not take the rearward shot, whatever the relative position
-    // happens to read as for one tick. The stocker's whole tactic (`trail`,
-    // behaviours.js) already keeps it behind its target, so this is a
-    // guarantee rather than something the driving is trusted to maintain on
-    // its own.
+    // NEVER FIRED BACKWARD, and the only thing this variant adds. See
+    // armament.js's shoot() — a gun with this set simply does not take the
+    // rearward shot, whatever the relative position happens to read as for one
+    // tick. The stocker's whole tactic (`trail`, behaviours.js) already keeps
+    // it behind its target, so this is a guarantee rather than something the
+    // driving is trusted to maintain on its own.
     forwardOnly: true,
-    // RECKLESS, well beyond the blaster's tight 8: a spray that only fired on
-    // a clean lineup wouldn't read as one. Matches MINE_AIM (armament.js) —
-    // "about two thirds of a lane" — the same figure the mine layer already
-    // uses for "close enough to be a real threat, not a warning shot".
-    aimSlack: 45,
-    ammo: Infinity,
-    color: ENEMY,
-    glow: ENEMY_THRUST,
-    // Smaller than the blaster's round, so a spray of them reads as
-    // lighter fire rather than the same bullet coming out faster.
-    length: 10,
-    width: 3,
   },
   {
     id: "missile",
@@ -670,60 +690,38 @@ export const ENEMY_WEAPON_TYPES = [
     twinSpread: 26,
   },
   {
+    ...SMG_CORE,
     id: "turretSmg",
     label: "SMG",
-    // The bunker trailer's own gun (armament.js's `bunker` profile) — the SAME
-    // burst-fire spray as SMG above, minus its `forwardOnly` restriction.
+    // The bunker trailer's own gun (armament.js's `bunker` profile) — SMG_CORE
+    // and NOTHING ELSE: the same burst spray as `smg` above, minus that entry's
+    // `forwardOnly`.
     //
-    // A SEPARATE ENTRY RATHER THAN A FLAG READ DIFFERENTLY, for the reason
-    // TWIN MISSILE above already gives: `smg` is shared BY REFERENCE with the
+    // A SEPARATE ENTRY RATHER THAN A FLAG READ DIFFERENTLY, for the reason TWIN
+    // MISSILE above already gives: `smg` is shared BY REFERENCE with the
     // stocker's GUNNER profile (armament.js), so dropping `forwardOnly` there
-    // would let the stocker fire back over its own shoulder too. This car
-    // needs the opposite of what the stocker's tactic needs: `outrun`
-    // (behaviours.js) holds station AHEAD of the player and fires BACK down
-    // the road at it — exactly the shot REARGUARD's own note (armament.js)
-    // says the plain SMG cannot take, which is why the outrunner carries the
-    // blaster instead. This entry is what lets a second front-holding boss
-    // carry the burst weapon anyway, without touching the stocker's.
-    damage: 4,
-    interval: 1.3,
-    burstCount: 5,
-    burstInterval: 0.09,
-    muzzleSpeed: 760,
-    flight: FLIGHT_STRAIGHT,
-    aimSlack: 45,
-    ammo: Infinity,
-    color: ENEMY,
-    glow: ENEMY_THRUST,
-    length: 10,
-    width: 3,
-    // NO forwardOnly — the whole point of this entry. Fires forward or back,
-    // exactly like the plain blaster REARGUARD carries.
+    // would let the stocker fire back over its own shoulder too. This car needs
+    // the opposite of what the stocker's tactic needs: `outrun` (behaviours.js)
+    // holds station AHEAD of the player and fires BACK down the road at it —
+    // exactly the shot REARGUARD's own note (armament.js) says the plain SMG
+    // cannot take, which is why the outrunner carries the blaster instead. This
+    // entry is what lets a front-holding boss carry the burst weapon anyway,
+    // without touching the stocker's.
   },
   {
+    ...SMG_CORE,
     id: "twinSmg",
     label: "SMG",
-    // The skirted barge's own gun (armament.js's `barge` profile) — TURRET
-    // SMG above, fired as a pair. A SEPARATE ENTRY rather than `twin` bolted
-    // onto that one, for the reason TWIN MISSILE's own note gives: TURRET SMG
-    // is shared by reference with nothing today, but stating the field on a
-    // copy rather than on the shared original is what keeps it that way — a
-    // second type naming `turretSmg` later must not silently fire in pairs.
-    damage: 4,
-    interval: 1.3,
-    burstCount: 5,
-    burstInterval: 0.09,
-    muzzleSpeed: 760,
-    flight: FLIGHT_STRAIGHT,
-    aimSlack: 45,
-    ammo: Infinity,
-    color: ENEMY,
-    glow: ENEMY_THRUST,
-    length: 10,
-    width: 3,
-    // UNCONDITIONAL, like TWIN MISSILE's own — an enemy owns no shop
-    // specials, so `true` rather than a flag name is what makes a hostile
-    // weapon always fire paired (see muzzleOffsets' own header).
+    // The skirted barge's own gun (armament.js's `barge` profile) — TURRET SMG
+    // above, fired as a pair. A SEPARATE ENTRY rather than `twin` bolted onto
+    // that one, for the reason TWIN MISSILE's own note gives: TURRET SMG is
+    // shared by reference with nothing today, but stating the field on its own
+    // entry rather than on that one is what keeps it that way — a second type
+    // naming `turretSmg` later must not silently fire in pairs.
+    //
+    // UNCONDITIONAL, like TWIN MISSILE's own — an enemy owns no shop specials,
+    // so `true` rather than a flag name is what makes a hostile weapon always
+    // fire paired (see muzzleOffsets' own header).
     twin: true,
     // A THIRD WIDER THAN THE PLAYER'S OWN CANNON PAIR (20): this hull holds
     // the player's exact lane (cartypes.js's `roadMargin`) rather than a
@@ -734,6 +732,25 @@ export const ENEMY_WEAPON_TYPES = [
     twinSpread: 30,
   },
 ];
+
+// One named hostile weapon. Mirrors obstacletypes.js's obstacleTypeById and
+// cartypes.js's carTypeById, and exists for the reason that one does: the kits
+// in game/armament.js used to reach into the array above BY INDEX, so inserting
+// or reordering an entry there silently rearmed four car types with somebody
+// else's gun.
+//
+// THROWS rather than returning null, which is where it parts company with those
+// two. Every call is armament.js resolving a string LITERAL once at module load,
+// so an unknown id is a typo in the source and not a condition the road can get
+// into — and the null those functions return would arrive at `Armament` as a
+// perfectly valid `gun: null`, which means "this car carries nothing to shoot
+// with" (RAIDER, SPIKER). A boss that spawned unarmed because of a misspelling
+// is exactly the failure worth crashing at startup for.
+export function enemyWeaponById(id) {
+  const type = ENEMY_WEAPON_TYPES.find((t) => t.id === id);
+  if (!type) throw new Error(`unknown enemy weapon id "${id}"`);
+  return type;
+}
 
 // --- What the shop's SPECIALS do to a trigger pull ---------------------------
 //

@@ -38,16 +38,20 @@
 // projectile pool (the tests, the gallery) leaves them off and armed cars go
 // through the motions without firing.
 
-import { Weapon, ENEMY_WEAPON_TYPES, muzzleOffsets } from "./weapons.js";
+import { Weapon, enemyWeaponById, muzzleOffsets } from "./weapons.js";
 import { ENEMY_FACTION } from "./cartypes.js";
 import { obstacleTypeById } from "./obstacletypes.js";
 
-const ENEMY_GUN = ENEMY_WEAPON_TYPES[0];
-const ENEMY_SMG = ENEMY_WEAPON_TYPES[1];
-const ENEMY_MISSILE = ENEMY_WEAPON_TYPES[2];
-const ENEMY_TWIN_MISSILE = ENEMY_WEAPON_TYPES[3];
-const ENEMY_TURRET_SMG = ENEMY_WEAPON_TYPES[4];
-const ENEMY_TWIN_SMG = ENEMY_WEAPON_TYPES[5];
+// The hostile guns this file hands out, resolved BY NAME rather than by position
+// in weapons.js's ENEMY_WEAPON_TYPES — see enemyWeaponById there for what the
+// index was costing. Resolved once here rather than at each kit below, so the
+// profiles read as a table of loadouts and not a table of lookups.
+const ENEMY_GUN = enemyWeaponById("blaster");
+const ENEMY_SMG = enemyWeaponById("smg");
+const ENEMY_MISSILE = enemyWeaponById("missile");
+const ENEMY_TWIN_MISSILE = enemyWeaponById("twinMissile");
+const ENEMY_TURRET_SMG = enemyWeaponById("turretSmg");
+const ENEMY_TWIN_SMG = enemyWeaponById("twinSmg");
 
 // The mine layer, expressed as a WEAPON — because from the carrier's point of
 // view that is exactly what it is: a rate of fire and a magazine. `Weapon`

@@ -34,7 +34,7 @@ import {
 } from "../src/game/road.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import { resolveCollisions, impactCost, ramSpeed, SIDE_DAMAGE } from "../src/game/collisions.js";
-import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES, laidPayloads, muzzleOffsets } from "../src/game/weapons.js";
+import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES, enemyWeaponById, laidPayloads, muzzleOffsets } from "../src/game/weapons.js";
 import {
   OBSTACLE_TYPES,
   obstacleTypeById,
@@ -1202,7 +1202,8 @@ test("the same agreement holds once a body carries its own attackFloor", () => {
 
 // --- Enemy armament -----------------------------------------------------------
 
-const ENEMY_GUN = ENEMY_WEAPON_TYPES[0];
+// By name, like armament.js itself — see weapons.js's enemyWeaponById.
+const ENEMY_GUN = enemyWeaponById("blaster");
 
 test("every hostile is armed and nothing else is", () => {
   // game/armament.js: "every hostile is armed, and nothing else is" — faction is
@@ -1228,6 +1229,30 @@ test("the enemy's gun is not something the player can end up holding", () => {
     !loadout.weapons.some((w) => w.type === ENEMY_GUN),
     "the default loadout handed the player the enemy's gun",
   );
+});
+
+test("the three SMG variants are one gun, differing only in direction and pairing", () => {
+  // weapons.js's SMG_CORE. The stocker's `smg`, the bunker trailer's
+  // `turretSmg` and the skirted barge's `twinSmg` were three hand-written
+  // copies of the same six numbers, and retuning "the SMG" meant remembering
+  // all three — nothing caught it when somebody didn't. They are now spread
+  // from one object, and this is what keeps that true: a variant may override a
+  // field deliberately, but it has to come here and say which.
+  const [smg, turret, twin] = ["smg", "turretSmg", "twinSmg"].map(enemyWeaponById);
+  for (const field of ["damage", "interval", "burstCount", "burstInterval",
+                       "muzzleSpeed", "flight", "aimSlack", "ammo",
+                       "color", "glow", "length", "width"]) {
+    assert.equal(turret[field], smg[field], `turretSmg.${field} has drifted from smg's`);
+    assert.equal(twin[field], smg[field], `twinSmg.${field} has drifted from smg's`);
+  }
+  // And the differences that ARE the variants. Each one is a car's tactic
+  // asking for it — see the entries' own notes for which.
+  assert.equal(smg.forwardOnly, true, "the stocker's SMG must never fire backward (`trail`)");
+  assert.ok(!turret.forwardOnly, "the bunker trailer fires BACK down the road (`outrun`)");
+  assert.ok(!twin.forwardOnly, "the skirted barge fires BACK down the road (`outrun`)");
+  assert.ok(!smg.twin && !turret.twin, "only the barge's SMG fires paired");
+  assert.equal(twin.twin, true, "the skirted barge's SMG fires paired");
+  assert.equal(muzzleOffsets(twin).length, 2, "a paired SMG must leave two muzzles");
 });
 
 test("one hostile gun stays inside its sanity band", () => {
