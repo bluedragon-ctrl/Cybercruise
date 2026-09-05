@@ -228,7 +228,7 @@ CAR_SHAPES.forEach((s, i) => {
 const BOSS_CELL = 220;
 for (const group of bossGroups()) {
   const friendly = group.name === "CARGO DRONE";
-  section(`BOSS HULL — ${group.name}`,
+  section(`STAGED HULL — ${group.name}`,
     friendly
       ? "player car drawn underneath, since the test is whether it stays visible while carried"
       : "");
