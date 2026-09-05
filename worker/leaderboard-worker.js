@@ -36,6 +36,27 @@
 // browser JS on other sites from calling it, but does nothing against a
 // direct request with no Origin header at all — so it would add a false
 // sense of protection for zero real one. Not pretended otherwise.
+//
+// ---------------------------------------------------------------------------
+// IT ALSO CARRIES SALVAGE, and the path is a historical name. `/leaderboard`
+// is now the RUN endpoint: one GET when a run starts, one POST when it ends,
+// each carrying both the board and the salvage set (salvage.js, which owns the
+// storage and explains the per-key layout). Two features, one round trip each
+// way, because they fire at exactly the same two moments in a run's life and
+// splitting them would double the request count for nothing. Renaming the path
+// would break every deployed client for a tidier URL; not worth it.
+//
+// GET'S RESPONSE SHAPE CHANGED, from the bare array to `{board, salvage}`.
+// src/game/leaderboard.js accepts both, so the site can be deployed before
+// this worker and keep working either way round.
+
+import {
+  deleteSalvage,
+  readSalvage,
+  sanitizeCollected,
+  sanitizeSalvage,
+  writeSalvage,
+} from "./salvage.js";
 
 const KV_KEY = "top10";
 const MAX_ENTRIES = 10;
@@ -119,8 +140,18 @@ export default {
 
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
 
-    if (request.method === "GET") return json(await readBoard(env));
+    if (request.method === "GET") {
+      const [board, salvage] = await Promise.all([readBoard(env), readSalvage(env)]);
+      return json({ board, salvage });
+    }
 
+    // ONE POST PER RUN, carrying up to three independent things: the score
+    // (only when the run qualified and the player typed initials), the husk it
+    // leaves behind, and the husks it looted. Each is optional and each is
+    // applied on its own — a run that scored nothing still leaves salvage, and
+    // a run that looted nothing still posts its own. The one case rejected
+    // outright is a body carrying NONE of the three, which is a client bug
+    // worth hearing about rather than a no-op worth accepting.
     if (request.method === "POST") {
       let body;
       try {
@@ -128,12 +159,41 @@ export default {
       } catch {
         return json({ error: "invalid JSON" }, 400);
       }
-      const entry = sanitize(body);
-      if (!entry) return json({ error: "invalid name/score" }, 400);
 
-      const board = applyEntry(await readBoard(env), entry);
-      await writeBoard(env, board);
-      return json(board);
+      // `name`/`score` are optional now — an absent pair is the normal shape
+      // for the ~90% of runs that never reach nameentry.js. Only a pair that
+      // is PRESENT and unusable is an error, so a garbage score still can't
+      // slip onto the board unnoticed.
+      const submitting = body.name !== undefined || body.score !== undefined;
+      const entry = submitting ? sanitize(body) : null;
+      if (submitting && !entry) return json({ error: "invalid name/score" }, 400);
+
+      const salvage = body.salvage !== undefined ? sanitizeSalvage(body.salvage) : null;
+      if (body.salvage !== undefined && !salvage) return json({ error: "invalid salvage" }, 400);
+
+      const collected = sanitizeCollected(body.collected);
+      if (!entry && !salvage && collected.length === 0) return json({ error: "empty run" }, 400);
+
+      // The board is read-modify-written and the salvage keys are not, so only
+      // the board half is serialised; the rest runs alongside it.
+      const work = [];
+      if (salvage) work.push(writeSalvage(env, salvage));
+      if (collected.length) work.push(deleteSalvage(env, collected));
+
+      let board = null;
+      if (entry) {
+        board = applyEntry(await readBoard(env), entry);
+        work.push(writeBoard(env, board));
+      }
+      await Promise.all(work);
+
+      // The updated board comes back so the game-over screen shows the
+      // player's own row without a second call — and ONLY when this request
+      // actually changed it, since re-reading it to answer a run that never
+      // submitted would spend a KV read to tell the client what it already
+      // knows. The salvage set never comes back at all: the run that posted is
+      // over, and the next one reads it fresh on GET.
+      return json(board ? { board } : {});
     }
 
     return json({ error: "method not allowed" }, 405);
