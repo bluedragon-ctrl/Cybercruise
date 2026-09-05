@@ -100,11 +100,14 @@ const PICKUP_EFFECT_DESCRIPTIONS = {
     amount: "World units/sec added to BOTH ends of the player's speed band while the boost runs — the slowest the car can drop to and the fastest it can reach both move up by this. The car jumps to the new floor the moment the crate is collected.",
     duration: "Seconds the raised speed band lasts. When it ends the car drops straight back to its normal top speed.",
   },
+  cash: {
+    rate: "Share of the credits the dead run was carrying that its husk pays whoever loots it. 0.1 is a tenth. The credits themselves come from that run's own record, not from here — this is the only half of a salvage payout the catalogue owns.",
+  },
 };
 
 // The effect fields a crate can carry, in the order they should be shown.
 // Matches state.js's own PICKUP_EFFECT_FIELDS; a crate carries some subset.
-const PICKUP_EFFECT_FIELDS = ["amount", "duration"];
+const PICKUP_EFFECT_FIELDS = ["amount", "duration", "rate"];
 
 const WEAPON_FIELD_DESCRIPTIONS = {
   damage: "Hull points one shot deals on a direct hit.",
@@ -280,13 +283,19 @@ const KINDS = {
           })),
         });
       }
-      sections.push({
-        legend: "Spawn",
-        fields: ["weight", "minDistance"].map((field) => ({
-          field,
-          description: PICKUP_FIELD_DESCRIPTIONS[field],
-        })),
-      });
+      // Filtered the same way the Effect section is, and for a matching
+      // reason: a `placed` crate has no spawn tuning at all (see state.js's
+      // buildPickupState), so the section is omitted rather than drawn empty.
+      const spawnFields = ["weight", "minDistance"].filter((f) => f in pickup.values);
+      if (spawnFields.length > 0) {
+        sections.push({
+          legend: "Spawn",
+          fields: spawnFields.map((field) => ({
+            field,
+            description: PICKUP_FIELD_DESCRIPTIONS[field],
+          })),
+        });
+      }
       return sections;
     },
   },
