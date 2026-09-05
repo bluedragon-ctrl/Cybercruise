@@ -46,7 +46,7 @@ import { Obstacles, SPAWN_MARGIN as OBSTACLE_SPAWN_MARGIN } from "../src/game/ob
 import { Explosions } from "../src/game/effects.js";
 import { Projectiles } from "../src/game/projectiles.js";
 import {
-  armFor, armamentFor, BARRAGE, barragePhase, GUN_RANGE, GUN_MIN_RANGE,
+  armFor, armamentFor, Armament, BARRAGE, barrageTable, barragePhase, GUN_RANGE, GUN_MIN_RANGE,
 } from "../src/game/armament.js";
 import { Shells } from "../src/game/shells.js";
 import { NEUTRAL_PALE, PLAYER } from "../src/engine/palette.js";
@@ -2882,6 +2882,69 @@ test("the fuse leaves the player real road to move in", () => {
     `a ${battery.fuse}s fuse only allows ${crossable.toFixed(0)}px of dodge, ` +
       `under the ${(LANE_WIDTH * 2).toFixed(0)}px two-lane span the road is built around`,
   );
+});
+
+test("a battery may carry its own phases; the shared table is only the default", () => {
+  // armament.js's barrageTable. Shot count was the one thing about a barrage
+  // that was not a per-carrier number — spread, fuse, blast and rate all live on
+  // the battery type, while `shells` came from a table BOTH bosses read. A third
+  // barrage carrier could not throw a different number without retuning the
+  // mortar's fight and the gunship's at the same time.
+  const mortar = armamentFor(CAR_TYPES.find((t) => t.id === "mortar")).battery;
+  assert.equal(barrageTable(mortar), BARRAGE, "a battery naming no phases must get the shared table");
+  assert.equal(barrageTable(undefined), BARRAGE, "...and so must no battery at all");
+
+  // A ONE-ENTRY TABLE IS A BATTERY THAT DOES NOT ESCALATE, and needs no flag
+  // saying so: the catch-all `above: 0` matches at any hull fraction. This is
+  // the shape a single-pass carrier uses.
+  const flat = [{ above: 0, shells: 2, interval: 1, mines: false }];
+  for (const frac of [1, 0.5, 0.01, 0]) {
+    assert.equal(barragePhase(frac, flat).shells, 2, `a flat table escalated at ${frac} hull`);
+  }
+  // And its thresholds yield NO notches — traffic.js's meterMarks filters the
+  // catch-all out, so such a battery draws a plain bar and promises nothing.
+  assert.equal(flat.map((p) => p.above).filter((f) => f > 0).length, 0);
+});
+
+test("a salvo may land along the road instead of across it", () => {
+  // armament.js's fireBarrage, and the two axes are OPPOSITE demands: a straddle
+  // (`spread`) defeats a lane change and asks for a change of speed, a stick
+  // (`spreadAlong`) defeats braking and flooring it and asks for a change of
+  // lane. A wider `spread` could never express the second.
+  const battery = {
+    id: "teststick", label: "BOMBS", interval: 1, ammo: Infinity,
+    fuse: 1.25, blastRadius: 72, blastDamage: 55,
+    spread: 0, spreadAlong: 60,
+    phases: [{ above: 0, shells: 3, interval: 1, mines: false }],
+  };
+  const h = bossScenario({ arms: new Armament({ gun: null, layer: null, battery }) });
+  assert.ok(tickUntilShell(h), "the battery never fired");
+  const salvo = h.shells.list.filter((s) => s.alive);
+  assert.equal(salvo.length, 3, "the phase's shell count must reach the pool");
+
+  const offsets = new Set(salvo.map((s) => s.offset));
+  assert.equal(offsets.size, 1, "a pure stick must land three shells in ONE lane");
+  const ys = salvo.map((s) => s.worldY).sort((a, b) => a - b);
+  assert.ok(Math.abs((ys[1] - ys[0]) - 60) < 1e-6, "shells must sit `spreadAlong` apart down the road");
+  assert.ok(Math.abs((ys[2] - ys[1]) - 60) < 1e-6, "...evenly, centred on the lead point");
+
+  // ONE FUSE FOR THE WHOLE SALVO. The marks appear together and land together,
+  // so the player reads one shape and has the full fuse to leave all of it.
+  const fuses = new Set(salvo.map((s) => s.fuseTotal));
+  assert.deepEqual([...fuses], [battery.fuse], "a stick must not land in sequence");
+});
+
+test("the mortar still throws a straddle, across the road and not along it", () => {
+  // The other half of the pair above, and the regression that matters: omitting
+  // `spreadAlong` must leave the salvo exactly as it was before that field
+  // existed. Taken at the last phase, where the mortar throws three.
+  const type = CAR_TYPES.find((t) => t.id === "mortar");
+  const h = bossScenario({ health: type.health * 0.1 });
+  assert.ok(tickUntilShell(h), "the battery never fired");
+  const salvo = h.shells.list.filter((s) => s.alive);
+  assert.equal(salvo.length, 3, "the last phase throws three");
+  assert.equal(new Set(salvo.map((s) => s.worldY)).size, 1, "a straddle lands at ONE point down the road");
+  assert.equal(new Set(salvo.map((s) => s.offset)).size, 3, "...spread across three lanes");
 });
 
 test("the barrage escalates as the boss is hurt, and only then", () => {

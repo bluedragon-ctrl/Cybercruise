@@ -32,7 +32,7 @@ import { drawCarCached } from "./sprites.js";
 import { driveCar } from "./behaviours.js";
 import { pickCarType, ENEMY_FACTION } from "./cartypes.js";
 import { drivingFor } from "./driving.js";
-import { armFor, BARRAGE } from "./armament.js";
+import { armFor, barrageTable } from "./armament.js";
 import { Explosions, drawTargetMark, drawHullMeter } from "./effects.js";
 import { resolveCollisions, PlayerBody, inBlastPlane } from "./collisions.js";
 import { PLAYER_MASS } from "./player.js";
@@ -105,12 +105,38 @@ const SHOVE_DAMP = 5;        // per second; how fast a rammed car's slide dies a
 const CRITICAL = 0.35;       // hull fraction below which a car reads as wrecked
 const BLINK_PERIOD = 0.12;   // seconds per half-cycle of the critical-hull blink
 
-// The fractions the boss's hull meter is notched at (effects.js's drawHullMeter)
+// The fractions a boss's hull meter is notched at (effects.js's drawHullMeter)
 // — armament.js's own barrage thresholds, DERIVED rather than restated. Two
 // copies of 0.66 that could drift apart would make the notch a lie, and an
-// instrument that lies is worse than none. Built once at module load, since the
-// table is frozen data and the meter is drawn every frame.
-const METER_MARKS = BARRAGE.map((p) => p.above).filter((f) => f > 0);
+// instrument that lies is worse than none.
+//
+// PER BATTERY, not per module. A battery profile may carry its own `phases`
+// (armament.js's barrageTable), so a second phased boss would otherwise get the
+// SHARED table's notches drawn under a fight that escalates somewhere else —
+// the exact lie this derivation exists to prevent, reintroduced by the field
+// that made shot count tunable.
+//
+// MEMOISED ON THE TABLE, because the meter is drawn every frame and the tables
+// are frozen data built once at module load. A Map keyed on the array itself
+// gives the same "computed once" this was before, for any number of tables.
+//
+// A ONE-ENTRY TABLE YIELDS NO NOTCHES, with no gate for it: the catch-all
+// entry's `above: 0` is filtered out here, so a battery that does not escalate
+// draws a plain bar and promises nothing.
+const NO_MARKS = Object.freeze([]);
+const meterMarks = (() => {
+  const cache = new Map();
+  return (battery) => {
+    if (!battery) return NO_MARKS;
+    const table = barrageTable(battery.type);
+    let marks = cache.get(table);
+    if (!marks) {
+      marks = Object.freeze(table.map((p) => p.above).filter((f) => f > 0));
+      cache.set(table, marks);
+    }
+    return marks;
+  };
+})();
 
 // CRUISE DRIFT. Every car rolls its own speed at spawn, but that roll is made
 // ONCE — so two cars of a type that happen to roll close together stay locked in
@@ -887,16 +913,16 @@ export class Traffic {
       // reporting on nothing — traffic keeps a dead car in the list for the
       // tick its explosion is spawned in (see detonate), so this needs saying.
       //
-      // MARKS ONLY FOR THE BATTERY. METER_MARKS is armament.js's BARRAGE
-      // thresholds, and those notches are a promise about phases that only the
-      // siege mortar's kit actually has (`arms.battery`, checked here rather
-      // than by id — see armament.js's own note on why a kit is what
+      // MARKS ONLY FOR THE BATTERY, and only that battery's OWN phases —
+      // meterMarks above. Those notches are a promise about escalation that
+      // only a kit carrying artillery can make (`arms.battery`, checked here
+      // rather than by id — see armament.js's own note on why a kit is what
       // distinguishes it). The bunker trailer carries `hullMeter` too but no
-      // phases, so it gets a bar and no notches: an instrument that lies is
+      // battery, so it gets a bar and no notches: an instrument that lies is
       // worse than none (effects.js's drawHullMeter header).
       if (car.type.hullMeter && car.alive) {
         drawHullMeter(ctx, sx, sy, car.type.h, car.health / car.type.health,
-          car.arms?.battery ? METER_MARKS : []);
+          meterMarks(car.arms?.battery));
       }
     }
   }
