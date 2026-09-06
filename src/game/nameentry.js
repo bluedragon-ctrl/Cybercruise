@@ -27,7 +27,7 @@
 // (menu.js's TITLE/ROW0_LABEL/SUBTITLE) is the game's vector display type,
 // and vectorfont.test.js asserts coverage of that alphabet against exactly
 // that list. This screen is secondary — up a few seconds, seen rarely — so
-// it draws with glowText's canvas font (as the HUD, the checkboxes and the
+// it draws with glowText's canvas font (as the HUD, the dev panel and the
 // footer already do) rather than adding a second string list for the
 // vector-coverage test to track.
 

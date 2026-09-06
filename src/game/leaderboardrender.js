@@ -14,9 +14,9 @@
 // menu.js's rowCx) — split the screen into quarters and each block sits on
 // the line between its own pair. Vertically it clears the title/subtitle/rows entirely,
 // sits below the gameover screen's centred FINAL SCORE/CREDITS EARNED lines,
-// and stops well above the test checkboxes/footer (y >= 732).
+// and stops well above the menu footer (y >= 732).
 //
-// SMALL, DELIBERATELY — glowText's HUD-font path (as the checkboxes and
+// SMALL, DELIBERATELY — glowText's HUD-font path (as the dev panel and
 // footer already use), not the vector display type: this is a glance, not a
 // second headline competing with CONNECT/RECONNECT.
 

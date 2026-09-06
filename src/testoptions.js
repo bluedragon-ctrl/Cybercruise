@@ -1,34 +1,32 @@
-// TEST OPTIONS — the cheat rows on the start/pause menu, and the switch that
-// decides whether they are there at all.
+// TEST OPTIONS — the dev panel's knobs, and the switch that decides whether the
+// panel exists at all.
 //
-// These exist to make the game TESTABLE by hand: a run that cannot be killed
-// is how you inspect a sector twenty minutes deep, and a wallet that starts
-// full is how you look at the shop's top tier without grinding to it. They are
-// not a difficulty setting and they are not meant to ship switched on.
+// These exist to make the game TESTABLE by hand: a run that cannot be killed is
+// how you inspect a sector twenty minutes deep, a wallet you can set to any
+// figure is how you look at the shop's top tier without grinding to it, and a
+// distance you can set is how you look at the late road without driving to it.
+// They are not a difficulty setting and they are not meant to ship switched on.
 //
-// SHIPPING A BUILD: set SHOW_TEST_OPTIONS to false. That alone removes both
-// rows from game/menu.js — the menu builds its row list from these flags, so
-// nothing else has to be edited and nothing is left half-wired. main.js still
-// asks the menu whether each cheat is armed, and with the rows gone the answer
-// is always false. Neither flag is persisted anyway (game/menu.js's own NOT
-// PERSISTED note) — every load starts both OFF regardless of this file.
+// SHIPPING A BUILD: set SHOW_TEST_OPTIONS to false. That alone removes the
+// panel — main.js stops answering F1 and stops importing anything the panel
+// applies, and game/events.js/eventtypes.js go back to reading the catalogue
+// whatever the override maps below still contain. One flag, no half-wiring;
+// test/test-options.test.js is what pins that.
 //
-// F1 REVEALS THE ROWS; MOUSE CLICKS ARM THEM. Compiled in is not the same as
-// on screen: game/menu.js starts the checkboxes hidden and only draws them
-// once F1 has been pressed (input.js's "testOptions" action). Even then the
-// keyboard's up/down wrap never steps onto them — a click directly on the
-// checkbox is the only way to select OR flip one, so a mistimed Down or a
-// Left/Right meant for SOUND/MUSIC can never arm a cheat by accident. Two
-// guards, not one: hidden-until-F1 keeps a cheat menu from looking like part
-// of the game's own options the moment you open it, and click-only keeps the
-// keyboard from ever reaching a row that would arm on a stray press.
+// ONE SCREEN OF ITS OWN, NOT ROWS ON THE MENU. The cheats used to live at the
+// foot of game/menu.js's start/pause screen, hidden until F1 and armed by mouse
+// click only — two guards that existed solely because they shared a screen with
+// SOUND and MUSIC, where a stray Down could otherwise arm one. On a screen where
+// EVERY row is a cheat there is nothing to protect: F1 opens it from the menu,
+// from play or from pause, it is ordinary keyboard-navigable, and menu.js is
+// just the options menu again. See game/testpanel.js.
 //
 // Everything here is a knob, exactly like game/tuning.js: no behaviour of its
-// own lives in this file, only the numbers and the flags the two consumers
-// (game/menu.js for the rows, main.js for applying them) read.
+// own lives in this file, only the numbers and the flags its consumers
+// (game/testpanel.js for the rows, main.js for applying them, game/events.js
+// and game/eventtypes.js for the override maps) read.
 
-// The master switch. False removes EVERY test row from the menu regardless of
-// the two per-option flags below.
+// The master switch. False removes the whole panel and every override below.
 export const SHOW_TEST_OPTIONS = true;
 
 // GL PRESENT: whether present() (src/engine/present.js) runs the bloom chain —
@@ -38,7 +36,7 @@ export const SHOW_TEST_OPTIONS = true;
 // NOT A CHEAT, AND IT SHIPS ON. It is here because Phase 15's whole premise is
 // that bloom can be A/B'd, and this file is the place a switch is reachable
 // without hunting through the engine. It is deliberately NOT gated by
-// SHOW_TEST_OPTIONS above and has no menu row: SHOW_TEST_OPTIONS false is
+// SHOW_TEST_OPTIONS above and has no panel row: SHOW_TEST_OPTIONS false is
 // "ship it", and shipping must not silently take the renderer with it.
 //
 // WHAT "OFF" MEANS CHANGED IN PHASE 15D-I, AND IT IS WORTH KNOWING WHY. Before
@@ -70,23 +68,41 @@ export const SHOW_TEST_OPTIONS = true;
 // with a message rather than a fallback — see its header.
 export const GL_PRESENT = true;
 
-// INVULNERABILITY: the car takes no hull damage at all — every source funnels
-// through Player.damage(), so the flag is honoured there once and covers
-// bullets, blasts, ramming and wall-scrape alike. Speed is still scrubbed by a
-// scrape, because a car that cannot be slowed cannot be driven badly and the
-// point is to test the road, not to fly over it.
-export const SHOW_INVULNERABILITY_OPTION = true;
+// --- The panel's own numbers -------------------------------------------------
 
-// EXTRA CASH: credits granted the moment the option is armed, so the shop can
-// be walked end to end. Granted ONCE per run per arming — switching the row off
-// and back on pays again, which is the behaviour you want when a test spends
-// the lot and needs another float.
-export const SHOW_EXTRA_CASH_OPTION = true;
+// EXTRA CASH: what the CREDITS row is pre-loaded with EVERY time the panel
+// opens, so the common case — "give me everything" — is F1, Down, FIRE. It does
+// not seed from the live balance, because the live balance is printed in the
+// readouts a few lines under the row anyway. Asserted by
+// test/test-options.test.js to cover every upgrade in the shop at every tier,
+// because walking the shop end to end is the entire point of the row.
 export const EXTRA_CASH_AMOUNT = 999999;
 
+// How far one tap of Left/Right moves each number row. HELD, the step is
+// multiplied by HOLD_MULTIPLIER after HOLD_ACCEL_AT seconds (game/testpanel.js's
+// own repeat code) — a tap is for the exact figure, a hold is for the order of
+// magnitude, and between them neither row ever needs a text field on a canvas.
+//
+// The DISTANCE step is in DIST units (road.js's DIST_UNITS), the same figure the
+// HUD's own DIST readout prints, so what the row says and what the HUD says
+// after a warp are the same number rather than two scales to convert between.
+export const CREDITS_STEP = 1000;
+export const DISTANCE_STEP = 10;
+
+// --- The encounter overrides -------------------------------------------------
+//
 // MILESTONE OVERRIDES: pull a one-shot encounter (game/eventtypes.js's `at`)
-// forward so it can be reached in seconds instead of driven to. Keyed by event
-// id; anything not listed fires at its catalogue figure.
+// forward so it fires at a distance you can reach in seconds. Keyed by event id;
+// anything not listed fires at its catalogue figure.
+//
+// STILL WORTH HAVING NOW THE PANEL CAN WARP. A warp reaches the DISTANCE an
+// encounter fires at; this reaches the ENCOUNTER without moving the world's
+// clock, which is what you want when the thing under test is the fight rather
+// than the road it happens on — a boss at DIST 0 is fought in a stock car on a
+// road with the right traffic for DIST 0, and that is a different test from the
+// same boss found by warping to DIST 900. The panel's PASSED EVENTS row (see
+// game/testpanel.js) is the third case: warp there and let everything below fire
+// on the way past.
 //
 // WHY IT LIVES HERE AND NOT IN THE CATALOGUE. Editing `at` directly would work
 // exactly once and then be a number nobody remembers to put back — and worse,
@@ -97,12 +113,15 @@ export const EXTRA_CASH_AMOUNT = 999999;
 // checks what ships, and the override is applied by the director at the one
 // place it decides a milestone is due (game/events.js's dueMilestone).
 //
-// SHIPPING A BUILD: empty this object. It is guarded by SHOW_TEST_OPTIONS above
-// like everything else in this file, so switching the master flag off already
-// restores every catalogue figure — but an empty object is what the file is
-// supposed to look like at rest.
+// SHIPPING A BUILD: empty both maps. They are guarded by SHOW_TEST_OPTIONS above
+// like everything else here, so switching the master flag off already restores
+// every catalogue figure — but empty is what the file is supposed to look like
+// at rest.
 //
-//   export const EVENT_AT_OVERRIDES = {};
+// EMPTY, which is how this ships. Put an id in here to reach one in seconds:
+//
+//   export const EVENT_AT_OVERRIDES = { siege: 150 };  // the boss at once
+export const EVENT_AT_OVERRIDES = {};
 
 // GATE OVERRIDES: the same idea for a ROLLED encounter, whose trigger is not a
 // milestone but game/eventtypes.js's `minDistance`. Keyed by event id; anything
@@ -113,24 +132,10 @@ export const EXTRA_CASH_AMOUNT = 999999;
 // eventAvailable() deciding what may be DRAWN. One key meaning "fires at" for a
 // set-piece and "unlocks at" for a rolled entry is two meanings wearing one name.
 //
-// Everything the map above says applies here: the catalogue states what SHIPS,
-// the suite checks what ships (test/events.test.js clears both maps before it
-// runs a single test), and this is where a number is pulled forward by hand. An
-// entry brought forward may stage a type the ambient road has not unlocked,
-// which is the point of the override — the invariant is about what the
-// catalogue says, and the catalogue is unchanged.
-//
-//   export const EVENT_GATE_OVERRIDES = {};   // ship it like this
-//
-// EMPTY, which is how this ships. Every rolled encounter unlocks at the
-// distance its catalogue entry names. Put an id in here to reach a new one
-// quickly by hand:
+// Everything the map above says applies here, including that the suite clears
+// both before it runs a single test. An entry brought forward may stage a type
+// the ambient road has not unlocked, which is the point of the override — the
+// invariant is about what the catalogue says, and the catalogue is unchanged.
 //
 //   export const EVENT_GATE_OVERRIDES = { slalom: 150 };  // the weave at once
-export const EVENT_GATE_OVERRIDES = {};   // ship it like this
-//
-// EMPTY, which is how this ships. Every encounter fires at the distance its
-// catalogue entry names. Put an id in here to reach one quickly by hand:
-//
-//   export const EVENT_AT_OVERRIDES = { siege: 150 };  // the boss in seconds
-export const EVENT_AT_OVERRIDES = {};
+export const EVENT_GATE_OVERRIDES = {};

@@ -8,8 +8,9 @@
 //      fallback box, deliberately (vectorfont.js's header). So a label with an
 //      uncovered character is a silent hole on the title screen, and the one
 //      moment anyone would notice is the moment a player is looking at it.
-//      menu.js exports VECTOR_STRINGS — the actual strings it renders, not a
-//      copy — so renaming a row or adding a mode is checked here.
+//      menu.js exports VECTOR_STRINGS and testpanel.js PANEL_VECTOR_STRINGS —
+//      the actual strings they render, not copies — so renaming a row or adding
+//      a mode is checked here.
 //   2. THE CELL. Every metric vectorText computes (centring, right alignment,
 //      the selected row's brackets) assumes glyph geometry stays inside
 //      0..CELL_W by 0..1. A glyph that overflows does not fail, it overlaps its
@@ -24,15 +25,21 @@ import assert from "node:assert/strict";
 
 import { GLYPHS, CELL_W, advance, textWidth, missingGlyphs } from "../src/engine/vectorfont.js";
 import { VECTOR_STRINGS } from "../src/game/menu.js";
+import { PANEL_VECTOR_STRINGS } from "../src/game/testpanel.js";
+
+// Both screens that set display type, checked as one list — the dev panel
+// (game/testpanel.js) is not shipped, but a hole in ITS title is exactly as
+// invisible as a hole in the menu's and costs nothing to rule out here.
+const DISPLAY_STRINGS = [...VECTOR_STRINGS, ...PANEL_VECTOR_STRINGS];
 
 // --- 1. Coverage ------------------------------------------------------------
 
 test("the alphabet covers every string the menu renders in vector type", () => {
-  for (const s of VECTOR_STRINGS) {
+  for (const s of DISPLAY_STRINGS) {
     assert.deepEqual(
       missingGlyphs(s),
       [],
-      `menu.js renders "${s}", which vectorfont.js has no glyph for`,
+      `a screen renders "${s}", which vectorfont.js has no glyph for`,
     );
   }
 });
