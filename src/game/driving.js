@@ -576,6 +576,34 @@ export const DRIVING_PROFILES = {
     nerve: 0,
     contact: 0,
   }),
+
+  // The fighter planes (cartypes.js's FIGHTER and MANTA) — the second flying
+  // profile, and the emptiest table in this file. That is the honest shape of
+  // it: `flyover` (behaviours.js) reads NOTHING off `car.drive` at all. It asks
+  // for the type's own ceiling and for one lateral target chosen on its first
+  // tick, and every knob above — following gap, lane discipline, pass effort,
+  // hold, sweep — is arithmetic about driving on a road it is thirty metres
+  // above.
+  //
+  // SO WHY A ROW AT ALL, when the commuter's defaults are the same two zeroes?
+  // Because `nerve` and `contact` are the two fields traffic.js rolls at spawn
+  // for every car whatever its tactic, and this file's own rule is that a
+  // hostile has to SAY it will not shoulder through traffic rather than inherit
+  // it (see NERVE above, and test/car-editor-state.test.js, which fails a
+  // hostile whose contact reads as a default). A plane cannot lean on anything —
+  // collisions.js never sees an airborne body — so the two zeroes here are
+  // unreadable as well as unread, and stating them is what keeps that a
+  // decision rather than an oversight.
+  //
+  // ONE PROFILE FOR BOTH PLANES, unlike the van and the rig above, which are
+  // deliberately two tables. The reason that pair does not share is that their
+  // most legible difference lives in this file; these two differ in speed, hull
+  // and what they drop, all of which live in cartypes.js and armament.js. There
+  // is nothing left here for a second row to say.
+  fighter: profile({
+    nerve: 0,
+    contact: 0,
+  }),
 };
 
 // The profile a car type drives by. A named profile always wins; an unknown name

@@ -1183,6 +1183,174 @@ export const CAR_SHAPES = [
       line(0, -0.74, 0, -0.44, c, 1.5, 7); // barrel bore
     },
   },
+
+  // =========================================================================
+  // THE FIGHTER PLANES — the first FIXED-WING hulls in the catalogue, and the
+  // first PAIR to graduate together: cartypes.js's FIGHTER and MANTA share one
+  // tactic (behaviours.js's `flyover`) and differ only in what they drop. Both
+  // came across from bossshapes.js unedited but for the staging catalogue's own
+  // `group` field and one helper call apiece, the same graduation the five boss
+  // hulls above made, and both keep their AUTHORED names — the player sees
+  // cartypes.js's labels, and renaming a hull on the way across would break the
+  // one thing that file's protocol is for.
+  //
+  // WHAT THE ARTWORK CLAIMED, THE TACTIC NOW DOES. These were drawn against one
+  // sentence: a plane cannot hover and cannot hold a lane, so whatever wears one
+  // is committed to CROSSING the frame. Every other flying hull here (the quad,
+  // the catamaran) station-keeps; `flyover` is that sentence made real — one
+  // pass, flat out, gone.
+  //
+  // NEITHER HAS AN ANIMATED PART, and that is what separates them from every
+  // other flying hull here. A rotorcraft sells flight with its rotors; a plane
+  // has none, no wheels and no tracks, so the whole "this is not on the road"
+  // claim rests on two static cues instead:
+  //
+  //   THE GROUND TRACK IS DROPPED MUCH FURTHER than any other hull's. The
+  //   catamaran flies at 32 and the gun ring (bossshapes.js) at 46; these fly at
+  //   66 and 74, with a SMALLER ring (0.45/0.50 against 0.54). A small, distant
+  //   contact reads as high, and that ramp is the only altitude scale the game
+  //   has. It also sizes the sprite: shapeExtent adds `drop + hh * scale` to the
+  //   bottom, which already reaches well past the burners, so neither entry
+  //   needs an `overhang.down` to keep its thrust in frame.
+  //
+  //   THE BURNERS RUN PAST THE TAIL (`y2` over 1.0 on the delta), which no
+  //   ground car does — an exhaust ending at the bodywork is a tailpipe, one
+  //   that keeps going is a jet. Both set `thrustWide`, so the plume is the 4px
+  //   draw rather than the standard 3.
+  //
+  // A THIRD HULL WAS DRAWN AND DROPPED, and it is recorded here rather than in
+  // the staging catalogue it never left: a CRANKED DELTA, kinked leading edge
+  // and a single fin, sat between these two. Its kink is a ~6px feature at 1x,
+  // so it would have read as the STRIKE DELTA at road scale while costing a
+  // second hull's worth of catalogue. The two below are deliberately the two
+  // ENDS of the one question a delta asks — whether it keeps a tail — rather
+  // than two points near each other.
+  // =========================================================================
+  {
+    name: "STRIKE DELTA",
+    pitch: "stubby and fuselage-led — the wing is the smaller half",
+    size: [72, 78],
+    hover: { drop: 66, scale: 0.45 },
+    // Six points, and the profile is the FUSELAGE only: the wings are opaque
+    // pieces in low(), the same construction the catamaran uses for its
+    // pontoons, so the body reads as sitting on top of the wing rather than as
+    // one flat plate with it.
+    profile: [[0, -1.00], [0.09, -0.76], [0.12, -0.20], [0.14, 0.56], [0.10, 0.88], [0, 0.92]],
+    exhaust: [0.09, 0.88, 1.12],
+    thrustWide: true,
+    // Nothing reaches past 0.74 in x (the wingtips), and the profile only
+    // reaches 0.14 — so this has to be stated, or the sprite is sized off the
+    // fuselage and clips both wings.
+    overhang: { x: 0.80 },
+    low({ solid }, c) {
+      // SHORT SPAN, deliberately: the tips stop at 0.74 and the root starts at
+      // -0.16, well aft of the nose. A full-span delta reads as a wide flat
+      // arrowhead; keeping the wing small leaves the fuselage as the longest
+      // line on the hull, which is what makes this read fast rather than big —
+      // and separates it from the MANTA below, which is the wide one.
+      const wing = [[0.12, -0.16], [0.70, 0.54], [0.74, 0.78], [0.30, 0.80], [0.13, 0.58]];
+      solid(wing, c, CAR_FILL);
+      // `flip(wing)` written out by hand — bossshapes.js has that helper and
+      // this file does not (see the SIEGE MORTAR and CATAMARAN notes above).
+      solid([[-0.12, -0.16], [-0.70, 0.54], [-0.74, 0.78], [-0.30, 0.80], [-0.13, 0.58]], c, CAR_FILL);
+    },
+    flat({ line }, c, thrust, headlight) {
+      line(0, -0.86, 0, -0.70, headlight, 1.5, 8); // nose sensor
+      line(0.14, -0.12, 0.67, 0.53, c);            // leading edges
+      line(-0.14, -0.12, -0.67, 0.53, c);
+      line(0.28, 0.34, 0.62, 0.72, c);             // outer panel joins
+      line(-0.28, 0.34, -0.62, 0.72, c);
+    },
+    raised({ solid }, c) {
+      // A RECTANGLE, and INSET: the fuselage is 0.095 half-width at the cabin's
+      // nose end and 0.119 at its tail, so body shows on both flanks along its
+      // whole length and the hull's taper reads past it. It is 5.8px wide at
+      // this size, close enough to the fuselage outline that bloom will merge
+      // the two on the road — a gallery-scale detail, kept because that is the
+      // scale this catalogue is authored at. The session that gave this hull its
+      // type LOOKED at widening the midsection (0.12 -> ~0.17) to make the inset
+      // legible at 1x, and did not: this hull is 72px wide against a 65px lane
+      // and crosses the frame in a few seconds, so what the player reads it by is
+      // the short wing and the twin fins, and a fatter fuselage would cost the
+      // "the fuselage is the longest line" claim the whole silhouette is built on.
+      solid(box(-0.08, -0.64, 0.08, -0.24), c);
+      // Twin canted fins. TWO verticals rather than one, because the tail is
+      // what the player looks at longest — a plane crossing the frame is
+      // leaving for most of the time it is on screen.
+      solid([[0.24, 0.40], [0.38, 0.36], [0.45, 0.86], [0.29, 0.86]], c, CAR_FILL_HIGH);
+      solid([[-0.24, 0.40], [-0.38, 0.36], [-0.45, 0.86], [-0.29, 0.86]], c, CAR_FILL_HIGH);
+      // NO WINGTIP PYLONS. They were drawn, at 0.56-0.66, and removed: that
+      // leaves a 4px gap to the fins at this size, and carshapes.js's header is
+      // explicit that two marks a few px apart bloom into one. The fins are the
+      // tail group's mark; a second one beside them subtracts.
+    },
+    top({ line }, c) {
+      line(0.27, 0.56, 0.42, 0.54, c); // fin roots
+      line(-0.27, 0.56, -0.42, 0.54, c);
+    },
+  },
+
+  {
+    name: "MANTA",
+    pitch: "tailless — the trailing edge cuts BACK IN, no fin anywhere",
+    size: [86, 70],
+    hover: { drop: 74, scale: 0.50 },
+    // THE ONLY CONCAVE OUTLINE IN THE GAME. Every other hull in all four
+    // catalogues is convex; this one's trailing edge turns forward between the
+    // tip and the centre stub, so the silhouette has a notch cut out of each
+    // side. That is the whole aircraft — there is no separate wing in low(),
+    // the fuselage is blended into it and drawn as raised detail on top, which
+    // is why this profile spends nine of the twelve points the header allows
+    // where the delta above spends six.
+    //
+    // WIDER THAN IT IS TALL (86 x 70), which nothing on the road is either. Two
+    // independent reads, both from the outline alone — and it has to be the
+    // outline, because with no fin this is the flattest hull in the game and
+    // has nothing standing up to be recognised by. Do not shrink it.
+    profile: [
+      [0, -1.00], [0.18, -0.74], [0.50, -0.24], [0.86, 0.30], [1.00, 0.66],
+      [0.90, 0.80], [0.46, 0.40], [0.16, 0.70], [0, 0.66],
+    ],
+    // The burners fire INTO the notch rather than past a tail — there is no
+    // tail for them to pass. Hence a `y2` inside 1.0, unlike the delta's.
+    exhaust: [0.21, 0.60, 0.90],
+    thrustWide: true,
+    overhang: { x: 1.04 }, // the tip pylons, just past the profile's own 1.00
+    flat({ line }, c, thrust, headlight) {
+      line(0, -0.96, 0, -0.88, headlight, 1.5, 8); // clear of the spine at -0.86
+      line(0.19, -0.70, 0.84, 0.28, c);            // leading edges
+      line(-0.19, -0.70, -0.84, 0.28, c);
+      line(0.88, 0.74, 0.50, 0.40, c);             // the notch, outer half
+      line(-0.88, 0.74, -0.50, 0.40, c);
+      line(0.44, 0.44, 0.20, 0.66, c);             // and inner, back to the stub
+      line(-0.44, 0.44, -0.20, 0.66, c);
+    },
+    raised({ solid }, c) {
+      // The fuselage as a RAISED SPINE on the wing rather than a body the wing
+      // is bolted to. Blended is the point: at the outline it has already
+      // stopped being a separate object.
+      solid([
+        [0, -0.86], [0.13, -0.66], [0.15, 0.18], [0.10, 0.46],
+        [-0.10, 0.46], [-0.15, 0.18], [-0.13, -0.66],
+      ], c);
+      solid([[0.17, -0.30], [0.30, -0.20], [0.31, 0.34], [0.18, 0.40]], c, CAR_FILL_HIGH);
+      solid([[-0.17, -0.30], [-0.30, -0.20], [-0.31, 0.34], [-0.18, 0.40]], c, CAR_FILL_HIGH);
+      solid([[0, -0.62], [0.11, -0.48], [0.10, -0.24], [0, -0.16], [-0.10, -0.24], [-0.11, -0.48]], c);
+      // Tip pylons, at 0.84-0.94 rather than on the tip itself: the leading
+      // edge is still climbing out there, and any further out the box pokes
+      // through it. Far enough from the engine humps at 0.31 to survive the
+      // merge the delta's pylons did not.
+      // The `pair()` the staging catalogue used, emitted twice by hand.
+      solid(box(0.84, 0.54, 0.94, 0.70), c, CAR_FILL_HIGH);
+      solid(box(-0.94, 0.54, -0.84, 0.70), c, CAR_FILL_HIGH);
+    },
+    top({ line }, c) {
+      for (const y of [-0.06, 0.14]) {
+        line(0.21, y, 0.28, y, c); // hump ribs
+        line(-0.21, y, -0.28, y, c);
+      }
+    },
+  },
 ];
 
 // Look a shape up by name. Car types (cartypes.js) select their silhouette

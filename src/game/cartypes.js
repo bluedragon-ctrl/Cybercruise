@@ -164,7 +164,7 @@
 //
 // SPRITE-CACHE BUDGET. Every distinct (shape, color, thrust, w, h) is a cache
 // key in sprites.js, times WHEEL_FRAMES (8), plus one colour for the
-// critical-hull blink: 22 types * 8 * 2 = 352 sprites at worst, built lazily. A
+// critical-hull blink: 24 types * 8 * 2 = 384 sprites at worst, built lazily. A
 // `staged` type costs what any other does — the cache is keyed on artwork, and
 // the gunship's is built the first time its encounter rolls.
 // Keeping the catalogue a small FIXED list is what bounds this: vary cars by
@@ -306,7 +306,7 @@ export const FOCUS = [];
 //               every neutral type nothing; name a profile to override
 //   airborne    TRUE means this thing FLIES, and it is the one field here that
 //               changes what a car IS rather than how it drives. It says one
-//               thing — THIS BODY IS NOT IN THE ROAD PLANE — and four systems
+//               thing — THIS BODY IS NOT IN THE ROAD PLANE — and five systems
 //               each read it once to say what that costs:
 //                 traffic.js      keeps it out of the ramming solver and off the
 //                                 tarmac clamp, and mirrors it onto the body as
@@ -315,6 +315,9 @@ export const FOCUS = [];
 //                                 rather than round them
 //                 projectiles.js  refuses it to any round that is not SEEKING
 //                 collisions.js   inBlastPlane, which the three blast sweeps ask
+//                 obstacles.js    leaves it out of WIDEST_CAR, so a wing the road
+//                                 never has to let past does not widen the gap
+//                                 every hazard field must leave
 //               The third is the point of the flag — see the gunship record for
 //               why ALTITUDE, not lateral position, is what decides which
 //               weapons can touch it
@@ -1792,7 +1795,7 @@ export const CAR_TYPES = [
     // ahead of the rival's 300 because this one costs consumables to reach.
     value: 400,
     bounty: 50,
-    // FLYING. See the field table above for the three places this is read; the
+    // FLYING. See the field table above for the five places this is read; the
     // header of this record for what it is FOR.
     airborne: true,
     // Never rolled — the `airstrike` encounter (eventtypes.js) is the only thing
@@ -1806,6 +1809,229 @@ export const CAR_TYPES = [
                          // no mine layer. A thing that never touches the tarmac
                          // has nothing to lay a mine on (armament.js)
     driving: "gunship",
+  },
+
+  {
+    // THE FIGHTER. The gunship's own rule — up is a place things can be, and
+    // your default gun does not reach it — carried by something that does the
+    // OPPOSITE with it. The gunship HOLDS: it station-keeps ahead of the player
+    // and the encounter lasts as long as the drone does. This crosses the frame
+    // once, drops one salvo on its way through, and is gone. It is not trying to
+    // stay, it cannot be made to turn round, and killing it is optional.
+    //
+    // WHICH IS THE POINT, and it is the one thing to hold on to before retuning
+    // anything below: this is WEATHER, not an encounter. It is rolled by the
+    // ambient spawner like any other hostile rather than staged by a director
+    // (no `staged`, a real `weight`), so it can cross during a gang, a blockade,
+    // a boss fight, or an empty road, and the player's answer to it is the same
+    // in all four — read the marks, leave the pattern, and get on with whatever
+    // they were already doing. An `airstrike` entry in eventtypes.js would have
+    // announced it with a banner and cleared the road for it, which is exactly
+    // the wrong frame for a thing that is passing through.
+    //
+    // AND THE BOUNTY IS THE OTHER HALF OF THAT. The player is never REQUIRED to
+    // shoot one — it leaves on its own either way — so the payout has to make
+    // going after it a choice worth making. See `bounty` below, and armament.js's
+    // `release` window for the second, better prize: an aircraft killed inside
+    // that window never drops its bombs at all.
+    id: "fighter",
+    label: "FIGHTER",
+    // Authored in bossshapes.js as STRIKE DELTA and graduated into carshapes.js
+    // the day this record was written, alongside the MANTA below — the seventh
+    // and eighth hulls to come across, and the first PAIR to do it together.
+    // The hull keeps its authored name and the player sees this `label`, exactly
+    // as the gunship above wears ARMORED QUAD and is called COMBAT DRONE.
+    shape: carShapeIndex("STRIKE DELTA"),
+    faction: ENEMY_FACTION,
+    // The shape's own authored size, unchanged. Wider than a 65px lane, which
+    // nothing but the mortar and the barge manages, and it is drawn in the AIR
+    // pass over the top of whatever is in that lane — the two together are most
+    // of what sells the altitude in the few seconds this is on screen.
+    w: 72,
+    h: 78,
+    // TWO ROCKETS EXACTLY, against the gunship's four. The rocket does 98
+    // (weapons.js), so 196 is two rounds with nothing wasted and one (98)
+    // comfortably short.
+    //
+    // THE WINDOW IS WHAT SETS THIS, not any judgement about how tough a fighter
+    // plane ought to be. armament.js's `release` gives the player about 1.4
+    // seconds between this passing over them and its bombs leaving, and the
+    // rocket reloads in 0.35s — so a player who was already holding the trigger
+    // gets two or three launches away inside it. Four rockets' worth of hull
+    // would mean the kill was never actually available and the bounty was a lie;
+    // one would mean it happened by accident.
+    health: 196,
+    // NEVER READ — an airborne body is not handed to collisions.js at all. See
+    // the gunship's own note above for why the figure is stated rather than
+    // omitted.
+    mass: 1,
+    // 800, AND THE WHOLE PASS IS BUILT ON IT. +180 over the player's own 620
+    // ceiling (player.js), which is what makes this the fastest thing in the
+    // catalogue and what times every other number in the encounter: it crosses
+    // the 800px frame in about 4.4 seconds, and covers armament.js's release
+    // window in 1.4 of them.
+    //
+    // BOUNDED FROM ABOVE BY THE ROCKET, exactly as the gunship's steerSpeed is
+    // and for the same reason — the rocket is the ONLY weapon allowed to reach
+    // an airborne body, so a plane it cannot catch could not be killed by
+    // anything at all. The rocket leaves the rail at the player's speed + 320
+    // and burns to + 1200 (weapons.js), so it is already gaining 140 units/sec
+    // on this at the muzzle and over a thousand once lit. A comfortable margin
+    // rather than a fight, and meant to be: what rations this kill is the
+    // WINDOW, not the chase.
+    //
+    // AND OVERDRIVE IS THE ONE THING THAT CHANGES THE FIGHT. A boosted player
+    // runs at 820 (pickuptypes.js's BOOST, twelve seconds), which is faster than
+    // this — so a player on a crate meets a fighter that never gets ahead of
+    // them, never reaches its release window, and never drops anything. That
+    // falls out of the arithmetic rather than being coded anywhere, and it is
+    // the best kind of answer for a threat like this to have.
+    //
+    // THE CRUISE BAND SITS AT THE CEILING, unusually — 780-800 against a hard
+    // 800 — for a mechanical reason as well as a character one: traffic.js's
+    // spawner puts a car SLOWER than the player ahead of them and a faster one
+    // BEHIND, and this whole tactic is a pass from behind. A band that dipped
+    // under the player's 620 would sometimes spawn the aircraft ahead, where it
+    // simply flies away up the road and is never seen again.
+    // ZERO, LIKE THE GUNSHIP'S, and for a sharper version of its reason. The
+    // floor is the speed at which a type stops being able to HOLD STATION on
+    // the player (see the speed-band section of the README, and the four bikes
+    // that share the only floor in the catalogue). This holds station on
+    // nobody: `flyover` asks for `speedMax` on every tick it is alive and
+    // nothing in the game ever asks this car for less, so a floor here would be
+    // a number with no reader inventing a fifth meaning for the field.
+    speedMin: 0,
+    cruiseMin: 780,
+    cruiseMax: 800,
+    speedMax: 800,
+    // ACROSS THE FRAME, NOT AROUND THE PLAYER, and this is the one figure here
+    // that was set by LOOKING at it rather than by arithmetic. `flyover` picks
+    // one lateral target on its first tick — the flight limit on the far side of
+    // the player — and holds it for life, so what this number decides is how
+    // much of the pass is spent CROSSING.
+    //
+    // 220 (the gunship's own order of magnitude) was tried first and is wrong:
+    // the aircraft covers the ~270px from a lane to the far limit in 1.2 of its
+    // 4.4 seconds on screen and then flies straight up the frame parked over the
+    // roadside, which reads as an aircraft flying ALONGSIDE the road rather than
+    // over it. 110 spends about 2.4 seconds of the same pass crossing, so the
+    // diagonal is still being drawn for most of the time the player can see it
+    // and the aircraft reaches the far side about as it leaves the frame.
+    //
+    // A LOWER BOUND AS WELL AS AN UPPER ONE, both pinned in test/hazards.test.js:
+    // it must be able to finish the crossing inside the pass, and it must not
+    // finish it in the first third.
+    steerSpeed: 110,
+    // NO BLAST, like the gunship and for the identical reason: nothing at road
+    // level reaches the air, so the air does not reach the road either. See that
+    // record for the falling-wreck alternative and why it was dropped.
+    blastRadius: 0,
+    blastDamage: 0,
+    // ABOVE THE GUNSHIP'S 400/50, and priced the same way — against the
+    // AMMUNITION, which no ground type has to be. Two rockets is ~5.5 CR at the
+    // shop's 50-for-18 (upgrades.js), so 90 pays about sixteen times what the
+    // kill costs to make. That looks generous beside the gunship's 100-for-11
+    // and is deliberate: the gunship will hold station and wait to be shot at,
+    // and this will not. The player is paying for READINESS — rockets already
+    // loaded, trigger already down — in a window they get no warning of and
+    // cannot extend.
+    value: 500,
+    bounty: 90,
+    airborne: true,
+    // DIST 2500. Past the bunker boss's 2000 and the air wing's 2200, short of
+    // the skirted barge's 3000: the late road, where the rocket is a settled
+    // habit rather than a lesson, and where the player has met enough barrage
+    // marks (the mortar's, at 1200) to read a ring on the tarmac without being
+    // taught it again.
+    minDistance: 2500,
+    // RARE, LIKE EVERY LATE ARRIVAL. Level with the sower's own 0.5 and well
+    // under the standard hostile's 2 — a fighter pass should be a thing that
+    // happens to a run, not a fixture of it. It also shares the ambient draw
+    // with the road train (0.2) and the rival (0.3), the only other types this
+    // late, against a MAX_CARS of 8 that every encounter thins further
+    // (eventtypes.js's `density`) — so the road cannot spend much on any of the
+    // three.
+    weight: 0.5,
+    behaviour: "flyover", // one diagonal pass, flat out, no hold (behaviours.js)
+    arms: "fighter",      // one straddle of three shells, released once it is
+                          // ahead of the player (armament.js)
+    // THE EMPTIEST PROFILE IN driving.js, and shared with the MANTA below.
+    // `flyover` reads NOTHING off `car.drive` — no following gap, no lane
+    // discipline, no pass effort, no hold — so the row exists to STATE the two
+    // fields traffic.js rolls for every car whatever its tactic. See it for why
+    // a table of two zeroes is worth writing down.
+    driving: "fighter",
+  },
+
+  {
+    // THE MANTA. The FIGHTER's own pass, later and heavier, and the one
+    // difference that matters is what it drops: three sticks laid ALONG the road
+    // instead of one straddle ACROSS it, so the dodge is a change of LANE where
+    // the fighter's is a change of SPEED (armament.js's two axes). The two are
+    // the same tactic and nearly the same row; they teach opposite reflexes.
+    //
+    // WHY A SECOND TYPE RATHER THAN A HARDER FIRST ONE: the escalation the road
+    // already knows (`gang` into `swarm`, `airstrike` into `airwing`) is MORE OF
+    // THE SAME THREAT AT ONCE, and three fighters would have been exactly that.
+    // This asks a different question instead, which is what earns a hull, a row
+    // and a thousand units of gate rather than a count.
+    id: "manta",
+    label: "MANTA",
+    // Graduated from bossshapes.js with the STRIKE DELTA above — see that
+    // record. The only hull in the game whose outline is CONCAVE, and the only
+    // one wider than it is tall; both are argued in carshapes.js, and both exist
+    // so this reads as a different aircraft from the fighter in the second the
+    // player has to tell them apart.
+    shape: carShapeIndex("MANTA"),
+    faction: ENEMY_FACTION,
+    w: 86,
+    h: 70,
+    // THREE ROCKETS EXACTLY (294 against the rocket's 98), one more than the
+    // fighter. Same arithmetic as that record's: this one's release window is
+    // 1.7 seconds rather than 1.4, and it is on screen longer because it flies
+    // slower, so the extra round is the window paying for itself.
+    health: 294,
+    mass: 1,
+    // 780, TWENTY UNDER THE FIGHTER — the bigger aircraft is the slower one,
+    // which is also what buys it the longer window its three salvos need (+160
+    // over the player against the fighter's +180). Everything that record's own
+    // speed note says about the rocket's margin, about overdrive being the
+    // answer, and about why the cruise band sits at the ceiling applies here
+    // unchanged and is not repeated.
+    speedMin: 0, // the fighter's reasoning, unchanged
+    cruiseMin: 760,
+    cruiseMax: 780,
+    speedMax: 780,
+    // Lazier across the frame than the fighter's 110: 86px of wing does not
+    // change direction like a delta, and the diagonal it draws is correspondingly
+    // slower — which is the read the hull was drawn for. It has the longer pass
+    // to spend on it, so the fraction of the crossing the player sees is much
+    // the same.
+    steerSpeed: 95,
+    blastRadius: 0,
+    blastDamage: 0,
+    // THE BIGGEST BOUNTY ON ANYTHING THAT IS NOT A BOSS, priced the same way as
+    // the fighter's: three rockets is ~8 CR of ammunition, so 140 pays about
+    // seventeen times the cost. Above the road train's 75 and the gunship's 50
+    // because it is the hardest OPTIONAL kill on the road — the player has 1.7
+    // seconds, no warning, and has to have brought the one weapon that reaches
+    // it.
+    value: 800,
+    bounty: 140,
+    airborne: true,
+    // DIST 3500, a thousand past the fighter's own gate and between the skirted
+    // barge (3000) and the catamaran (4000). Far enough that the fighter is a
+    // familiar shape by the time this arrives wearing a different one, which is
+    // the whole reason the two hulls were drawn as opposite ends of one question
+    // (carshapes.js).
+    minDistance: 3500,
+    // RAREST OF THE THREE LATE ARRIVALS, under the fighter's 0.5 and the rival's
+    // 0.3, level with the road train's 0.2 — the last figure the ambient draw
+    // spends, on the last thing it adds.
+    weight: 0.2,
+    behaviour: "flyover",
+    arms: "manta",
+    driving: "fighter", // the fighter's own, shared — see that record
   },
 ].map(liveried);
 

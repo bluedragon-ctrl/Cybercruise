@@ -1125,6 +1125,64 @@ function patrol(car, dt, world) {
   car.targetOffset = Math.max(-limit, Math.min(limit, swept));
 }
 
+// --- Flying through ------------------------------------------------------------
+//
+// The fighter planes (cartypes.js's FIGHTER and MANTA) — the second airborne
+// tactic, and the opposite of the first. `patrol` HOLDS: it station-keeps ahead
+// of the player and sweeps, and the encounter lasts as long as the gunship does.
+// This one is a PASS. It comes up from behind at a speed the player cannot match,
+// crosses the frame on a diagonal, and leaves over the top for good. It never
+// engages, never turns round, and cannot be fought in the sense the rest of this
+// file means the word — the player's whole opportunity is the few seconds it
+// spends in front of them.
+//
+// TWO LINES OF INTENT, AND NEITHER IS NEGOTIABLE, which is what makes this the
+// shortest hostile tactic here:
+//
+//   FLAT OUT, ALWAYS. `car.type.speedMax` directly rather than through
+//   `overtake` (which is what `flee` asks for the sower's getaway): overtake
+//   brakes for whatever is ahead and steers round it, and this thing is not in
+//   the road plane at all — braking for a bus it is thirty metres above would
+//   read as the aircraft noticing traffic, which is the one impression
+//   cartypes.js's `airborne` exists to prevent.
+//   ACROSS TO THE FAR SIDE. The plane picks, on its first tick, the flight limit
+//   OPPOSITE the side of the player it entered on, and holds that target for
+//   life. The result is a diagonal track over the player's own line rather than a
+//   straight run up a lane — the difference between an aircraft crossing the
+//   frame and a very fast car overtaking, and it costs one stashed field.
+//
+// THE TRACK IS NOT A SWEEP, and that is a deliberate difference from `patrol`'s
+// sine. A weave says "this is hunting you"; a straight line says "this is going
+// somewhere else and you happen to be under it", which is what these two are.
+// It also has a mechanical price the sine would not pay: the rocket is the only
+// weapon that can touch an airborne body (cartypes.js), and a plane holding one
+// line for its whole pass is a plane a seeker can actually catch. Making these
+// weave would quietly make them unkillable, which the bounty on both rows says
+// they must not be.
+//
+// THE LIMIT IS `patrol`'s OWN, FLIGHT_MARGIN and all — see it above. Sharing it
+// is the point: both airborne tactics answer to the frame rather than to the
+// barriers, and two copies of that arithmetic could disagree.
+//
+// NOTHING HERE DECIDES WHEN THE BOMBS FALL. That is the battery's own `release`
+// window (armament.js), which is a range and not a manoeuvre — see it for why the
+// drop happens once the plane is AHEAD of the player rather than as it passes
+// overhead.
+function flyover(car, dt, world) {
+  // Flat out whatever else is true, including with no player to cross: a plane
+  // in an empty world still flies through rather than parking.
+  car.targetSpeed = car.type.speedMax;
+
+  const target = world.playerBody;
+  if (!target) return;
+
+  const limit = world.W / 2 - FLIGHT_MARGIN - car.w / 2;
+  // Chosen ONCE, on the first tick that has a player, and never revisited — a
+  // plane that recomputed this would turn round mid-pass every time the player
+  // crossed under it.
+  car.crossTo ??= car.offset <= target.offset ? limit : -limit;
+  car.targetOffset = car.crossTo;
+}
 // --- Strewing -----------------------------------------------------------------
 //
 // The sower (the GLIDE trike, and its trunk is why it is this hull that carries
@@ -1230,11 +1288,16 @@ const BEHAVIOURS = {
                                             // no gun to hold it for, shelling
                                             // the road ahead of the player
                                             // instead of shooting back at them
-  patrol: { drive: patrol, arms: true },    // the gunship's, and the only one
-                                            // flying: `outrun`'s hold with
+  patrol: { drive: patrol, arms: true },    // the gunship's, the first of the
+                                            // two flying: `outrun`'s hold with
                                             // `strafe`'s sweep, both measured
                                             // against the frame rather than
                                             // against the road
+  flyover: { drive: flyover, arms: true },  // the fighter planes', the second:
+                                            // one diagonal pass across the
+                                            // frame at the type's ceiling, no
+                                            // hold and no sweep, dropping its
+                                            // barrage on the way through
 };
 
 // Every manoeuvre the road knows. Exported for test/hazards.test.js, which
@@ -1259,8 +1322,8 @@ export function driveCar(car, dt, world) {
   // mines, spike strips and roadblocks rather than round them, so the reflex has
   // nothing to save it from — and running it anyway would have the gunship veer
   // away from a hazard on the road below it, which is the one manoeuvre that
-  // would tell the player it was not really flying. One of the three places `airborne` is
-  // read; the field table in cartypes.js lists all three.
+  // would tell the player it was not really flying. One of the five places
+  // `airborne` is read; the field table in cartypes.js lists all five.
   if (!car.type.airborne) avoidHazards(car, world);
   if (tactic.arms && car.arms) useArms(car, world);
 }
