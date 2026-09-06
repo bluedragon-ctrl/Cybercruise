@@ -885,7 +885,7 @@ the simulation:
 | file | |
 | --- | --- |
 | `game/cartypes.js` | **the catalogue.** A type is pure data: silhouette, colours, size, hull, speed band, steering, blast, spawn weight, `minDistance`, and the names of its tactic and driving profile. New traffic = a new entry here |
-| `game/carshapes.js` | the silhouettes, 1:1 with the catalogue and pinned both ways by `test/road-and-caches.test.js`. Siblings: `cycleshapes.js` for the bike hulls, `bossshapes.js` for finished artwork that has no type yet, held outside the pairing until one exists — hulls graduate OUT of it one at a time as types are written for them (the siege mortar, then the gunship, then the bunker trailer), and IN when a hull is drawn ahead of its enemy (the two FIGHTER PLANE deltas) |
+| `game/carshapes.js` | the silhouettes, 1:1 with the catalogue and pinned both ways by `test/road-and-caches.test.js`. Siblings: `cycleshapes.js` for the bike hulls, `bossshapes.js` for finished artwork that has no type yet, held outside the pairing until one exists — hulls graduate OUT of it as types are written for them (the siege mortar, then the gunship, then the bunker trailer, and most recently the two FIGHTER PLANE hulls, the only pair to cross together), and IN when a hull is drawn ahead of its enemy, which is how those two arrived |
 | `game/behaviours.js` | the manoeuvres. A tactic sets only INTENT (`targetOffset`, `targetSpeed`); `traffic.js` integrates it under the type's limits, so a rig can't corner like a roadster and the physics stay in one place |
 | `game/driving.js` | the driving **profiles**: the numbers behind a tactic — following distance, patience, lane discipline, how much hull a driver will accept spending |
 | `game/traffic.js` | spawning, driving, dying, retiring, drawing |
@@ -902,15 +902,16 @@ silhouette shared with the player is given to an enemy — your own outline in r
 reads as a rival.
 
 `behaviours.js`'s tactic table lists every manoeuvre with a one-line summary,
-including what the compositions (`duel`, `strafe`, `outrun`, `strew`, `patrol`)
-compose. Its header explains why a tactic may be stateful, and what the three
-stages — tactic, reflex, arms — run in that order for.
+including what the compositions (`duel`, `strafe`, `outrun`, `strew`, `patrol`,
+`flyover`) compose. Its header explains why a tactic may be stateful, and what
+the three stages — tactic, reflex, arms — run in that order for.
 
 ### The air
 
-One type in the catalogue is not on the road. The **gunship** carries
-`airborne`, and that flag says exactly one thing — *this body is not in the road
-plane* — which four systems each read once to say what it costs:
+Three types in the catalogue are not on the road. The **gunship** and the two
+**fighter planes** carry `airborne`, and that flag says exactly one thing —
+*this body is not in the road plane* — which five systems each read once to say
+what it costs:
 
 | | |
 | --- | --- |
@@ -918,6 +919,7 @@ plane* — which four systems each read once to say what it costs:
 | `behaviours.js` | no hazard reflex — it flies over mines rather than round them |
 | `projectiles.js` | **no round may reach it but a SEEKING one** |
 | `collisions.js` | `inBlastPlane`, which the three blast sweeps ask |
+| `obstacles.js` | out of `WIDEST_CAR`, so a wing that never has to fit through a gap does not widen the one every hazard field must leave |
 
 The third is the point. A straight round buries itself in a barrier at road
 level and a tracking round holds the lane it was fired up, so neither ever
@@ -954,6 +956,44 @@ that weapon (`test/events.test.js` pins it); and its `duration` of 80 is ~13
 seconds at the player's ceiling, against a measured ~2-second kill for someone
 who actually has rockets loaded. That gap is deliberate — it is the room to
 notice it, switch weapons and wait for a shot, or to simply survive it.
+
+#### The flypast — FIGHTER and MANTA
+
+The gunship HOLDS. The two fighter planes are the opposite reading of the same
+flag: they cross the frame once at a speed the player cannot match, drop a
+barrage on the way through, and leave for good. `behaviours.js`'s **`flyover`**
+is the whole manoeuvre — the type's ceiling on every tick, and one lateral
+target picked on the first one (the flight limit on the far side of the player,
+held for life, which is what makes the track a diagonal rather than a run up a
+lane). No weave, deliberately: a straight line reads as *going somewhere else*,
+and it is also the only thing that keeps a seeker able to catch them.
+
+**They are weather, not encounters.** Neither is `staged` — both are ambient
+rolls past their own gate (FIGHTER at DIST 2500, MANTA at 3500), so a pass can
+happen during a gang, a blockade, a boss fight or an empty road. An
+`airstrike`-style entry would have announced one with a banner and thinned the
+road for it, which is the wrong frame for something that is not stopping.
+
+**When the bombs fall is a `release` window**, and it is the one exception to
+`armament.js`'s otherwise absolute "no range gate on indirect fire" (which is a
+rule about a *boss*, and does not survive being carried past the player at 800
+units/sec). The window is stated as how far AHEAD the aircraft must be, and its
+far edge is clamped to the road the player can actually see. What that buys is
+the encounter's only moment of agency: after it passes and before it drops, the
+aircraft is in front, visible, and still loaded — and the player's forward-firing
+rocket can reach it. **Kill it there and the barrage never happens**, which is a
+better prize than the bounty. Both hulls are a whole number of rockets (two and
+three) precisely because the window is measured in single reloads.
+
+The pair differs in one thing that matters: the FIGHTER throws a **straddle**
+across the road (dodge by changing SPEED) and the MANTA throws three **sticks**
+along it (dodge by changing LANE), each re-aimed at where the last dodge took
+the player. They teach opposite reflexes rather than being the same enemy twice.
+
+And **overdrive is a complete answer to both**, which falls out of the
+arithmetic rather than being coded anywhere: a boosted player runs at 820,
+faster than either plane, so neither ever gets ahead, reaches its window, or
+drops anything at all.
 
 ### Ramming
 
@@ -1097,6 +1137,8 @@ The cruise band is pinned to both ends of the player's own 100–620:
 | sower | 640–700 | 200 | lays its strip and leaves, and the band is why it can |
 | mortar | 640–730 | 0 | the first boss |
 | bunker | 640–730 | 0 | the second boss — the mortar's own band, reused |
+| manta | 760–780 | 0 | flies past; the band is what makes it a pass |
+| fighter | 780–800 | 0 | the fastest thing on the road, and the other flypast |
 
 **Only four types have a floor at all**, and they share one number. A hostile
 holds station only on a player it can *match*, so its floor is the speed at which
@@ -1110,10 +1152,10 @@ against this type".
   loses its firing line, the cycle is forced by with its mine undropped, the
   outrunner and the sower pull away up the road.
 - **0** — everything else, hostile and civilian alike. Braking is not an answer
-  to the interceptor, stocker, rival, bruiser, either boss or the gunship, which
-  is what stops "slow down" being the answer to everything. And every civilian
-  still stops dead for a roadblock and still brakes behind a rig, exactly as
-  before the field existed.
+  to the interceptor, stocker, rival, bruiser, either boss, the gunship or either
+  fighter plane, which is what stops "slow down" being the answer to everything.
+  And every civilian still stops dead for a roadblock and still brakes behind a
+  rig, exactly as before the field existed.
 
 Two things about those numbers were measured rather than chosen, and both look
 reasonable when wrong. **The second group is 0 rather than the player's own 100**

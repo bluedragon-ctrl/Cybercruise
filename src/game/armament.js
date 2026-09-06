@@ -352,7 +352,8 @@ const CATAMARAN_BATTERY = {
 };
 const CATAMARAN_KIT = { gun: null, layer: null, battery: CATAMARAN_BATTERY };
 
-// THE ROAD TRAIN'S KIT — not a boss, and the last hostile the catalogue adds.
+// THE ROAD TRAIN'S KIT — not a boss, and the last kit the catalogue adds for
+// anything on the tarmac (the two below fly).
 // ENEMY_TWIN_SMG (weapons.js) IS THE SKIRTED BARGE'S OWN GUN, named again
 // rather than duplicated: nothing about firing a pair of SMG rounds instead
 // of one is specific to `outrun`'s hold, and reusing the type by reference
@@ -373,6 +374,129 @@ const CATAMARAN_KIT = { gun: null, layer: null, battery: CATAMARAN_BATTERY };
 // rival's own one deliberate round on the way past.
 const ROAD_TRAIN_KIT = { gun: ENEMY_TWIN_SMG, layer: MINE_LAYER };
 
+// --- The fighter planes -------------------------------------------------------
+//
+// TWO BATTERIES THAT ARE NOT ARTILLERY. Everything else carrying one of these is
+// a boss holding station and shelling the road ahead of it; these are carried
+// THROUGH the frame at 800 units/sec by something that will not come back (see
+// behaviours.js's `flyover`). Three fields do the whole of that difference, and
+// none of them is new code:
+//
+//   `ammo`      A MAGAZINE INSTEAD OF THE BOSS'S INFINITY, and the aircraft's
+//               whole life is its magazine. `Weapon.ready` is `cooldown <= 0 &&
+//               !empty`, so one round means one salvo and then a plane with
+//               nothing left to do but leave.
+//   `phases`    A ONE-ENTRY TABLE, so the shot count does NOT escalate with
+//               damage. A plane is on screen for a few seconds and is not
+//               expected to be killed at all; keying its salvo to a hull the
+//               player mostly never touches would be an escalation nobody would
+//               ever see. It also keeps the hull meter's notches off both hulls
+//               (traffic.js reads the same table), which is right — neither of
+//               these is a boss.
+//   `release`   WHEN, in the only terms a pass has — see fireBarrage's own note.
+//
+// SEPARATE OBJECTS, NOT ONE SHARED BY REFERENCE, for the reason TWIN MISSILE and
+// the catamaran's own battery both give: retuning one carrier's attack must
+// never quietly retune another's.
+//
+// THE FUSE IS THE SHARED 1.25 ON BOTH, and it matters MORE here than it does for
+// a boss, not less: the aircraft that dropped these is usually gone by the time
+// they land, so the mark on the tarmac is the entire warning. shells.js draws it
+// where the shell will land rather than where it came from, which is what makes
+// a bomb from something already off the top of the screen fair.
+
+// THE FIGHTER'S — ONE STRADDLE, and that is the entire encounter. Three shells
+// just under a lane apart (BATTERY's own `spread`, and see its note) bracket the
+// player's lane and both neighbours, so a lane change alone does not clear the
+// pattern and the dodge is a change of SPEED. The boss reaches that pattern only
+// in its last phase, having taught it with one shell and then two; this drops it
+// cold on a player at DIST 2500 who has met the mortar and the catamaran and
+// knows exactly what a ring on the road means.
+//
+// `interval` IS VERY NEARLY DECORATION at `ammo: 1` — the same note SPIKE_LAYER
+// carries — but it is the boss's own 3.4 rather than 0, because a plane that
+// somehow lived to reload should not empty two salvos into the same second.
+const FIGHTER_BATTERY = {
+  id: "fighterbattery",
+  label: "BOMBS",
+  interval: 3.4,
+  ammo: 1,
+  fuse: 1.25,
+  blastRadius: 72,
+  blastDamage: 55,
+  spread: 52,
+  phases: [{ above: 0, shells: 3, interval: 3.4, mines: false }],
+  // AHEAD, AND INSIDE THE ROAD THE PLAYER CAN SEE — and `min` is the edge that
+  // does the work. The aircraft arrives from BEHIND, so its lead runs up through
+  // zero as it passes: it meets 260 first and drops there, and 480 is only the
+  // backstop for a player who slowed (the ~496 of road visible ahead at the
+  // player's own screen position is what the visibleRoad clamp in fireBarrage
+  // holds it under in every case).
+  //
+  // 260 IS THE WINDOW ITSELF, and it is the number to move if this encounter
+  // feels wrong. At the +180 units/sec this type closes with an unboosted player
+  // it is 1.4 seconds between passing over them and releasing — long enough that
+  // the aircraft is visibly ahead, in the player's gunsight, and has not dropped
+  // yet, which is the whole of what a fighter plane offers as a fight. Two
+  // rockets kill it (cartypes.js) and the rocket covers that gap in well under a
+  // second, so the kill is available to a player who was ready and to nobody
+  // else. Lower it and the bombs are away before the player can answer; raise it
+  // and the drop happens up at the top of the frame where the marks are no
+  // longer near them.
+  release: { min: 260, max: 480 },
+};
+const FIGHTER_KIT = { gun: null, layer: null, battery: FIGHTER_BATTERY };
+
+// THE MANTA'S — THREE STICKS, AND THE OPPOSITE DEMAND. `spread: 0` with a
+// `spreadAlong` is the pure STICK (fireBarrage's own note on the two axes): two
+// shells ahead of and behind the aim point in the SAME line, so braking and
+// flooring it both arrive somewhere in the pattern and the dodge is a change of
+// LANE — the exact inverse of the FIGHTER's straddle. The two planes are one
+// tactic and one hull silhouette apart on purpose, and this is the difference
+// that matters: they teach opposite dodges rather than being the same enemy
+// twice at two distances.
+//
+// 140 ALONG, against a 72 blast radius: the two rings very nearly touch without
+// merging, so the stick reads as two marks in a line rather than as one long
+// smear, and the gap between them is not a gap you can sit in.
+//
+// THREE SALVOS, 0.55 APART, EACH RE-AIMED. The lead is recomputed per salvo
+// (fireBarrage's `aimY`), so the second stick lands on where the dodge from the
+// first one took the player and the third on the dodge from that. What looks
+// like a scattered carpet is nothing of the kind — every shell is aimed, and the
+// scatter is the PLAYER'S own movement written onto the road. Bombing genuinely
+// random points was the alternative and was dropped for the obvious reason: a
+// bomb that was never aimed at you is a bomb you correctly ignore, and six of
+// them are screen clutter rather than an attack.
+//
+// 0.55 IS BOUNDED AT BOTH ENDS. Faster and the three sticks arrive inside one
+// 1.25s fuse, so the player is reading six marks at once and the re-aiming stops
+// meaning anything. Slower and the pass ends first: at the +160 units/sec this
+// type closes with, the 276 units of window past its own `release.min` are gone
+// in 1.7 seconds, and three salvos at 0.55 need 1.1 of them.
+const MANTA_BATTERY = {
+  id: "mantabattery",
+  label: "BOMBS",
+  interval: 0.55,
+  ammo: 3,
+  fuse: 1.25,
+  blastRadius: 72,
+  blastDamage: 55,
+  spread: 0,
+  spreadAlong: 140,
+  phases: [{ above: 0, shells: 2, interval: 0.55, mines: false }],
+  // 220 AND NOT THE FIGHTER'S 260, for one reason: this one has to fit THREE
+  // salvos inside the window rather than one. It closes at +160 (a slower type,
+  // see cartypes.js), so opening at 220 is the same 1.4 seconds after the pass
+  // that the fighter gives the player, and leaves 276 units — 1.7 seconds — of
+  // window against the 1.1 the three salvos need. `max` is stated at the road's
+  // own reach rather than under it, so the field says what this battery WANTS
+  // (every salvo it has, spent before the aircraft is out of the frame) and
+  // leaves fireBarrage's visibleRoad clamp to be the thing that guarantees it.
+  release: { min: 220, max: 520 },
+};
+const MANTA_KIT = { gun: null, layer: null, battery: MANTA_BATTERY };
+
 // Keyed BY NAME, exactly like behaviours.js's BEHAVIOURS table, so a car type
 // can name its kit in the catalogue the same way it already names its tactics.
 const ARMAMENTS = {
@@ -388,6 +512,8 @@ const ARMAMENTS = {
   battery: BATTERY_KIT,
   catamaran: CATAMARAN_KIT,
   roadtrain: ROAD_TRAIN_KIT,
+  fighter: FIGHTER_KIT,
+  manta: MANTA_KIT,
 };
 
 // The profile a car type carries, or null if it carries nothing.
@@ -567,10 +693,42 @@ export function useArms(car, world) {
 // land rather than where it came from (shells.js). A player who has run away is
 // still given their 1.25 seconds; what they have lost is the ability to shoot
 // back.
+//
+// A BATTERY MAY NAME A `release` WINDOW, and exactly one kind of carrier does:
+// the fighter planes (cartypes.js), which are not fighting the player at all.
+// Everything above is an argument about a BOSS — a thing that holds station and
+// whose barrage IS the encounter — and none of it survives being carried past
+// the player at 800 units/sec by something that will never come back. A plane
+// with no window drops its whole magazine on the tick it spawns, from off-screen
+// behind, and the first the player knows of it is the marks; there is no fight to
+// switch off by driving, because there was never a fight.
+//
+// So the window says WHEN, in the only terms the pass has: how far AHEAD of the
+// player the aircraft must be. `min` keeps it from bombing over its own shoulder
+// on the way past, and `max` is bounded by the road the player can actually SEE
+// ahead of them (visibleRoad, the same measure `shoot` uses) — so the plane is
+// always on screen and always visibly in front when the bombs leave it. Which
+// buys the encounter its one moment of agency: between passing the player and
+// reaching the near edge of that window, the aircraft is ahead, visible, and has
+// not dropped yet, and the player's forward-firing rocket can reach it. Killing
+// it there cancels the barrage outright.
+//
+// Omitting the field is the boss's own behaviour, unchanged and undiminished:
+// no gate, at any range, for the reason the paragraphs above give.
 function fireBarrage(car, arms, target, world) {
   if (!world.fireShell || !arms.battery.ready) return false;
 
   const type = arms.battery.type;
+
+  // The release window, if this battery has one — see A BATTERY MAY NAME A
+  // `release` WINDOW above. Nothing else in the catalogue names one, so every
+  // other carrier skips this entirely.
+  if (type.release) {
+    const lead = car.worldY - target.worldY; // positive while we are ahead
+    if (lead < type.release.min) return false;
+    if (lead > Math.min(type.release.max, visibleRoad(world, -1))) return false;
+  }
+
   const phase = barragePhase(car.health / car.type.health, barrageTable(type));
 
   // THE LEAD, and the reason this weapon asks the player to change SPEED rather

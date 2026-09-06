@@ -112,6 +112,13 @@ const SPAWN_INTERVAL = 2.2;   // seconds between spawn attempts — rarer than t
 // its own hazards before the player ever saw one, and the failures were
 // dominated by exactly the type this bound is sized against.
 //
+// THE AIR IS OUTSIDE IT, like the passage rule above and for the same reason:
+// an `airborne` type flies over hazards rather than round them, so its steering
+// is not a dodge this margin has to leave room for. The fighter planes steer
+// deliberately slowly (their crossing is the whole read of the pass) and would
+// otherwise be the types this bound was sized against, having never dodged
+// anything.
+//
 // Exported and asserted in test/hazards.test.js, since the relation is
 // between three numbers in three different files.
 export const SPAWN_MARGIN = 1500; // world units past the player an obstacle appears at
@@ -166,7 +173,20 @@ const CLUSTER_WINDOW = 130;
 //   stages it runs with the hazard budget at zero, so the case only arises at
 //   all once the fight is over. A 62px vehicle not fitting everywhere a 34px
 //   one does is not a bug.
-const WIDEST_CAR = Math.max(...CAR_TYPES.filter((t) => !t.staged).map((t) => t.w));
+//
+// AND THE AIR IS LEFT OUT FOR A PLAINER REASON: an `airborne` type (cartypes.js)
+// never drives through a gap at all. It flies over the hazard — behaviours.js
+// skips its avoidance reflex outright, and collisions.js never puts it in the
+// road plane — so a promise about tarmac it cannot touch is not a promise it has
+// any use for. This matters now rather than in theory: the fighter planes are
+// 72px and 86px of wing and, unlike the bosses, they are AMBIENT. Counted here
+// they would take MIN_PASSAGE from 58 to 98 and quietly widen the guaranteed gap
+// in every minefield, roadblock and lane closure in the game, for two types that
+// have never once needed to fit through one. One of the five places `airborne`
+// is read; cartypes.js's field table lists all five.
+const WIDEST_CAR = Math.max(
+  ...CAR_TYPES.filter((t) => !t.staged && !t.airborne).map((t) => t.w),
+);
 const PASSAGE_CLEARANCE = 6;  // px of daylight either side, so the gap is drivable
                               // rather than exactly car-shaped
 const MIN_PASSAGE = WIDEST_CAR + PASSAGE_CLEARANCE * 2;

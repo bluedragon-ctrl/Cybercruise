@@ -32,6 +32,9 @@ import {
   centerXAt,
   DIST_UNITS,
 } from "../src/game/road.js";
+// The road's own sideways travel, for the frame bound an airborne car flies to
+// (behaviours.js's FLIGHT_MARGIN, which is this figure).
+import { ROAD_AMPLITUDE } from "../src/game/tuning.js";
 import { OBSTACLE_SHAPES } from "../src/game/obstacleshapes.js";
 import { resolveCollisions, impactCost, ramSpeed, SIDE_DAMAGE } from "../src/game/collisions.js";
 import { Loadout, Weapon, WEAPON_TYPES, ENEMY_WEAPON_TYPES, enemyWeaponById, laidPayloads, muzzleOffsets } from "../src/game/weapons.js";
@@ -536,7 +539,16 @@ test("hazards are placed beyond the traffic field, with room left to dodge", () 
   // the traffic field, where the cars nearest the spawn point cannot avoid them
   // however well they drive — which measured as the road clearing 88% of its own
   // obstacles before the player ever reached one.
-  const worst = Math.max(...CAR_TYPES.map((t) => dodgeDistance(t.speedMax, t.steerSpeed)));
+  //
+  // ROAD-GOING TYPES ONLY. An `airborne` type never dodges a hazard — behaviours.js
+  // skips the reflex outright — so its steering has no business sizing the road a
+  // hazard is given to be dodged in. It matters: the manta steers at 95px/sec
+  // against the rig's 35 but is on the road for none of it, and counted here it
+  // would demand a spawn margin 350 units past the one the ROAD actually needs.
+  const worst = Math.max(
+    ...CAR_TYPES.filter((t) => !t.airborne)
+      .map((t) => dodgeDistance(t.speedMax, t.steerSpeed)),
+  );
   const needed = TRAFFIC_RETIRE_MARGIN + worst;
   assert.ok(
     OBSTACLE_SPAWN_MARGIN >= needed,
@@ -1826,11 +1838,14 @@ test("a spawn never closes the road, whatever the placement asks for", () => {
   const obstacles = new Obstacles(new Explosions());
   const mine = obstacleTypeById("caltrop");
   const [mineW] = OBSTACLE_SHAPES[mine.shape].size;
-  // AMBIENT TYPES ONLY, matching obstacles.js's own WIDEST_CAR — a `staged`
-  // type is never produced by the spawner and is deliberately outside this
-  // promise. See that file for why the boss's 62px hull is not allowed to set
-  // the guaranteed gap for every hazard in the game.
-  const widest = Math.max(...CAR_TYPES.filter((t) => !t.staged).map((t) => t.w));
+  // AMBIENT, ROAD-GOING TYPES ONLY, matching obstacles.js's own WIDEST_CAR — a
+  // `staged` type is never produced by the spawner and an `airborne` one never
+  // drives through a gap, so both are deliberately outside this promise. See
+  // that file for why neither the boss's 62px hull nor the manta's 86px wing is
+  // allowed to set the guaranteed gap for every hazard in the game.
+  const widest = Math.max(
+    ...CAR_TYPES.filter((t) => !t.staged && !t.airborne).map((t) => t.w),
+  );
 
   // Park mines wall-to-wall across the whole road, spaced so every gap between
   // them is narrower than the widest car in the catalogue — a fixture that
@@ -1857,11 +1872,14 @@ test("the passage rule is sized against the widest car in the catalogue", () => 
   // the spawner guarantees and the road starts producing hazards the heaviest
   // traffic cannot get around however well it drives.
   const obstacles = new Obstacles(new Explosions());
-  // AMBIENT TYPES ONLY, matching obstacles.js's own WIDEST_CAR — a `staged`
-  // type is never produced by the spawner and is deliberately outside this
-  // promise. See that file for why the boss's 62px hull is not allowed to set
-  // the guaranteed gap for every hazard in the game.
-  const widest = Math.max(...CAR_TYPES.filter((t) => !t.staged).map((t) => t.w));
+  // AMBIENT, ROAD-GOING TYPES ONLY, matching obstacles.js's own WIDEST_CAR — a
+  // `staged` type is never produced by the spawner and an `airborne` one never
+  // drives through a gap, so both are deliberately outside this promise. See
+  // that file for why neither the boss's 62px hull nor the manta's 86px wing is
+  // allowed to set the guaranteed gap for every hazard in the game.
+  const widest = Math.max(
+    ...CAR_TYPES.filter((t) => !t.staged && !t.airborne).map((t) => t.w),
+  );
 
   // One wall spanning the road from the left barrier, leaving exactly `gap` of
   // clear tarmac against the right one.
@@ -2539,9 +2557,10 @@ test("a weave is a sweep the steering can actually ride", () => {
 // --- The air ------------------------------------------------------------------
 //
 // cartypes.js's `airborne` says one thing — this body is not in the road plane —
-// and four systems each read it once to say what that costs. These pin the two
+// and five systems each read it once to say what that costs. These pin the two
 // halves that are arithmetic rather than assertion: which rounds may reach it,
-// and whether the one weapon that may can actually catch it.
+// and whether the one weapon that may can actually catch it. The fighter planes
+// at the end of this file pin the rest of what flying costs.
 
 const GUNSHIP = CAR_TYPES.find((t) => t.id === "gunship");
 const CANNON_TYPE = WEAPON_TYPES.find((t) => t.id === "cannon");
@@ -3031,4 +3050,297 @@ test("the boss lays mines only once it is nearly dead", () => {
   const healthy = bossScenario({ health: type.health });
   for (let i = 0; i < 400; i++) healthy.tick();
   assert.equal(healthy.laid.length, 0, "a healthy battery must lay nothing");
+});
+// --- The fighter planes -------------------------------------------------------
+//
+// The second airborne tactic (behaviours.js's `flyover`) and the first battery
+// carried by something that is not a boss. What is pinned here is only the part
+// that spans files: a release window against the road the player can see and
+// against the magazine that has to empty inside it, two hulls against the one
+// weapon allowed to reach them, and a speed band against the spawner's own rule
+// about which end of the screen a car enters from. The tuning is free to move.
+
+const PLANES = CAR_TYPES.filter((t) => t.behaviour === "flyover");
+const PLAYER_Y = 496; // main.js: H * 0.62, the road visible ahead of the player
+
+// One plane, real type, real kit, with the player parked at worldY 0 and the
+// aircraft wherever the caller puts it. `lead` is what the release window is
+// measured in — how far AHEAD of the player the aircraft is.
+function planeScenario(id, lead, playerOver = {}) {
+  const type = CAR_TYPES.find((t) => t.id === id);
+  const speed = type.speedMax;
+  const shells = new Shells();
+  const car = driver({
+    worldY: lead, offset: 0, w: type.w, h: type.h,
+    speed, cruiseSpeed: speed, baseSpeed: speed, targetSpeed: speed, targetOffset: 0,
+    type, drive: drivingFor(type), arms: armFor(type), health: type.health,
+  });
+  const playerBody = {
+    worldY: 0, offset: 0, w: 34, h: 60, speed: MAX_SPEED, alive: true,
+    damage() {},
+    ...playerOver,
+  };
+  const world = {
+    cars: [car], obstacles: [], playerBody,
+    player: new Player(300, PLAYER_Y), H: 800, W: 600,
+    fireShot: () => {}, dropMine: () => false,
+    fireShell: (...a) => shells.fire(...a),
+  };
+  return { car, world, shells, type, tick: (dt = 1 / 60) => driveCar(car, dt, world) };
+}
+
+const live = (h) => h.shells.list.filter((s) => s.alive).length;
+
+test("the planes are real, and there are two of them", () => {
+  // Everything below is a loop over PLANES; an empty catalogue would pass every
+  // one of them silently.
+  assert.equal(PLANES.length, 2, "the fighter and the manta both fly `flyover`");
+  for (const type of PLANES) {
+    assert.ok(type.airborne, `${type.id} flies, or none of these rules apply to it`);
+    assert.ok(armamentFor(type).battery, `${type.id} carries a battery`);
+  }
+});
+
+test("a plane drops nothing until it is ahead of the player", () => {
+  // armament.js's `release`, the one exception to THERE IS NO RANGE GATE HERE.
+  // The whole encounter hangs on this: an aircraft that dropped on the tick it
+  // spawned would bomb the player from off-screen behind them, and the first
+  // they would know of it is the marks on the road.
+  for (const type of PLANES) {
+    const { min } = armamentFor(type).battery.release;
+    for (const lead of [-400, -50, 0, min - 20]) {
+      const h = planeScenario(type.id, lead);
+      for (let i = 0; i < 120; i++) h.tick();
+      assert.equal(
+        live(h), 0,
+        `${type.id} released at lead ${lead}, which is not ahead of the player yet`,
+      );
+    }
+    const open = planeScenario(type.id, min + 10);
+    open.tick();
+    assert.ok(live(open) > 0, `${type.id} did not release inside its own window`);
+  }
+});
+
+test("a plane's bombs always land on road the player can see", () => {
+  // The far edge of the window is not the catalogue's number but fireBarrage's
+  // visibleRoad clamp, which is why both entries may state a `max` at or past
+  // the road's own reach. Asked from beyond it: an aircraft that has run away up
+  // the screen must not still be bombing.
+  for (const type of PLANES) {
+    const h = planeScenario(type.id, PLAYER_Y + 60);
+    for (let i = 0; i < 120; i++) h.tick();
+    assert.equal(
+      live(h), 0,
+      `${type.id} bombed from ${PLAYER_Y + 60} ahead, past the road the player can see`,
+    );
+  }
+});
+
+test("a plane's whole magazine fits inside its own release window", () => {
+  // The relation the MANTA's `interval` note is written against, and the one
+  // that breaks silently: the window is a distance, the magazine is a time, and
+  // the exchange rate between them is how fast the aircraft is pulling away from
+  // the player. Three salvos that cannot be thrown before the window closes is
+  // an aircraft that leaves with bombs still on it, and nothing anywhere would
+  // say so.
+  for (const type of PLANES) {
+    const battery = armamentFor(type).battery;
+    const { min, max } = battery.release;
+    const closing = type.speedMax - MAX_SPEED;
+    assert.ok(closing > 0, `${type.id} never gets ahead of a player at full speed`);
+
+    // The window the aircraft actually has, in seconds: the catalogue's own far
+    // edge or the road the player can see, whichever binds first.
+    const window = (Math.min(max, PLAYER_Y) - min) / closing;
+    // What the magazine needs. The first salvo is free — it goes on the tick the
+    // window opens — so it is the GAPS that have to fit.
+    const phase = barrageTable(battery)[0];
+    const needed = (battery.ammo - 1) * phase.interval;
+    assert.ok(
+      window >= needed,
+      `${type.id} has ${window.toFixed(2)}s of release window and needs ${needed.toFixed(2)}s ` +
+        `to throw ${battery.ammo} salvos`,
+    );
+  }
+});
+
+test("the window opens far enough past the player to be shot at", () => {
+  // The other half of the same arithmetic, and the reason `release.min` is not
+  // simply "as soon as it is ahead": between passing over the player and
+  // releasing, the aircraft is in front, visible, and has not dropped yet, and
+  // that gap is the entire opportunity the encounter offers. Priced in ROCKETS,
+  // since the rocket is the only weapon allowed to reach it — a window under two
+  // reloads would be a bounty the player could not collect.
+  for (const type of PLANES) {
+    const { min } = armamentFor(type).battery.release;
+    const closing = type.speedMax - MAX_SPEED;
+    const seconds = min / closing;
+    const rounds = Math.floor(seconds / ROCKET_TYPE.interval);
+    assert.ok(
+      rounds >= 2,
+      `${type.id} passes and releases in ${seconds.toFixed(2)}s, which is ${rounds} rocket(s) — ` +
+        `not enough of a window for the kill to be available at all`,
+    );
+  }
+});
+
+test("a plane's hull is a whole number of rockets", () => {
+  // The gunship's own rule (cartypes.js: FOUR ROCKETS EXACTLY), carried onto the
+  // two types whose window makes the count matter far more than it does for a
+  // drone that will hold station and wait. A hull one point past a multiple is a
+  // whole extra launch, and against a window measured in single reloads that is
+  // the difference between a kill and a bounty nobody ever collects.
+  for (const type of PLANES) {
+    assert.equal(
+      type.health % ROCKET_TYPE.damage, 0,
+      `${type.id} has ${type.health} hull against a ${ROCKET_TYPE.damage} rocket, which wastes ` +
+        `part of the last round`,
+    );
+    const rounds = type.health / ROCKET_TYPE.damage;
+    assert.ok(rounds >= 2 && rounds <= 3, `${type.id} takes ${rounds} rockets, outside the 2-3 the window allows`);
+  }
+});
+
+test("a plane always enters from behind, and the rocket can always catch it", () => {
+  // TWO BOUNDS ON ONE SPEED, both of them relations with another file.
+  //
+  // FROM BELOW by the player's own ceiling: traffic.js's spawner puts a car
+  // slower than the player AHEAD of them and a faster one BEHIND, so a cruise
+  // band that dipped under MAX_SPEED would sometimes spawn the aircraft up the
+  // road, where `flyover` flies it straight off the top of the screen and the
+  // encounter never happens.
+  //
+  // FROM ABOVE by the rocket, exactly as the gunship's steerSpeed is: it is the
+  // only weapon permitted to reach an airborne body, so a plane it could not
+  // gain on could not be killed by anything at all. Checked at the MUZZLE rather
+  // than at the rocket's top speed, which is the strictest form of the claim —
+  // the round is already closing before it has burned at all.
+  for (const type of PLANES) {
+    assert.ok(
+      type.cruiseMin > MAX_SPEED,
+      `${type.id} can roll a cruise of ${type.cruiseMin}, under the player's ${MAX_SPEED} — ` +
+        `the spawner would place it ahead and it would simply fly away`,
+    );
+    assert.ok(
+      type.speedMax < MAX_SPEED + ROCKET_TYPE.muzzleSpeed,
+      `${type.id} runs at ${type.speedMax}, which a rocket leaving the rail at ` +
+        `${MAX_SPEED + ROCKET_TYPE.muzzleSpeed} is not yet gaining on`,
+    );
+  }
+});
+
+test("a flyover crosses the frame and stays wholly inside it", () => {
+  // behaviours.js's `flyover`: one lateral target, chosen on the first tick as
+  // the flight limit on the FAR side of the player, held for life. Two things
+  // have to hold, and they pull in opposite directions — the track has to cross
+  // the player's line (or this is a fast car overtaking, not an aircraft passing
+  // over), and the aircraft has to stay in frame at the far end of it.
+  for (const type of PLANES) {
+    for (const entry of [-120, 120]) {
+      const h = planeScenario(type.id, -400);
+      h.car.offset = entry;
+      h.tick();
+      assert.equal(
+        Math.sign(h.car.targetOffset), -Math.sign(entry),
+        `${type.id} entering at ${entry} did not cross to the other side of the player`,
+      );
+      // The frame bound, restated from the far side: screen x is the road's own
+      // centre plus the offset, and the centre wanders by ROAD_AMPLITUDE either
+      // way (road.js), so the worst case is the road at one extreme and the
+      // aircraft swept to the far side of it.
+      assert.ok(
+        Math.abs(h.car.targetOffset) + ROAD_AMPLITUDE + type.w / 2 <= 600 / 2,
+        `${type.id} would fly ${Math.abs(h.car.targetOffset)} off the centre-line, which puts ` +
+          `its ${type.w}px hull past the edge of the frame`,
+      );
+    }
+    // And it holds that choice: a plane that recomputed the far side would turn
+    // round mid-pass every time the player crossed under it.
+    const h = planeScenario(type.id, -400);
+    h.car.offset = -120;
+    h.tick();
+    const chosen = h.car.targetOffset;
+    h.world.playerBody.offset = -260;
+    for (let i = 0; i < 60; i++) h.tick();
+    assert.equal(h.car.targetOffset, chosen, `${type.id} changed its mind mid-pass`);
+  }
+});
+
+test("the steering draws the diagonal over most of the pass, not in the first moment", () => {
+  // The same shape of claim `strafe`'s and `patrol`'s sweeps are pinned by, for
+  // the tactic that has no sweep. TWO BOUNDS, and the second is the one that
+  // came from watching it: steering fast enough is not the problem — steering
+  // TOO fast is. An aircraft that reaches the far side in the first moment of
+  // its pass spends the rest of it flying straight up the frame parked over the
+  // roadside, which reads as flying ALONGSIDE the road rather than across it,
+  // and that is what the FIGHTER's original 220 actually did.
+  //
+  // Measured over the time it is on screen, which is the frame height at the
+  // speed it is pulling away from the player.
+  for (const type of PLANES) {
+    const onScreen = 800 / (type.speedMax - MAX_SPEED);
+    const limit = 600 / 2 - ROAD_AMPLITUDE - type.w / 2;
+    const crossing = limit / type.steerSpeed;
+    assert.ok(
+      crossing <= onScreen,
+      `${type.id} is on screen for ${onScreen.toFixed(1)}s and needs ${crossing.toFixed(1)}s ` +
+        `to cross the ${limit.toFixed(0)}px to the far side — the diagonal reads as a drift`,
+    );
+    assert.ok(
+      crossing >= onScreen / 3,
+      `${type.id} crosses in ${crossing.toFixed(1)}s of a ${onScreen.toFixed(1)}s pass, so it ` +
+        `spends most of the pass parked at the roadside rather than crossing`,
+    );
+  }
+});
+
+test("nothing that flies widens the gap every hazard field must leave", () => {
+  // obstacles.js's WIDEST_CAR excludes `airborne` as well as `staged`, and this
+  // is the case that made it matter: the planes are AMBIENT, and the manta's
+  // 86px of wing is half as wide again as the widest thing actually on the road.
+  // Counted, it would quietly widen the guaranteed gap in every minefield,
+  // roadblock and lane closure in the game — for a pair of types that fly over
+  // all three.
+  const obstacles = new Obstacles(new Explosions());
+  const roadGoing = Math.max(
+    ...CAR_TYPES.filter((t) => !t.staged && !t.airborne).map((t) => t.w),
+  );
+  const flying = Math.max(...CAR_TYPES.filter((t) => t.airborne).map((t) => t.w));
+  assert.ok(flying > roadGoing, "no flying type is wide enough for this rule to be worth having");
+
+  const leaves = (gap) =>
+    obstacles.leavesPassage(1000, -gap / 2, 2 * ROAD_HALF_WIDTH - gap);
+  // A gap the widest ROAD-GOING car fits through, plus the rule's own clearance,
+  // must be accepted — even though nothing that flies would fit in it.
+  assert.ok(
+    leaves(roadGoing + 12) && roadGoing + 12 < flying,
+    `the passage rule refused a ${roadGoing + 12}px gap, which is what a road-going ` +
+      `catalogue asks for — something airborne is setting the bound`,
+  );
+});
+
+test("both planes are ambient, and both arrive late", () => {
+  // cartypes.js's own framing: this is WEATHER, not an encounter. A `staged`
+  // plane would need a director entry to place it and could never cross during
+  // somebody else's encounter, which is the whole point of the pair.
+  for (const type of PLANES) {
+    assert.ok(!type.staged, `${type.id} must be rolled by the spawner, not staged`);
+    assert.ok(type.weight > 0, `${type.id} is not staged, so it needs a real weight`);
+    assert.ok(
+      typeAvailable(type, type.minDistance * DIST_UNITS),
+      `${type.id} is not in the draw at its own gate`,
+    );
+    assert.ok(
+      !typeAvailable(type, type.minDistance * DIST_UNITS - 1),
+      `${type.id} is in the draw before its own gate`,
+    );
+  }
+  // And they arrive in order, a thousand apart — the fighter is a familiar shape
+  // by the time the manta turns up wearing a different one.
+  const [fighter, manta] = PLANES;
+  assert.ok(
+    manta.minDistance > fighter.minDistance,
+    "the manta must gate later than the fighter it escalates",
+  );
 });
