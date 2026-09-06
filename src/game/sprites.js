@@ -8,11 +8,16 @@ import { drawCarShape, carShapeExtent, CAR_SHAPES, TREAD_SPACING } from "./carsh
 import { drawObstacleShape, obstacleExtent, OBSTACLE_SHAPES } from "./obstacleshapes.js";
 import { drawShape, shapeExtent, SHAPE_WEIGHTS } from "./buildingshapes.js";
 import { drawNode, nodeExtent } from "./nodeshapes.js";
+import { pickupExtent, pickupShapeIndex } from "./pickupshapes.js";
+import { drawSalvage, SALVAGE_SIZE } from "./salvageshape.js";
+import { vectorText } from "../engine/neon.js";
+import { textWidth } from "../engine/vectorfont.js";
 import {
   PLAYER,
   PLAYER_THRUST,
   BUILDING_EDGE,
   NODE_BRACKET,
+  GREEN_BRIGHT,
 } from "../engine/palette.js";
 
 // A detailed top-down car wireframe, pointing "up" (toward smaller y). Shared by
@@ -173,6 +178,58 @@ export function drawObstacleCached(ctx, cx, cy, opts = {}) {
     drawObstacleShape(sctx, ox, oy, shape, (frame + 0.5) / PULSE_FRAMES),
   );
   blitSpriteRotated(ctx, sprite, cx, cy, angle);
+}
+
+// --- Salvage ---------------------------------------------------------------
+//
+// THE ONE PICKUP THAT IS CACHED. The six buff crates are drawn straight from
+// pickupshapes.js every frame and are fine there — a reticle is a handful of
+// short strokes and there are at most MAX_PICKUPS of them (pickups.js). A husk
+// is an entire car wireframe, the most expensive silhouette this game draws,
+// and there is no such cap on how many can be on screen: how many husks the
+// road holds is decided by how many people have died on that stretch, not by a
+// spawner. Per-frame re-rendering of those is exactly what spritecache.js
+// exists to stop.
+//
+// TWO SPRITES, NOT ONE, because they are bounded by different things. The husk
+// is a SINGLE sprite for the whole game — it never pulses, never animates and
+// never changes colour, so its key is a constant. The initials vary per husk,
+// which would make one combined sprite unbounded in principle; alone they key
+// on a three-character string drawn from the ten names on the board, so the
+// pair is capped at 1 + (names on screen) rather than at (names) * (husk).
+const SALVAGE_KEY = "salvage";
+// The initials sit UNDER the husk, in the same green as the `$` on its bonnet
+// — see salvageshape.js on why that green means money here. A second colour
+// would be a second thing to learn for a mark that is already explained by the
+// object it is attached to.
+const NAME_CAP = 9; // cap height, px — legible at the range a husk is read at
+const NAME_GAP = 6; // px from the husk's tail to the top of the initials
+
+export function drawSalvageCached(ctx, cx, cy, opts = {}) {
+  const { angle = 0, name = null } = opts;
+
+  const ext = pickupExtent(pickupShapeIndex("SALVAGE"));
+  const sprite = getSprite(
+    SALVAGE_KEY,
+    ext.x * 2 + GLOW_PAD * 2,
+    ext.up + ext.down + GLOW_PAD * 2,
+    ext.x + GLOW_PAD,
+    ext.up + GLOW_PAD,
+    (sctx, ox, oy) => drawSalvage(sctx, ox, oy),
+  );
+  blitSpriteRotated(ctx, sprite, cx, cy, angle);
+
+  if (!name) return;
+  // NOT ROTATED with the husk, deliberately: the car leans into the bend
+  // because it is lying on the road, but the initials are a LABEL on it and a
+  // label that tips over is harder to read for no gain in believability.
+  const track = 0.12 * NAME_CAP;
+  const w = textWidth(name, NAME_CAP, track) + GLOW_PAD * 2;
+  const h = NAME_CAP + GLOW_PAD * 2;
+  const label = getSprite(`salvname|${name}`, w, h, w / 2, GLOW_PAD, (sctx, ox, oy) =>
+    vectorText(sctx, name, ox, oy, GREEN_BRIGHT, NAME_CAP, "center", 1.6),
+  );
+  blitSprite(ctx, label, cx, cy + SALVAGE_SIZE[1] / 2 + NAME_GAP);
 }
 
 // A fixed catalogue of building looks. Placement code picks a variant INDEX
