@@ -116,6 +116,11 @@ export const GLYPHS = {
   ",": [[[0.42, 0.9], [0.26, 1.08]]],
   ":": [[[0.3, 0.3], [0.42, 0.3]], [[0.3, 0.8], [0.42, 0.8]]],
   "-": [[[0.12, 0.55], [0.6, 0.55]]],
+  // AN EM DASH, and it is the full cell wide against the hyphen's inset 0.48 —
+  // the two have to be told apart at 11px in a shop note, and at that size the
+  // only difference a reader gets is length. Same 0.55 midline as the hyphen
+  // and the plus, so a line of prose does not step.
+  "—": [[[0, 0.55], [0.72, 0.55]]],
   "+": [[[0.12, 0.55], [0.6, 0.55]], [[0.36, 0.31], [0.36, 0.79]]],
   "/": [[[0, 1], [0.72, 0]]],
   "%": [[[0.06, 1], [0.66, 0]],
