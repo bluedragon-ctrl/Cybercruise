@@ -52,6 +52,27 @@ test("the alphabet covers A-Z and 0-9, so a runtime string cannot hole", () => {
   assert.deepEqual(missingGlyphs(required), []);
 });
 
+test("the alphabet carries the punctuation the game's prose uses", () => {
+  // The em dash is the one the shop's notes and the shop's control line are
+  // written with (game/upgrades.js, game/shop.js). Those draw through glowText
+  // today, so a missing glyph cost nothing there — but the whole point of
+  // VECTOR_STRINGS is that a line MOVES to vector type, and the dash going
+  // silently missing at that moment is exactly the hole this file exists to
+  // rule out. Pinned with the rest of the marks so none of them can be dropped.
+  assert.deepEqual(missingGlyphs("—-.,:/%+"), []);
+});
+
+test("the em dash is longer than the hyphen, on the same midline", () => {
+  // The only difference a reader gets between the two at 11px is length, so
+  // the dash spans the whole cell against the hyphen's inset — the claim
+  // vectorfont.js's own comment makes about them.
+  const [[[hx0, hy], [hx1]]] = GLYPHS["-"];
+  const [[[ex0, ey], [ex1]]] = GLYPHS["—"];
+  assert.equal(ey, hy);
+  assert.ok(ex1 - ex0 > hx1 - hx0, "the em dash should be the wider mark");
+  assert.equal(ex1 - ex0, CELL_W);
+});
+
 test("VECTOR_STRINGS is not empty and holds the title", () => {
   // Guards against the export being emptied or stubbed, which would make the
   // coverage test above pass by testing nothing.
