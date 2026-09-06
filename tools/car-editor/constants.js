@@ -41,7 +41,7 @@ export const CONSTANT_GROUPS = [
     // These three are the `base` figures upgrades.js imports for its ladder
     // (see state.js's note on why a stat's base is not editable on the shop
     // screen). This is the "tune the car, not the shop" that note points at —
-    // moving MAX_SPEED here moves where the ENGINE ladder starts, and the
+    // moving MAX_SPEED here moves where the DRIVETRAIN ladder starts, and the
     // shop's own preview follows it.
     note: "The stock car, before anything is bought. MAX_SPEED, BASE_MAX_HEALTH and PLAYER_MASS are the figures the shop's upgrade ladders count up from.",
     constants: [

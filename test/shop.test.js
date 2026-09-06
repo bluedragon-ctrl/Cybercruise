@@ -31,7 +31,18 @@ import {
 } from "../src/game/upgrades.js";
 import { AMMO, HEAL, SHIELD, PICKUP_TYPES } from "../src/game/pickuptypes.js";
 import { WEAPON_TYPES, Loadout } from "../src/game/weapons.js";
-import { Player, MAX_SPEED, PLAYER_MASS, BASE_MAX_HEALTH } from "../src/game/player.js";
+import {
+  Player,
+  MAX_SPEED,
+  PLAYER_MASS,
+  BASE_MAX_HEALTH,
+  ACCEL,
+  BAND_RECOVER,
+  STEER_RELEASE,
+  ENGINE_ACCEL,
+  ENGINE_STEER_ACCEL,
+  ENGINE_STEER_SPEED,
+} from "../src/game/player.js";
 import { CAR_TYPES } from "../src/game/cartypes.js";
 import { OBSTACLE_TYPES } from "../src/game/obstacletypes.js";
 import { Wallet, SIPHON_YIELDS } from "../src/game/wallet.js";
@@ -303,6 +314,70 @@ test("a Garage starts stock, and its stats block is what a fresh Player already 
   assert.equal(stats.mass, player.mass);
   assert.equal(stats.ramMaxed, player.ramMaxed);
   assert.equal(stats.siphonLevel, player.siphonLevel);
+  assert.equal(stats.engineLevel, 0);
+});
+
+// --- The DRIVETRAIN ladder ---------------------------------------------------
+//
+// The shelf row prints top speed and moves four numbers (player.js's
+// ENGINE_ACCEL, ENGINE_STEER_ACCEL, ENGINE_STEER_SPEED beside it), so three of
+// them have no readout anywhere a player or a retuner would notice going
+// wrong. These are the claims holding them together.
+
+test("every drivetrain table has a row per tier, and every row is an upgrade", () => {
+  // Row 0 is the stock car and is written AS the constant, so it cannot
+  // desync; what can go wrong is a table one row short (applyUpgrades indexes
+  // it by tier and would hand the car undefined) or a step someone retuned
+  // backwards into a downgrade the shelf still charges for.
+  const stock = new Player(0, 0);
+  assert.equal(ENGINE_ACCEL[0], stock.accel);
+  assert.equal(ENGINE_STEER_ACCEL[0], stock.steerAccel);
+  assert.equal(ENGINE_STEER_SPEED[0], stock.steerSpeed);
+  for (const table of [ENGINE_ACCEL, ENGINE_STEER_ACCEL, ENGINE_STEER_SPEED]) {
+    assert.equal(table.length, TIER_COUNT + 1, "a tier has no row to read");
+    for (let i = 1; i < table.length; i++) {
+      assert.ok(table[i] > table[i - 1], `tier ${i} is not an upgrade`);
+    }
+  }
+});
+
+test("a fully upgraded steering ramp still builds slower than it releases", () => {
+  // player.js's header: releasing decays faster than pressing builds, which is
+  // what makes the car settle where the player let go instead of coasting past
+  // it, and what makes a reversal snap through zero. A ladder climbing toward
+  // STEER_RELEASE would spend the player's credits on deleting that feel.
+  const maxed = ENGINE_STEER_ACCEL[TIER_COUNT];
+  assert.ok(maxed < STEER_RELEASE * 0.75,
+    `maxed steering ramp (${maxed}) is closing on STEER_RELEASE (${STEER_RELEASE})`);
+});
+
+test("no drivetrain tier moves BAND_RECOVER", () => {
+  // The one number in the speed model that must cost every car the same: it
+  // sets how fast a puncture's crawl is climbed out of, how long an overdrive
+  // takes to spool up, and how a rear-end's speed sink is recovered from.
+  // Tying it to the player's live accel would let the DRIVETRAIN row quietly
+  // buy softer spike strips — see player.js's constructor.
+  assert.equal(BAND_RECOVER, ACCEL);
+  const { player, garage } = shopper();
+  const engine = statById("engine");
+  for (let i = 0; i < TIER_COUNT; i++) garage.addTier(engine);
+  player.applyUpgrades(garage.stats);
+  assert.equal(BAND_RECOVER, ACCEL, "a maxed drivetrain moved the shared ramp");
+  assert.ok(player.accel > ACCEL, "a maxed drivetrain did not move the throttle");
+});
+
+test("a drivetrain tier moves the car's handling, not just its ceiling", () => {
+  // The whole point of the row's rebuild: the ceiling alone was the stat
+  // nobody bought (see ENGINE_ACCEL's header). Asserted through the Garage
+  // rather than against the tables, so a `stats` getter that forgot to pass
+  // engineLevel fails here rather than shipping a row that does nothing.
+  const { player, garage } = shopper();
+  const engine = statById("engine");
+  garage.addTier(engine);
+  player.applyUpgrades(garage.stats);
+  assert.equal(player.accel, ENGINE_ACCEL[1]);
+  assert.equal(player.steerAccel, ENGINE_STEER_ACCEL[1]);
+  assert.equal(player.steerSpeed, ENGINE_STEER_SPEED[1]);
 });
 
 test("applyUpgrades is absolute, so applying one purchase twice cannot double it", () => {

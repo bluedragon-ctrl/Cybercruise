@@ -51,7 +51,70 @@ const STEER_SPEED = 300; // horizontal px/sec at full lock
 // let go instead of coasting past it; the same asymmetry makes a reversal snap
 // through zero rather than wallow there.
 const STEER_ACCEL = 900; // px/sec² while a steering key is held
-const STEER_RELEASE = 2600; // px/sec² while returning to centre (or reversing)
+// Exported for one claim's sake: the DRIVETRAIN ladder below raises the
+// PRESS rate and must never climb toward this one, or the asymmetry the two
+// paragraphs above exist for stops being true. test/shop.test.js checks it.
+export const STEER_RELEASE = 2600; // px/sec² while returning to centre (or reversing)
+
+// THE DRIVETRAIN LADDER — what each tier of the shop's DRIVETRAIN stat
+// (game/upgrades.js) does to the three numbers above. Indexed by tier, 0 =
+// stock, and every table's row 0 IS the constant it sits under, asserted in
+// test/upgrades.test.js so a retune of the constant cannot leave a stock car
+// reading somebody else's figure.
+//
+// A TIER TABLE RATHER THAN A `step` ON THE SHELF ENTRY, for the reason
+// game/wallet.js's SIPHON_TIERS is one: the row prints ONE value (top speed)
+// and moves several, so what the Garage hands over is "which tier", and the
+// numbers live in the file that owns the constants they start from. The shelf
+// entry's own `base`/`step` still describe top speed and nothing else.
+//
+// WHY THESE THREE AND NOT TOP SPEED ALONE. Top speed is the one handling
+// number the player almost never touches: score is dominated by kills
+// (game/score.js), events are placed by distance, and driving faster through
+// traffic RAISES the hull it costs (collisions.js splits impact by closing
+// speed). The ceiling was the whole of the stat, so the stat was the one
+// nobody bought. What actually decides whether a second on the road kills you
+// is how fast the car can CHANGE — shed speed to let a swerver past, answer
+// the stick before the mine arrives — and those were module constants no
+// upgrade could reach.
+//
+// ACCEL, +60 a tier. Braking 620 -> 100 goes 1.37s to 0.93s. It buys BRAKING
+// as much as throttle, deliberately: throttleAxis() is symmetric, so one
+// figure moves both, and braking is the half the player reaches for in a
+// panic — shedding speed to let a swerver past is a dodge the car could
+// barely perform.
+//
+// STEER_ACCEL, +200 a tier, is where nearly all the felt difference is,
+// because THE MANOEUVRE THAT KILLS YOU IS SHORT. A one-lane dodge
+// (LANE_WIDTH is 71.5, road.js) takes 0.405s stock, of which the first
+// 0.33s is ramp — the lock speed is barely used. Integrating the loop
+// below: 1500 takes that dodge to 0.338s, and with the lock raised too the
+// maxed car does it in 0.315s, a fifth off every near-miss on the road.
+//
+// The cost is the ramp's own job: a 100ms tap travels around 1.7x further on
+// a maxed car than a stock one, so fine correction is coarser at the top of
+// the ladder. That is the trade the player is buying, not a regression — but
+// it is why this is the number capped by an invariant rather than by taste.
+//
+// STEER_SPEED, +25 a tier, and it is the small one ON PURPOSE. Barrier to
+// barrier is only ~252px (2·ROAD_HALF_WIDTH less the car's width), of which
+// the ramp is a third, so the ceiling barely gets used: at 400 with the stock
+// ramp a full-width crossing goes 1.01s to 0.85s and the one-lane dodge goes
+// 0.405s to 0.398s — seven milliseconds, for a third more lock speed. It is
+// in the ladder because it costs NOTHING to include (a tap never reaches full
+// lock, so it cannot coarsen fine control the way the ramp rate does) and
+// because a DRIVETRAIN that got quicker only in the first quarter-second
+// would read as half an upgrade.
+//
+// THE CEILING THAT MUST HOLD: maxed STEER_ACCEL stays well under
+// STEER_RELEASE. Release decays faster than press builds is what makes the car
+// settle where you let go instead of coasting past it (see the header above);
+// a ladder that climbed toward 2600 would spend the player's credits on
+// deleting that. 1500 against 2600 keeps the asymmetry, and
+// test/upgrades.test.js asserts it.
+export const ENGINE_ACCEL = [ACCEL, 440, 500, 560];
+export const ENGINE_STEER_ACCEL = [STEER_ACCEL, 1100, 1300, 1500];
+export const ENGINE_STEER_SPEED = [STEER_SPEED, 325, 350, 375];
 
 // The hull the player STARTS a run with, and the floor every CHASSIS tier is
 // added to (game/upgrades.js). Exported for that reason alone: the upgrade
@@ -228,6 +291,17 @@ export class Player {
     // which is exactly why the two are now separate things.
     this.maxSpeed = MAX_SPEED;
     this.mass = PLAYER_MASS;
+    // ...and the same for the three the DRIVETRAIN tiers move alongside the
+    // ceiling: throttle/brake rate, and the two halves of the steering ramp.
+    // Per-instance for the reason maxSpeed is, plus one of its own — the ramp
+    // arithmetic in this file's header is quoted from the CONSTANTS, and it
+    // has to stay quotable. See ENGINE_ACCEL above for the ladder itself, and
+    // note that BAND_RECOVER is deliberately NOT among these: it is still the
+    // constant ACCEL, so a puncture's crawl, an overdrive's spool-up and a
+    // rear-end's speed sink cost every car the same whatever it has bought.
+    this.accel = ACCEL;
+    this.steerAccel = STEER_ACCEL;
+    this.steerSpeed = STEER_SPEED;
     // The RAM PLATE's top tier, not the mass figure above — collisions.js's
     // PlayerBody reads this to arm the two bonuses that ride on the LAST tier
     // rather than on mass itself (see upgrades.js's `ram` entry).
@@ -510,6 +584,14 @@ export class Player {
   // coming out of a workshop should do.
   applyUpgrades(stats) {
     this.maxSpeed = stats.maxSpeed;
+    // THE TIER, not three figures — the shelf sells one row and this file owns
+    // what the row does (ENGINE_ACCEL and friends above), the same division
+    // game/wallet.js has with siphonLevel. ?? for the same reason `specials`
+    // has one: tests hand in stat blocks built before this field existed.
+    const engine = stats.engineLevel ?? 0;
+    this.accel = ENGINE_ACCEL[engine];
+    this.steerAccel = ENGINE_STEER_ACCEL[engine];
+    this.steerSpeed = ENGINE_STEER_SPEED[engine];
     this.mass = stats.mass;
     this.ramMaxed = stats.ramMaxed;
     this.shieldBonus = stats.shieldBonus;
@@ -530,12 +612,13 @@ export class Player {
     // Steering, plus whatever is left of the last shove.
     //
     // Move vSteer toward the axis at whichever rate applies, without overshoot:
-    // building up uses STEER_ACCEL, anything that reduces the current lock (a
-    // release, or a reversal that has to pass through zero) uses the brisker
-    // STEER_RELEASE.
-    const target = steerAxis() * STEER_SPEED;
+    // building up uses this car's own steerAccel (the DRIVETRAIN tiers move
+    // it), anything that reduces the current lock (a release, or a reversal
+    // that has to pass through zero) uses the brisker STEER_RELEASE, which no
+    // upgrade touches.
+    const target = steerAxis() * this.steerSpeed;
     const rate = Math.abs(target) > Math.abs(this.vSteer) && target * this.vSteer >= 0
-      ? STEER_ACCEL
+      ? this.steerAccel
       : STEER_RELEASE;
     const step = rate * dt;
     const delta = target - this.vSteer;
@@ -563,7 +646,7 @@ export class Player {
     // Speed control.
     const throttle = throttleAxis();
     const before = this.speed;
-    this.speed += throttle * ACCEL * dt;
+    this.speed += throttle * this.accel * dt;
     // Against the LIVE band, not the constants: while an overdrive crate is
     // running both ends of it sit `boost` higher (see activateBoost).
     //

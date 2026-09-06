@@ -116,7 +116,7 @@ export const PICKUP_TYPES = [
     // BAND_RECOVER, so about 0.8s from a mid-band cruise — which is what makes
     // the crate felt at any speed rather than only by a player who happened to
     // be crawling. Big enough that the road visibly rushes at the player
-    // rather than reading as a nudge, and small enough that the ENGINE ladder
+    // rather than reading as a nudge, and small enough that the DRIVETRAIN ladder
     // in the dock (upgrades.js) is still the thing that makes a car
     // permanently fast; this is twelve seconds of borrowed pace.
     amount: 200,

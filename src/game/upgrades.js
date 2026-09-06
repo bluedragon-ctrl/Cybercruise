@@ -221,9 +221,26 @@ export const TIER_COUNT = TIER_PRICES.length;
 export const STATS = [
   {
     id: "engine",
-    label: "ENGINE",
-    note: "RAISES THE CAR'S TOP SPEED",
+    // "ENGINE" WAS A LIE ONCE THE ROW MOVED THE STEERING RAMP, and the shelf
+    // is the one place in the game a player is asked to spend on a promise, so
+    // the caption says what is actually for sale. The ID stays `engine`: it is
+    // the key car-editor patches by and the Garage's own tier record, and
+    // nothing is persisted across runs that renaming it could rescue.
+    label: "DRIVETRAIN",
+    note: "MORE TOP END — AND A CAR THAT ANSWERS FASTER",
     base: MAX_SPEED,
+    // TOP SPEED IS WHAT THE ROW PRINTS, and it is no longer all the row does:
+    // each tier also buys throttle/brake rate and both halves of the steering
+    // ramp, off player.js's ENGINE_ACCEL / ENGINE_STEER_ACCEL /
+    // ENGINE_STEER_SPEED, keyed by the tier this stat hands over as
+    // `engineLevel` below. Same shape the siphon has for the same reason (one
+    // row, several numbers, only one of them printable) — and the same
+    // caveat: the riders are not `step` fields, so car-editor retunes the
+    // ceiling and the price, not them.
+    //
+    // The riders are why this row is worth buying AT ALL; see ENGINE_ACCEL's
+    // own header for the measurement that says the ceiling by itself was not.
+    //
     // +40 a tier, so a fully upgraded car tops out at 740 — past the roadster
     // (700) and the cycle's 730, but only just. NOT past the outrider's 800
     // (cartypes.js), deliberately: that type is built to outrun a maxed
@@ -636,6 +653,11 @@ export class Garage {
     };
     return {
       maxSpeed: value("engine"),
+      // THE RAW TIER, alongside the figure above rather than instead of it:
+      // player.js pays three more numbers out of the DRIVETRAIN ladder
+      // (ENGINE_ACCEL and friends) and only the ceiling is a `base` + `step`.
+      // Same arrangement as siphonLevel below.
+      engineLevel: this.levelOf(statById("engine")),
       maxHealth: value("chassis"),
       shieldBonus: value("deflector"),
       mass: value("ram"),

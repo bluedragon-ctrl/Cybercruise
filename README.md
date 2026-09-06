@@ -1179,7 +1179,7 @@ weapon against the bike fleet specifically.
 Two consequences worth having on purpose. Dawdling never makes the road go quiet
 — it makes the whole city stream past you. And **flat out is not fast enough to be
 left alone**: five types come past a player holding 620, so escaping is a job for
-the OVERDRIVE crate and the ENGINE ladder, not for the accelerator.
+the OVERDRIVE crate and the DRIVETRAIN ladder, not for the accelerator.
 
 Within a type no two cars drive alike, and none of it costs a sprite — the band is
 rolled per spawn, each car wanders slowly around its roll, and an overtaker spends
@@ -1344,13 +1344,36 @@ for the rest of the run:
 
 | system | what one tier buys | ladder |
 | --- | --- | --- |
-| ENGINE | +40 top speed | 620 → 740, clearing the fastest cruise on the road by a hair |
+| DRIVETRAIN | +40 top speed, and a car that answers faster | 620 → 740, clearing the fastest cruise on the road by a hair |
 | CHASSIS | +50 max hull, and it repairs by the same | 200 → 350; three tiers is about one mine |
 | DEFLECTOR | +12s on *every* shield the car is handed | a 5s crate becomes a 41s one |
 | RAM PLATE | +0.8 mass | 1.5 → 3.9: past the bruiser, past the bus, never past the rig |
 | SIPHON RIG | more off every node, plus reach and drain to match | 100% → 300% |
 
-Two of those are one row for opposite reasons. The **ram plate** is one row
+Three of those are one row, for three different reasons.
+
+The **drivetrain** is one row because the ceiling on its own was not worth a
+purchase. Top speed is the handling number a player almost never touches: kills
+dominate the score (`score.js`), events are placed by distance, and driving
+faster through traffic *raises* the hull a collision costs, since `collisions.js`
+prices impact by closing speed. So it was the row nobody bought. Each tier now
+also moves throttle/brake rate and both halves of the steering ramp, off tier
+tables in `player.js` (`ENGINE_ACCEL` and friends) that the shelf hands a tier
+index to — the arrangement the siphon has, and for the same reason: one row can
+only print one figure.
+
+Almost all of the felt difference is in the steering ramp's *press* rate, and
+the measurement is in `ENGINE_ACCEL`'s header: a one-lane dodge finishes inside
+the ramp, before full lock is ever reached, so raising the lock speed changes it
+by nothing while raising the press rate takes a quarter off it. Two things are
+deliberately left alone. `BAND_RECOVER` stays the constant `ACCEL`, so a
+puncture's crawl, an overdrive's spool-up and a rear-end's speed sink cost every
+car the same whatever it has bought. And the ramp's *release* rate is not for
+sale: releasing decaying faster than pressing builds is what makes the car settle
+where the player let go, and a ladder climbing toward it would sell the player
+the loss of that.
+
+The **ram plate** is one row
 because mass is one number that buys three things — `collisions.js` splits damage
 and separation by inverse mass, so a heavier car hits harder, takes less and gets
 shoved around less. Mass alone is capped well short of a real weapon — the ladder
