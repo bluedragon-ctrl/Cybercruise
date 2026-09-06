@@ -97,7 +97,8 @@ const FLICKER_B = 0.10;   // depth of the second
 const FLICKER_RATIO = 2.7; // second sine's frequency multiple (irrational-ish)
 
 // Throttle flare. Speed itself takes ~1.3s to cross the band (ACCEL is 380 and
-// the band is 500 wide), so a plume driven by speed ALONE lags the player's
+// the band is 500 wide, and a maxed DRIVETRAIN only brings that to ~1.1s), so
+// a plume driven by speed ALONE lags the player's
 // input by most of a second and stops feeling like feedback. Adding the
 // throttle axis makes stamping the accelerator flare the plume immediately,
 // before the car has actually gained the speed. Asymmetric on purpose: lifting
