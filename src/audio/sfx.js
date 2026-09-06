@@ -818,6 +818,14 @@ function risingCrateTone(toFreq, dur) {
 registerGenerator("pickup_heal", risingCrateTone(164.81, 0.25)); // E3
 registerGenerator("pickup_shield", risingCrateTone(220, 0.3)); // A3
 registerGenerator("pickup_boost", risingCrateTone(196, 0.4)); // G3
+// pickup_cash  A2 -> C#3, a major THIRD, over 200ms — a fourth registration of
+// the same builder, and the narrowest and shortest climb in the family. That
+// is the ladder above applied honestly rather than an exception to it: a
+// salvage husk is a top-up, worth less than a heal, and the interval is the
+// one parameter that already says so. It gets no shape of its own because it
+// is not a different KIND of event from the three above — it is a crate
+// confirming.
+registerGenerator("pickup_cash", risingCrateTone(138.59, 0.2)); // C#3
 
 // --- Phase 8 step 4: console log ticks ------------------------------------
 //

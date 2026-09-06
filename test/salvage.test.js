@@ -25,6 +25,19 @@ import {
   sanitizeSalvage,
 } from "../worker/salvage.js";
 import * as salvage from "../src/game/salvage.js";
+import {
+  CASH,
+  PICKUP_TYPES,
+  applyPickup,
+  pickPickupType,
+  pickupAvailable,
+  pickupTypeById,
+} from "../src/game/pickuptypes.js";
+import { PICKUP_SHAPES, pickupExtent, pickupShapeIndex } from "../src/game/pickupshapes.js";
+import { SALVAGE_SIZE } from "../src/game/salvageshape.js";
+import { PICKUP_SOUND } from "../src/audio/pickupsfx.js";
+import { Pickups } from "../src/game/pickups.js";
+import { ROAD_HALF_WIDTH } from "../src/game/road.js";
 
 // A localStorage-shaped object, so the client half can be exercised in Node.
 function fakeStore(initial = {}) {
@@ -167,6 +180,108 @@ test("collected ids: local husks are struck immediately, remote ones queued", ()
 
   salvage.clearCollected();
   assert.deepEqual(salvage.collectedIds(), []);
+});
+
+// --- The catalogue side ------------------------------------------------------
+
+test("a placed type is never rolled by the road spawner", () => {
+  const salvageType = pickupTypeById("salvage");
+  assert.equal(salvageType.kind, CASH);
+  assert.equal(pickupAvailable(salvageType, Infinity), false);
+  // Belt and braces against the roll itself, since `placed` only works if
+  // pickPickupType actually honours pickupAvailable.
+  for (const distance of [0, 500, 5000, 1e9]) {
+    for (let i = 0; i < 200; i++) {
+      assert.notEqual(pickPickupType(distance)?.id, "salvage", `rolled at ${distance}`);
+    }
+  }
+  // ...and nothing else in the catalogue is accidentally unrollable.
+  assert.equal(PICKUP_TYPES.filter((t) => t.placed).length, 1);
+});
+
+test("a husk pays its rate of the dead run's credits, and only CASH pays at all", () => {
+  const salvageType = pickupTypeById("salvage");
+  const wallet = { paid: 0, award(n) { this.paid += n; } };
+
+  applyPickup(salvageType, null, null, wallet, Math.round(940 * salvageType.rate));
+  assert.equal(wallet.paid, 94);
+
+  // Every other kind ignores the wallet entirely — the argument rides in the
+  // shared list (pickuptypes.js's applyPickup) precisely so it can be ignored.
+  const heal = pickupTypeById("fix");
+  const player = { healed: 0, heal(n) { this.healed += n; } };
+  applyPickup(heal, player, null, wallet, 999);
+  assert.equal(wallet.paid, 94, "a heal must not reach the wallet");
+});
+
+// --- Placement ---------------------------------------------------------------
+
+test("the placement cursor walks the set once, and re-derives itself when it changes", () => {
+  const pickups = new Pickups(null, null);
+  const player = { y: 400 };
+  const husk = (distance) => ({ id: `k${distance}`, distance, offset: 0, credits: 100 });
+  const placed = () => pickups.list.map((p) => p.worldY);
+
+  // The horizon is `distance + player.y + SPAWN_MARGIN`, so at distance 0 that
+  // is 550: the first two are inside it, the third is not yet.
+  const set = [husk(100), husk(500), husk(4000)];
+  pickups.placeSalvage({ salvage: set, distance: 0, player });
+  assert.deepEqual(placed(), [100, 500]);
+
+  // Called again with the same set and no progress: nothing is placed twice.
+  pickups.placeSalvage({ salvage: set, distance: 0, player });
+  assert.deepEqual(placed(), [100, 500]);
+
+  // ...and the third arrives only once the player has driven up to it.
+  pickups.placeSalvage({ salvage: set, distance: 3600, player });
+  assert.deepEqual(placed(), [100, 500, 4000]);
+
+  // A NEW SET MID-RUN is the routine case, not the exceptional one — the
+  // run-start fetch is not awaited (leaderboard.js), so most runs begin on the
+  // local ledger and adopt the merged set a moment later. Everything already
+  // behind the player is skipped rather than dumped on the road behind them.
+  const fresh = new Pickups(null, null);
+  fresh.placeSalvage({ salvage: [husk(100)], distance: 0, player });
+  fresh.placeSalvage({ salvage: [husk(50), husk(100), husk(9000)], distance: 3000, player });
+  assert.deepEqual(
+    fresh.list.map((p) => p.worldY),
+    [100],
+    "husks behind the player are skipped, and nothing ahead is placed early"
+  );
+});
+
+test("a husk placed off the tarmac is pulled back onto it", () => {
+  const pickups = new Pickups(null, null);
+  const half = ROAD_HALF_WIDTH - SALVAGE_SIZE[0] / 2;
+  pickups.placeSalvage({
+    salvage: [{ id: "a", distance: 10, offset: 9999, credits: 1 }],
+    distance: 0,
+    player: { y: 400 },
+  });
+  assert.equal(pickups.list[0].offset, half);
+});
+
+// --- The artwork's bounds ----------------------------------------------------
+
+test("the salvage sprite's extent covers its own footprint", () => {
+  // The extent sizes the cached sprite (sprites.js's drawSalvageCached). If it
+  // under-reports, the husk is silently clipped at the sprite edge — a drawing
+  // bug a long way from the number that caused it, which is the same guard
+  // road-and-caches.test.js gives every car and boss hull.
+  const i = pickupShapeIndex("SALVAGE");
+  const ext = pickupExtent(i);
+  assert.deepEqual(PICKUP_SHAPES[i].size, SALVAGE_SIZE, "footprint must be the artwork's own");
+  assert.ok(ext.x >= SALVAGE_SIZE[0] / 2, "x extent clips the husk");
+  assert.ok(ext.up >= SALVAGE_SIZE[1] / 2, "up extent clips the husk");
+  assert.ok(ext.down >= SALVAGE_SIZE[1] / 2, "down extent clips the husk");
+});
+
+test("every pickup kind has a sound", () => {
+  // pickupsfx.js's own header: a kind added with no entry here collects
+  // silently, with nothing to say so until someone notices in the browser.
+  for (const type of PICKUP_TYPES) {
+    assert.ok(PICKUP_SOUND[type.kind], `${type.id} (${type.kind}) has no sound`);
+  }
 });
 
 test("receive merges remote and local into one distance-ordered set", () => {

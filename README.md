@@ -536,10 +536,10 @@ call sites across `effects.js`, `projectiles.js`, `road.js`, `exhaust.js`,
 `disconnect.js`; `glowLine`/`glowPoly` (the same file) dropped their own
 `shadowBlur` too, which reaches every mark in `carshapes.js`,
 `buildingshapes.js`, `obstacleshapes.js` and `pickupshapes.js` — the shape
-catalogues the sprite cache rasterises once and blits thereafter (`pickupshapes.js`
-crates are the one exception drawn live rather than cached, and stayed in that
-list anyway once the signature bug below made it moot — see THE SIGNATURE BUG
-below); and `player.js`'s shield swapped `glowOrb`'s radial gradient for a
+catalogues the sprite cache rasterises once and blits thereafter (the six buff
+crates in `pickupshapes.js` are the exception, drawn live rather than cached —
+its seventh entry, the salvage husk, is not; they stayed in that list anyway
+once the signature bug below made it moot — see THE SIGNATURE BUG below); and `player.js`'s shield swapped `glowOrb`'s radial gradient for a
 single additive ring, for the same reason (its own header carries the
 argument, including why a ring rather than a filled disc — a filled disc
 would wash out the wireframe under it exactly the way the gradient's dimmed
@@ -1279,20 +1279,31 @@ distance they died at, with a cut of that run's credits still in it.
 `game/salvageshape.js` is the drawing — the player's own car at three quarters size,
 dashed, canopy replaced by a green `$`, thruster plume gone — and its header carries
 the visual decisions (why 0.75, why a `[2, 2]` dash, what each removed pass was
-doing). It is still held outside `pickupshapes.js`'s shape/type pairing for the same
-reason `bossshapes.js` holds hulls outside `cartypes.js`'s.
+doing). The drawer stays in its own file, but the pairing it was waiting on now
+exists: `pickupshapes.js`'s seventh entry names it and carries its extents, and it is
+the one entry there with no shared reticle around it — that file's header has why the
+one silhouette that must read as the player's own car is the one that may break the
+catalogue's single body.
 
-The record behind it is stored and carried, but nothing places it on the road yet.
-`game/salvage.js` holds the set this run drives through and the husks it has looted;
+`game/salvage.js` holds the set a run drives through and the husks it has looted;
 `worker/salvage.js` is the storage, one KV key per husk with the payload in KV
 metadata so a whole run's worth is a single `list()` — its header has why that is
 per-key where the board is one array, and what the per-band cap and the TTL each
-bound. Two of the questions `salvageshape.js` left open are answered there: **distance
-is the shared axis** (the city is re-salted every run, but every run drives the same
-numbers, so no seed has to be shared), and "your own last death *or* the worker" is
-**both** — a run records its husk to `localStorage` as well as posting it, so the road
-is never empty on day one or offline. What is left is the `CASH` kind for
-`applyPickup` and the per-instance payload that comes with it.
+bound. **Distance is the shared axis**: the city is re-salted every run, but every run
+drives the same numbers, so a husk needs no seed shared to sit where somebody died.
+A run records its husk to `localStorage` as well as posting it, so the road is never
+empty on day one or offline.
+
+On the road it is a `CASH` pickup — the fifth kind, and the one place a pickup's
+payout is not wholly in the catalogue: `pickuptypes.js` owns the `rate` (a tenth), the
+credits it multiplies come from the dead run's own record, and that file's header has
+both the reasoning and the inflation risk the uncapped form accepts. It is also the
+only pickup that is never rolled (`placed`) and the only one that is *cached* —
+`sprites.js`'s `drawSalvageCached` explains why a car wireframe earns a sprite where
+six reticles do not, and why the initials are a second blit rather than part of the
+first. Placement is a cursor over a distance-ordered list rather than a spawner, so a
+husk ignores `MAX_PICKUPS` entirely; what bounds the count is the worker's per-band
+cap, applied where the data is written.
 
 `npm run econ` measures the whole thing headlessly — credits per minute for a
 player who hugs the shoulders, one who hunts nodes, one who eases off to stay

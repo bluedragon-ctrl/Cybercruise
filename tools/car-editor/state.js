@@ -365,8 +365,11 @@ export const PICKUP_SPAWN_FIELDS = ["weight", "minDistance"];
 // added to the speed band, and for how long). So buildPickupState reports
 // whichever of the pair the entry actually carries rather than a fixed set of
 // keys — one field for most kinds, two for an overdrive — and the editor
-// builds its Effect section from what it finds.
-export const PICKUP_EFFECT_FIELDS = ["amount", "duration"];
+// builds its Effect section from what it finds. CASH adds a third: salvage
+// pays a SHARE (`rate`) of another run's credits rather than a figure of its
+// own, which is the one crate whose payout is not wholly in the catalogue —
+// the share is, the credits are not.
+export const PICKUP_EFFECT_FIELDS = ["amount", "duration", "rate"];
 
 export const PICKUP_FIELDS = [...PICKUP_EFFECT_FIELDS, ...PICKUP_SPAWN_FIELDS];
 
@@ -375,7 +378,13 @@ export function buildPickupState(pickupId) {
     throw new Error(`buildPickupState: unknown pickup id "${pickupId}"`);
   }
   const type = live.pickuptypes.pickupTypeById(pickupId);
-  const values = { weight: type.weight, minDistance: type.minDistance ?? 0 };
+  // A `placed` type is never rolled (pickuptypes.js's salvage entry), so it has
+  // no spawn tuning to surface — and a weight box on a crate the spawner cannot
+  // produce would be a number that silently does nothing, which is exactly what
+  // this tool exists not to have.
+  const values = type.placed
+    ? {}
+    : { weight: type.weight, minDistance: type.minDistance ?? 0 };
   for (const field of PICKUP_EFFECT_FIELDS) {
     if (field in type) values[field] = type[field];
   }
