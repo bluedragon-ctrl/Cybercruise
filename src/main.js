@@ -51,10 +51,13 @@ import * as leaderboard from "./game/leaderboard.js";
 // them. See salvage.js's header for the local/remote split.
 import * as salvage from "./game/salvage.js";
 import { draw as drawLeaderboard } from "./game/leaderboardrender.js";
-// What an armed test row is WORTH — the rows themselves live on menu.js, this
-// is only the figure EXTRA CASH pays out. See that file for the switch that
-// removes both rows from a shipping build.
-import { EXTRA_CASH_AMOUNT } from "./testoptions.js";
+// The dev panel (F1) and the one flag that decides whether it exists — see
+// testoptions.js's header for what it holds and game/testpanel.js's for why it
+// is a screen of its own rather than rows on the menu. Everything it asks for is
+// applied down in applyTestOptions()/applyPanelAction(); the panel itself never
+// touches the world.
+import { SHOW_TEST_OPTIONS } from "./testoptions.js";
+import { createTestPanel } from "./game/testpanel.js";
 import { createMusic } from "./audio/synth.js";
 import { PLAYER_FIRE_SOUND, ENEMY_FIRE_SOUND } from "./audio/weaponsfx.js";
 import { PICKUP_SOUND } from "./audio/pickupsfx.js";
@@ -77,7 +80,7 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
 // THE HUD LAYER (Phase 15c): a third canvas, plain 2D, transparent, sitting on
-// top of the present canvas below — drawHud(), the menu's test rows and the
+// top of the present canvas below — drawHud(), the dev panel's rows and the
 // shop's price list draw here instead of on `ctx`. See render()'s own header
 // on the split rule (which canvas a new readout goes on and why) and
 // engine/present.js's header for why this is a DOM layer rather than a second
@@ -162,6 +165,9 @@ const PLAY_HINT = "&larr;/&rarr; or A/D steer &middot; &uarr;/&darr; speed &midd
 // leave the bar EMPTY, the way "connecting" and "dying" do — there is nothing
 // to press while the car is in the air.
 const SHOP_HINT = "&uarr;/&darr; select &middot; SPACE/ENTER buy &middot; ESC undock";
+// The dev panel's bar (game/testpanel.js). FIRE is spelled out because it means
+// something different on each row there and the screen says which.
+const PANEL_HINT = "&uarr;/&darr; select &middot; &larr;/&rarr; adjust (hold to sweep) &middot; SPACE/ENTER apply &middot; F1/ESC resume";
 
 initInput();
 initMouse(canvas);
@@ -207,13 +213,27 @@ initMouse(canvas);
 // interrupted; every other frozen state above always knows in advance what
 // comes next.
 //
+// "testpanel" is a frozen state of the ordinary kind, entered by F1 from
+// "menu", "playing" or "paused" and leaving back to whichever of the three that
+// was — the same save-and-restore `gpuLostFrom` does, for the same reason
+// (nothing else knows where it came from). It COVERS the world rather than
+// showing it through, as "paused" and "shopping" do: it is a screen of numbers,
+// and numbers over a road are unreadable.
+//
 // THE APPROACH IS NOT A STATE. The drone's arrival happens under "playing"
 // with the world still live — see hauler.js's phase list. Only the grab
 // freezes anything.
 const menu = createMenu();
 const nameEntry = createNameEntry();
+// The dev panel, one instance reused for the whole session like `menu` — it
+// holds INVULNERABILITY as a level across every run, which a per-open instance
+// could not. Built whatever SHOW_TEST_OPTIONS says; what that flag gates is the
+// F1 that opens it (see update()), so a shipping build has an object nothing can
+// ever reach rather than a second construction path to keep working.
+const testPanel = createTestPanel();
 let state = "menu"; // "menu" | "connecting" | "playing" | "paused" | "dying" | "gameover"
                     //   | "lifting" | "shopping" | "lowering" | "gpulost" | "highscore"
+                    //   | "testpanel"
 
 // Fired here as well as from newGame(), because the two calls want different
 // things and only one of them happens before the menu: the BOARD wants to be
@@ -227,6 +247,24 @@ leaderboard.refresh();
 // state === "gpulost"; null the rest of the time, including at module load,
 // since a loss cannot arrive before present.init() below has run.
 let gpuLostFrom = null;
+
+// Which state F1 opened the dev panel from, restored when it closes — see the
+// "testpanel" note in the state machine header above. Only meaningful while
+// state === "testpanel".
+let panelFrom = null;
+
+// WHETHER ANY CHEAT HAS TOUCHED THIS RUN. Set the first time the panel does
+// something to the world (or the first tick INVULNERABILITY is armed), cleared
+// by newGame(), and read by exactly one place: reportRun(), which skips the
+// leaderboard POST when it is set.
+//
+// THE ONE THING A DEV TOOL MUST NOT DO IS LEAVE THE MACHINE. Wrong values are
+// the whole point of this panel and none of them matter while they sit in this
+// tab — but game/leaderboard.js's board is a shared server other players read,
+// and a warp to DIST 900 posts a distance nobody drove. The local salvage ledger
+// is deliberately NOT guarded: a husk written to this browser's own storage is
+// seen by nobody else, and a fake one is useful for testing the salvage path.
+let cheated = false;
 
 // The edge-detector state for Phase 8 step 5's sector-transition audio (see
 // the "playing" branch's own comment on sectorGlitching below) — declared up
@@ -666,9 +704,13 @@ function newGame() {
   // awaited and not awaitable: every husk is placed ahead of the player, so an
   // answer that lands a moment into the run is not late for anything.
   leaderboard.refresh();
-  // The test rows, applied to the car and wallet this function just built —
-  // see applyTestOptions() for why it also runs every tick.
-  cashGranted = false;
+  // A FRESH RUN IS CLEAN UNTIL SOMETHING CHEATS IN IT — see `cheated` above.
+  // Cleared BEFORE applyTestOptions(), which sets it straight back if
+  // INVULNERABILITY is still armed from the last run (it is a level, and holds
+  // across a restart on purpose).
+  cheated = false;
+  // The panel's level, applied to the car this function just built — see
+  // applyTestOptions() for why it also runs every tick.
   applyTestOptions();
 }
 
@@ -692,41 +734,143 @@ function reportRun(name) {
     credits: Math.max(0, Math.round(wallet.credits)),
   };
   salvage.recordLocal(name ? { ...wreck, name } : wreck);
+  // A CHEATED RUN IS RECORDED LOCALLY AND NOT POSTED — see `cheated` above for
+  // why the line is drawn between the two and not somewhere else.
+  if (cheated) return;
   leaderboard.postRun({ name, score: score.points, wreck });
 }
 
 // --- The test options, applied ---------------------------------------------
 //
-// menu.js REPORTS which rows are armed and nothing more (its own header: it
-// never touches the world); turning that into a car that cannot be hurt and a
-// wallet that can afford the top of the shop is main.js's job, exactly like
+// game/testpanel.js REPORTS and nothing more (its own header: it never touches
+// the world); turning that into a car that cannot be hurt, a wallet full of
+// credits and a road twenty minutes further on is main.js's job, exactly like
 // every other piece of wiring between a screen and the world here.
-//
-// RUN EVERY TICK rather than once at newGame(), because both rows can be
-// flipped from the PAUSE screen mid-run and from the START screen before
-// newGame() has any idea what the player chose — a per-tick reconcile is the
-// only version of this with no "but what if they toggle it there" hole in it,
-// and it costs two comparisons.
 
-// Whether the wallet has already been paid for the CURRENT arming of EXTRA
-// CASH. Cleared by newGame() for a fresh run, and by switching the row off —
-// so switching it off and on again pays a second float, which is what a test
-// that has just spent the first one actually wants.
-let cashGranted = false;
-
+// INVULNERABILITY is a LEVEL, and this runs EVERY TICK rather than once at
+// newGame(), because the panel can be opened from the start menu before
+// newGame() has any idea what was armed, and from pause mid-run. A per-tick
+// reconcile is the only version of this with no "but what if they toggle it
+// there" hole in it, and it costs one comparison.
 function applyTestOptions() {
-  player.invulnerable = menu.invulnerable();
+  player.invulnerable = testPanel.invulnerable();
+  if (player.invulnerable) cheated = true;
+}
 
-  if (!menu.extraCash()) {
-    cashGranted = false;
+// The other three rows are EVENTS, applied once each time FIRE asks for them —
+// see game/testpanel.js's update() for the shape of an action and why the two
+// number rows commit on FIRE rather than on every keypress.
+function applyPanelAction(action) {
+  cheated = true;
+
+  if (action.kind === "credits") {
+    // Through award(), not by writing a balance: it is the one path that keeps
+    // `earned` and the HUD's flash in step (wallet.js), and the flash is welcome
+    // here — it is the confirmation the row actually fired. A signed delta, so
+    // the same row that hands over a fortune also takes one away.
+    //
+    // EXACT WHILE THE BANK IS OFF, which is how the game ships (CREDIT_STORE
+    // above): credits === earned, so award()'s floor at -earned is never
+    // reached. Turn the persisted bank back on and this row can no longer set a
+    // balance BELOW `banked` — a limit worth knowing about rather than working
+    // around, since a dev tool is not a reason to give the economy a setter.
+    wallet.award(action.value - wallet.credits);
     return;
   }
-  if (cashGranted) return;
-  cashGranted = true;
-  // Through award(), not by writing the balance: it is the one path that keeps
-  // `earned` and the HUD's flash in step (wallet.js), and the flash is welcome
-  // here — it is the confirmation that the cheat actually fired.
-  wallet.award(EXTRA_CASH_AMOUNT);
+
+  if (action.kind === "warp") {
+    // THE JUMP ITSELF IS THE EASY PART; what follows it is why this is not one
+    // assignment. `distance` is in world units and the panel counts in the DIST
+    // units the HUD prints (road.js's DIST_UNITS), so the conversion happens
+    // here, at the boundary, exactly once.
+    distance = action.dist * road.DIST_UNITS;
+
+    // EVERY CAR, HAZARD AND CRATE ON THE ROAD WAS PLACED RELATIVE TO THE OLD
+    // DISTANCE, so after the jump they are all somewhere the player is not.
+    // respawnWorld() is precisely the tool for that and already exists for the
+    // shop visit — see its header for what it deliberately leaves standing
+    // (the player, the score, the wallet, the loadout and `distance` itself,
+    // which is why the line above can come first).
+    respawnWorld();
+
+    // ...and the one-shot encounters the jump passed over. events.js's director
+    // hands back the first UNFIRED milestone at or below the current distance,
+    // so without this a warp arrives under a queue of every set-piece below it,
+    // fired back to back. Which of the two you want is the panel's own PASSED
+    // EVENTS row; see events.skipMilestonesTo() for why it reads the catalogue
+    // figure rather than an override.
+    if (action.skipPassed) events.skipMilestonesTo(action.dist);
+
+    // The floor's sector, the conduits and the traffic dots are all pure
+    // functions of position (game/sectors.js, links.js, scenery.js), so they
+    // need nothing here — they are simply somewhere else on the next tick, and
+    // sectors.js announces the crossing itself. The SCORE deliberately does not
+    // move: the road was skipped, not driven.
+    return;
+  }
+}
+
+
+// --- The scripted handle ------------------------------------------------------
+//
+// THE SAME FOUR THINGS THE PANEL DOES, CALLABLE. `window.cybercruise` exists
+// only while SHOW_TEST_OPTIONS is on, and every entry routes through the exact
+// code the F1 screen routes through — applyPanelAction() for the two world
+// actions, the panel's own field for the level — so there is no second way to
+// cheat that could behave differently from the first.
+//
+// WHY IT EXISTS AT ALL, when the panel is right there: a browser driven by a
+// tool (Claude included, and this is written from having tried it) cannot rely
+// on reaching the page with an F1, and a value set by counting keystrokes is a
+// value you then have to screenshot to confirm. One call that returns the
+// world's own numbers is the difference between "probably at DIST 4000" and
+// knowing. See the README's *Test options* for the recipe.
+//
+//   cybercruise.snapshot()          every readout the rig panel samples
+//   cybercruise.state()             the state machine's current word
+//   cybercruise.invulnerable(true)  the level, same field the F1 row writes
+//   cybercruise.credits(999999)     set the wallet, any figure including 0
+//   cybercruise.warp(4000)          forward-only, in the HUD's DIST units;
+//                                   pass { skipPassed: false } to let the
+//                                   one-shots it passes fire on arrival
+//
+// The two WORLD calls refuse from the menu and from a frozen state, for exactly
+// the reason the panel greys those rows out: newGame() is still to come, or a
+// scripted sequence is mid-flight, and either would throw the change away. They
+// RETURN the refusal as a string rather than throwing, so a caller reading the
+// value sees why instead of a stack.
+if (SHOW_TEST_OPTIONS) {
+  const needsRun = () => (state === "playing" || state === "paused"
+    ? null
+    : `refused: state is "${state}" — connect first, this needs a live run`);
+
+  window.cybercruise = {
+    snapshot: () => deckSnapshot(),
+    state: () => state,
+    invulnerable(on = true) {
+      testPanel.setInvulnerable(on);
+      applyTestOptions();
+      return player.invulnerable;
+    },
+    credits(value) {
+      const refused = needsRun();
+      if (refused) return refused;
+      applyPanelAction({ kind: "credits", value: Math.max(0, Math.round(value)) });
+      return wallet.credits;
+    },
+    warp(dist, { skipPassed = true } = {}) {
+      const refused = needsRun();
+      if (refused) return refused;
+      const target = Math.round(dist);
+      // Forward-only, the same rule the panel's own row clamps to — stated here
+      // as a refusal rather than a clamp, because a script that asked to go
+      // backwards has a bug in it and a silent clamp would hide it.
+      const now = Math.floor(distance / road.DIST_UNITS);
+      if (target <= now) return `refused: already at DIST ${now}, and a warp only goes forward`;
+      applyPanelAction({ kind: "warp", dist: target, skipPassed });
+      return Math.floor(distance / road.DIST_UNITS);
+    },
+  };
 }
 
 newGame();
@@ -821,6 +965,7 @@ const DECK_STATE = {
   shopping:   { link: "DOCKED",      mode: "idle" },
   lowering:   { link: "UNDOCKING",   mode: "idle" },
   gpulost:    { link: "GPU DROPPED", mode: "idle" },
+  testpanel:  { link: "DIAGNOSTIC",  mode: "idle" },
 };
 const DECK_STATE_FALLBACK = DECK_STATE.menu;
 
@@ -917,11 +1062,40 @@ function updateDeck(dt) {
   }
 }
 
+// The three states F1 opens the dev panel from. Not "dying"/"gameover"/the two
+// hauler sequences: those are either scripted or over, and a warp landing
+// mid-sequence would move the world out from under an animation that is
+// mid-flight. From "playing" the panel freezes the game exactly as ESC does.
+const PANEL_FROM = new Set(["menu", "playing", "paused"]);
+
 function update(dt) {
   updateDeck(dt);
-  // Before the state switch, so a row toggled on the pause screen is live on
+  // Before the state switch, so INVULNERABILITY armed on the panel is live on
   // the very next playing tick — see applyTestOptions()'s own header.
   applyTestOptions();
+  // ABOVE THE SWITCH, not inside three branches of it, so F1 means one thing
+  // wherever it is pressed. Gated on the master flag: a shipping build never
+  // consumes the press at all, which is what makes `testPanel` unreachable
+  // rather than merely undrawn.
+  //
+  // CONSUMED WHEREVER IT IS PRESSED, and only ACTED ON where PANEL_FROM allows
+  // — the order of those two tests is the whole point. consumePress holds an
+  // edge until somebody takes it (input.js), so an F1 pressed on the gameover
+  // screen and merely skipped here would sit in the buffer and open the panel
+  // several states later, over a run that had already restarted. Found exactly
+  // that way in a browser. It is the same "input is DRAINED, not ignored" rule
+  // the frozen states follow (see `state` above), applied to the one press that
+  // is read outside the switch.
+  if (SHOW_TEST_OPTIONS && consumePress("testOptions") && PANEL_FROM.has(state)) {
+    panelFrom = state;
+    state = "testpanel";
+    // `live` is what tells the panel to grey out its two WORLD rows — from the
+    // start menu, newGame() is still to come and would throw away any wallet or
+    // distance set before it. See game/testpanel.js's header.
+    testPanel.open({ ...deckSnapshot(), live: panelFrom !== "menu" });
+    hint.innerHTML = PANEL_HINT;
+    return;
+  }
   switch (state) {
     case "menu": return updateMenu();
     case "paused": return updatePaused();
@@ -933,6 +1107,7 @@ function update(dt) {
     case "shopping": return updateShopping();
     case "lowering": return updateLowering(dt);
     case "gpulost": return updateGpuLost(dt);
+    case "testpanel": return updateTestPanel(dt);
     default: return updatePlaying(dt);
   }
 }
@@ -1166,6 +1341,22 @@ function updateGpuLost(dt) {
   gameConsole.update(dt);
   consumePress("pause");
   consumePress("fire");
+}
+
+// A FROZEN STATE — see `state` above for the shape they share. The panel drains
+// its own input (game/testpanel.js's update()); the console keeps animating, as
+// it does under every other frozen state.
+function updateTestPanel(dt) {
+  gameConsole.update(dt);
+  const result = testPanel.update(dt);
+  if (result.adjusted) music.play(MENU_SOUND.adjust);
+  if (result.action) applyPanelAction(result.action);
+  if (result.closed) {
+    state = panelFrom;
+    panelFrom = null;
+    music.play(MENU_SOUND.back);
+    hint.innerHTML = state === "playing" ? PLAY_HINT : state === "paused" ? PAUSE_HINT : MENU_HINT;
+  }
 }
 
 function updatePlaying(dt) {
@@ -1743,7 +1934,7 @@ function drawHud() {
 //             shop's title and credit total, gameover's FINAL SCORE. Large,
 //             sparse, meant to glow.
 //   `hudCtx`  dense per-frame readouts (drawHud() and gameConsole's SYS LOG),
-//             the menu's test-row checkboxes and footer, the shop's entire
+//             the menu footer and the dev panel, the shop's entire
 //             price list — anything the same size class as HUD text, which
 //             is exactly what bridges letters together under a threshold
 //             tuned for the world (see README's "Rendering the halo"). ALSO
@@ -1829,6 +2020,17 @@ function render(alpha) {
       // hold one.
       vectorText(ctx, `CREDITS EARNED ${wallet.lastRunEarnings}`, W / 2, 326, GREEN_PALE, 12, "center", 1.3, 0.3);
     }
+    return;
+  }
+
+  // The dev panel (game/testpanel.js) covers the world for the same reason the
+  // shop below does, though not for the same cause: the car IS still on the road
+  // under this one, but the screen is a table of numbers and a road behind it
+  // makes them unreadable. Handed the deck's own snapshot — the readouts it
+  // prints are exactly what the rig panel already samples, so there is one piece
+  // of arithmetic behind both rather than two that could disagree.
+  if (state === "testpanel") {
+    testPanel.render(ctx, hudCtx, W, H, deckSnapshot());
     return;
   }
 

@@ -16,12 +16,12 @@ are not known up front, each with the section that explains it.
 | | |
 | --- | --- |
 | play | `npm run serve`, or `play.bat` on Windows — never `file://` |
-| test | `npm test` (750 assertions; `node --test "test/*.test.js"`, pattern quoted so Node globs it) |
+| test | `npm test` (763 assertions; `node --test "test/*.test.js"`, pattern quoted so Node globs it) |
 | driving profiles | `npm run sim`, and `node tools/drivesim.js 300 60` for an actual tuning decision |
 | economy | `npm run econ` |
 | balance numbers | `tools/car-editor/` — a browser UI over essentially every tuned constant |
 | assets | `tools/gallery/gallery.bat` |
-| verifying a change live (Claude included) | `src/testoptions.js` — `INVULNERABILITY`/`EXTRA CASH` menu flags to survive and afford anything, `EVENT_AT_OVERRIDES`/`EVENT_GATE_OVERRIDES` to pull one encounter to DIST 0 — code edits, reverted once confirmed. → README, *Test options*. |
+| verifying a change live (Claude included) | **F1 in the game** opens the dev panel (`src/game/testpanel.js`) — invulnerability, any wallet figure, a warp to any distance, no code edit. **From a driven browser use `window.cybercruise`** (`warp`, `credits`, `invulnerable`, `snapshot`) — same code, no keystrokes to choreograph. `src/testoptions.js` still holds `EVENT_AT_OVERRIDES`/`EVENT_GATE_OVERRIDES` for pulling one encounter to DIST 0, a code edit reverted once confirmed. → README, *Test options*. |
 
 ## Rules that break things quietly
 

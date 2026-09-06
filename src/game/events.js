@@ -105,6 +105,31 @@ export function reset() {
   lastFired.clear();
 }
 
+// MARK EVERY ONE-SHOT AT OR BELOW `dist` AS ALREADY SPENT, without firing any
+// of them. The dev panel's warp (game/testpanel.js, applied in main.js) is the
+// only caller: dueMilestone below hands back the first unfired milestone the car
+// has passed, so a jump from DIST 0 to DIST 900 would otherwise arrive under a
+// queue of every set-piece below 900, fired back to back as fast as the
+// director's cooldown allows. Which of the two a warp wants is the panel's
+// PASSED EVENTS row — this is the SKIP half, and doing nothing is the other.
+//
+// `every` entries are counted, not flagged, so they take the count the distance
+// implies rather than a 1 — the same arithmetic dueMilestone does, so the next
+// shop stop after a warp is the one that distance is actually owed.
+//
+// It reads the CATALOGUE figure, not milestoneAt()'s override: an id pulled
+// forward by EVENT_AT_OVERRIDES is one somebody has asked to see, and skipping
+// it on the way past would be the opposite of what the override was set for.
+export function skipMilestonesTo(dist) {
+  for (const type of EVENT_TYPES) {
+    if (type.at !== undefined && dist >= type.at) milestones.set(type.id, 1);
+    if (type.every !== undefined) {
+      const reached = Math.floor(dist / type.every);
+      if (reached > (milestones.get(type.id) ?? 0)) milestones.set(type.id, reached);
+    }
+  }
+}
+
 // The live encounter's id, or null. A LEVEL, not an edge: main.js owns the edge
 // (see the header), exactly as it does for sectors.glitching().
 export function active() {

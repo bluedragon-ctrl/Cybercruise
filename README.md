@@ -53,30 +53,73 @@ containment check.
 
 ### Test options
 
-Two cheat rows on the start/pause menu — `INVULNERABILITY` and `EXTRA CASH` —
-for reaching by hand what a normal run makes expensive to reach. Neither is
-persisted (the game is served, not installed — see `game/menu.js`'s own note);
-both reset to OFF on every load and take effect on the next tick.
+**F1 opens the dev panel** (`src/game/testpanel.js`) from the start menu, from
+play, or from pause. It freezes the game and covers the screen, and it is the
+whole cheat surface — no code edit, nothing hidden behind a mouse click:
 
-**Hidden until F1, armed only by a mouse click.** The rows don't draw at all
-until F1 is pressed, and even then the keyboard's up/down wrap never steps
-onto them — a click directly on the checkbox is the only way to select or
-flip one, so a stray key can never arm a cheat by accident. See
-`game/menu.js`'s and `testoptions.js`'s own comments for why.
+| row | what it does |
+| --- | --- |
+| `INVULNERABILITY` | a level, re-asserted onto the car every tick, so it holds across a death and a shop visit |
+| `CREDITS` | sets the wallet to any figure — seeded at everything the shop costs, and 0 is as easy to reach, which is how the cannot-afford path gets tested |
+| `DISTANCE` | warps forward, in the DIST units the HUD prints |
+| `PASSED EVENTS` | whether a warp skips the one-shot encounters it jumps over, or lets them fire on arrival |
 
-**`src/testoptions.js` is the switch**: clearing `SHOW_TEST_OPTIONS` (or either
-per-row flag) removes them from the menu entirely, and a removed row always
-reads as off. `test/test-options.test.js` pins that the removal is complete
-rather than half-wired.
+Left/Right adjusts and FIRE applies; holding a key sweeps, and sweeps ten times
+faster after a second. Under the rows is a live readout block — DIST, sector,
+credits, hull, speed, entity count, score — sampled from the same snapshot the
+rig panel uses, so the panel doubles as the debug screen the game otherwise
+lacks.
 
-**Useful when verifying a change in a live browser session, AI-driven or not**:
-`INVULNERABILITY` survives anything so a change can be watched for as long as it
-takes rather than for as long as one life lasts, `EXTRA CASH` opens the whole
-shop instantly instead of grinding credits for it, and the same file's
-`EVENT_AT_OVERRIDES`/`EVENT_GATE_OVERRIDES` pull a specific encounter forward to
-DIST 0 so it can be reached in seconds instead of driven to. All three are code
-edits, not menu state, and all three ship back at their defaults (`{}` for the
-override maps) once the thing they were checking is confirmed.
+**A warp is not one assignment.** `main.js`'s `applyPanelAction()` moves
+`distance`, then calls `respawnWorld()` (every car, hazard and crate was placed
+relative to the old distance), then `events.skipMilestonesTo()` unless the
+`PASSED EVENTS` row says otherwise — without that last step a jump arrives under
+a queue of every set-piece below it, fired back to back. Distance is
+**forward-only**, which keeps "counts up with distance" assumptions
+(`game/sectors.js`) true by construction. The score does not move: the road was
+skipped, not driven.
+
+**Two rows are dead on the start menu** and say so. `CREDITS` and `DISTANCE` act
+on a run, and `newGame()` would throw away anything set before CONNECT.
+`INVULNERABILITY` and `PASSED EVENTS` still arm there, which is why F1 opens
+from the menu at all.
+
+**`window.cybercruise` is the same panel, callable** — the handle to reach for
+when the browser is being driven by a tool rather than by hands. It exists only
+while `SHOW_TEST_OPTIONS` is on, and every entry routes through the exact code
+the F1 screen routes through, so there is no second way to cheat that could
+behave differently:
+
+```js
+cybercruise.snapshot()          // every readout the rig panel samples
+cybercruise.state()             // the state machine's current word
+cybercruise.invulnerable(true)  // the level — works from the menu too
+cybercruise.credits(999999)     // set the wallet; 0 is just as valid
+cybercruise.warp(4000)          // forward-only, in the HUD's DIST units
+cybercruise.warp(4000, { skipPassed: false })  // ...letting the one-shots fire
+```
+
+The two world calls return the resulting figure, or a string saying why they
+refused (no run yet, or a backwards warp). Reading a returned number beats
+setting a value by keystroke and then screenshotting to find out whether it
+took — which is why this exists: a tool-driven browser cannot count on an F1
+reaching the page at all.
+
+**A cheated run is not posted to the leaderboard.** Wrong values are the point
+of the panel, but `game/leaderboard.js`'s board is a shared server other players
+read — so `main.js` marks the run and `reportRun()` skips the POST. The local
+salvage husk is still written: it is seen by nobody else, and a fake one is
+useful for testing the salvage path.
+
+**`src/testoptions.js` is the switch.** Clearing `SHOW_TEST_OPTIONS` stops
+`main.js` consuming F1 at all, takes the menu footer that advertises the panel
+with it, and restores every catalogue figure the override maps below were
+holding. That file also holds the panel's step sizes and
+`EVENT_AT_OVERRIDES`/`EVENT_GATE_OVERRIDES` — still worth having next to the
+warp, since they reach an *encounter* without moving the world's clock, which is
+a different test from finding the same encounter by warping to its distance.
+Both maps ship `{}`. `test/test-options.test.js` pins the panel's behaviour and
+that the removal is complete rather than half-wired.
 
 ### Asset gallery
 
@@ -304,7 +347,7 @@ Things about it worth knowing before touching the renderer:
   expressible as a filter mode. `BRIGHT_FS`'s header has the derivation.
 
 **A THIRD CANVAS, AS OF PHASE 15C: `#hud`, plain 2D, never uploaded to the
-GPU.** `src/main.js`'s `drawHud()`, the menu's test-row checkboxes and the
+GPU.** `src/main.js`'s `drawHud()`, the dev panel's rows and readouts and the
 shop's entire price list draw there instead of on the canvas this chain
 bloom's, so the dense per-frame readouts that used to cap `BLOOM_THRESHOLD`/
 `BLOOM_EXPOSURE` (see *Rendering the halo*) are no longer in this chain at
@@ -317,7 +360,7 @@ already makes close to free (the same trick this canvas already gets over
 `#game`). `present.js`'s "The HUD split" has the full argument and the
 measured numbers either way. It is registered as a third `mirrorCanvas`
 alongside `#present`, sits `pointer-events: none` without exception (the
-menu's mouse-only test rows sit directly under it — `src/testoptions.js`),
+dev panel's own rows sit directly under it — `src/game/testpanel.js`),
 and is covered by `#gl-notice` on both of its failure paths exactly as the
 other two canvases already were.
 
@@ -534,7 +577,7 @@ was for, and it was not built yet. Reverted to 0.75/3.0 at the time, pending
 that split.
 
 **PHASE 15C LANDS EXACTLY THAT SPLIT AND FINALISES 0.55/4.0.** With `drawHud()`,
-the menu's test rows and the shop's entire shelf moved onto their own
+the dev panel's rows and the shop's entire shelf moved onto their own
 unbloomed `#hud` canvas (see *The present path* below), the SAME pair 15d-ii
 tried and reverted has nothing left to bridge — there is no dense text sharing
 the bloomed canvas any more, only large display type (the menu's title and
@@ -1534,7 +1577,7 @@ its own decision regardless of hosting).
         draw order — a screen's LARGE display type (the menu's title and rows,
         the shop's header and credit total, `gameover`'s FINAL SCORE) wants
         bloom exactly the way `CYBERCRUISE` always has, while its SMALL dense
-        readouts (the HUD proper, the menu's test-row checkboxes, the shop's
+        readouts (the HUD proper, the dev panel's rows, the shop's
         entire shelf) are the same size class as the HUD text that bridged and
         move with it.
         THE SPLIT: a third canvas (`#hud` — index.html, css/style.css), plain
@@ -1546,7 +1589,7 @@ its own decision regardless of hosting).
         transform` already makes close to free). See `present.js`'s "The HUD
         split" for the full argument and the measured numbers on both sides,
         including what the rejected path would have cost. Everything dense
-        (`drawHud()`, the menu's test rows, the shop's shelf) draws there now;
+        (`drawHud()`, the dev panel, the shop's shelf) draws there now;
         everything large-and-sparse stays on the bloomed canvas. Three
         overlays that used to guarantee covering the HUD by DRAW ORDER on one
         shared canvas (`disconnect`/`jackin`/`hauler`'s `renderOverlay`) had to

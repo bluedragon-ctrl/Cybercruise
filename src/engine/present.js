@@ -79,7 +79,7 @@
 //
 // A second 2D canvas (`#hud` — index.html, css/style.css), painted on top of
 // this one, transparent, never uploaded to the GPU and never touched by the
-// chain below. drawHud() (main.js), the menu's test-row checkboxes and the
+// chain below. drawHud() (main.js), the dev panel's rows and the
 // shop's price list all draw there now instead of on the canvas this module
 // bloom's — see main.js's render() for the full split rule (which surface
 // goes on which canvas and why).
