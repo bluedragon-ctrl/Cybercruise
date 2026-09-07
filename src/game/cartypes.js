@@ -694,7 +694,7 @@ export const CAR_TYPES = [
     cruiseMin: 400,
     cruiseMax: 620,
     speedMax: 650,
-    steerSpeed: 250,
+    steerSpeed: 100,
     blastRadius: 38,
     blastDamage: 16,
     value: 100,
@@ -736,7 +736,7 @@ export const CAR_TYPES = [
     // SAME FLOOR AS THE INTERCEPTOR (100, not the bike floor 200) — see that
     // entry's own note on why 100 exactly is what keeps a type out of
     // hazards.test.js's "shakeable hostiles share one floor" invariant.
-    speedMin: 100,
+    speedMin: 200,
     // EVERY ONE OF THESE ABOVE THE INTERCEPTOR'S OWN — cruiseMin/cruiseMax/
     // speedMax all +20, steerSpeed +20 — which is the whole of "higher
     // mobility" spelled out in the one place a car's mobility actually lives
@@ -745,7 +745,7 @@ export const CAR_TYPES = [
     cruiseMin: 420,
     cruiseMax: 640,
     speedMax: 670,
-    steerSpeed: 270,
+    steerSpeed: 150,
     // SAME AS THE INTERCEPTOR'S OWN DEATH BLAST — the lower hull above already
     // makes this car easier to kill; there is no reason to also make dying
     // less dangerous to whatever is standing next to it when it goes.
@@ -1060,7 +1060,7 @@ export const CAR_TYPES = [
     // the player (`strafe`), so a rearward shot never needing to catch it
     // costs nothing — the player's window is while it's alongside or ahead,
     // same as any other pass. Not being outrunnable is the point, not a gap.
-    speedMin: 200,
+    speedMin: 250,
     cruiseMin: 400,
     cruiseMax: 660,
     speedMax: 800,
@@ -1099,7 +1099,7 @@ export const CAR_TYPES = [
     // The bike floor, from in front: a player who drops under it watches this one
     // pull away up the road and out of the fight. The counter to the one hostile
     // that attacks from ahead is to stop chasing it.
-    speedMin: 200,
+    speedMin: 250,
     cruiseMin: 600,
     cruiseMax: 670,
     speedMax: 700,
