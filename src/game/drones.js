@@ -45,6 +45,26 @@ import { worldSeed } from "./worldseed.js";
 // the design doc's 7c section for the stratification this is the point of.
 export const DRONE_PARALLAX = 0.72;
 
+// The layer's share of the camera's sideways pan (road.js's cameraX), on the
+// same fraction it scrolls on. Panning it at the ROAD's rate would weld the sky
+// to the road and panning it at the floor's would weld it to the city; one
+// fraction on both axes is what keeps it a plane of its own between the two.
+//
+// Not snapped to a device pixel, unlike the floor's: nothing here is a blit —
+// a drone is a rect in a batched path (drawDrones), which is already drawn at
+// whatever fractional position its own flight puts it at.
+//
+// The ground shadows ride along at the same rate rather than at the floor's,
+// so a shadow stays under its drone. That leaves it up to
+// (DRONE_PARALLAX - FLOOR_PARALLAX) * camX = 13px off the floor position it
+// nominally marks at full pan — smaller than the vertical gap this layer
+// already accepts (shadowGap), and the "directly below" read is worth more
+// than the exactness. It scales with ROAD_AMPLITUDE, so a much wider road is
+// the point at which the shadow needs its own, floor-rate pan.
+export function cameraX(camX) {
+  return camX * DRONE_PARALLAX;
+}
+
 // Flight lines are periodic in world-y, like a lot row (citygrid.js), so the
 // sky stays populated forever rather than being a fixed bank of lines that
 // scrolls away for good after enough driving. ROW_SPACING is world-y px

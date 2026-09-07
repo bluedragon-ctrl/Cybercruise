@@ -94,10 +94,17 @@ const ATTRS = {
 // WebGL2-only, and a second code path maintained for a browser generation that
 // no longer exists would be more likely to break than the fallback it exists to
 // avoid — and the fallback is a complete game.
-export function createContext(canvas, { onLost, onRestored } = {}) {
+// `attrs` OVERRIDES the table above, one key at a time. It exists for
+// gl/city3d.js, whose canvas is the exact opposite case to the present pass:
+// it draws depth-sorted geometry rather than one triangle (so it needs a depth
+// buffer) and it is composited OVER the 2D frame (so it needs alpha). Passing
+// them in beats a second copy of this file, and beats loosening the defaults —
+// the present canvas's four `false`s are each an argued decision above and must
+// stay the default for the caller that has that argument.
+export function createContext(canvas, { onLost, onRestored, attrs } = {}) {
   let gl = null;
   try {
-    gl = canvas.getContext("webgl2", ATTRS);
+    gl = canvas.getContext("webgl2", { ...ATTRS, ...attrs });
   } catch (e) {
     // getContext is specified to return null rather than throw, but a driver
     // blocklist hitting at exactly the wrong moment has been seen to throw in

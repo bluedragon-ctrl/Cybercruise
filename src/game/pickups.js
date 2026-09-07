@@ -56,7 +56,7 @@ import {
 } from "./pickuptypes.js";
 import { SALVAGE_SIZE } from "./salvageshape.js";
 import { drawSalvageCached } from "./sprites.js";
-import { centerXAt, headingAt, ROAD_HALF_WIDTH } from "./road.js";
+import { centerXAt, cameraX, headingAt, ROAD_HALF_WIDTH } from "./road.js";
 import { overlaps } from "./collisions.js";
 import * as gameConsole from "../engine/console.js";
 
@@ -293,11 +293,13 @@ export class Pickups {
   // No lateral interpolation, for the same reason obstacles skip it: a
   // pickup's offset never changes after spawn.
   render(ctx, distance, playerY, W, H) {
+    const camX = cameraX(distance);
     for (const p of this.list) {
       const sy = playerY - (p.worldY - distance);
       if (sy < -DRAW_MARGIN || sy > H + DRAW_MARGIN) continue;
 
-      const sx = centerXAt(p.worldY, W) + p.offset;
+      // World x to screen x — see road.js's header on the two spaces.
+      const sx = centerXAt(p.worldY, W) + p.offset - camX;
       // A husk goes through the sprite cache and the buff crates do not — see
       // sprites.js's drawSalvageCached on why exactly one pickup is worth a
       // cache entry. It also takes no `pulse`: the reticle breathes because it

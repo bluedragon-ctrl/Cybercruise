@@ -233,6 +233,45 @@ the scroll — or rounding per-layer — resamples both caches, softens the neon
 shears the traffic against the road. Do **not** round the simulation's
 `distance`: the odometer and the score's distance term read the real float.
 
+**The camera also has a horizontal half.** `road.js`'s `cameraX` cancels
+`CAMERA_FOLLOW` (`tuning.js`, at **1**) of the road's sideways wander, so the
+centre-line sits at the middle of the screen and the car's screen x shows what
+the player steered rather than where the road happens to be. Dropping the knob
+to 0 restores the original fixed camera exactly, and needs nothing else changed.
+
+**One split makes it cheap, and it is worth knowing before touching either
+plane.** `centerXAt` returns **world** x, and that is the space everything
+SIMULATES in — a car's `offset`, the player's steering and its clamp to the
+barriers, a bullet's conversion back and forth, which side of the road a floor
+node is on. The camera is subtracted only where something is DRAWN, so no spawn,
+collision or steering code knows it exists and none can drift out of step with a
+value it never reads. `cameraX` itself is a pure function of the same rounded
+`camY` every layer already receives, so nothing is threaded through and two
+layers cannot disagree about where the frame is pointed.
+
+**The two planes apply it differently, on purpose.** The road plane subtracts it
+at each draw site, joining arithmetic that was already converting an offset into
+a position. The city floor is drawn as one plane, so `main.js` pans it with a
+single `translate` and every layer on it — grid, buildings, nodes, floor
+traffic, conduits, pings, markers — draws in floor-world x knowing nothing. What
+a translate cannot do is handed down as `floorCamX`: which window of the city to
+walk (`citygrid.js`'s `plotColumnRange`/`lotColumnRange`, now signed and
+unbounded), where the grid tile's periodic origin falls, and which way a
+building leans — the last of which the 3D floor below deletes, since under a
+real camera a lean is geometry rather than a flag. The floor pans at the **full** rate, not `FLOOR_PARALLAX` — see
+`scenery.js`'s `FLOOR_CAMERA_PARALLAX` for why halving it slides the elevated
+road across the city it stands on. The sky band gets its own rate
+(`drones.js`'s `cameraX`), which is what keeps it stratified between the two.
+
+**What the pan costs.** Nothing per frame: the road's strips and the floor's
+grid tile hold world x and are blitted at an offset, so a bend rebuilds neither.
+The floor tile carries one spare `AVENUE_PERIOD` of width the way it always
+carried a spare `ARTERIAL_PERIOD` of height (64% more tile pixels, built once).
+What it does constrain is `ROAD_AMPLITUDE`: the pan and the road's own offset
+stack, so past **75** the ribbon clips against the strip it was painted into and
+tiles have to be built wider than the screen. `road.js`'s `render()` derives
+that ceiling and a test holds it. See `road.js`'s coordinate-model header.
+
 Current cost is **under 1ms/frame** at 600×800 with a full screen of traffic,
 against 16.7ms, and **flat in object count** — entities are effectively free and
 the remaining budget is governed by screen area. Nothing is left above the noise
@@ -260,6 +299,17 @@ turning an 8-second sample into 15 frames. The tab opened by `preview_start`
 did not, and sustained ~90-150Hz. When a frame-rate-dependent measurement in
 that tooling looks too quiet, check which call opened the tab before trusting
 the number.
+
+A fifth, found in Phase 16a: the synchronous re-render loop that measures every
+2D layer in this section **cannot measure a GL one**, and does not fail loudly.
+Calling a GL renderer N times without ever presenting fills the driver's command
+queue, at which point `bufferData` and `drawArraysInstanced` start blocking on
+it — the same 200-iteration loop reported 0.12ms on its first burst and 1.35ms
+on the next two, neither of which is the per-frame cost in a loop that presents.
+The 2D path is unaffected because it never leaves the CPU. Until the
+rAF-saturation harness can be run on a real window, a GL layer's cost has to be
+read from the game's own frame clock (`cybercruise.snapshot()`'s `frameMs`),
+which is a whole-frame number and cannot attribute.
 
 ### The present path
 
@@ -517,6 +567,115 @@ carried over from 15a unchanged for the same reason: retaking it through the
 same remoted pipeline would not produce a comparable number, and re-doing it in
 a properly diagnosed environment is next session's job, not a settled result of
 this one.
+
+### The 3D city floor
+
+**Phase 16a is a PROOF OF CONCEPT, and it ships behind `CITY_3D` in
+`tuning.js`.** 0 is the floor as it shipped through Phase 15; 1 draws the same
+city on the GPU through a real pinhole camera. Both renderers are in the tree
+and the flag picks one.
+
+**What it is for.** The floor's projection has been an oblique one since Phase 2:
+a point at height z lands at a screen offset of `(z * skew, -z)`, with `skew`
+flipped by hand per building to fake a shared vanishing point. That is what let
+192 cached sprites cover an infinite city — a building is the same pixels
+wherever it stands. It also has three hard limits, and the camera pan above made
+the first one visible: the lean is BINARY and swaps as a building crosses the
+middle; there is no yaw at all, because a sprite IS one fixed view of one solid;
+and distance does nothing, so the only depth cue is the parallax scroll rate.
+A real camera makes all three a consequence of position, computed per vertex.
+
+**How it is built.** `game/citycamera.js` is the projection, written out as an
+eye plus three basis vectors rather than a 4x4 so it can be read against the
+mapping `scenery.js` has always used — and `focal` is pinned to
+`height / sin(tilt)`, which makes **tilt 90 reproduce the 2D floor's ground
+exactly** (a test asserts it) so the two paths can be compared with only the
+buildings differing. `game/buildingmesh.js` turns the same catalogue sections
+`buildingshapes.js` draws into triangles and edges; `engine/gl/city3d.js` draws
+them on its own WebGL2 canvas and `scenery.js` composites that into the frame
+with one `drawImage`, so layer order, the road painting over the middle, and the
+whole bloom pass learn nothing. Hidden surfaces are a depth buffer's job (which
+is what makes yaw possible — a far-to-near row walk stops being a valid sort the
+moment rows are not parallel to the screen); edge visibility stays the four
+hand-derived rules, moved into the vertex shader and evaluated per frame.
+
+**The tilt, and why 90.** `CITY_TILT` sets legibility against skyline. Steep
+keeps the map readable — the ground stays at or near 1:1 and the city reads at
+the density it always did — but a building's height projects as radial splay
+away from the vanishing point rather than as rise up the screen, so the skyline
+flattens: at 68 a 96-unit tower rises 41px where the oblique projection gave it
+96, and at 90 it rises none. Shallow (45-55) puts the rise back and gives a real
+receding skyline, at the cost of the far half of the map compressing into a band
+— and of every flat layer needing a reprojection this PoC has not finished. The
+oblique projection is, in these terms, "tilt 90 for the ground and tilt 0 for
+the heights" at once: impossible for a camera, and exactly why it was chosen.
+
+**90 resolves that rather than splitting it, because of where the vanishing
+point lands.** At 90 it is the anchor — the ground point under screen
+(W/2, playerY), which at `CAMERA_FOLLOW = 1` is the road's own centre-line. The
+one place a top-down camera degenerates (zero lean, roof only, no wall) is under
+143px of opaque tarmac; the readable-lean threshold is reached ~9px out, against
+that 143. Every building the player can see gets a real, continuous lean, and
+the ground stays pixel-identical to the 2D floor — which is what lets this ship
+without porting the flat layers first. `test/city-camera.test.js` holds both
+claims. `CITY_EYE_HEIGHT` then does nothing but decide how tall the city looks
+(the ground is 1:1 at any height once tilt is 90): 900 throws a tall roof 36px
+out at the screen edge, 800 (shipped) ~41px, 520 ~68px, 340 ~120px and past the
+point where an edge building lands on its neighbours. Shipping near the flat end
+is deliberate — the floor is framed as a tactical map, not as scenery.
+
+**Two things the camera broke that the sprite path had for free**, both found
+by looking at it rather than by a test, and both worth knowing before any other
+2D layer is moved onto the GPU.
+
+*The materialisation scanline stops meaning anything.* Phase 7g reveals a
+building upward from a moving clip line, and what sells that is a line sweeping
+across a flat, screen-aligned image. Under a camera there is no such image — the
+solid's roof is thrown outward from the vanishing point, so a horizontal
+screen-space cut runs at an angle that says nothing about the shape, and it only
+ever runs within ~60px of the top edge, where it clips a sliver of footprint and
+reads as a glitch. The same `materialiseProgress` now drives an ALPHA instead:
+every property its header claims still holds (a pure function of row and
+`fDist`, nothing stored, at most one row mid-entry, monotonic on approach) and
+the scanline is gone rather than ported. Dropping the entry treatment entirely
+is one line in `visibleBuildings3D`.
+
+*Sampling a tile is not blitting it.* The floor is 1px lines on transparent
+ground, and `engine/viewport.js` exists to land those on exact device pixels.
+Textured onto the ground quad with the obvious `LINEAR` filter, every line
+lands at an arbitrary sub-texel offset and spreads over two pixels at about half
+strength — measured against the 2D blit of the same tile, peak brightness on a
+scan across the floor fell from **255 to a median of 139**, which reads as the
+streets and the grid going soft. The fix is `NEAREST` within a level, which is
+just the GL spelling of the pixel-exact blit: at tilt 90 the ground is 1:1, the
+tile is rasterised at the frame's own device scale, and both the pan and the
+floor clock are already snapped to whole device pixels, so a texel centre lands
+on a pixel centre. Median peak back to **255**. The mip chain stays, and stays
+linear BETWEEN levels, because a tilted camera still compresses a whole tile
+into a few pixels at the far edge and one level sampled nearest crawls.
+
+**What it costs: nothing measurable, end to end.** The game's own frame clock
+reads **7.1-7.8ms** with the 3D floor against **7.6-8.4ms** with the sprite
+path, same scene, same scale, peaks 17-18ms against 19-21ms. At tilt 90 the
+camera's ground window IS the screen rectangle (a test asserts it), so the walk
+is the same size the sprite path walks and ~53 per-building blits become 24
+instanced draws. The ground is the existing floor tile rebuilt at exactly one
+period and sampled with `GL_REPEAT` — the same pixels, and the first time the
+ground has extended past one screen width. Attribution finer than the whole
+frame is still owed: the per-layer numbers elsewhere in this section come from a
+synchronous re-render loop, and that harness does not work on a GL path at all
+(see the profiling traps above).
+
+**What the PoC does not do yet.** All of this is invisible at the shipped tilt
+of 90 and appears the moment it comes down. `links.js`'s conduits and
+`walletrender.js`'s award marks are still drawn under the parallel projection.
+Node sprites and traffic dots ARE reprojected (`scenery.js`'s `floorProject`)
+but keep their authored size, since they are flat glyphs rather than solids, and
+both walks still use the screen-rectangle window, so neither appears in the far
+band a tilted camera can see. Separately, and at every tilt: the period-sized
+ground tile puts a dash-phase seam on the avenue centre lines every
+`ARTERIAL_PERIOD`, because the 24px dash cycle divides `AVENUE_PERIOD` and not
+it.
 
 ### Rendering the halo
 
@@ -1317,7 +1476,9 @@ A shared top-10 board — the thing Phase 13 below was on hold for. Three
 split state from ink: `leaderboard.js` fetches/caches/submits and draws
 nothing, `leaderboardrender.js` draws the cached list and touches no network,
 `nameentry.js` is the three-letter initials screen a qualifying death drops
-into (own render path, not a fourth `menu.js` mode — see its header for why).
+into (own render path, not a fourth `menu.js` mode — see its header for why),
+which ESC declines: the run is then reported nameless, exactly as a
+non-qualifying one is.
 The board itself is `worker/` — a single Cloudflare Worker over one KV key
 holding the whole top-10 array; that module's own header has the shape (one
 record per name, no real anti-cheat) and `worker/README.md` has the deploy

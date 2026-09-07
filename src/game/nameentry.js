@@ -18,6 +18,12 @@
 // taken since the arcades this game already imitates (README, menu.js's
 // CONNECT/RECONNECT fiction). Nothing new to wire, nothing out of period.
 //
+// ESC SKIPS. Being asked for initials is not the same as wanting to be on the
+// board, and fire is wired to confirm, so without this there is no way out of
+// the screen that does not put a name up. The key that backs out of pause
+// backs out of here too (menu.js's ESC-resumes note); main.js then ends the
+// run exactly as a non-qualifying death ends — still reported, with no name.
+//
 // FIRE BOTH ADVANCES AND CONFIRMS — mashing it walks the cursor across all
 // three slots and submits on the last, the same "one button does the whole
 // job" feel as the machines this is modelled on. Left/Right can still jump
@@ -71,10 +77,12 @@ export function createNameEntry() {
     letters[cursor] = CHARSET[(i + dir + CHARSET.length) % CHARSET.length];
   }
 
-  // Returns { confirmed, name } — main.js reads `confirmed` the one tick the
-  // last slot is fired, the same edge-triggered shape menu.js's update()
-  // returns `confirmed` on. `name` is only meaningful that tick.
+  // Returns { confirmed, skipped, name } — main.js reads `confirmed` the one
+  // tick the last slot is fired and `skipped` the one tick ESC is, the same
+  // edge-triggered shape menu.js's update() returns `confirmed` on. `name` is
+  // only meaningful on the confirming tick.
   function update(dt) {
+    if (consumePress("pause")) return { confirmed: false, skipped: true, name: "" };
     if (consumePress("left")) cursor = Math.max(0, cursor - 1);
     if (consumePress("right")) cursor = Math.min(SLOT_COUNT - 1, cursor + 1);
     if (consumePress("up")) {
@@ -98,10 +106,12 @@ export function createNameEntry() {
       }
     }
     if (consumePress("fire")) {
-      if (cursor === SLOT_COUNT - 1) return { confirmed: true, name: letters.join("") };
+      if (cursor === SLOT_COUNT - 1) {
+        return { confirmed: true, skipped: false, name: letters.join("") };
+      }
       cursor++;
     }
-    return { confirmed: false, name: "" };
+    return { confirmed: false, skipped: false, name: "" };
   }
 
   function render(ctx, hudCtx, W, H) {
@@ -133,6 +143,7 @@ export function createNameEntry() {
 
     glowText(hudCtx, "UP/DOWN CHANGE LETTER", W / 2, HINT_Y, GREEN_DIM, 12, "center", 4);
     glowText(hudCtx, "LEFT/RIGHT MOVE, FIRE TO CONFIRM", W / 2, HINT_Y + 20, GREEN_DIM, 12, "center", 4);
+    glowText(hudCtx, "ESC TO SKIP", W / 2, HINT_Y + 40, GREEN_DIM, 12, "center", 4);
   }
 
   return { open, update, render };

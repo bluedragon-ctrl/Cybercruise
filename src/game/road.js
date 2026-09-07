@@ -14,6 +14,19 @@
 // so rows ABOVE the player (smaller sy) are ahead (larger worldY) and rows below
 // are behind. Inverting: sy = playerY - (worldY - distance).
 //
+// The x axis works the same way, with one extra step. WORLD x is what
+// centerXAt() returns — the canvas centre plus the road's own wander — and it is
+// the space EVERYTHING SIMULATES IN: a car's `offset`, the player's steering and
+// its clamp to the barriers, a bullet's conversion back and forth, which side of
+// the road a floor node is on. SCREEN x subtracts the camera:
+//
+//     screenX = worldX - cameraX(camY)
+//
+// and that subtraction happens ONLY where something is drawn. Keeping the camera
+// out of the simulation is what makes it cheap: no spawn, collision or steering
+// code has to know it exists, and none of it can drift out of step with a value
+// it never reads. See cameraX.
+//
 // The road's shape is a pure function of worldY (see centerOffset), which makes
 // it deterministic and infinite with no stored state — any world position always
 // yields the same curve, so nothing needs to be generated or freed as we drive.
@@ -22,7 +35,7 @@
 // re-stroked every frame — see "Strip cache" near the bottom of this file.
 
 import { neonStroke } from "../engine/neon.js";
-import { renderScale, createSurface, blitSurface } from "../engine/viewport.js";
+import { renderScale, createSurface, blitSurface, snapToDevice } from "../engine/viewport.js";
 import {
   ROAD_EDGE, ROAD_EDGE_DIM, ROAD_CENTERLINE, ROAD_SURFACE, WALL_FILL,
 } from "../engine/palette.js";
@@ -44,6 +57,7 @@ import {
   ROAD_WAVE_B_FREQ,
   ROAD_WAVE_B_WEIGHT,
   ROAD_WAVE_B_PHASE,
+  CAMERA_FOLLOW,
 } from "./tuning.js";
 
 // Distance from the road centre-line to each barrier, in px. The full road is
@@ -163,12 +177,41 @@ export function headingAt(worldY) {
   return Math.atan(slope);
 }
 
-// Screen x of the road's centre-line at a given world distance.
+// World x of the road's centre-line at a given world distance — see the header
+// on the two x spaces. The camera is subtracted where things are drawn, never
+// here, so everything that SIMULATES against the road keeps using this untouched.
 export function centerXAt(worldY, canvasW) {
   return canvasW / 2 + centerOffset(worldY);
 }
 
-// Road geometry (in screen x) at a given world distance.
+// WHERE THE CAMERA IS, in world x — the amount every drawn thing shifts left by.
+// CAMERA_FOLLOW (tuning.js) scales it: at 0 this is flat zero and the world is
+// drawn exactly where it is simulated; at 1 it cancels the road's wander
+// outright, pinning the centre-line to the middle of the screen so the player's
+// screen x shows what was steered rather than where the road went.
+//
+// `camDist` is the RENDER camera's distance — main.js's rounded camY, not the
+// simulation's float. Read it from the same value the rest of the frame is drawn
+// against, or the road shears against the cars standing on it.
+//
+// SNAPPED TO WHOLE DEVICE PIXELS, for the reason main.js gives for camY: the
+// road's strip tiles and the floor's grid tile are BLITS, and a blit is only
+// pixel-exact at an integer offset. This is the x half of that same rule, done
+// here rather than at each of the dozen draw sites — one rounding, shared.
+//
+// A PURE FUNCTION, deliberately, rather than a scalar main.js computes and
+// threads down. Every render path is already handed camY, so each derives the
+// camera itself, and two callers cannot disagree about a function of one shared
+// input — the shear main.js's rounding comment warns about is impossible by
+// construction rather than by discipline. The only callers given it as an
+// argument are the two that never see camY at all: the player's car and the
+// cargo drone, which take it the way they already take `angle` and `bounds`.
+export function cameraX(camDist) {
+  if (CAMERA_FOLLOW === 0) return 0;
+  return snapToDevice(CAMERA_FOLLOW * centerOffset(camDist));
+}
+
+// Road geometry (in world x) at a given world distance.
 export function edgesAt(worldY, canvasW) {
   const center = centerXAt(worldY, canvasW);
   return {
@@ -205,6 +248,17 @@ export function laneAt(offset) {
 const WALL_DY = 11;
 const WALL_DX = 6;
 
+// How far the drawn ribbon reaches either side of its own centre-line: the
+// tarmac's half width, plus the wall face that hangs outside it, plus half of
+// the widest stroke laid along that face (the barriers' 2px; neonStroke draws a
+// plain line and the halo is added over the finished frame by present.js, so
+// there is no glow radius to allow for here).
+//
+// Exported because it is the number that decides how far the road may wander
+// before the strip cache has to change shape — see render(), and the test that
+// holds that derivation to it.
+export const RIBBON_HALF_EXTENT = ROAD_HALF_WIDTH + WALL_DX + 1;
+
 // --- Edge sampling buffers -------------------------------------------------
 // The road edges are re-sampled every frame, which used to allocate ~206 short
 // [x, y] arrays plus ~103 edgesAt() result objects per frame — around 19k
@@ -239,10 +293,12 @@ function ensureSamples(yFrom, yTo) {
   for (let i = 0; i < sampleCount; i++) sampleY[i] = yFrom + i * SAMPLE_STEP;
 }
 
-// Rewrite leftX/rightX for the current scroll position.
-function sampleEdges(distance, playerY, W, yFrom, yTo) {
+// Rewrite leftX/rightX for the current scroll position. `camX` shifts the whole
+// ribbon left (see cameraX); the strip cache passes 0, because a tile holds
+// WORLD x and is panned by where it is blitted instead — see the strip cache.
+function sampleEdges(distance, playerY, W, yFrom, yTo, camX) {
   ensureSamples(yFrom, yTo);
-  const mid = W / 2;
+  const mid = W / 2 - camX;
   for (let i = 0; i < sampleCount; i++) {
     const center = mid + centerOffset(distance + (playerY - sampleY[i]));
     leftX[i] = center - ROAD_HALF_WIDTH;
@@ -274,8 +330,8 @@ function traceEdge(ctx, edgeX, dx = 0, dy = 0) {
 // coordinates. Rows outside the destination are fine and expected: the tile
 // builder deliberately paints a full stride past both ends and lets the canvas
 // clip (see the strip cache).
-function paintRoad(ctx, distance, playerY, W, yFrom, yTo) {
-  sampleEdges(distance, playerY, W, yFrom, yTo);
+function paintRoad(ctx, distance, playerY, W, yFrom, yTo, camX) {
+  sampleEdges(distance, playerY, W, yFrom, yTo, camX);
 
   // Elevated side walls (drawn first; the tarmac surface then overlaps their
   // tops so only the outer face shows below each barrier).
@@ -311,7 +367,7 @@ function paintRoad(ctx, distance, playerY, W, yFrom, yTo) {
   // scroll naturally with the road instead of shimmering in place.
   neonStroke(
     ctx,
-    (c) => traceCentreDashes(c, distance, playerY, W, yFrom, yTo),
+    (c) => traceCentreDashes(c, distance, playerY, W, yFrom, yTo, camX),
     ROAD_CENTERLINE,
     3,
   );
@@ -331,7 +387,7 @@ function paintRoad(ctx, distance, playerY, W, yFrom, yTo) {
 export function renderDirect(ctx, distance, playerY, W, H) {
   // Overscan by one sample step top and bottom so the glowing edges run
   // off-screen rather than stopping short with a visible round cap.
-  paintRoad(ctx, distance, playerY, W, -SAMPLE_STEP, H + SAMPLE_STEP);
+  paintRoad(ctx, distance, playerY, W, -SAMPLE_STEP, H + SAMPLE_STEP, cameraX(distance));
 }
 
 // The centre line's dash + gap period, in world units. Exported so a test can
@@ -340,13 +396,13 @@ export const DASH_SPAN = 52;
 
 // Issues the moveTo/lineTo pairs for every visible centre dash into the caller's
 // current path.
-function traceCentreDashes(ctx, distance, playerY, W, yFrom, yTo) {
+function traceCentreDashes(ctx, distance, playerY, W, yFrom, yTo, camX) {
   const dash = 26;
   const span = DASH_SPAN; // dash + gap
   const worldBottom = distance + playerY - yTo; // smallest visible worldY
   const worldTop = distance + playerY - yFrom; // largest visible worldY
   const firstDash = Math.ceil(worldBottom / span) * span;
-  const mid = W / 2;
+  const mid = W / 2 - camX;
   for (let wy = firstDash; wy <= worldTop; wy += span) {
     ctx.moveTo(mid + centerOffset(wy), playerY - (wy - distance));
     ctx.lineTo(mid + centerOffset(wy + dash), playerY - (wy + dash - distance));
@@ -488,7 +544,9 @@ function roadTile(k, W) {
   // formula collapse to exactly blockLocalY, so the tile IS the block. The y
   // range overruns the 0..S canvas by a full stride each way — that overrun is
   // the seam fix, and the canvas throws it away for us.
-  paintRoad(canvas.getContext("2d"), (k + 1) * TILE_STRIDE, 0, W, -TILE_STRIDE, 2 * TILE_STRIDE);
+  // camX 0: the tile is WORLD x, so the camera cannot be baked into it — see
+  // the pan note in render() below.
+  paintRoad(canvas.getContext("2d"), (k + 1) * TILE_STRIDE, 0, W, -TILE_STRIDE, 2 * TILE_STRIDE, 0);
 
   tiles.set(k, canvas);
   return canvas;
@@ -529,10 +587,29 @@ export function render(ctx, distance, playerY, W, H, sector = 0) {
     tilesScale = scale;
   }
 
+  // THE CAMERA PANS THE BLIT, NOT THE TILE. A tile holds the road in world x,
+  // so the camera moving does NOT invalidate one — the same cached strip is
+  // simply blitted at a different destX, and a bend costs no rebuilds.
+  //
+  // Nothing is lost off the tile's edges by that shift, and it is worth knowing
+  // why, because it stops being true if the road is ever allowed to wander
+  // further. A tile is W wide and transparent outside the ribbon. The ribbon
+  // sits within W/2 ± (ROAD_AMPLITUDE + RIBBON_HALF_EXTENT) of the tile's own
+  // origin, and |camX| reaches ROAD_AMPLITUDE, so the two stack:
+  //
+  //     worst drawn x = W/2 + ROAD_AMPLITUDE + RIBBON_HALF_EXTENT + ROAD_AMPLITUDE
+  //                   = 300 + 60 + 150 + 60 = 570   (of 600, both sides alike)
+  //
+  // The ceiling that falls out of that is ROAD_AMPLITUDE <= (W/2 -
+  // RIBBON_HALF_EXTENT) / 2 = 75. Past it a bend clips against the edge of the
+  // tile it was painted into and the barrier ends mid-air, so raising the
+  // amplitude further means building tiles WIDER than the screen. The test
+  // "a panned road ribbon stays inside its own strip tile" holds this.
+  const camX = cameraX(distance);
   const kMin = blockOf(distance + playerY - H); // block at the bottom of the screen
   const kMax = blockOf(distance + playerY); // block at the top
   for (let k = kMin; k <= kMax; k++) {
-    blitSurface(ctx, roadTile(k, W), 0, blockDestY(k, distance, playerY));
+    blitSurface(ctx, roadTile(k, W), -camX, blockDestY(k, distance, playerY));
   }
 
   // Drop anything that has scrolled away. Deleting during iteration is defined

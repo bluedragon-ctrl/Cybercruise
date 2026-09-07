@@ -298,6 +298,32 @@ export function buildingFootprint(v) {
   return { w: o.w, d: o.d };
 }
 
+// How far the DRAWN building reaches either side of its base centre — the
+// footprint above plus the lean, which throws the roof `height * skew` clear of
+// the ground it stands on and is therefore the wider number. The same
+// measurement drawBuildingVariant sizes its sprite from, minus the glow pad.
+//
+// Exists for the invariant that the LEAN FLIP is invisible: leanRight is a
+// vanishing-point cue measured from the screen's centre (scenery.js's
+// visibleBuildings), so a building crossing that centre swaps which way it
+// leans. Nothing about the camera made that new — the flip line has always been
+// screen centre — but a panning camera moves buildings across it far more
+// often, so what used to be a rarity is now routine, and it only stays unseen
+// while the flip happens under the opaque road. See the test that holds it.
+export function buildingDrawSpan(v, leanRight) {
+  const ext = shapeExtent(variantShape(v), variantOpts(v, leanRight));
+  return { left: ext.left, right: ext.right };
+}
+
+// The SHAPE and DIMENSIONS variant `v` rolls, for game/buildingmesh.js: the 3D
+// floor builds the same solid out of triangles, so it has to roll w/d/height
+// from the same two functions the sprite path does or the two renderers would
+// slowly become two different cities. `skew` and `color` ride along unused —
+// under a real camera the lean is geometry, and the colour is a uniform.
+export function buildingVariantSpec(v) {
+  return { shape: variantShape(v), opts: variantOpts(v, true) };
+}
+
 // A cached city building, anchored at the BASE CENTRE so callers keep placing
 // buildings by their footprint on the ground plane.
 // `leanRight` picks which way the roof skews, so a building can lean away from

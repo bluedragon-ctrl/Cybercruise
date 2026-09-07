@@ -435,10 +435,13 @@ export class Hauler {
   // of the two things still being ticked. drawRotor reads the value as
   // `phase * 0.05` radians, so the constant here is just "fast enough that the
   // blades blur rather than strobe".
-  render(ctx) {
+  // `camX`, like player.render's: `this.x` tracks the car in WORLD x (see
+  // update), and the drone has no more business knowing about the camera than
+  // the car does. road.js's cameraX has the rest.
+  render(ctx, camX = 0) {
     const f = this.frame();
     if (!f) return;
-    drawShapeObject(ctx, this.x, f.y, LIFTER, {
+    drawShapeObject(ctx, this.x - camX, f.y, LIFTER, {
       color: HAULER,
       thrust: HAULER_THRUST,
       // The jaw scale rides on the WIDTH alone — see JAW_OPEN_SCALE.

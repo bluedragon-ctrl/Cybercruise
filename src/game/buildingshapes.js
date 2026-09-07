@@ -247,6 +247,16 @@ function compile(shape, o) {
   };
 }
 
+// The compiled geometry of one catalogue shape at one set of dimensions, in
+// the section form the renderer below walks: footprint points in px around
+// the base centre, with real z0/z1 heights. Exported for game/buildingmesh.js,
+// which builds the SAME sections into GPU triangles for the 3D floor — so the
+// catalogue above stays the one place a silhouette is stated, and a shape added
+// to it appears in both renderers or in neither.
+export function compileShape(shape, opts = {}) {
+  return compile(SHAPES[shape], shapeOpts(opts));
+}
+
 // ---------------------------------------------------------------------------
 // Projection / visibility
 // ---------------------------------------------------------------------------
