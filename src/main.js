@@ -1232,11 +1232,14 @@ function updateDying(dt) {
 // post is leaderboard.js's problem, not this run's) and moves
 // straight on to the same "gameover" screen a non-qualifying death reaches
 // directly — the initials prompt is purely an extra step in front of it, not
-// a fork in what gameover itself does.
+// a fork in what gameover itself does. ESC (nameentry.js's `skipped`) takes
+// the same exit with a null name, which is precisely the non-qualifying
+// branch of updateDying(): declining the prompt costs the run its place on
+// the board, never the run's own report.
 function updateHighscore(dt) {
   const result = nameEntry.update(dt);
-  if (result.confirmed) {
-    reportRun(result.name);
+  if (result.confirmed || result.skipped) {
+    reportRun(result.confirmed ? result.name : null);
     state = "gameover";
     menu.open("gameover");
   }
