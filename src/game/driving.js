@@ -354,7 +354,7 @@ export const DRIVING_PROFILES = {
   // has to be chosen, which is the whole point of no longer inheriting it from
   // `nerve`. Its own bikes and the darter already reasoned their way to 0
   // independently; this is the rest of the fleet agreeing.
-  pursuer: profile({ nerve: 12, contact: 0 }), // interceptor: through a trestle
+  pursuer: profile({ nerve: 15, contact: 0 }), // interceptor: through a trestle
                                      // a third of the time — the baseline gamble
   // UNCLAIMED — no type drives this, and behaviours.js's `block` tactic is
   // likewise unclaimed. Kept because the role is still wanted: a heavy hostile
