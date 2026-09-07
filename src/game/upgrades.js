@@ -90,7 +90,7 @@ export const CONSUMABLES = [
     id: "buy_repair",
     label: "HULL REPAIR",
     detail: "+50 HULL",
-    price: 50,
+    price: 40,
     kind: HEAL,
     // A QUARTER OF STOCK HULL IN ONE PRESS — under the FIX crate's own 70
     // (pickuptypes.js), because the value here is not raw quantity but being
@@ -136,7 +136,7 @@ export const CONSUMABLES = [
     id: "buy_rocket_ammo",
     label: "ROCKET AMMO",
     detail: "+20 RDS",
-    price: 50,
+    price: 40,
     kind: AMMO,
     weaponId: "rocket",
     amount: 20,
@@ -146,7 +146,7 @@ export const CONSUMABLES = [
     id: "buy_tracer_ammo",
     label: "TRACER AMMO",
     detail: "+20 RDS",
-    price: 35,
+    price: 30,
     kind: AMMO,
     weaponId: "tracker",
     amount: 20,
@@ -161,7 +161,7 @@ export const CONSUMABLES = [
     // 16-round magazine in a single purchase the way "SET OF 16" used to. A
     // player who wants the full mag back buys the row more than once; the
     // price is per set, not per magazine.
-    price: 50,
+    price: 20,
     kind: AMMO,
     weaponId: "mine",
     amount: 4,
@@ -250,7 +250,7 @@ export const STATS = [
     // rather than to this, so buying speed moves the player through the
     // field instead of dragging the field along with them.
     step: 40,
-    price: 100,
+    price: 80,
     unit: "",
     decimals: 0,
   },
@@ -265,7 +265,7 @@ export const STATS = [
     // third of one, and a maxed chassis is the difference between two mines
     // ending a run and three.
     step: 50,
-    price: 100,
+    price: 80,
     unit: "",
     decimals: 0,
   },
@@ -295,8 +295,8 @@ export const STATS = [
     // crate is over half a minute in which nothing on the road can touch the
     // car. Retune HERE if that reads as too long, and retune it against real
     // road time rather than against the crate's own 5s.
-    step: 12,
-    price: 100,
+    step: 10,
+    price: 80,
     unit: "S",
     prefix: "+",
     decimals: 0,
@@ -330,7 +330,7 @@ export const STATS = [
     // start hurting something, and a sideways shove throws its target harder
     // into whatever's next to it. See PlayerBody's own comment for the values.
     step: 0.8,
-    price: 100,
+    price: 80,
     unit: "",
     decimals: 1,
   },
