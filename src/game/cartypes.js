@@ -690,11 +690,11 @@ export const CAR_TYPES = [
     // minimum it is a hairline case rather than a clean escape. Revisit this
     // number together with the invariant in hazards.test.js that used to
     // pin every hostile floor to either 0 or strictly above MIN_SPEED.
-    speedMin: 100,
+    speedMin: 120,
     cruiseMin: 400,
     cruiseMax: 620,
     speedMax: 650,
-    steerSpeed: 250,
+    steerSpeed: 150,
     blastRadius: 38,
     blastDamage: 16,
     value: 100,
@@ -736,7 +736,7 @@ export const CAR_TYPES = [
     // SAME FLOOR AS THE INTERCEPTOR (100, not the bike floor 200) — see that
     // entry's own note on why 100 exactly is what keeps a type out of
     // hazards.test.js's "shakeable hostiles share one floor" invariant.
-    speedMin: 100,
+    speedMin: 120,
     // EVERY ONE OF THESE ABOVE THE INTERCEPTOR'S OWN — cruiseMin/cruiseMax/
     // speedMax all +20, steerSpeed +20 — which is the whole of "higher
     // mobility" spelled out in the one place a car's mobility actually lives
@@ -745,7 +745,7 @@ export const CAR_TYPES = [
     cruiseMin: 420,
     cruiseMax: 640,
     speedMax: 670,
-    steerSpeed: 270,
+    steerSpeed: 150,
     // SAME AS THE INTERCEPTOR'S OWN DEATH BLAST — the lower hull above already
     // makes this car easier to kill; there is no reason to also make dying
     // less dangerous to whatever is standing next to it when it goes.
@@ -868,7 +868,7 @@ export const CAR_TYPES = [
     cruiseMin: 620,
     cruiseMax: 730,
     speedMax: 730,
-    steerSpeed: 250, // the nimblest thing on the road, by a wide margin
+    steerSpeed: 150, // the nimblest thing on the road, by a wide margin
     blastRadius: 10,
     blastDamage: 5,
     value: 50,
@@ -1064,7 +1064,7 @@ export const CAR_TYPES = [
     cruiseMin: 400,
     cruiseMax: 660,
     speedMax: 800,
-    steerSpeed: 250, // the widest sweep on the road needs the quickest hands;
+    steerSpeed: 150, // the widest sweep on the road needs the quickest hands;
                      // this is the nimblest thing in the catalogue, past the
                      // cycle's own 180
     blastRadius: 12,
@@ -1103,7 +1103,7 @@ export const CAR_TYPES = [
     cruiseMin: 600,
     cruiseMax: 670,
     speedMax: 700,
-    steerSpeed: 200,
+    steerSpeed: 150,
     blastRadius: 16,
     blastDamage: 8,
     value: 100,
@@ -1229,7 +1229,7 @@ export const CAR_TYPES = [
     // any ordinary hostile (120 against the standard tier's 150-250) — three
     // welded hulls do not snap sideways, and the road already prices that as
     // "fast, and it shows," not as unhittable.
-    steerSpeed: 120,
+    steerSpeed: 100,
     // THE BIGGEST BLAST A HOSTILE CAN DEAL, second only to the rig's own
     // 200/60 civilian record — three hulls of armour going up should clear
     // more tarmac than any other kill on the road, short of the one thing
