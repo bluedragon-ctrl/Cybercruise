@@ -838,6 +838,11 @@ function applyPanelAction(action) {
 //   cybercruise.warp(4000)          forward-only, in the HUD's DIST units;
 //                                   pass { skipPassed: false } to let the
 //                                   one-shots it passes fire on arrival
+//   cybercruise.city3d({ tilt: 55 }) the 3D floor's camera — tilt, yaw and
+//                                   eye height (game/citycamera.js). Live, no
+//                                   reload, and the ONLY way to see what a yaw
+//                                   does, since the shipped value is 0. Call it
+//                                   with nothing to read the current set.
 //
 // The two WORLD calls refuse from the menu and from a frozen state, for exactly
 // the reason the panel greys those rows out: newGame() is still to come, or a
@@ -856,6 +861,11 @@ if (SHOW_TEST_OPTIONS) {
       testPanel.setInvulnerable(on);
       applyTestOptions();
       return player.invulnerable;
+    },
+    // The PoC camera. No needsRun() guard: it is a rendering parameter, not a
+    // world change, so it is safe (and useful) to dial from the menu.
+    city3d(params) {
+      return params === undefined ? scenery.cameraParams() : scenery.setCameraParams(params);
     },
     credits(value) {
       const refused = needsRun();

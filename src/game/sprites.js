@@ -315,6 +315,15 @@ export function buildingDrawSpan(v, leanRight) {
   return { left: ext.left, right: ext.right };
 }
 
+// The SHAPE and DIMENSIONS variant `v` rolls, for game/buildingmesh.js: the 3D
+// floor builds the same solid out of triangles, so it has to roll w/d/height
+// from the same two functions the sprite path does or the two renderers would
+// slowly become two different cities. `skew` and `color` ride along unused —
+// under a real camera the lean is geometry, and the colour is a uniform.
+export function buildingVariantSpec(v) {
+  return { shape: variantShape(v), opts: variantOpts(v, true) };
+}
+
 // A cached city building, anchored at the BASE CENTRE so callers keep placing
 // buildings by their footprint on the ground plane.
 // `leanRight` picks which way the roof skews, so a building can lean away from

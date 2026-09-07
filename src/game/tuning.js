@@ -93,3 +93,92 @@ export const ROAD_WAVE_B_PHASE = 1.7;
 // 60, which the pan doubles the screen cost of — road.js's render() derives the
 // ceiling (75) and a test holds it.
 export const CAMERA_FOLLOW = 1;
+
+// --- The 3D city floor (Phase 16a, PROOF OF CONCEPT) ----------------------
+//
+// 0 keeps the floor exactly as it shipped: buildings as cached sprites under
+// buildingshapes.js's oblique projection, ground as one blitted tile. 1 draws
+// both on the GPU through a real pinhole camera — game/citycamera.js says what
+// that buys and engine/gl/city3d.js how it is drawn.
+//
+// IT IS A FLAG AND NOT A FRACTION, unlike CAMERA_FOLLOW above: the two paths
+// are two renderers, not two settings of one, and there is no meaningful blend
+// between a sprite and a mesh. The continuous knob is CITY_TILT below, whose
+// 90 makes the 3D path's GROUND land pixel-for-pixel where the 2D path's does
+// (citycamera.js derives that), so the two can be compared with only the
+// buildings differing.
+//
+// AT THE SHIPPED CITY_TILT OF 90 THE GROUND IS PIXEL-IDENTICAL either way
+// (citycamera.js derives that), so switching this on moves the floor grid, the
+// streets, the ticks, the nodes, the traffic dots, the conduits and the award
+// marks by exactly nothing. The buildings are the whole of the difference.
+//
+// That is only true at 90. Tilt the camera and the two flat layers still drawn
+// on the 2D canvas — links.js's conduits and walletrender.js's award marks —
+// stay where the parallel projection would have put them, because they are not
+// reprojected yet; node sprites and traffic dots are (scenery.js's
+// floorProject) but keep their authored size. Anyone dialling CITY_TILT down
+// from the console is looking at a half-ported floor, and should know it.
+export const CITY_3D = 1;
+
+// Degrees the eye looks DOWN from the horizon. 90 is STRAIGHT DOWN, and is
+// what ships.
+//
+// THE TRADE THIS KNOB SETS. Steep keeps the map legible — the ground stays at
+// or near 1:1, so the city reads at the density it always did — but a
+// building's height projects as radial splay away from the vanishing point
+// rather than as rise up the screen, so the skyline flattens: at 68 a 96-unit
+// tower rises 41px where the oblique projection gave it 96, and at 90 it rises
+// none at all. Shallow (45-55) puts the rise back and produces a real receding
+// skyline, at the cost of the far half of the map compressing into a band and
+// of every flat layer needing the reprojection the PoC has not finished.
+// buildingshapes.js's projection is, in these terms, "tilt 90 for the ground
+// and tilt 0 for the heights" at once — impossible for a camera, and exactly
+// why it was chosen.
+//
+// 90 RESOLVES THE TRADE RATHER THAN SPLITTING IT, because of where the
+// vanishing point lands. At 90 it is the anchor: the ground point under screen
+// (W/2, playerY), which at CAMERA_FOLLOW = 1 is the road's own centre-line. So
+// the one place a top-down camera degenerates — zero lean, roof only, no wall
+// visible — is under 143px of opaque tarmac, and every building the player can
+// actually see is off-centre enough to have a real one. It also keeps the
+// ground pixel-identical to the 2D floor, which is what lets this ship without
+// the flat layers being ported first.
+//
+// test/city-camera.test.js holds the road-covers-the-vanishing-point claim,
+// since it is an agreement between three files and nothing here would notice
+// it breaking.
+export const CITY_TILT = 90;
+
+// Degrees the eye is turned about the vertical — map rotation, and the thing
+// the sprite path could not express at all. Shipped at 0; it exists to be
+// turned from the console (cybercruise.city3d({ yaw: 20 })) because "can this
+// rotate" is one of the two questions this PoC is here to answer.
+export const CITY_YAW = 0;
+
+// The eye's height above the floor, in floor units, and the PERSPECTIVE
+// STRENGTH. At the shipped tilt of 90 it is the ONLY thing it controls: the
+// ground is 1:1 at any height (focal is pinned to height / sin(tilt), so the
+// two cancel), and what is left is how far a building's roof is thrown outward
+// from the vanishing point — a point at height z is drawn at
+// height / (height - z) times its base's distance from the centre.
+//
+// So this reads as "how tall the city looks", and it is the one number to
+// reach for if the skyline feels wrong:
+//
+//   900   a 96-unit tower throws its roof 36px out at the screen edge. Flat,
+//         map-like, closest to a plan view.
+//   800   ~41px. What ships. Enough lean to say "solid" and to mirror visibly
+//         about the road, while the floor still reads as the TACTICAL MAP the
+//         whole layer is framed as (README, Phase 7) rather than as scenery —
+//         which is the reason to sit nearer the flat end of this range than
+//         the dramatic one.
+//   520   ~68px. Walls read clearly and blocks read as buildings rather than
+//         as symbols.
+//   340   ~120px. Dramatic, and past the point where an edge building's roof
+//         lands over its neighbours.
+//
+// The floor of the clamp in citycamera.js exists for the same arithmetic: the
+// tallest thing in the catalogue is a 96 tower under a mast reaching 1.4x, so
+// an eye below ~134 would put geometry above the camera and the divide flips.
+export const CITY_EYE_HEIGHT = 800;

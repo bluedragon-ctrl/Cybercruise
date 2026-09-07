@@ -18,8 +18,19 @@
 // function of its index, so the city is infinite and never pops.
 
 import { drawBuildingVariant, drawNodeVariant } from "./sprites.js";
+import { buildVariantMeshes } from "./buildingmesh.js";
 import {
-  CELL, PLOT, ARTERIAL_PERIOD, AVENUE_PERIOD, BUILDING, NODE, isAvenueCol,
+  cityCamera, groundReach, projectGround, unprojectGround,
+  GROUND_FADE_START, GROUND_FADE_END,
+} from "./citycamera.js";
+// Re-exported rather than imported by main.js directly: the camera is an
+// implementation detail of this plane, and main.js's console handle wants one
+// module to ask about the floor.
+export { cameraParams, setCameraParams } from "./citycamera.js";
+import * as city3d from "../engine/gl/city3d.js";
+import { CITY_3D } from "./tuning.js";
+import {
+  CELL, LOT, PLOT, ARTERIAL_PERIOD, AVENUE_PERIOD, BUILDING, NODE, isAvenueCol,
   lotAt, lotX, lotY, lotColumns, lotColumnRange, lotRows, plotColumns,
   plotAt, plotX, plotY, plotRows, plotColumnRange,
   sectorIndex,
@@ -28,7 +39,8 @@ import { neonStroke } from "../engine/neon.js";
 import { renderScale, createSurface, blitSurface, snapToDevice } from "../engine/viewport.js";
 import {
   FLOOR_GRID, FLOOR_STREET, FLOOR_STREET_LINE, FLOOR_TRAFFIC, FLOOR_TICK,
-  SECTOR_COUNT,
+  BUILDING_EDGE, BUILDING_EDGE_DIM, BUILDING_FILL, BUILDING_FILL_SIDE,
+  BUILDING_FILL_ROOF, SECTOR_COUNT,
 } from "../engine/palette.js";
 
 function mod(n, m) {
@@ -143,6 +155,10 @@ export function render(ctx, distance, playerY, W, H, camX = 0) {
   // something upstream (they aren't, in practice — see game/sectors.js's own
   // header on why setSector() only ever runs in update()).
   const sector = currentSector(fDist);
+  if (CITY_3D && cityGpuReady()) {
+    renderCity3D(ctx, fDist, playerY, W, H, sector, camX);
+    return;
+  }
   drawFloorGrid(ctx, fDist, playerY, W, H, sector, camX);
   // NODES BEFORE BUILDINGS, not interleaved into the far-to-near building walk —
   // a node is flat ground texture, not a depth-sorted entity. A building never
@@ -329,29 +345,33 @@ export function tileIntersections(W, tileHeight) {
 // silently keep blitting the last sector's colours forever. `document` is
 // touched only in here, never at module scope — the test suite imports this
 // file under plain Node (same rule as engine/spritecache.js).
-function floorGridTile(W, H, sector) {
+// TAKES THE TILE'S OWN DIMENSIONS rather than the screen's, because there are
+// now two callers wanting two different sizes out of identical content. The 2D
+// blit wants a tile one period LARGER than the screen on each axis, so a single
+// blit at any phase still covers it (see drawFloorGrid). The 3D ground wants
+// EXACTLY ONE PERIOD, because it is a texture sampled with GL_REPEAT and a tile
+// bigger than its own period repeats wrong. Everything drawn below is periodic
+// in AVENUE_PERIOD x ARTERIAL_PERIOD by construction — GRID_SPACING divides
+// CELL divides PLOT divides both — so the same loops produce the right pixels
+// at either size.
+//
+// The one thing that is NOT period-exact is the dashed centre lines: the dash
+// cycle is 24px, which divides AVENUE_PERIOD (384) but not ARTERIAL_PERIOD
+// (512), so a period-sized tile puts a dash-phase seam on the avenue lines at
+// every wrap. Visible only as a slightly uneven dash on the vertical streets,
+// and the fix when it matters is a dash cycle dividing both, not a bigger tile.
+function floorGridTile(TILE_W, TILE_H, sector) {
   // The raster scale (engine/viewport.js) joins the key for the same reason
   // `sector` did: it is baked into the tile's actual pixels. A tile built at 1x
   // and blitted onto a 2x canvas would be resampled up and read soft, which is
   // the one thing this whole layer is not allowed to look.
-  const key = `${W}x${H}x${sector}x${renderScale()}`;
+  const key = `${TILE_W}x${TILE_H}x${sector}x${renderScale()}`;
   const hit = floorTiles.get(key);
   if (hit) return hit;
 
   // A viewport surface: `scale`-sized backing store, logical-unit context, so
   // everything below still draws in plain screen coordinates.
-  // ONE EXTRA PERIOD ON EACH AXIS. The height has always carried one spare
-  // ARTERIAL_PERIOD so the tile can be blitted at any y phase and still cover
-  // the screen; the width now carries one spare AVENUE_PERIOD for exactly the
-  // same reason on x, since the floor pans with the camera (drawFloorGrid).
-  // Costs 64% more tile pixels — ~5.2MB per live tile at scale 1 against 3.1MB,
-  // built once per (W, H, sector, scale) and blitted, so the per-frame cost is
-  // unchanged.
-  const TILE_W = W + AVENUE_PERIOD;
-  const canvas = createSurface(TILE_W, H + ARTERIAL_PERIOD);
-  // The tile's LOGICAL height. Not canvas.height — that is now the device-pixel
-  // size, `scale` times larger, and every loop below walks screen coordinates.
-  const TILE_H = H + ARTERIAL_PERIOD;
+  const canvas = createSurface(TILE_W, TILE_H);
   const g = canvas.getContext("2d");
   const DASH = [14, 10];
 
@@ -469,9 +489,15 @@ export function gridPhaseX(camX) {
 // pixel-diffed against a direct re-stroke IN ISOLATION — buildings drawn on top
 // would mask exactly the rows a phase error shows up in.
 export function drawFloorGrid(ctx, fDist, playerY, W, H, sector, camX = 0) {
+  // ONE EXTRA PERIOD ON EACH AXIS. The height has always carried one spare
+  // ARTERIAL_PERIOD so the tile can be blitted at any y phase and still cover
+  // the screen; the width carries one spare AVENUE_PERIOD for the same reason
+  // on x, since the floor pans with the camera. Costs 64% more tile pixels —
+  // ~5.2MB per live tile at scale 1 against 3.1MB — built once per
+  // (W, H, sector, scale) and blitted, so the per-frame cost is unchanged.
   blitSurface(
     ctx,
-    floorGridTile(W, H, sector),
+    floorGridTile(W + AVENUE_PERIOD, H + ARTERIAL_PERIOD, sector),
     camX - gridPhaseX(camX),
     gridPhase(fDist, playerY) - ARTERIAL_PERIOD,
   );
@@ -669,6 +695,207 @@ function drawFloorNodes(ctx, fDist, playerY, W, H, sector, camX) {
     // without a separate field the way a building's post-dy sy needs.
     drawNodeVariant(ctx, n.cx, n.sy, n.variant, sector, n.progress, n.sy);
   }
+}
+
+// --- The 3D floor (Phase 16a, PROOF OF CONCEPT) ---------------------------
+//
+// The SAME city, drawn by engine/gl/city3d.js through game/citycamera.js's
+// pinhole instead of by sprite blits under a parallel projection. Everything
+// about what stands where is unchanged and still citygrid.js's call: this
+// branch reuses lotAt/lotX/lotY exactly as visibleBuildings does, and differs
+// only in the WINDOW it walks (a trapezoid, not the screen rectangle) and in
+// what it hands the result to.
+//
+// WHY THE WALK IS NOT visibleBuildings ITSELF. That function reports SCREEN
+// positions, because under a parallel projection screen position is all a
+// sprite blit needs. A camera needs world positions and a window derived from
+// the camera, so the two walks want different things out of the same grid. They
+// are kept as two readable functions over one grid rather than one function
+// with a mode flag; if the 3D path ships, the 2D one goes and this is what is
+// left.
+
+let gpuState = 0; // 0 = untried, 1 = live, -1 = unavailable
+
+// True once the GPU floor is up. A machine that cannot give this module a
+// second WebGL2 context stays on the sprite path — unlike engine/present.js,
+// where WebGL2 is required because there is nothing left to draw the game with,
+// a floor that cannot go 3D has a complete renderer to fall back to.
+function cityGpuReady() {
+  if (gpuState === 0) gpuState = city3d.init(buildVariantMeshes()) ? 1 : -1;
+  return gpuState === 1 && city3d.isLive();
+}
+
+// THE MATERIALISATION IS A FADE HERE, NOT THE 2D PATH'S SCANLINE, and the
+// scanline is gone rather than ported.
+//
+// Phase 7g's wipe is a clip rect that reveals a sprite upward from a moving
+// line, and what sells it is that the line sweeps ACROSS a flat, screen-aligned
+// image — a scan over a solid. Under a real camera there is no such image: the
+// building is geometry seen from an eye that throws its roof outward from the
+// vanishing point, so a horizontal screen-space line cuts it at an angle that
+// means nothing about the solid, and near the top of the screen (which is the
+// only place it ever runs) it clips a few pixels of footprint and reads as a
+// glitch rather than as an effect.
+//
+// What Phase 7g is actually FOR survives untouched: a row does not simply exist
+// the instant the walk reaches it. So the same materialiseProgress drives an
+// alpha instead, and every property its header claims still holds — a pure
+// function of (row, fDist), nothing stored, at most one row mid-entry, and
+// monotonic as the player approaches. Deleting the entry treatment altogether
+// is the line below returning 1.
+//
+// Depth is still WRITTEN by a fading building, which is only safe because the
+// row mid-entry is always the FARTHEST one on screen — nothing is behind it to
+// be occluded by a half-transparent wall.
+
+// Every building the camera can see, in FLOOR-WORLD coordinates.
+//
+// THE WINDOW IS UNPROJECTED, not assumed: under perspective the visible ground
+// is a trapezoid that widens with distance, so the four screen corners are cast
+// back onto the floor (citycamera.js's unprojectGround) and the walk covers
+// their bounding box. A corner above the horizon has no ground point at all,
+// which is why the far bound falls back to `reach`.
+//
+// The box is a bound, not a fit — it includes ground the trapezoid does not
+// cover, so some of what this returns is off screen. That is deliberate: a
+// per-building frustum test would cost more CPU than the GPU spends drawing the
+// extras, which are vertex work on a mesh that is already instanced.
+function visibleBuildings3D(cam, fDist, playerY, W, H, reach) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let sawHorizon = false;
+  const ax = cam.eye[0] + cam.fwd[0] * cam.focal;
+  const ay = cam.eye[1] + cam.fwd[1] * cam.focal;
+  for (const [sx, sy] of [[0, 0], [W, 0], [0, H], [W, H]]) {
+    const g = unprojectGround(cam, sx, sy);
+    if (!g) {
+      sawHorizon = true;
+      continue;
+    }
+    minX = Math.min(minX, g[0]);
+    maxX = Math.max(maxX, g[0]);
+    minY = Math.min(minY, g[1]);
+    maxY = Math.max(maxY, g[1]);
+  }
+  if (!Number.isFinite(minX) && !sawHorizon) return [];
+  if (sawHorizon) {
+    // Some of the screen is sky, so a corner landed nowhere. Fall back to the
+    // full drawn extent on that side.
+    minX = Math.min(Number.isFinite(minX) ? minX : Infinity, ax - reach);
+    maxX = Math.max(Number.isFinite(maxX) ? maxX : -Infinity, ax + reach);
+    minY = Math.min(Number.isFinite(minY) ? minY : Infinity, ay - reach);
+    maxY = ay + reach;
+  }
+  // CLAMPED TO THE DRAWN EXTENT, always. A corner near the horizon unprojects
+  // to a ground point thousands of units out, and the walk between here and
+  // there is quadratic in that number — but everything past `reach` has already
+  // faded to nothing (citycamera.js), so it is walk with no pixels behind it.
+  minX = Math.max(minX, ax - reach);
+  maxX = Math.min(maxX, ax + reach);
+  minY = Math.max(minY, ay - reach);
+  maxY = Math.min(maxY, ay + reach);
+  // A building is drawn from its BASE CENTRE and reaches beyond it, so the walk
+  // has to start one lot outside the window or the edge row pops in.
+  const pad = LOT;
+  const rows = lotRows(minY - pad, maxY + pad);
+  const cols = lotColumnRange(minX - pad, maxX + pad);
+
+  const out = [];
+  for (let ly = rows.min; ly <= rows.max; ly++) {
+    const wy = lotY(ly);
+    // The materialisation wipe (Phase 7g), on the row's own screen y exactly as
+    // the 2D path measures it — the row still enters over the top edge, and the
+    // reveal is still a pure function of (row, fDist) with nothing stored.
+    const rowSy = playerY - (wy - fDist);
+    const progress = materialiseProgress(rowSy);
+    if (progress <= 0) continue;
+    const enter = progress;
+    for (let lx = cols.min; lx <= cols.max; lx++) {
+      const lot = lotAt(lx, ly);
+      if (lot.type !== BUILDING) continue;
+      // dy is a floor-world y offset stated as a SCREEN offset (citygrid.js),
+      // so it subtracts here for the same reason visibleBuildings subtracts it.
+      out.push({ wx: lotX(lx) + lot.dx, wy: wy - lot.dy, variant: lot.variant, enter });
+    }
+  }
+  return out;
+}
+
+// Where a point that the 2D layers have already placed in SCREEN space actually
+// belongs once the camera has a tilt. The two flat layers still drawn on the 2D
+// canvas (nodes, traffic dots) are points on the floor, so this is the whole of
+// what perspective does to them.
+//
+// The inverse it opens with is exact and not an approximation: this plane's
+// screen mapping has always been `sy = playerY - (wy - fDist)` with x
+// untransformed, so a screen position IS a world position in disguise. `camX`
+// goes back on at the end because main.js has translated the context by it —
+// the layer draws in world x, and projectGround answers in screen x.
+function floorProject(cam, sx, sy, fDist, playerY, camX) {
+  return projectGround(cam, sx, fDist + playerY - sy);
+}
+
+function drawFloorNodes3D(ctx, cam, fDist, playerY, W, H, sector, camX) {
+  for (const n of visibleNodes(fDist, playerY, W, H, camX)) {
+    const p = floorProject(cam, n.cx, n.sy, fDist, playerY, camX);
+    if (!p) continue;
+    // The sprite itself is NOT foreshortened — it is still the cached bitmap at
+    // its authored size, moved to where the camera says its plot is. A node is
+    // a flat glyph a few tens of pixels across and rare (one or two on screen),
+    // so the size error reads as much less than the position error would.
+    drawNodeVariant(ctx, p[0] + camX, p[1], n.variant, sector, n.progress, n.sy);
+  }
+}
+
+function drawTrafficDots3D(ctx, cam, dots, fDist, playerY, camX) {
+  if (dots.length === 0) return;
+  ctx.beginPath();
+  for (const dot of dots) {
+    const p = floorProject(cam, dot.x, dot.y, fDist, playerY, camX);
+    if (!p) continue;
+    const w = dot.alongX ? DOT_LEN : DOT_WID;
+    const h = dot.alongX ? DOT_WID : DOT_LEN;
+    ctx.rect(p[0] + camX - w / 2, p[1] - h / 2, w, h);
+  }
+  ctx.fillStyle = FLOOR_TRAFFIC;
+  ctx.fill();
+}
+
+function renderCity3D(ctx, fDist, playerY, W, H, sector, camX) {
+  const cam = cityCamera(fDist, playerY, W, camX);
+  const reach = groundReach(cam);
+  const frame = city3d.render(
+    cam,
+    visibleBuildings3D(cam, fDist, playerY, W, H, reach),
+    {
+      // ONE PERIOD, not the screen-sized tile the 2D blit uses: this one is a
+      // texture sampled with GL_REPEAT. floorGridTile's own header covers the
+      // difference and the one seam it leaves.
+      canvas: floorGridTile(AVENUE_PERIOD, ARTERIAL_PERIOD, sector),
+      key: `${sector}x${renderScale()}`,
+      periodX: AVENUE_PERIOD,
+      periodY: ARTERIAL_PERIOD,
+    },
+    {
+      fill: BUILDING_FILL,
+      fillSide: BUILDING_FILL_SIDE,
+      fillRoof: BUILDING_FILL_ROOF,
+      edge: BUILDING_EDGE,
+      edgeDim: BUILDING_EDGE_DIM,
+    },
+    W,
+    H,
+    [GROUND_FADE_START, GROUND_FADE_END],
+  );
+  // At camX, because main.js has translated this context into floor-world x and
+  // the GL frame is in screen space. The explicit W x H is what keeps the blit
+  // 1:1 in device pixels, the same contract engine/viewport.js's blitSurface has.
+  if (frame) ctx.drawImage(frame, camX, 0, W, H);
+
+  drawFloorNodes3D(ctx, cam, fDist, playerY, W, H, sector, camX);
+  drawTrafficDots3D(ctx, cam, trafficDots(clock, fDist, playerY, W, H, camX), fDist, playerY, camX);
 }
 
 // --- Traffic dots (Phase 7b) --------------------------------------------------
