@@ -94,10 +94,13 @@ function conduitHeading(bx, by) {
 // ever runs FORWARD from its anchor (s=0, which is always on screen, since
 // every node this is called for came from visibleNodes), so there is only an
 // upper bound to find, never a lower one.
-function conduitClip(ax, ay, hx, hy, W, H) {
+// `camX` is the floor's pan: `ax` is a node's floor-world x (scenery.js's
+// visibleNodes), so the visible span on that axis is [camX, camX + W] rather
+// than [0, W]. The y bound needs no equivalent — `ay` is already a screen row.
+function conduitClip(ax, ay, hx, hy, W, H, camX) {
   let maxS = CONDUIT_LENGTH;
-  if (hx > 1e-6) maxS = Math.min(maxS, (W + CONDUIT_MARGIN - ax) / hx);
-  else if (hx < -1e-6) maxS = Math.min(maxS, (-CONDUIT_MARGIN - ax) / hx);
+  if (hx > 1e-6) maxS = Math.min(maxS, (camX + W + CONDUIT_MARGIN - ax) / hx);
+  else if (hx < -1e-6) maxS = Math.min(maxS, (camX - CONDUIT_MARGIN - ax) / hx);
   if (hy > 1e-6) maxS = Math.min(maxS, (H + CONDUIT_MARGIN - ay) / hy);
   else if (hy < -1e-6) maxS = Math.min(maxS, (-CONDUIT_MARGIN - ay) / hy);
   return Math.max(0, maxS);
@@ -115,11 +118,11 @@ function conduitClip(ax, ay, hx, hy, W, H) {
 // phase currently sits beyond the clipped, on-screen stretch of its own
 // conduit (the far side of it, off in the city the fiction implies is out
 // there, not drawn because there's nothing at that screen position to draw).
-export function conduitField(clockValue, nodes, W, H) {
+export function conduitField(clockValue, nodes, W, H, camX = 0) {
   const conduits = [];
   for (const n of nodes) {
     const { hx, hy } = conduitHeading(n.bx, n.by);
-    const maxS = conduitClip(n.cx, n.sy, hx, hy, W, H);
+    const maxS = conduitClip(n.cx, n.sy, hx, hy, W, H, camX);
     if (maxS <= 0) continue; // heading points straight off the edge from a
                               // node already sitting on it — degenerate, and
                               // rare enough not to be worth a special case
@@ -393,9 +396,9 @@ export function announceActive(clockValue, active, push = gameConsole.push, busy
 // "playing"-only cadence scenery.update/gameConsole.update already run on,
 // so this reads the SAME `clock` those freeze with (pause, death) rather
 // than a second one of its own.
-export function announce(clockValue, distance, playerY, W, H, push = gameConsole.push, busy = gameConsole.isBusy) {
+export function announce(clockValue, distance, playerY, W, H, push = gameConsole.push, busy = gameConsole.isBusy, camX = 0) {
   const fDist = floorDist(distance);
-  const nodes = visibleNodes(fDist, playerY, W, H);
+  const nodes = visibleNodes(fDist, playerY, W, H, camX);
   announceActive(clockValue, activePing(nodes, clockValue), push, busy);
 }
 
@@ -465,10 +468,13 @@ function drawPings(ctx, pings) {
 // Recomputes fDist itself rather than having it threaded through, same
 // reasoning drones.js's own render() gives for doing the same with its own
 // copy: both are one-liners off the same `distance`.
-export function render(ctx, distance, playerY, W, H) {
+// `camX` is the floor's pan — the window this re-derives its nodes over, and
+// the span a conduit is clipped against. Nothing here subtracts it: main.js
+// draws this whole plane inside one translate (see its render).
+export function render(ctx, distance, playerY, W, H, camX = 0) {
   const fDist = floorDist(distance);
-  const nodes = visibleNodes(fDist, playerY, W, H);
+  const nodes = visibleNodes(fDist, playerY, W, H, camX);
   if (nodes.length === 0) return;
-  drawConduits(ctx, conduitField(clock, nodes, W, H));
+  drawConduits(ctx, conduitField(clock, nodes, W, H, camX));
   drawPings(ctx, pingField(clock, nodes));
 }

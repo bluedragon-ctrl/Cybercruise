@@ -40,7 +40,7 @@
 // worst case is a shell that detonates a hair early rather than a missing frame.
 
 import { neonStroke } from "../engine/neon.js";
-import { centerXAt } from "./road.js";
+import { centerXAt, cameraX } from "./road.js";
 import { ENEMY } from "../engine/palette.js";
 
 // In the air at once. The heaviest barrage the boss can throw is a straddle of
@@ -222,13 +222,16 @@ export class Shells {
   // before choosing how to draw it is what makes that class of mistake
   // impossible rather than merely fixed.
   render(ctx, distance, playerY, W, H) {
+    const camX = cameraX(distance);
     const shown = this.visible;
     shown.length = 0;
     for (const s of this.list) {
       if (!s.alive) continue;
       const sy = playerY - (s.worldY - distance);
       if (sy < -MARK_CULL || sy > H + MARK_CULL) continue;
-      s.screenX = centerXAt(s.worldY, W) + s.offset;
+      // World x to screen x — see road.js's header on the two spaces. `screenX`
+      // is exactly that: a per-frame render value, not stored state.
+      s.screenX = centerXAt(s.worldY, W) + s.offset - camX;
       s.screenY = sy;
       shown.push(s);
     }

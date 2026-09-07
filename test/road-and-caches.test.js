@@ -28,7 +28,12 @@ import {
   blockOf,
   blockLocalY,
   blockDestY,
+  cameraX,
+  centerXAt,
+  RIBBON_HALF_EXTENT,
 } from "../src/game/road.js";
+import { CAMERA_FOLLOW, ROAD_AMPLITUDE } from "../src/game/tuning.js";
+import { LOGICAL_W } from "../src/engine/viewport.js";
 import { gridPhase, GRID_SPACING } from "../src/game/scenery.js";
 import { CELL, ARTERIAL_PERIOD } from "../src/game/citygrid.js";
 import { driver, slowest, fastest } from "../test-support/fixtures.js";
@@ -418,6 +423,55 @@ test("a strip's overdraw margin is wider than anything drawn across its seam", (
     TILE_STRIDE >= DASH_SPAN,
     `a ${TILE_STRIDE}px overdraw cannot cover a ${DASH_SPAN}px dash period`,
   );
+});
+
+// --- The horizontal camera ---------------------------------------------------
+
+test("the camera cancels exactly the share of the road's wander it claims to", () => {
+  // The whole of what CAMERA_FOLLOW means, and the reason no draw site has to
+  // know: screen x is world x less this, so at 1 the centre-line lands on the
+  // middle of the screen and at 0 nothing moves at all.
+  // Compared with a whole-pixel tolerance, not exactly: cameraX snaps to a
+  // device pixel so the blitted layers stay sharp (see its own comment), and at
+  // the test's scale of 1 that is a rounding of up to half a logical pixel.
+  const SNAP = 0.5 + 1e-9;
+  for (let d = 0; d < 40000; d += 137) {
+    assert.ok(Math.abs(cameraX(d) - CAMERA_FOLLOW * centerOffset(d)) <= SNAP);
+    const centreOnScreen = centerXAt(d, LOGICAL_W) - cameraX(d);
+    const cancelled = LOGICAL_W / 2 + (1 - CAMERA_FOLLOW) * centerOffset(d);
+    assert.ok(Math.abs(centreOnScreen - cancelled) <= SNAP);
+  }
+});
+
+test("the camera never pans further than the road wanders", () => {
+  // What bounds every "how much new world is exposed at the sides" figure the
+  // camera work is planned against — including the tile-width one below.
+  for (let d = 0; d < 40000; d += 91) {
+    assert.ok(Math.abs(cameraX(d)) <= ROAD_AMPLITUDE * CAMERA_FOLLOW + 1e-9);
+  }
+});
+
+test("a panned road ribbon stays inside its own strip tile", () => {
+  // road.js's render() blits a W-wide tile at -camX rather than rebuilding it,
+  // which only works while the ribbon and the pan together still fit the tile
+  // they were painted into. This is that derivation, and the ceiling it puts on
+  // ROAD_AMPLITUDE — cross the ceiling and a bend clips against the tile edge
+  // with the barrier ending in mid-air, so the tiles have to be built wider.
+  const worst = LOGICAL_W / 2 + ROAD_AMPLITUDE + RIBBON_HALF_EXTENT + ROAD_AMPLITUDE * CAMERA_FOLLOW;
+  assert.ok(worst <= LOGICAL_W, `ribbon reaches ${worst} of ${LOGICAL_W}`);
+  // Symmetric, so the left edge needs no separate sum — but it is asserted
+  // rather than asserted-in-a-comment.
+  assert.ok(LOGICAL_W / 2 - ROAD_AMPLITUDE - RIBBON_HALF_EXTENT - ROAD_AMPLITUDE * CAMERA_FOLLOW >= 0);
+  // The ceiling road.js quotes, at a full-follow camera.
+  assert.equal((LOGICAL_W / 2 - RIBBON_HALF_EXTENT) / 2, 75);
+});
+
+test("RIBBON_HALF_EXTENT covers everything the road actually draws", () => {
+  // The tarmac's half width, the wall face outside it, and half the widest
+  // stroke on that face. If a wider edge treatment is added, this is what says
+  // so — the tile-fit derivation above is only as good as this number.
+  assert.ok(RIBBON_HALF_EXTENT > ROAD_HALF_WIDTH);
+  assert.equal(RIBBON_HALF_EXTENT, ROAD_HALF_WIDTH + 6 + 1); // WALL_DX, half of the 2px barrier
 });
 
 test("the floor tile's phase reproduces the world-anchored grid AND street lines", () => {

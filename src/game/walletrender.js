@@ -96,12 +96,27 @@ export function renderNodeHints(ctx, marks) {
 // labels on things that HAPPENED.
 //
 // `marks` is Wallet's own live list (wallet.marks); it is read, never written.
-export function renderAwardMarks(ctx, marks, player, distance, W) {
+// `camX`/`floorCamX` are the road's and the floor's pans (road.js's cameraX,
+// scenery.js's floorCameraX). This is the one draw path that needs both, because
+// its list holds marks anchored to either plane — everything else on a plane is
+// drawn inside that plane's own translate (see main.js's render).
+export function renderAwardMarks(ctx, marks, player, distance, W, camX = 0, floorCamX = 0) {
   for (const m of marks) {
     const frac = Math.max(0, m.life / AWARD_MARK_LIFE);
     // Where it sits this frame — see mark() on why the road plane has to be
     // re-projected while the floor plane does not.
-    const x = m.kind === "road" ? centerXAt(m.worldY, W) + m.offset : m.x;
+    // Each plane takes its own camera. A floor mark's `m.x` is the node's
+    // floor-world x, captured when it paid out (wallet.js's collect).
+    //
+    // Note the asymmetry with `y` below, which is frozen at the screen row the
+    // payout happened on and does NOT follow the floor as it scrolls away —
+    // that is deliberate and older than the camera (these label an EVENT, not
+    // an object). x follows, because the camera moving is the FRAME turning
+    // rather than the world moving under it: a receipt left behind by a pan
+    // would drift off the thing it is reporting on by the whole of camX.
+    const x = m.kind === "road"
+      ? centerXAt(m.worldY, W) + m.offset - camX
+      : m.x - floorCamX;
     // `player.y` is the screen row the car is drawn at — the same projection
     // every entity on the road plane uses in main.js's render.
     const y = (m.kind === "road" ? player.y - (m.worldY - distance) : m.y) - (1 - frac) * AWARD_MARK_RISE;

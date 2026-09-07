@@ -1402,7 +1402,13 @@ function updatePlaying(dt) {
   // one SYS LOG line the moment that changes. Reads scenery.js's own clock
   // (see links.js's header) and this tick's just-updated `distance`/
   // `player.y`, the same pair render() will use a moment later.
-  links.announce(scenery.clock, distance, player.y, W, H);
+  // The camera's pan joins the pair above for the same reason: it decides
+  // WHICH slice of the city is on screen, so the log would otherwise talk about
+  // a node the frame does not show. Off the simulation's `distance` here rather
+  // than the render camera's rounded camY — this is update, and the two differ
+  // by under a pixel, far below a node's own spacing.
+  const updateFloorCamX = scenery.floorCameraX(road.cameraX(distance));
+  links.announce(scenery.clock, distance, player.y, W, H, undefined, undefined, updateFloorCamX);
 
   // SIPHONING (Phase 11 groundwork): the same nodes the log is talking about
   // pay CREDITS when the player drives up alongside one while it pings — which
@@ -1411,7 +1417,7 @@ function updatePlaying(dt) {
   // links.render below each derive their own (they are one cheap row walk),
   // but the wallet's rule needs the nodes AND the player's position together,
   // so the walk that feeds it belongs at the call site that has both.
-  const nodes = scenery.visibleNodes(scenery.floorDist(distance), player.y, W, H);
+  const nodes = scenery.visibleNodes(scenery.floorDist(distance), player.y, W, H, updateFloorCamX);
   wallet.harvest(dt, scenery.clock, nodes, player, distance, W);
   // ...and, ONCE a run, a SYS LOG line saying what those markers on the floor
   // mean, the first time one is actually within reach. Asked here rather than
@@ -2089,6 +2095,15 @@ function render(alpha) {
   // See engine/viewport.js's SCALE_STEP. At scale 1 this IS Math.round.
   const camY = snapToDevice(distance);
 
+  // THE HORIZONTAL HALF OF THE CAMERA, and the one value on this axis that has
+  // to be computed here rather than derived where it is used. Every world layer
+  // below is handed camY and calls road.cameraX() on it itself — a pure function
+  // of one shared input, so no two layers can disagree and nothing needs
+  // threading (see road.js's cameraX). The player's car and the cargo drone are
+  // the exceptions: neither is given camY at all, so they take the camera as an
+  // argument the way they already take `angle`. Zero while CAMERA_FOLLOW is 0.
+  const camX = road.cameraX(camY);
+
   // THE DESYNC SHAKE IS NOT APPLIED HERE ANY MORE, as of Phase 15e-i. While
   // "dying", game/disconnect.js's shake() offsets the WHOLE feed — a feed
   // losing sync, not a physical jolt (see its header) — and this block used to
@@ -2099,14 +2114,33 @@ function render(alpha) {
   // because hauler.js's lift and the layers below still nest inside it.
   ctx.save();
 
+  // THE FLOOR PLANE PANS AS ONE, and this translate is the whole of how. Every
+  // layer inside it — the grid, the buildings and nodes, the floor's traffic,
+  // the conduits and pings over them, the money markers on those — draws in
+  // FLOOR-WORLD x and knows nothing about the camera, so no layer here can be
+  // missed and none can disagree with another about where the city is. The
+  // pieces a translate genuinely cannot do are handed `floorCamX` instead: which
+  // window of the city to walk, and where the grid tile's periodic origin falls.
+  //
+  // Whole device pixels, because road.cameraX already snapped it — the floor's
+  // grid tile is a blit and resamples at a fractional offset, exactly as the
+  // road's strips do.
+  //
+  // NOT the road's own camera being applied twice: the road plane subtracts
+  // camX at each of its draw sites (its entities were already converting an
+  // offset to a position there), and nothing in this block is on that plane.
+  const floorCamX = scenery.floorCameraX(camX);
+  ctx.save();
+  ctx.translate(-floorCamX, 0);
+
   // Lower city floor first (parallax, behind everything), then the elevated road
   // ribbon paints an opaque surface over it, then the player on top. The floor
   // runs on its own half-speed clock and rounds it itself — see scenery.render.
-  scenery.render(ctx, camY, player.y, W, H);
+  scenery.render(ctx, camY, player.y, W, H, floorCamX);
   // Links and pings (Phase 7e): ground-plane annotation on the nodes
   // scenery.render() just drew, so it draws immediately after that layer and
   // before the sky band (drones) or the road's own opaque foreground.
-  links.render(ctx, camY, player.y, W, H);
+  links.render(ctx, camY, player.y, W, H, floorCamX);
   // The money markers over those same nodes: what a live node is worth, and
   // whether the car is close enough to be taking it (game/wallet.js). Ground-
   // plane annotation like the conduits and pings it draws over, so it sits in
@@ -2118,17 +2152,32 @@ function render(alpha) {
   // twice for two views of one fact would be paying for it twice.
   let floorNodes = null;
   if (state !== "menu") {
-    floorNodes = scenery.visibleNodes(scenery.floorDist(camY), player.y, W, H);
+    floorNodes = scenery.visibleNodes(scenery.floorDist(camY), player.y, W, H, floorCamX);
     // The wallet decides WHAT is worth a marker (hints, a pure rule about money
     // and reach); walletrender.js turns that into ink. Same split for the
     // receipts below, which read wallet.marks directly.
     renderNodeHints(ctx, wallet.hints(scenery.clock, floorNodes, player, camY, W));
-    renderAwardMarks(ctx, wallet.marks, player, camY, W);
+  }
+  ctx.restore();
+
+  // THE RECEIPTS SIT OUTSIDE THE FLOOR TRANSLATE, alone among the annotations,
+  // because they are the one list with a foot on BOTH planes — a bounty is
+  // anchored to the road, a siphon to the floor (walletrender.js's own note) —
+  // so it applies the camera per mark rather than inheriting one.
+  if (state !== "menu") {
+    renderAwardMarks(ctx, wallet.marks, player, camY, W, camX, floorCamX);
   }
   // Air traffic (Phase 7c): between the floor and the road, so it draws after
   // the whole scenery layer (grid, buildings, floor traffic) and before the
   // road ribbon paints its own opaque foreground over everything below it.
+  // ITS OWN TRANSLATE, not the floor's: the sky band flies at DRONE_PARALLAX
+  // between the floor and the road (drones.js), and it pans on the same
+  // fraction it scrolls on, so it stays stratified between the two rather than
+  // collapsing onto either. Its ground shadows ride with it — see drones.js.
+  ctx.save();
+  ctx.translate(-drones.cameraX(camX), 0);
   drones.render(ctx, camY, player.y, W, H);
+  ctx.restore();
   // Phase 7f: the road recolours with the same sector the floor below it
   // does — computed here, once, off the SAME camY every other layer this
   // frame uses (via scenery.js's own floorDist — see its header), and handed
@@ -2175,7 +2224,7 @@ function render(alpha) {
     const lift = hauler.carOffsetY();
     ctx.save();
     ctx.translate(0, lift);
-    player.render(ctx, alpha, road.headingAt(camY));
+    player.render(ctx, alpha, road.headingAt(camY), camX);
     ctx.restore();
     // The uplink: a stream of packets from the node to a receiver marker on
     // the car (game/wallet.js). AFTER the car, so the marker reads as bolted
@@ -2191,7 +2240,15 @@ function render(alpha) {
     // it. `lift` is exactly the "is the car still on the tarmac" test, and it
     // is already computed above.
     if (floorNodes && lift === 0) {
+      // Inside the ROAD camera, not the floor's: the beam runs from a node on
+      // the floor to a marker on the car, and both ends are in world x, which
+      // FLOOR_CAMERA_PARALLAX = 1 makes one space (see scenery.js). Should that
+      // ever stop being 1, this is the call that has to convert its two ends
+      // separately rather than share a translate.
+      ctx.save();
+      ctx.translate(-camX, 0);
       renderUplink(ctx, scenery.clock, wallet.linkGeometry(floorNodes, player, player.renderX(alpha)));
+      ctx.restore();
     }
   }
 
@@ -2213,7 +2270,7 @@ function render(alpha) {
   // (bossshapes.js), and inside the block so it rides the same frozen scene the
   // car does. Draws nothing at all while idle, which is every frame outside an
   // interlude.
-  hauler.render(ctx);
+  hauler.render(ctx, camX);
   ctx.restore();
 
   // Phase 7f's rescan glitch: a full-screen tear over the just-composited

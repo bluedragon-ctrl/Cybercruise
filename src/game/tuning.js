@@ -69,3 +69,27 @@ export const ROAD_WAVE_A_WEIGHT = 1;
 export const ROAD_WAVE_B_FREQ = 0.0024;
 export const ROAD_WAVE_B_WEIGHT = 0.44;
 export const ROAD_WAVE_B_PHASE = 1.7;
+
+// --- Camera ----------------------------------------------------------------
+//
+// How much of the road's sideways wander the camera CANCELS. 0 = the camera is
+// fixed to the world and the road slides across the frame, dragging every car
+// on it sideways (how the game shipped up to here). 1 = the camera pans with
+// the road so the CENTRE-LINE is always at the middle of the screen, and the
+// car's screen x then shows only what the player steered, not where the road
+// happens to be.
+//
+// It is a fraction rather than a flag because the two ends are not the only
+// interesting settings: part-way is a camera that leans into a bend without
+// fully following it, which keeps some of the road's own motion as a cue.
+//
+// AT 1. Both planes follow it: the road and everything holding a road-relative
+// `offset` (road.js's cameraX), and the city floor with the conduits, markers
+// and sky traffic over it (scenery.js's floorCameraX, which pans the floor at
+// the FULL rate — see its own comment for why that is not FLOOR_PARALLAX).
+//
+// Lowering it is safe and needs nothing else changed; 0 restores the original
+// fixed camera exactly. What is NOT free is raising ROAD_AMPLITUDE far past its
+// 60, which the pan doubles the screen cost of — road.js's render() derives the
+// ceiling (75) and a test holds it.
+export const CAMERA_FOLLOW = 1;
