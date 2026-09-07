@@ -1317,7 +1317,9 @@ A shared top-10 board — the thing Phase 13 below was on hold for. Three
 split state from ink: `leaderboard.js` fetches/caches/submits and draws
 nothing, `leaderboardrender.js` draws the cached list and touches no network,
 `nameentry.js` is the three-letter initials screen a qualifying death drops
-into (own render path, not a fourth `menu.js` mode — see its header for why).
+into (own render path, not a fourth `menu.js` mode — see its header for why),
+which ESC declines: the run is then reported nameless, exactly as a
+non-qualifying one is.
 The board itself is `worker/` — a single Cloudflare Worker over one KV key
 holding the whole top-10 array; that module's own header has the shape (one
 record per name, no real anti-cheat) and `worker/README.md` has the deploy
