@@ -74,7 +74,7 @@
 // oldest, which is off-screen or nearly so by definition.
 
 import { neonStroke } from "../engine/neon.js";
-import { centerXAt, headingAt, ROAD_HALF_WIDTH } from "./road.js";
+import { centerXAt, cameraX, headingAt, ROAD_HALF_WIDTH } from "./road.js";
 import { inBlastPlane } from "./collisions.js";
 import { FLIGHT_TRACKING, FLIGHT_SEEKING } from "./weapons.js";
 
@@ -601,6 +601,10 @@ export class Projectiles {
   // y comes from the raw worldY against the raw distance, so a bullet tracks the
   // road rather than sliding against it.
   render(ctx, distance, playerY, W, H) {
+    // World x to screen x, once for all three batched passes below — see
+    // road.js's header on the two spaces. NOT applied in update(), where the
+    // screenX <-> offset conversions run: those are world x on both sides.
+    const camX = cameraX(distance);
     // Every bullet is one straight line, so a volley goes into ONE batched path
     // and pays for neonStroke's three passes once (see neon.js). A path can only
     // carry one colour, so the batch is PER WEAPON COLOUR — swapping weapons
@@ -621,7 +625,7 @@ export class Projectiles {
             if (!s.alive || s.render === "dart" || s.color !== color) continue;
             const sy = playerY - (s.worldY - distance);
             if (sy < -s.length || sy > H + s.length) continue;
-            const sx = centerXAt(s.worldY, W) + s.offset;
+            const sx = centerXAt(s.worldY, W) + s.offset - camX;
 
             // A tracer is drawn along the line it is actually travelling, which
             // is where the two flight modes visibly part company now that the
@@ -676,7 +680,7 @@ export class Projectiles {
         if (!s.alive || s.render !== "dart" || !filter(s)) continue;
         const sy = playerY - (s.worldY - distance);
         if (sy < -s.length * 2 || sy > H + s.length * 2) continue;
-        const sx = centerXAt(s.worldY, W) + s.offset;
+        const sx = centerXAt(s.worldY, W) + s.offset - camX;
         const a = s.tracking ? headingAt(s.worldY) : 0;
         emit(c, s, sx, sy, a, s.width / 8, s.length / 18);
       }
@@ -753,7 +757,7 @@ export class Projectiles {
       const t = p.elapsed / SPARK_DURATION;
       const sy = playerY - (p.worldY - distance);
       if (sy < -SPARK_SIZE || sy > H + SPARK_SIZE) continue;
-      const sx = centerXAt(p.worldY, W) + p.offset;
+      const sx = centerXAt(p.worldY, W) + p.offset - camX;
       const r = SPARK_SIZE * (0.4 + t * 0.6);
       neonStroke(
         ctx,

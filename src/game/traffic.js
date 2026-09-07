@@ -36,7 +36,7 @@ import { armFor, barrageTable } from "./armament.js";
 import { Explosions, drawTargetMark, drawHullMeter } from "./effects.js";
 import { resolveCollisions, PlayerBody, inBlastPlane } from "./collisions.js";
 import { PLAYER_MASS } from "./player.js";
-import { centerXAt, headingAt, laneOffset, laneAt, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
+import { centerXAt, cameraX, headingAt, laneOffset, laneAt, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 import { CRITICAL_FLASH } from "../engine/palette.js";
 
 // Exported so game/events.js can scale it rather than keep a second figure —
@@ -865,13 +865,15 @@ export class Traffic {
 
   // One pass over the cars in one plane. `air` picks which.
   drawCars(ctx, distance, playerY, W, H, alpha, lock, air) {
+    const camX = cameraX(distance);
     for (const car of this.cars) {
       if (!!car.type.airborne !== air) continue;
       const sy = playerY - (car.worldY - distance);
       if (sy < -SPAWN_MARGIN || sy > H + SPAWN_MARGIN) continue;
 
       const offset = car.prevOffset + (car.offset - car.prevOffset) * alpha;
-      const sx = centerXAt(car.worldY, W) + offset;
+      // World x to screen x — see road.js's header on the two spaces.
+      const sx = centerXAt(car.worldY, W) + offset - camX;
 
       // A car down to its last third of hull BLINKS, whatever its faction — the
       // player needs to see which one is about to go, and it's the only read-out

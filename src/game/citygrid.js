@@ -83,6 +83,11 @@ const LOT_MARGIN = 0;
 // (plotColumns(600) = 5) puts avenues at bx = 0 and bx = 3 — 2 avenues on
 // screen, per the design doc.
 const AVENUE_COLS = 3;
+// The world-x period at which the street pattern repeats — the x mirror of
+// ARTERIAL_PERIOD below, and what lets the floor tile be panned by a phase
+// instead of rebuilt. Every x-periodic thing on the floor (isAvenueCol, the
+// avenue ribbons, the registration ticks, the fine grid) repeats on this.
+export const AVENUE_PERIOD = PLOT * AVENUE_COLS; // 384
 // CROSS_STREET_ROWS: every 4th plot row — frequent enough that the buildings
 // between two cross-streets read as one block, not so frequent that the
 // skyline thins out.
@@ -199,8 +204,33 @@ function hash(n) {
 // edge, exactly as free-form placement used to at the screen margins. Still
 // used directly (not via lots) by anything that only cares about STREETS,
 // which are claimed a whole plot at a time — see scenery.js's avenueCenters.
+//
+// A COUNT, measured from column 0, and therefore only meaningful where the
+// floor's x origin IS the screen's: the pre-rendered tile, whose own local
+// space always starts at a column boundary. Anything walking the floor as it
+// appears on SCREEN wants plotColumnRange below, which takes the camera into
+// account.
 export function plotColumns(W) {
   return Math.ceil(W / PLOT);
+}
+
+// The plot columns covering a floor-world x range — the x mirror of plotRows,
+// and what a walk over the visible floor actually needs now that the floor can
+// pan (road.js's cameraX). Signed: the city runs in both directions from
+// column 0 and always did in y; the camera is simply the first thing that ever
+// looks left of the origin, and every claim below is a pure function of the
+// index with a mod that already handles a negative one.
+// INCLUSIVE of max, and max is one short of the count the old walks used: a
+// `bx < plotColumns(W)` loop ran 0..ceil(W/PLOT)-1, and this reproduces exactly
+// that range at worldLeft = 0 rather than reaching a column further. Getting it
+// wrong is invisible in the walk (an empty extra column draws nothing) but not
+// in the tile, whose baked registration ticks are asserted against the columns
+// this reports.
+export function plotColumnRange(worldLeft, worldRight) {
+  return {
+    min: Math.floor(worldLeft / PLOT),
+    max: Math.ceil(worldRight / PLOT) - 1,
+  };
 }
 
 // Whether plot row `by` sits next to a cross-street — the plot-level relative
@@ -307,6 +337,14 @@ export function lotY(ly) {
 // needs (see plotColumns/its old plotRows for the plot-grained originals).
 export function lotColumns(W) {
   return Math.ceil(W / LOT);
+}
+// The lot-grained lotColumnRange — see plotColumnRange for why a range and not
+// a count.
+export function lotColumnRange(worldLeft, worldRight) {
+  return {
+    min: Math.floor(worldLeft / LOT),
+    max: Math.ceil(worldRight / LOT) - 1,
+  };
 }
 export function lotRows(worldBottom, worldTop) {
   return {

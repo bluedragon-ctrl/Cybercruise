@@ -57,7 +57,7 @@ import {
 import { OBSTACLE_SHAPES, MINE } from "./obstacleshapes.js";
 import { CAR_TYPES } from "./cartypes.js";
 import { ramSpeed, overlaps, inBlastPlane } from "./collisions.js";
-import { centerXAt, headingAt, laneOffset, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
+import { centerXAt, cameraX, headingAt, laneOffset, LANE_COUNT, ROAD_HALF_WIDTH } from "./road.js";
 
 
 // Hazards simulated at once. Sized against SPAWN_MARGIN below rather than
@@ -716,11 +716,13 @@ export class Obstacles {
   // it: an obstacle's `offset` never changes after spawn, so there is nothing
   // to smooth between logic ticks.
   render(ctx, distance, playerY, W, H) {
+    const camX = cameraX(distance);
     for (const o of this.list) {
       const sy = playerY - (o.worldY - distance);
       if (sy < -DRAW_MARGIN || sy > H + DRAW_MARGIN) continue;
 
-      const sx = centerXAt(o.worldY, W) + o.offset;
+      // World x to screen x — see road.js's header on the two spaces.
+      const sx = centerXAt(o.worldY, W) + o.offset - camX;
       const pulse = 0.5 + 0.5 * Math.sin(o.pulseTime * PULSE_RATE + o.pulsePhase);
       drawObstacleCached(ctx, sx, sy, {
         shape: o.type.shape,

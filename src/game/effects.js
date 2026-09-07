@@ -79,7 +79,7 @@
 
 import { neonStroke, dartAt } from "../engine/neon.js";
 import { carShapeOutline } from "./carshapes.js";
-import { centerXAt } from "./road.js";
+import { centerXAt, cameraX } from "./road.js";
 import {
   CRITICAL_FLASH,
   GREEN_BRIGHT,
@@ -937,18 +937,20 @@ export class Explosions {
   // from the raw `distance`, and unlike a car they have no lateral motion to
   // smooth anyway.
   render(ctx, distance, playerY, W, H) {
+    const camX = cameraX(distance);
     for (const s of this.slots) {
       if (!s.alive) continue;
       const sy = playerY - (s.worldY - distance);
       if (sy < -H || sy > H * 2) continue;
-      const sx = centerXAt(s.worldY, W) + s.offset;
+      // World x to screen x — see road.js's header on the two spaces.
+      const sx = centerXAt(s.worldY, W) + s.offset - camX;
       const t = s.elapsed / slotDuration(s);
       if (s.kind === ARC) {
         // The only kind needing a SECOND screen position — mapped exactly as
         // the first one is, so both ends of the bolt sit on the road the same
         // way and a bend cannot shear it.
         const sy2 = playerY - (s.srcY - distance);
-        const sx2 = centerXAt(s.srcY, W) + s.srcOffset;
+        const sx2 = centerXAt(s.srcY, W) + s.srcOffset - camX;
         drawShieldArc(ctx, sx2, sy2, sx, sy, t, s);
       }
       else if (s.kind === BLAST) drawMineBlast(ctx, sx, sy, t, s);

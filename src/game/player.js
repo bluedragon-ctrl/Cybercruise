@@ -766,9 +766,15 @@ export class Player {
     return this.prevX + (this.x - this.prevX) * alpha;
   }
 
-  render(ctx, alpha, angle = 0) {
-    // Interpolate x between the last two logic steps for smooth motion.
-    const x = this.renderX(alpha);
+  // `camX` arrives the same way `angle` and `bounds` do, and for the same
+  // reason: this class steers in WORLD x (which is why its clamp to the barriers
+  // needs no camera at all) and knows nothing about where the frame is pointed.
+  // road.js's cameraX has the rest.
+  render(ctx, alpha, angle = 0, camX = 0) {
+    // Interpolate x between the last two logic steps for smooth motion, then
+    // world x to screen x — everything below draws against this one value, so
+    // the thruster, the shield and the hull cannot part company.
+    const x = this.renderX(alpha) - camX;
 
     // Flash red while grinding a barrier or just after a ram, else the usual
     // cyan. Both use the same colour, so the cache gains one extra key, not two.

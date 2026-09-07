@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { Traffic } from "../src/game/traffic.js";
 import { MAX_SPEED } from "../src/game/player.js";
-import { BUILDING_VARIANTS, buildingFootprint } from "../src/game/sprites.js";
+import { BUILDING_VARIANTS, buildingFootprint, buildingDrawSpan } from "../src/game/sprites.js";
 import {
   gridPhase,
   STREET_WIDTH,
@@ -52,6 +52,7 @@ import {
   LOT,
   LOT_SUBDIV,
   ARTERIAL_PERIOD,
+  AVENUE_PERIOD,
   SECTOR_PERIOD,
   sectorIndex,
   lotAt,
@@ -71,6 +72,8 @@ import {
   NODE,
 } from "../src/game/citygrid.js";
 import { NODE_VARIANTS } from "../src/game/nodeshapes.js";
+import { ROAD_HALF_WIDTH } from "../src/game/road.js";
+import { CAMERA_FOLLOW, ROAD_AMPLITUDE } from "../src/game/tuning.js";
 import {
   SECTOR_COUNT,
   setSector,
@@ -555,6 +558,38 @@ test("the node walk is a bounded PLOT-level walk, not a LOT-level one", () => {
   assert.ok(plots <= 60, `plot-level walk grew to ${plots} plots per frame`);
 });
 
+test("a building's lean flips only where the road is covering it", () => {
+  // leanRight (scenery.js's visibleBuildings) is a vanishing-point cue, so it
+  // is measured from the SCREEN's centre — which means a building crossing that
+  // centre swaps which way it leans. With a panning camera (tuning.js's
+  // CAMERA_FOLLOW) buildings cross it constantly rather than almost never, so
+  // the flip stops being a curiosity and starts being every frame.
+  //
+  // What keeps it invisible is that the flip line and the ROAD are in the same
+  // place. Screen centre is W/2; the road's centre-line is drawn at W/2 +
+  // (1 - CAMERA_FOLLOW) * centerOffset, so the two are at most that far apart
+  // and coincide exactly at a fully-following camera. A building flipping there
+  // is under opaque tarmac (road.js paints the surface over this whole layer),
+  // and it only becomes visible once it is clear of the barrier — by which
+  // point its lean has settled and is correct for the side it is on.
+  //
+  // The DRAWN span, not buildingFootprint: the lean throws the roof clear of
+  // the ground the footprint measures, and it is the roof that would show.
+  let reach = 0;
+  for (let v = 0; v < BUILDING_VARIANTS; v++) {
+    for (const lean of [true, false]) {
+      const span = buildingDrawSpan(v, lean);
+      reach = Math.max(reach, span.left, span.right);
+    }
+  }
+  const flipToRoadCentre = (1 - CAMERA_FOLLOW) * ROAD_AMPLITUDE;
+  assert.ok(
+    flipToRoadCentre + reach <= ROAD_HALF_WIDTH,
+    `a building flipping its lean reaches ${(flipToRoadCentre + reach).toFixed(1)}px from the ` +
+      `road centre, past the ${ROAD_HALF_WIDTH}px of tarmac meant to hide it`,
+  );
+});
+
 test("the baked registration ticks land on real intersections, not just where isAvenueCol/isCrossStreetRow say so", () => {
   // scenery.js's tileIntersections() is what floorGridTile() actually bakes
   // ticks from, in TILE-LOCAL coordinates; crossStreetBands()/avenueCenters()
@@ -571,7 +606,14 @@ test("the baked registration ticks land on real intersections, not just where is
       for (let fDist = 0; fDist < ARTERIAL_PERIOD * 3; fDist += 131) {
         const phase = gridPhase(fDist, playerY);
         const destY = phase - ARTERIAL_PERIOD;
-        const centers = avenueCenters(W);
+        // THE TILE'S OWN WIDTH, not the screen's. floorGridTile builds one
+        // spare AVENUE_PERIOD past the screen so the blit can be panned to any
+        // x phase (drawFloorGrid), exactly as the spare ARTERIAL_PERIOD of
+        // height lets it be panned in y — so the ticks it bakes run that wide
+        // too, and the expectation has to be drawn over the same span or the
+        // spare period reads as ticks nobody painted.
+        const TILE_W = W + AVENUE_PERIOD;
+        const centers = avenueCenters(TILE_W);
 
         // A band that is only PARTIALLY on screen (its top clipped above the
         // canvas, or spilling past the bottom) can still have its own MID —
@@ -590,7 +632,7 @@ test("the baked registration ticks land on real intersections, not just where is
 
         const tileHeight = H + ARTERIAL_PERIOD;
         const actual = new Set();
-        for (const { x, y } of tileIntersections(W, tileHeight)) {
+        for (const { x, y } of tileIntersections(TILE_W, tileHeight)) {
           const screenY = y + destY;
           if (screenY < 0 || screenY >= H) continue;
           actual.add(`${x}|${screenY}`);

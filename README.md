@@ -233,6 +233,44 @@ the scroll — or rounding per-layer — resamples both caches, softens the neon
 shears the traffic against the road. Do **not** round the simulation's
 `distance`: the odometer and the score's distance term read the real float.
 
+**The camera also has a horizontal half.** `road.js`'s `cameraX` cancels
+`CAMERA_FOLLOW` (`tuning.js`, at **1**) of the road's sideways wander, so the
+centre-line sits at the middle of the screen and the car's screen x shows what
+the player steered rather than where the road happens to be. Dropping the knob
+to 0 restores the original fixed camera exactly, and needs nothing else changed.
+
+**One split makes it cheap, and it is worth knowing before touching either
+plane.** `centerXAt` returns **world** x, and that is the space everything
+SIMULATES in — a car's `offset`, the player's steering and its clamp to the
+barriers, a bullet's conversion back and forth, which side of the road a floor
+node is on. The camera is subtracted only where something is DRAWN, so no spawn,
+collision or steering code knows it exists and none can drift out of step with a
+value it never reads. `cameraX` itself is a pure function of the same rounded
+`camY` every layer already receives, so nothing is threaded through and two
+layers cannot disagree about where the frame is pointed.
+
+**The two planes apply it differently, on purpose.** The road plane subtracts it
+at each draw site, joining arithmetic that was already converting an offset into
+a position. The city floor is drawn as one plane, so `main.js` pans it with a
+single `translate` and every layer on it — grid, buildings, nodes, floor
+traffic, conduits, pings, markers — draws in floor-world x knowing nothing. What
+a translate cannot do is handed down as `floorCamX`: which window of the city to
+walk (`citygrid.js`'s `plotColumnRange`/`lotColumnRange`, now signed and
+unbounded), where the grid tile's periodic origin falls, and which way a
+building leans. The floor pans at the **full** rate, not `FLOOR_PARALLAX` — see
+`scenery.js`'s `FLOOR_CAMERA_PARALLAX` for why halving it slides the elevated
+road across the city it stands on. The sky band gets its own rate
+(`drones.js`'s `cameraX`), which is what keeps it stratified between the two.
+
+**What the pan costs.** Nothing per frame: the road's strips and the floor's
+grid tile hold world x and are blitted at an offset, so a bend rebuilds neither.
+The floor tile carries one spare `AVENUE_PERIOD` of width the way it always
+carried a spare `ARTERIAL_PERIOD` of height (64% more tile pixels, built once).
+What it does constrain is `ROAD_AMPLITUDE`: the pan and the road's own offset
+stack, so past **75** the ribbon clips against the strip it was painted into and
+tiles have to be built wider than the screen. `road.js`'s `render()` derives
+that ceiling and a test holds it. See `road.js`'s coordinate-model header.
+
 Current cost is **under 1ms/frame** at 600×800 with a full screen of traffic,
 against 16.7ms, and **flat in object count** — entities are effectively free and
 the remaining budget is governed by screen area. Nothing is left above the noise
