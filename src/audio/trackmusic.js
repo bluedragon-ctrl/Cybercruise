@@ -252,7 +252,7 @@ const buffers = new Map(); // name -> decoded AudioBuffer; normally just the tra
 const encoded = new Map(); // name -> the stream-ahead track's raw compressed bytes, waiting to be decoded at the handoff. A few MB against the tens of MB the same track costs decoded, which is the entire reason this cache exists separately from `buffers`
 const decoding = new Map(); // name -> in-flight decode Promise, so a background stream-ahead and a same-track request from handleTrackEnded share one fetch instead of racing two
 const prefetching = new Map(); // name -> in-flight byte fetch Promise; decodeAndCache() joins one of these rather than starting a second download of a track already on its way in
-const failedTracks = new Set(); // names that have failed to decode at least once this run — nextPlayableIndex() routes around these so a permanently corrupt file isn't re-fetched every time the playlist wraps back to it
+const failedTracks = new Set(); // names whose BYTES failed to decode at least once this run — nextPlayableIndex() routes around these so a permanently corrupt file isn't re-fetched every time the playlist wraps back to it. Deliberately NOT populated by a fetch failure (see decodeAndCache()'s own comment) — over a real CDN a fetch can fail transiently for reasons that have nothing to do with the file
 
 let trackGainNode = null; // this backend's OWN trim (musictypes.js's TRACK_GAIN/overrides) — feeds context.js's getMusicBus(), same as proceduralmusic.js's voices do directly
 let currentSource = null; // the currently-playing AudioBufferSourceNode — playIndex()'s own 'ended' handler compares against this to spot a stale event from a superseded source
@@ -411,12 +411,27 @@ async function decodeAtTrackRate(ctx, bytes) {
   return await decoder.decodeAudioData(bytes);
 }
 
-// Decodes `name` and caches the result, or records it in `failedTracks` —
-// never throws. Dedupes against an in-flight decode of the SAME name (the
-// background stream-ahead and handleTrackEnded's own "make sure the next
-// buffer is ready" check can both ask for the same track close together;
-// this makes the second ask join the first fetch instead of starting a
-// second one).
+// Decodes `name` and caches the result, or records a DECODE failure in
+// `failedTracks` — never throws. Dedupes against an in-flight decode of the
+// SAME name (the background stream-ahead and handleTrackEnded's own "make
+// sure the next buffer is ready" check can both ask for the same track close
+// together; this makes the second ask join the first fetch instead of
+// starting a second one).
+//
+// A FETCH failure (this function's own network request, not the decode) is
+// deliberately NOT recorded in `failedTracks` — it just returns, leaving
+// nothing cached, exactly like prefetch()'s own failures above. The two used
+// to share one catch block, and that conflation was a live bug: a track name
+// only means "corrupt, never try again" if `decodeAudioData` itself rejected
+// bytes actually in hand. Over `npm run serve` (loopback) the fetch below
+// essentially never fails, so this distinction was invisible in development —
+// but GitHub Pages serves over the real internet, where a fetch failing
+// during a handoff is a normal transient blip, not proof the file is bad.
+// Blacklisting on that basis could permanently silence a track (or, if a
+// short outage spanned an entire handoff's walk through the playlist, EVERY
+// track) for the rest of the run over a hiccup that had already cleared up
+// half a second later. See handleTrackEnded()'s own retry for the other half
+// of this fix.
 function decodeAndCache(name) {
   if (buffers.has(name)) return Promise.resolve();
   const inFlight = decoding.get(name);
@@ -439,20 +454,26 @@ function decodeAndCache(name) {
     if (arrayBuffer) {
       encoded.delete(name);
     } else {
-      const res = await fetch(trackUrl(name));
-      if (!res.ok) throw new Error(`fetch ${name} failed: ${res.status}`);
-      arrayBuffer = await res.arrayBuffer();
+      try {
+        const res = await fetch(trackUrl(name));
+        if (!res.ok) return; // transient — see this function's own header
+        arrayBuffer = await res.arrayBuffer();
+      } catch {
+        return; // network failure — same as above
+      }
     }
 
-    buffers.set(name, await decodeAtTrackRate(ctx, arrayBuffer));
-  })()
-    .catch(() => {
-      // A failed decode is SKIPPED, not fatal — see the module header and
+    try {
+      buffers.set(name, await decodeAtTrackRate(ctx, arrayBuffer));
+    } catch {
+      // A failed DECODE is SKIPPED, not fatal — see the module header and
       // handleTrackEnded()/nextPlayableIndex() below, which route around any
-      // name in `failedTracks`.
+      // name in `failedTracks`. Unlike the fetch failure above, this is
+      // recorded: the bytes were in hand and decodeAudioData still rejected
+      // them, so retrying later would just fail again the same way.
       failedTracks.add(name);
-    })
-    .finally(() => decoding.delete(name));
+    }
+  })().finally(() => decoding.delete(name));
 
   decoding.set(name, attempt);
   return attempt;
@@ -543,17 +564,38 @@ async function firstPlayableFrom(fromIndex) {
   return null;
 }
 
-// Called from the just-finished source's own 'onended'. If literally every
-// remaining track has failed, this simply stops — an edge case past what
-// the design brief asks for (a whole directory of corrupt files), not one
-// synth.js falls back to procedural for mid-run (see its own header on why
-// backend swaps never happen after start() once something has audibly
-// played — unlike attemptStart()'s own exhaustion path below, which fires
-// BEFORE anything has played and is handled differently for exactly that
-// reason).
+// How long to wait before giving a stalled handoff a second try — see
+// handleTrackEnded()'s own comment. Long enough that a retry storm can't spin
+// (this only ever fires once per failed handoff, not on a timer loop), short
+// enough that a genuine network blip clearing up doesn't leave the game
+// silent for long.
+const TRACK_RETRY_DELAY_MS = 3000;
+
+// Called from the just-finished source's own 'onended'. `firstPlayableFrom`
+// returning null here no longer means "every track in the directory is
+// corrupt" the way it used to — decodeAndCache() (see its own header) now
+// only ever poisons `failedTracks` on an actual decode failure, never on a
+// fetch failure, so this candidate-less outcome is far more likely to be a
+// network blip that happened to span this ENTIRE handoff's walk through the
+// playlist than a directory of bad files. That's worth one retry rather than
+// silence for the rest of the run: nothing else will ever call this again
+// once no source is left playing to eventually fire another 'onended'.
+//
+// The retry is skipped only once every track really has failed to decode
+// (failedTracks covers the whole order) — at that point trying again on a
+// timer would just repeat the same empty walk forever for no gain; that is
+// the genuine edge case past what the design brief asks for (a whole
+// directory of corrupt files), and synth.js never falls back to procedural
+// for it mid-run (see its own header on why backend swaps never happen after
+// start() once something has audibly played — unlike attemptStart()'s own
+// exhaustion path below, which fires BEFORE anything has played and is
+// handled differently for exactly that reason).
 async function handleTrackEnded() {
   const candidate = await firstPlayableFrom(nextIndex(order, index));
-  if (candidate === null) return;
+  if (candidate === null) {
+    if (failedTracks.size < order.length) setTimeout(handleTrackEnded, TRACK_RETRY_DELAY_MS);
+    return;
+  }
   playIndex(candidate, 0);
 }
 
