@@ -112,9 +112,10 @@ salvage husk is still written: it is seen by nobody else, and a fake one is
 useful for testing the salvage path.
 
 **`src/testoptions.js` is the switch.** Clearing `SHOW_TEST_OPTIONS` stops
-`main.js` consuming F1 at all, takes the menu footer that advertises the panel
-with it, and restores every catalogue figure the override maps below were
-holding. That file also holds the panel's step sizes and
+`main.js` consuming F1 at all and restores every catalogue figure the override
+maps below were holding. Nothing on the menu names the panel any more — that
+footer line is the soundtrack's Suno credit now (`MUSIC_CREDIT` in
+`game/menu.js`). That file also holds the panel's step sizes and
 `EVENT_AT_OVERRIDES`/`EVENT_GATE_OVERRIDES` — still worth having next to the
 warp, since they reach an *encounter* without moving the world's clock, which is
 a different test from finding the same encounter by warping to its distance.
