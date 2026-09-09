@@ -23,8 +23,8 @@
 // screen behind an F1 reveal and a click-only rule, both of which existed only
 // because a cheat sharing a screen with SOUND and MUSIC could be armed by a
 // stray Down. They are game/testpanel.js's own screen now, so this file is back
-// to three rows and a plain wrap; the only trace left is the footer, which still
-// warns that the build has a dev panel in it.
+// to three rows and a plain wrap, and says nothing about the panel at all — the
+// footer that used to warn that the build had one is the music credit now.
 //
 // "gameover" is a THIRD context for this same screen, alongside "start" and
 // "pause" — main.js opens it once game/disconnect.js's sequence finishes, and
@@ -39,7 +39,9 @@ import { glowText, vectorText, segmentMeter } from "../engine/neon.js";
 import { textWidth } from "../engine/vectorfont.js";
 import { GREEN, GREEN_DIM, GREEN_PALE, GREEN_BRIGHT, PLAYER } from "../engine/palette.js";
 import { LOGICAL_H } from "../engine/viewport.js";
-import { SHOW_TEST_OPTIONS } from "../testoptions.js";
+
+// Attribution for the assets/music/ soundtrack, generated with Suno.
+const MUSIC_CREDIT = "MUSIC CREATED WITH SUNO — SUNO.COM";
 
 const SOUND_DEFAULT = 0.5;
 const MUSIC_DEFAULT = 0.2;
@@ -380,14 +382,16 @@ export function createMenu() {
     }
 
 
-    // The footer doubles as the warning that this build has cheats in it, and
-    // is the ONE thing this screen still says about them — clearing
-    // SHOW_TEST_OPTIONS takes both the line and the panel it names
-    // (game/testpanel.js) with it.
-    const footer = SHOW_TEST_OPTIONS
-      ? "TEST BUILD — F1 FOR THE DEV PANEL"
-      : "MORE OPTIONS COMING SOON";
-    glowText(hudCtx, footer, W / 2, H - 40, GREEN_DIM, 12, "center", 6);
+    // THE FOOTER SLOT NOW CARRIES THE MUSIC CREDIT AND NOTHING ELSE. It used
+    // to hold a "TEST BUILD — F1 FOR THE DEV PANEL" line (and "MORE OPTIONS
+    // COMING SOON" when SHOW_TEST_OPTIONS was off) — the one thing this screen
+    // said about the cheats. The panel is unchanged and F1 still opens it; it
+    // is simply no longer advertised here.
+    //
+    // The credit is what Suno's terms require for music generated there — a
+    // licence condition rather than a nicety, so it is drawn in all three
+    // modes and whatever SHOW_TEST_OPTIONS says.
+    glowText(hudCtx, MUSIC_CREDIT, W / 2, H - 40, GREEN_DIM, 12, "center", 6);
   }
 
   // Read-only peek at the MUSIC volume for main.js to hand to the audio

@@ -63,3 +63,11 @@ The one cost is staleness: a track that's in this directory but not in
 `tracks.json` will never play. `test/audio.test.js` compares the two, so
 forgetting `npm run music` fails the test suite rather than quietly shipping
 a missing track.
+
+## Attribution
+
+The tracks here were generated with Suno, whose terms require the service be
+credited wherever the music is used. The game's start/pause/game-over screen
+carries that credit as its last line — `MUSIC_CREDIT` in
+`src/game/menu.js`. If the soundtrack is ever replaced with music from
+somewhere else, that line goes with it.
