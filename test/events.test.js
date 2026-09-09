@@ -163,9 +163,9 @@ test("a rolled entry stages nothing the road has not unlocked yet", () => {
   // ambient road can produce one is not the failure this guards against — it is
   // the entire point of a set-piece, and both of the ones in the catalogue now
   // do it deliberately: the boss is a `staged` type the spawner may never roll
-  // at all, and the rival encounter at 900 is what guarantees the first meeting
-  // five hundred units before the road starts producing them on its own. A
-  // rolled entry doing the same thing would be an accident, because it recurs.
+  // at all, and the rival encounter at 850 is what guarantees the first meeting
+  // five hundred fifty units before the road starts producing them on its own.
+  // A rolled entry doing the same thing would be an accident, because it recurs.
   //
   // The separate rule that keeps that from becoming a back door is below.
   for (const type of EVENT_TYPES) {
@@ -961,7 +961,7 @@ test("the rival turns up once, before the road can produce one of its own", () =
   // IT NOW ARRIVES EARLY ON PURPOSE. This used to assert that the encounter sat
   // on exactly the car's own `minDistance`; the two have been split, and the
   // split is the point. The rival is being tuned up into a proper mini-boss, so
-  // the scripted meeting comes first (900) and the ambient road only starts
+  // the scripted meeting comes first (850) and the ambient road only starts
   // producing them much later (1400) — otherwise a second one could turn up
   // while the first fight was still running and the encounter would read as
   // weather rather than as an event.
@@ -1028,20 +1028,45 @@ test("the rival turns up once, before the road can produce one of its own", () =
 // own EVENT_GAP, which is not exported). Stated here as a floor rather than
 // imported, so a test needing elbow room asks for MORE than the real gap and
 // stays right if that number is lowered.
-const EVENT_GAP_GUARD = 30;
+//
+// RAISED FROM 30. 25 (EVENT_GAP) alone is not the real number a candidate lap
+// needs clear of a one-shot's own end: when that end IS a due shop lap (a
+// deferred visit spent the instant the road clears — exactly the shape a
+// tight catalogue produces), the visit itself briefly holds `live` before the
+// test's stub handler reports it done, EVENT_GAP starts only then, and the
+// director's own roll only ever lands on a BEAT (8) after that. Measured
+// against the shipping catalogue: a shop lap landing exactly on the boss's own
+// end left the next roll opportunity 34 units later, not 25 — this test's own
+// fixed forcing window (`due - 38` to `due - 20`) missed it by 4. 60 clears
+// that with real margin rather than the minimum that happened to work once.
+const EVENT_GAP_GUARD = 60;
 
 function quietShopLap(from = 1) {
-  const oneShots = EVENT_TYPES.filter((t) => t.at !== undefined);
+  // CHAINED, NOT INDEPENDENT. Two one-shots close enough together defer the
+  // second — the same `!live` gate events.js checks for real — so a window
+  // built from each entry's own `at` alone can call a lap "quiet" when the
+  // entry ahead of it is still running late. Nothing in the shipping
+  // catalogue currently overlaps this way, but the chain is cheap to get
+  // right once and expensive to silently get wrong the day two set-pieces
+  // are moved close enough to.
+  const oneShots = [...EVENT_TYPES]
+    .filter((t) => t.at !== undefined)
+    .sort((a, b) => a.at - b.at);
+  let busyUntil = -Infinity;
+  const windows = oneShots.map((t) => {
+    const start = Math.max(t.at, busyUntil);
+    busyUntil = start + (t.duration ?? 0);
+    return [start, busyUntil];
+  });
+
   for (let lap = from; lap < 40; lap++) {
     const at = SHOP_INTERVAL * lap;
-    // The SHADOW of a set-piece is its duration PLUS the director's gap: for a
+    // The SHADOW of a set-piece is its window PLUS the director's gap: for a
     // few dozen units after one ends, no roll may fire at all. A test that
     // needs to force a rolled encounter next to this lap has to clear both, or
     // it fails with "expected a rolled encounter to be live" for a reason that
     // has nothing to do with what it is testing.
-    const clash = oneShots.some(
-      (t) => at >= t.at && at <= t.at + (t.duration ?? 0) + EVENT_GAP_GUARD,
-    );
+    const clash = windows.some(([start, end]) => at >= start && at <= end + EVENT_GAP_GUARD);
     if (!clash) return lap;
   }
   throw new Error("no shop milestone is clear of a set-piece");
@@ -1160,7 +1185,7 @@ test("the shop interval is still hauler.js's number", () => {
 // measuring. Which laps are affected depends on two numbers that both move for
 // reasons of their own: hauler.js's SHOP_INTERVAL, and where the one-shot
 // set-pieces sit. At an interval of 350, lap 2 lands on exactly 700, which is
-// `warband`'s trigger; the boss at 1200 carries a 300-unit duration that will
+// `warband`'s trigger; the boss at 1000 carries a 350-unit duration that will
 // swallow whichever lap falls inside it.
 //
 // So rather than hard-code a lap and re-pick it every time the catalogue grows,
