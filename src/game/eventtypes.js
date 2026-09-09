@@ -239,7 +239,7 @@ export const EVENT_TYPES = [
     // encounter that teaches what a tetra costs is the one that then asks the
     // player to thread four of them.
     //
-    // It now lands well after the siege battery's own 1200 rather than
+    // It now lands well after the siege battery's own 1000 rather than
     // against it — the boss holds the director for its whole duration and this
     // is rolled, so in practice the player meets the fight first and the
     // chicane once the road is theirs again either way.
@@ -407,7 +407,7 @@ export const EVENT_TYPES = [
     // encounter with a different shape — three hundred units later, its own
     // hull, its own weapon — and folding it in here would have cost the run its
     // one EARLY set-piece. Two entries, and the escalation between them is the
-    // point: heavy contact at 500, a rival at 900, a battery at 1200.
+    // point: heavy contact at 500, a rival at 850, a battery at 1000.
     id: "warband",
     label: "HEAVY CONTACT AHEAD",
     // MOVED IN FROM 700 to sit exactly ON the bruiser's own gate (cartypes.js),
@@ -434,20 +434,28 @@ export const EVENT_TYPES = [
       // abandoned and the milestone is not spent — it fires on the next beat
       // instead. An escort with nothing to escort is not the event.
       { kind: "cars", type: "bruiser", count: 1, side: "ahead", spread: 0, atomic: true },
-      { kind: "cars", type: "interceptor", count: 2, side: "ahead", spread: 300 },
+      // TRIMMED FROM 2. Sustained rocket fire from a car that never
+      // disengages for the whole 90-unit fight is real, ongoing dps on top of
+      // the bruiser's ram — two of them made this the hardest-hitting thing
+      // the player had met by DIST 500, on a stock loadout with at most one
+      // shop stop behind them. One keeps the frontal block's texture (the
+      // player still meets a ram AND a gun that refuses to move) without
+      // doubling the ranged half of it. `spread` drops with the second car —
+      // nothing left to space out.
+      { kind: "cars", type: "interceptor", count: 1, side: "ahead", spread: 0 },
       // THE BIKE WING, and it is what turns this from a heavy roadblock into a
-      // warband. The three cars above are all slow, wide and frontal — the
-      // player meets them by driving into them — so on their own the encounter
-      // has one texture and one direction. Four outriders in the mirror give it
+      // warband. The two cars above are slow, wide and frontal — the player
+      // meets them by driving into them — so on their own the encounter has
+      // one texture and one direction. Four outriders in the mirror give it
       // the other: the fastest, flimsiest thing in the catalogue, weaving across
       // the player's line (behaviours.js's `strafe`) while the heavy metal ahead
       // refuses to move out of the way.
       //
       // BEHIND, because that is the only side with room. A formation staged
       // ahead has to fit in the 140 units between the spawn and retire margins
-      // (planStage), and the bruiser and its two interceptors have already
-      // spent most of it; four more cars up there would simply be refused. It
-      // is also where these belong — `gang` stages the same bike from the same
+      // (planStage), and the bruiser and its interceptor have already spent
+      // most of it; four more cars up there would simply be refused. It is
+      // also where these belong — `gang` stages the same bike from the same
       // side at the same spacing, and `strafe` opens by closing from the rear.
       { kind: "cars", type: "outrider", count: 4, side: "behind", spread: 240 },
     ],
@@ -517,25 +525,33 @@ export const EVENT_TYPES = [
     // does, three hundred units after the road has learned to fear it.
     id: "rival",
     label: "RIVAL INBOUND — REAR",
-    // MOVED TO 900, AND IT NO LONGER MATCHES THE RIVAL'S OWN GATE. It used to
+    // MOVED TO 850, AND IT NO LONGER MATCHES THE RIVAL'S OWN GATE. It used to
     // be written as "the moment the road unlocks it is the moment it arrives",
     // which was true and is now deliberately false: the ambient gate has been
     // pushed out to 1400 (cartypes.js) so that meeting a rival stays an event
     // rather than becoming weather, and this encounter is what guarantees the
-    // FIRST one — five hundred units before the road can produce a second.
+    // FIRST one — five hundred fifty units before the road can produce a
+    // second.
+    //
+    // WINDOW TIGHTENED TO 850-950 (duration 100, down from 120), so it clears
+    // the road with room to spare before the boss's own 1000: the two used to
+    // sit close enough that the boss's real start slipped from 1000 to ~1020,
+    // waiting for this encounter's own tail to clear — the SIEGE BATTERY's own
+    // WHY note has the arithmetic. Fifty units of dead air between the two
+    // fixed points is deliberate, not a rounding accident.
     //
     // A MILESTONE MAY INTRODUCE A TYPE THE ROAD HAS NOT UNLOCKED. That is the
     // whole point of a one-shot set-piece and it is what the boss already does
     // (cartypes.js's `staged`). The invariant that rolled entries may not do it
     // still stands and is still checked — see test/events.test.js.
-    at: 900,
+    at: 850,
     once: true,
     cooldown: 0,
-    // LONG, because this one is meant to take a while. 400 hull at the
+    // STILL MEANT TO TAKE A WHILE, even trimmed from 120: 400 hull at the
     // player's own top speed is not a fight that resolves in a few seconds,
     // and an encounter that timed out while the rival was still healthy would
     // just quietly hand the road back mid-duel.
-    duration: 120,
+    duration: 100,
     // AHEAD — CHANGED FROM BEHIND, and the old reasoning was sound when it was
     // written. It ran: the rival is faster than the player, traffic.js's spawner
     // puts anything faster behind, and a fast car placed ahead simply vanishes
@@ -634,7 +650,7 @@ export const EVENT_TYPES = [
     // note: "falls back... for good"), so nothing here times out by the
     // hostiles giving up; only the player killing them, or outlasting three
     // separate `duel` mine-drops long enough for the clock to run out, ends
-    // it. 200 is comfortably past the single rival encounter's own 120 without
+    // it. 200 is comfortably past the single rival encounter's own 100 without
     // pretending the fight is exactly three times as long — a duelist chased
     // down is chased down whether or not two more are also in the mirror.
     duration: 200,
@@ -826,13 +842,28 @@ export const EVENT_TYPES = [
     // paths this catalogue was already shipping before there was a boss to use
     // them on.
     //
-    // WHY 1200. Past the rival's 1000 by two hundred, so the mini-boss is
-    // genuinely the warm-up and the player meets the real thing having already
-    // learned that a single named car can be a fight. It also lands on the
-    // caltrop's own gate, which is why `hazards: 0` below is doing real work:
-    // this is the exact stretch where mines start appearing on the ambient
-    // road, and a boss fight is not where the player should meet their first
-    // one.
+    // WHY 1000. Past the rival's own window (850-950, its own entry has the
+    // arithmetic) by fifty units of clear road, so the mini-boss is genuinely
+    // the warm-up and the player meets the real thing having already learned
+    // that a single named car can be a fight — and this milestone actually
+    // fires at 1000, not some tens of units later waiting on the rival's own
+    // encounter to clear.
+    //
+    // ON THE FIRST SECTOR CROSSING, the same relation the three bosses after
+    // it hold with theirs: sectors.js's SECTOR_PERIOD lands a city colour
+    // change roughly every 1000 distance (its own header: "~1003 on the
+    // odometer"), and all four bosses sit on that round number rather than the
+    // fractional one, same as the city's own comment prefers "approximately
+    // 1000" to a number nobody would remember. A boss opening the city's new
+    // colour is a landmark meeting a landmark instead of two things the
+    // player has to notice separately.
+    //
+    // NO LONGER ON THE CALTROP'S OWN GATE (1200, obstacletypes.js) — moving
+    // 200 earlier gives that up. `hazards: 0` below still does its job for
+    // the reason every other boss gives (empty tarmac for a barrage to read
+    // against); it no longer also happens to be the exact stretch mines start
+    // appearing on the ambient road, which is a coincidence lost, not a rule
+    // broken.
     //
     // See src/testoptions.js's EVENT_AT_OVERRIDES for pulling this forward
     // while testing. The number here is the SHIPPING one and stays that way —
@@ -841,10 +872,10 @@ export const EVENT_TYPES = [
     // test/events.test.js keeps checking the road that actually ships.
     id: "siege",
     label: "SIEGE BATTERY — ROAD AHEAD",
-    at: 1200,
+    at: 1000,
     once: true,
     cooldown: 0,
-    // FAR LONGER THAN THE RIVAL'S 120, and it is a backstop rather than a plan.
+    // FAR LONGER THAN THE RIVAL'S 100, and it is a backstop rather than a plan.
     // `duration` is ROAD, not time (see the field docs above), so 300 units is
     // about forty-eight seconds at the player's ceiling and a great deal more
     // at a crawl. Killing the battery ends the encounter sooner than the clock
@@ -945,13 +976,17 @@ export const EVENT_TYPES = [
     // (see that record for what makes it a different fight rather than a
     // reskin: it shoots back, and it lays mines while it does).
     //
-    // WHY 2000. Past the siege battery's own 1200 by eight hundred — roughly
-    // two more shop visits (hauler.js's SHOP_INTERVAL) of upgrades — and past
-    // `chokepoint`'s own 2000 gate, which is a ROLLED entry and therefore not
-    // a fixed point on the road the way this is: the two can fall in either
-    // order for a given run, but this milestone always fires the first time
-    // the odometer crosses 2000, same as `chokepoint` becoming eligible to be
-    // rolled from that point on.
+    // WHY 2000. Past the siege battery's own 1000 by a full thousand —
+    // roughly three more shop visits (hauler.js's SHOP_INTERVAL) of upgrades
+    // — and past `chokepoint`'s own 2000 gate, which is a ROLLED entry and
+    // therefore not a fixed point on the road the way this is: the two can
+    // fall in either order for a given run, but this milestone always fires
+    // the first time the odometer crosses 2000, same as `chokepoint` becoming
+    // eligible to be rolled from that point on.
+    //
+    // ALSO A SECTOR CROSSING, same reason `siege`'s own WHY names for 1000:
+    // every round thousand here is standing in for the nearest city-colour
+    // change (sectors.js), and this is the second one.
     //
     // See src/testoptions.js's EVENT_AT_OVERRIDES for pulling this forward
     // while testing. The number here is the SHIPPING one and stays that way,
@@ -1021,7 +1056,8 @@ export const EVENT_TYPES = [
     // more shop visits (hauler.js SHOP_INTERVAL 350) of upgrades, which is
     // the gap this boss's own cartypes.js entry prices its hull against — and
     // past `triad`'s own 2500 gate, a ROLLED entry and therefore not a fixed
-    // point on the road the way this is.
+    // point on the road the way this is. The third sector crossing too, same
+    // reason `siege`'s own WHY gives for 1000.
     //
     // See src/testoptions.js's EVENT_AT_OVERRIDES for pulling this forward
     // while testing. The number here is the SHIPPING one and stays that way,
@@ -1075,7 +1111,9 @@ export const EVENT_TYPES = [
     // same size step the barge took past the bunker's 2000 — roughly
     // another three shop visits (hauler.js SHOP_INTERVAL 350) of upgrades,
     // which is the gap this boss's own cartypes.js entry prices its hull
-    // against.
+    // against. The fourth sector crossing too, same reason `siege`'s own WHY
+    // gives for 1000 — the run's four bosses and its first four city colours
+    // land together, in order, by construction rather than by coincidence.
     //
     // See src/testoptions.js's EVENT_AT_OVERRIDES for pulling this forward
     // while testing. The number here is the SHIPPING one and stays that
